@@ -19,14 +19,19 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.ThemeMode
+import com.rbmr.taigasleep.ui.screens.AboutScreen
 import com.rbmr.taigasleep.ui.screens.HistoryScreen
 import com.rbmr.taigasleep.ui.screens.HomeScreen
 import com.rbmr.taigasleep.ui.screens.SettingsScreen
@@ -54,6 +59,7 @@ fun TaigaApp(
   val pagerState = rememberPagerState(initialPage = 1, pageCount = { tabs.size })
   val snackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
+  var showAbout by rememberSaveable { mutableStateOf(false) }
   val comingSoon: () -> Unit = {
     scope.launch {
       snackbarHostState.currentSnackbarData?.dismiss()
@@ -62,35 +68,41 @@ fun TaigaApp(
     Unit
   }
 
-  CompositionLocalProvider(LocalComingSoon provides comingSoon) {
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
-          NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-            tabs.forEachIndexed { index, tab ->
-              NavigationBarItem(
-                  selected = pagerState.currentPage == index,
-                  onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
-                  icon = { Icon(tab.icon, contentDescription = stringResource(tab.labelRes)) },
-                  label = { Text(stringResource(tab.labelRes)) },
-              )
+  if (showAbout) {
+    AboutScreen(onBack = { showAbout = false })
+  } else {
+    CompositionLocalProvider(LocalComingSoon provides comingSoon) {
+      Scaffold(
+          containerColor = MaterialTheme.colorScheme.background,
+          contentWindowInsets = WindowInsets(0, 0, 0, 0),
+          snackbarHost = { SnackbarHost(snackbarHostState) },
+          bottomBar = {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+              tabs.forEachIndexed { index, tab ->
+                NavigationBarItem(
+                    selected = pagerState.currentPage == index,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
+                    icon = { Icon(tab.icon, contentDescription = stringResource(tab.labelRes)) },
+                    label = { Text(stringResource(tab.labelRes)) },
+                )
+              }
             }
+          },
+      ) { padding ->
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.padding(padding).fillMaxSize(),
+        ) { page ->
+          when (page) {
+            0 -> HistoryScreen()
+            1 -> HomeScreen()
+            2 ->
+                SettingsScreen(
+                    themeMode = themeMode,
+                    onThemeModeChange = onThemeModeChange,
+                    onAboutClick = { showAbout = true },
+                )
           }
-        },
-    ) { padding ->
-      HorizontalPager(
-          state = pagerState,
-          modifier = Modifier.padding(padding).fillMaxSize(),
-      ) { page ->
-        when (page) {
-          0 -> HistoryScreen()
-          1 -> HomeScreen()
-          2 -> SettingsScreen(
-              themeMode = themeMode,
-              onThemeModeChange = onThemeModeChange,
-          )
         }
       }
     }
