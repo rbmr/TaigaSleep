@@ -39,4 +39,18 @@
   <string name="appearance_done">Done</string>
   <string name="settings_about_title">About</string>
   <string name="settings_about_body">Taiga Sleep 0.1.0</string>
+
+  <string name="about_title">About</string>
+  <string name="about_back">Back</string>
+  <string name="about_version">Version %1$s (%2$d)</string>
+  <string name="about_description">An open-source sleep tracker for Polar heart-rate sensors. Taiga records overnight data locally on your phone and can upload it to a self-hosted analysis service for sleep staging and history.</string>
+  <string name="about_source_title">Source code</string>
+  <string name="about_source_subtitle">github.com/rbmr/TaigaSleep</string>
+  <string name="about_license_title">License</string>
+  <string name="about_license_subtitle">GPL-3.0</string>
+  <string name="about_privacy_title">Privacy</string>
+  <string name="about_privacy_body">Recordings stay on your phone unless you configure a remote and upload them. There is no analytics or tracking in the app.</string>
+  <string name="about_built_title">Built with</string>
+  <string name="about_built_body">Kotlin, Jetpack Compose and the Polar BLE SDK. Sleep staging uses wav2sleep (MIT) and SleepECG (BSD-3-Clause).</string>
+  <string name="about_disclaimer">Taiga Sleep is not a medical device.</string>
 </resources>

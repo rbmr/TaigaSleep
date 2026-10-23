@@ -40,6 +40,7 @@ import com.rbmr.taigasleep.ui.components.SettingsRow
 fun SettingsScreen(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    onAboutClick: () -> Unit,
 ) {
   val comingSoon = LocalComingSoon.current
   var showAppearance by remember { mutableStateOf(false) }
@@ -94,7 +95,7 @@ fun SettingsScreen(
           icon = Icons.Outlined.Info,
           title = stringResource(R.string.settings_about_title),
           subtitle = stringResource(R.string.settings_about_body),
-          onClick = comingSoon,
+          onClick = onAboutClick,
       )
     }
   }
