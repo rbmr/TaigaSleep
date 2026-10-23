@@ -19,13 +19,14 @@ viewing processed results.
 
 ## Build
 
-Once the Android scaffold is in place:
-
 ```bash
 ./gradlew :app:assembleDebug
 ```
 
 The debug APK is written to `app/build/outputs/apk/debug/`.
+
+The current app shell contains the three-tab navigation, theme, and placeholder
+screens. Recording, history sync, and the backend integration are next.
 
 ## Contributing
 
