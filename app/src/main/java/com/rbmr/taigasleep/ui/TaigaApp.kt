@@ -28,9 +28,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.ThemeMode
+import com.rbmr.taigasleep.guidance.FlowScreen
+import com.rbmr.taigasleep.guidance.GuidanceFlows
 import com.rbmr.taigasleep.ui.screens.AboutScreen
 import com.rbmr.taigasleep.ui.screens.HistoryScreen
 import com.rbmr.taigasleep.ui.screens.HomeScreen
@@ -59,7 +63,10 @@ fun TaigaApp(
   val pagerState = rememberPagerState(initialPage = 1, pageCount = { tabs.size })
   val snackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
+  val context = LocalContext.current
+  val guidanceStore = remember { GuidanceStore(context) }
   var showAbout by rememberSaveable { mutableStateOf(false) }
+  var showGuidance by rememberSaveable { mutableStateOf(false) }
   val comingSoon: () -> Unit = {
     scope.launch {
       snackbarHostState.currentSnackbarData?.dismiss()
@@ -68,7 +75,16 @@ fun TaigaApp(
     Unit
   }
 
-  if (showAbout) {
+  if (showGuidance) {
+    val preview = GuidanceFlows.previewOf(guidanceStore)
+    val match = remember(preview) { GuidanceFlows.currentMatch(preview) }
+    FlowScreen(
+        match = match,
+        store = guidanceStore,
+        preview = preview != null,
+        onClose = { showGuidance = false },
+    )
+  } else if (showAbout) {
     AboutScreen(onBack = { showAbout = false })
   } else {
     CompositionLocalProvider(LocalComingSoon provides comingSoon) {
@@ -101,6 +117,7 @@ fun TaigaApp(
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
                     onAboutClick = { showAbout = true },
+                    onGuidanceClick = { showGuidance = true },
                 )
           }
         }
