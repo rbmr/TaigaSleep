@@ -1,0 +1,88 @@
+<resources>
+  <!-- Flow chrome -->
+  <string name="g_flow_title">Preventing shutdown</string>
+  <string name="g_close">Close</string>
+  <string name="g_start">Let\'s start</string>
+  <string name="g_next">Next</string>
+  <string name="g_back">Back</string>
+  <string name="g_done">Done</string>
+  <string name="g_required">Required</string>
+  <string name="g_recommended">Recommended</string>
+  <string name="g_state_ok">OK</string>
+  <string name="g_state_not_yet">Not yet</string>
+
+  <!-- Intro -->
+  <string name="g_intro_body">Phones stop background apps to save battery. A sleep recording runs for hours with the screen off, so if the system stops Taiga at 3 am, that night is lost. A few minutes of setup makes this far less likely.</string>
+  <string name="g_flow_oneplus">OxygenOS / ColorOS</string>
+  <string name="g_flow_samsung">Samsung One UI</string>
+  <string name="g_flow_generic">Generic Android</string>
+  <string name="g_detected_auto">Detected automatically</string>
+  <string name="g_not_detected">Could not detect your OS. These are the generic Android steps.</string>
+  <string name="g_derived_note">Tested on OnePlus phones only.</string>
+  <string name="g_preview_note">Debug preview device</string>
+  <string name="g_not_my_os">Not my OS</string>
+  <string name="g_pick_os_title">Choose your OS</string>
+  <string name="g_i_have_done_this">I have done this</string>
+
+  <!-- Summary -->
+  <string name="g_verdict_ready">Ready to record</string>
+  <string name="g_verdict_not_ready">Not ready</string>
+
+  <!-- Helper buttons -->
+  <string name="g_helper_app_info">Open app info</string>
+  <string name="g_helper_exemption">Allow in background</string>
+
+  <!-- OnePlus -->
+  <string name="g_oneplus_background_title">Allow background activity</string>
+  <string name="g_oneplus_background_description">This is the main switch on OnePlus. In testing, Smart mode and Restrict stopped the recorder after about five minutes.</string>
+  <string name="g_oneplus_background_g1">Tap Open app info below, then Battery usage.</string>
+  <string name="g_oneplus_background_g2">Under Power consumption control, choose Allow background activity and confirm the dialog.</string>
+  <string name="g_oneplus_background_g3">Do not choose Smart mode or Restrict background activity.</string>
+  <string name="g_oneplus_sleep_title">Turn off Sleep standby optimisation</string>
+  <string name="g_oneplus_sleep_description">This feature targets apps that run overnight. Taiga cannot read this setting.</string>
+  <string name="g_oneplus_sleep_g1">Open Settings, then Battery, then Power saving settings.</string>
+  <string name="g_oneplus_sleep_g2">Set Sleep standby optimisation to Off.</string>
+  <string name="g_oneplus_recents_description">Locking the card keeps the system from clearing Taiga when memory is low.</string>
+  <string name="g_oneplus_recents_g1">Open the recent apps screen and find Taiga Sleep.</string>
+  <string name="g_oneplus_recents_g2">Tap the menu on its card and choose Lock.</string>
+
+  <!-- Samsung -->
+  <string name="g_samsung_unrestricted_title">Set battery to Unrestricted</string>
+  <string name="g_samsung_unrestricted_description">Restricted stops the recorder within about a minute, without any message.</string>
+  <string name="g_samsung_unrestricted_g1">Tap Open app info below, then Battery.</string>
+  <string name="g_samsung_unrestricted_g2">Choose Unrestricted.</string>
+  <string name="g_samsung_unrestricted_g3">Do not choose Restricted.</string>
+  <string name="g_samsung_sleeping_title">Keep Taiga out of sleeping apps</string>
+  <string name="g_samsung_sleeping_description">Samsung can put rarely used apps to sleep. It made no difference in testing, but it is a cheap safety margin.</string>
+  <string name="g_samsung_sleeping_g1">Open Settings, then Battery, then Background usage limits.</string>
+  <string name="g_samsung_sleeping_g2">Make sure Taiga Sleep is not under Sleeping apps or Deep sleeping apps.</string>
+  <string name="g_samsung_sleeping_g3">Turn off Put unused apps to sleep.</string>
+  <string name="g_samsung_keep_open_title">Keep Taiga open in recent apps</string>
+  <string name="g_samsung_keep_open_description">Keeping the app open stops the system from clearing it when memory is low.</string>
+  <string name="g_samsung_keep_open_g1">Open the recent apps screen and tap the Taiga Sleep icon above its card.</string>
+  <string name="g_samsung_keep_open_g2">Choose Keep open.</string>
+
+  <!-- Generic -->
+  <string name="g_generic_exemption_title">Allow Taiga to run in the background</string>
+  <string name="g_generic_exemption_description">This removes Taiga from Android\'s battery optimisation, so the system does not pause it while the phone sleeps.</string>
+  <string name="g_generic_exemption_g1">Tap Allow in background below.</string>
+  <string name="g_generic_exemption_g2">If a popup asks to let the app always run in the background, choose Allow.</string>
+  <string name="g_generic_exemption_g3">If no popup appears, find Taiga Sleep in the list and choose Don\'t optimise or Unrestricted.</string>
+  <string name="g_generic_recents_description">Locking the app in recent apps keeps the system from clearing it when memory is low.</string>
+  <string name="g_generic_recents_g1">Open the recent apps screen and find Taiga Sleep.</string>
+  <string name="g_generic_recents_g2">Tap its icon or menu and choose Lock, Keep open or Pin. The name varies by phone.</string>
+
+  <!-- Shared -->
+  <string name="g_recents_title">Lock Taiga in recent apps</string>
+  <string name="g_charge_title">Charge the phone overnight</string>
+  <string name="g_charge_description">Phones are much less aggressive about stopping apps while charging. It is the cheapest extra protection you have.</string>
+  <string name="g_charge_g1">Plug in the phone before you go to sleep.</string>
+
+  <!-- Settings row status -->
+  <string name="g_settings_ready">Ready to record</string>
+  <string name="g_settings_needs_attention">Needs attention</string>
+
+  <!-- Debug preview -->
+  <string name="g_preview_title">Preview device guidance</string>
+  <string name="g_preview_real">This phone (real)</string>
+</resources>

@@ -1,7 +1,8 @@
 package com.rbmr.taigasleep.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -67,15 +68,17 @@ fun TaigaCard(
   }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsRow(
     icon: ImageVector,
     title: String,
     subtitle: String,
     onClick: () -> Unit = {},
+    onLongClick: (() -> Unit)? = null,
 ) {
   Card(
-      modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+      modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick),
       shape = RoundedCornerShape(20.dp),
       colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
       elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
