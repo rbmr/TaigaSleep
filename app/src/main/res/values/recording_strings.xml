@@ -1,0 +1,90 @@
+<resources>
+  <string name="rec_channel_name">Recording</string>
+  <string name="rec_notification_title">Recording your night</string>
+  <string name="rec_notification_starting">Starting…</string>
+  <string name="rec_notification_connected">%1$s connected</string>
+  <string name="rec_notification_reconnecting">%1$s lost, reconnecting</string>
+  <string name="rec_notification_disconnected">%1$s disconnected</string>
+
+  <string name="rec_error_not_ready">Recording was not started: the phone would stop Taiga in the background. Fix the background settings first.</string>
+  <string name="rec_error_no_sensor">Recording was not started: no sensor selected.</string>
+  <string name="rec_error_storage">Recording was not started: could not create the session on this phone.</string>
+
+  <string name="rec_connected_title">%1$s</string>
+  <string name="rec_battery">Battery %1$d%%</string>
+  <string name="rec_connection_connected">Connected</string>
+  <string name="rec_connection_connecting">Connecting…</string>
+  <string name="rec_connection_disconnected">Not connected</string>
+  <string name="rec_disconnect">Disconnect</string>
+  <string name="rec_select_sensor">Select sensor</string>
+  <string name="rec_sensor_none_title">No sensor connected</string>
+  <string name="rec_sensor_none_body">Select a Polar H10 to record heart rate, ECG and movement.</string>
+  <string name="rec_data_settings">Data to record</string>
+  <string name="rec_data_title">Data to record</string>
+  <string name="rec_done">Done</string>
+  <string name="rec_home_title_idle">Recordings</string>
+  <string name="rec_home_subtitle_idle">Start a new recording or view existing recordings.</string>
+  <string name="rec_home_title_active">Sleep well.</string>
+  <string name="rec_home_subtitle_active">Recording data from the sensor.</string>
+  <string name="rec_scan_debug">debug</string>
+
+  <string name="rec_scan_title">Select your sensor</string>
+  <string name="rec_scan_searching">Searching for Polar H10…</string>
+  <string name="rec_scan_none">No sensor found yet. Wear the strap so it wakes up, then scan again.</string>
+  <string name="rec_scan_again">Scan again</string>
+  <string name="rec_permission_denied">Bluetooth permission is needed to find and connect your sensor.</string>
+
+  <string name="rec_config_hr">Heart rate and beat intervals</string>
+  <string name="rec_config_hr_note">Always on</string>
+  <string name="rec_config_ecg">ECG (130 Hz)</string>
+  <string name="rec_config_acc">Movement (50 Hz)</string>
+
+  <string name="rec_ready_title">Ready for tonight</string>
+  <string name="rec_ready_body">Background settings look good.</string>
+  <string name="rec_blocked_title">Background settings need fixing</string>
+  <string name="rec_blocked_body">Without these the phone can stop the recording during the night.</string>
+  <string name="rec_blocked_battery">Allow Taiga to run in the background.</string>
+  <string name="rec_blocked_bucket">Battery use is limited. Set it to \"Allow background activity\" or \"Unrestricted\" in the app settings.</string>
+  <string name="rec_blocked_restricted">Background use is restricted. Remove the restriction in the app settings.</string>
+  <string name="rec_fix_battery">Allow background</string>
+  <string name="rec_fix_settings">Open app settings</string>
+
+  <string name="rec_start_need_sensor">Connect a sensor to start.</string>
+  <string name="rec_start_need_ready">Fix background settings to start</string>
+
+  <string name="rec_active_title">Recording</string>
+  <string name="rec_active_stopping">Stopping…</string>
+  <string name="rec_active_hr">Heart rate</string>
+  <string name="rec_active_hr_value">%1$d bpm</string>
+  <string name="rec_active_none">–</string>
+  <string name="rec_active_stream">%1$s · %2$.0f Hz</string>
+  <string name="rec_active_no_contact">No skin contact</string>
+  <string name="rec_active_stream_poor">%1$s · poor signal</string>
+  <string name="rec_active_stream_stalled">%1$s · no data for %2$s</string>
+  <string name="rec_active_stream_waiting">%1$s · waiting for data</string>
+  <string name="rec_active_ecg">ECG</string>
+  <string name="rec_active_acc">Movement</string>
+  <string name="rec_active_offline">This sensor stores data on itself. Only the connection is shown.</string>
+  <string name="rec_active_failure">Writing to the phone failed: %1$s</string>
+  <string name="rec_stop">Stop</string>
+  <string name="rec_force_stop">Force stop</string>
+  <string name="rec_force_stop_note">Force stop ends the recording right away, without waiting for the sensor. The data is kept.</string>
+  <string name="rec_discard">Discard</string>
+  <string name="rec_discard_note">Discard ends the recording and deletes everything recorded so far.</string>
+  <string name="rec_stop_title">Stop recording?</string>
+  <string name="rec_stop_body">The recording is finished and saved on this phone.</string>
+  <string name="rec_force_stop_title">Force stop?</string>
+  <string name="rec_discard_title">Discard this recording?</string>
+  <string name="rec_discard_body">All data recorded in this session will be deleted from the phone. This cannot be undone.</string>
+  <string name="rec_discard_confirm">Discard</string>
+  <string name="rec_cancel">Cancel</string>
+
+  <string name="rec_recent_title">Recent recordings</string>
+  <string name="rec_recent_empty">No recordings on this phone yet.</string>
+  <string name="rec_recent_row">%1$s · %2$s · %3$s</string>
+  <string name="rec_export">Export zip</string>
+  <string name="rec_state_recording">recording</string>
+  <string name="rec_state_stopped">stopped</string>
+  <string name="rec_state_forced_stop">force stopped</string>
+  <string name="rec_state_interrupted">interrupted</string>
+</resources>

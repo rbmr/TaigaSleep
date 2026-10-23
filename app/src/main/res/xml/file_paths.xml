@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+  <!-- Session zips are built here on demand and shared through the share sheet. -->
+  <cache-path name="export" path="export/" />
+</paths>

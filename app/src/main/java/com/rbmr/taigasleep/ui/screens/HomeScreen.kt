@@ -1,6 +1,13 @@
 package com.rbmr.taigasleep.ui.screens
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,36 +15,131 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Sensors
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.ui.LocalComingSoon
+import com.rbmr.taigasleep.recording.Exporter
+import com.rbmr.taigasleep.recording.Phase
+import com.rbmr.taigasleep.recording.ReadinessGate
+import com.rbmr.taigasleep.recording.RecordingPrefs
+import com.rbmr.taigasleep.recording.RecordingRepository
+import com.rbmr.taigasleep.recording.RecordingService
+import com.rbmr.taigasleep.recording.Readiness
+import com.rbmr.taigasleep.recording.RecordingStatus
+import com.rbmr.taigasleep.sensor.ConnectionState
+import com.rbmr.taigasleep.sensor.SensorHub
+import com.rbmr.taigasleep.sensor.SensorKind
+import com.rbmr.taigasleep.sensor.SleepSensor
+import com.rbmr.taigasleep.sensor.StreamConfig
+import com.rbmr.taigasleep.storage.SessionInfo
+import com.rbmr.taigasleep.storage.SessionState
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+private val bluetoothPermissions =
+    arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+
+private fun hasBluetooth(context: Context) =
+    bluetoothPermissions.all {
+      ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+    }
+
+private enum class StopAction {
+  STOP,
+  FORCE_STOP,
+  DISCARD,
+}
 
 @Composable
 fun HomeScreen() {
-  val comingSoon = LocalComingSoon.current
+  val context = LocalContext.current
+  val status by RecordingRepository.status.collectAsStateWithLifecycle()
+  val sensor by SensorHub.sensor.collectAsStateWithLifecycle()
+  val sessions by RecordingRepository.sessions.collectAsStateWithLifecycle()
+  val prefs = remember { RecordingPrefs.get(context) }
+
+  var readiness by remember { mutableStateOf(ReadinessGate.check(context)) }
+  var showScan by remember { mutableStateOf(false) }
+  var showData by remember { mutableStateOf(false) }
+  var confirm by remember { mutableStateOf<StopAction?>(null) }
+  var denied by remember { mutableStateOf(false) }
+
+  // On first show: mark sessions a dead process left behind, and reconnect the remembered sensor.
+  LaunchedEffect(Unit) {
+    RecordingRepository.reconcile(context)
+    SensorHub.restoreLast(context, canConnect = hasBluetooth(context))
+  }
+  // Keep the recent list's duration and size moving while a session is being recorded.
+  LaunchedEffect(status.phase) {
+    while (status.phase == Phase.RECORDING) {
+      delay(10_000)
+      RecordingRepository.refreshSessions(context)
+    }
+  }
+  // The user may have changed the battery settings in the system UI.
+  LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+    readiness = ReadinessGate.check(context)
+    RecordingRepository.refreshSessions(context)
+  }
+
+  val scanPermissions =
+      rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        denied = !hasBluetooth(context)
+        if (!denied) {
+          showScan = true
+          SensorHub.restoreLast(context, canConnect = true)
+        }
+      }
+  val notificationPermission =
+      rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        // The recording runs without the notification, so a refusal does not block the start.
+        startRecording(context, sensor, prefs)
+      }
+
   Box(
       modifier =
           Modifier.fillMaxSize()
@@ -52,85 +154,121 @@ fun HomeScreen() {
                   )
               )
   ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-      item {
-        ScreenHeader(
-            kicker = stringResource(R.string.home_kicker),
-            title = stringResource(R.string.home_title),
-            subtitle = stringResource(R.string.home_subtitle),
-        )
-      }
-
-      item {
-        TaigaCard {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier =
-                    Modifier.size(48.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-              Icon(
-                  imageVector = Icons.Outlined.Sensors,
-                  contentDescription = null,
-                  tint = MaterialTheme.colorScheme.onPrimaryContainer,
-              )
+    // Two separate stages: nothing from one is shown on the other.
+    if (status.phase == Phase.IDLE) {
+      InactiveHome(
+          sensor = sensor,
+          denied = denied,
+          readiness = readiness,
+          sessions = sessions.take(RECENT_COUNT),
+          error = status.error,
+          onSelectSensor = {
+            if (hasBluetooth(context)) showScan = true
+            else scanPermissions.launch(bluetoothPermissions)
+          },
+          onDisconnect = {
+            SensorHub.clear()
+            prefs.lastSensor = null
+          },
+          onDataSettings = { showData = true },
+          onFixBattery = { context.startActivity(ReadinessGate.batteryOptimizationIntent(context)) },
+          onFixSettings = { context.startActivity(ReadinessGate.appSettingsIntent(context)) },
+          onStart = {
+            val needsNotification =
+                Build.VERSION.SDK_INT >= 33 &&
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.POST_NOTIFICATIONS,
+                    ) != PackageManager.PERMISSION_GRANTED
+            if (needsNotification) {
+              notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+              startRecording(context, sensor, prefs)
             }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-              Text(
-                  text = stringResource(R.string.home_sensor_title),
-                  style = MaterialTheme.typography.titleLarge,
-              )
-              Text(
-                  text = stringResource(R.string.home_sensor_body),
-                  style = MaterialTheme.typography.bodyMedium,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-          }
-          Spacer(Modifier.height(16.dp))
-          Button(
-              onClick = comingSoon,
-              modifier = Modifier.fillMaxWidth(),
-              shape = RoundedCornerShape(16.dp),
-          ) {
-            Text(stringResource(R.string.home_connect))
-          }
-        }
-      }
+          },
+      )
+    } else {
+      ActiveHome(
+          status = status,
+          onStop = { confirm = StopAction.STOP },
+          onForceStop = { confirm = StopAction.FORCE_STOP },
+          onDiscard = { confirm = StopAction.DISCARD },
+      )
+    }
+  }
 
-      item {
-        TaigaCard {
-          Text(
-              text = stringResource(R.string.home_readiness_title),
-              style = MaterialTheme.typography.titleLarge,
+  if (showScan) ScanSheet(onDismiss = { showScan = false })
+  if (showData) sensor?.let { DataDialog(it, prefs, onDismiss = { showData = false }) }
+  confirm?.let { action ->
+    ConfirmDialog(
+        action = action,
+        onDismiss = { confirm = null },
+        onConfirm = {
+          confirm = null
+          RecordingService.send(
+              context,
+              when (action) {
+                StopAction.STOP -> RecordingService.ACTION_STOP
+                StopAction.FORCE_STOP -> RecordingService.ACTION_FORCE_STOP
+                StopAction.DISCARD -> RecordingService.ACTION_DISCARD
+              },
           )
-          Spacer(Modifier.height(8.dp))
+        },
+    )
+  }
+}
+
+/** Not recording: pick the sensor, check readiness, start, and browse the recent recordings. */
+@Composable
+private fun InactiveHome(
+    sensor: SleepSensor?,
+    denied: Boolean,
+    readiness: Readiness,
+    sessions: List<SessionInfo>,
+    error: String?,
+    onSelectSensor: () -> Unit,
+    onDisconnect: () -> Unit,
+    onDataSettings: () -> Unit,
+    onFixBattery: () -> Unit,
+    onFixSettings: () -> Unit,
+    onStart: () -> Unit,
+) {
+  val connected = sensor?.connection?.collectAsStateWithLifecycle()?.value
+  val canStart = connected == ConnectionState.CONNECTED && readiness.ok
+  LazyColumn(
+      modifier = Modifier.fillMaxSize().statusBarsPadding(),
+      contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
+      verticalArrangement = Arrangement.spacedBy(16.dp),
+  ) {
+    item {
+      ScreenHeader(
+          kicker = stringResource(R.string.home_kicker),
+          title = stringResource(R.string.rec_home_title_idle),
+          subtitle = stringResource(R.string.rec_home_subtitle_idle),
+      )
+    }
+    item {
+      SensorCard(
+          sensor = sensor,
+          denied = denied,
+          onSelect = onSelectSensor,
+          onDisconnect = onDisconnect,
+          onDataSettings = onDataSettings,
+      )
+    }
+    item { ReadinessCard(readiness = readiness, onBattery = onFixBattery, onSettings = onFixSettings) }
+    item {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        error?.let {
           Text(
-              text = stringResource(R.string.home_readiness_body),
+              text = it,
               style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              color = MaterialTheme.colorScheme.error,
           )
-          Spacer(Modifier.height(16.dp))
-          OutlinedButton(
-              onClick = comingSoon,
-              modifier = Modifier.fillMaxWidth(),
-              shape = RoundedCornerShape(16.dp),
-          ) {
-            Text(stringResource(R.string.home_readiness_action))
-          }
         }
-      }
-
-      item {
         Button(
-            onClick = comingSoon,
+            onClick = onStart,
+            enabled = canStart,
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = RoundedCornerShape(18.dp),
         ) {
@@ -139,15 +277,585 @@ fun HomeScreen() {
               style = MaterialTheme.typography.titleMedium,
           )
         }
+        if (!canStart) {
+          Text(
+              text =
+                  stringResource(
+                      if (connected != ConnectionState.CONNECTED) R.string.rec_start_need_sensor
+                      else R.string.rec_start_need_ready
+                  ),
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
       }
-
+    }
+    item {
+      Text(
+          text = stringResource(R.string.rec_recent_title),
+          style = MaterialTheme.typography.titleLarge,
+          modifier = Modifier.padding(top = 16.dp),
+      )
+    }
+    if (sessions.isEmpty()) {
       item {
         Text(
-            text = stringResource(R.string.home_local_note),
+            text = stringResource(R.string.rec_recent_empty),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
     }
+    items(sessions, key = { it.id }) { RecentRow(it) }
   }
 }
+
+/** Recording: the live numbers and the three ways to end it. Nothing else. */
+@Composable
+private fun ActiveHome(
+    status: RecordingStatus,
+    onStop: () -> Unit,
+    onForceStop: () -> Unit,
+    onDiscard: () -> Unit,
+) {
+  val stopping = status.phase == Phase.STOPPING
+  LazyColumn(
+      modifier = Modifier.fillMaxSize().statusBarsPadding(),
+      contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
+      verticalArrangement = Arrangement.spacedBy(16.dp),
+  ) {
+    item {
+      ScreenHeader(
+          kicker = stringResource(R.string.home_kicker),
+          title = stringResource(R.string.rec_home_title_active),
+          subtitle = stringResource(R.string.rec_home_subtitle_active),
+      )
+    }
+    item { ActiveCard(status) }
+    item {
+      Button(
+          onClick = onStop,
+          enabled = !stopping,
+          modifier = Modifier.fillMaxWidth().height(56.dp),
+          shape = RoundedCornerShape(18.dp),
+      ) {
+        Text(stringResource(R.string.rec_stop), style = MaterialTheme.typography.titleMedium)
+      }
+    }
+    item {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(
+            onClick = onForceStop,
+            enabled = !stopping,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+          Text(stringResource(R.string.rec_force_stop))
+        }
+        Note(R.string.rec_force_stop_note)
+      }
+    }
+    item {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(
+            onClick = onDiscard,
+            enabled = !stopping,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+        ) {
+          Text(stringResource(R.string.rec_discard))
+        }
+        Note(R.string.rec_discard_note)
+      }
+    }
+  }
+}
+
+@Composable
+private fun Note(res: Int) {
+  Text(
+      text = stringResource(res),
+      style = MaterialTheme.typography.bodyMedium,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+  )
+}
+
+@Composable
+private fun ConfirmDialog(action: StopAction, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+  val (title, body, label) =
+      when (action) {
+        StopAction.STOP ->
+            Triple(R.string.rec_stop_title, R.string.rec_stop_body, R.string.rec_stop)
+        StopAction.FORCE_STOP ->
+            Triple(R.string.rec_force_stop_title, R.string.rec_force_stop_note, R.string.rec_force_stop)
+        StopAction.DISCARD ->
+            Triple(R.string.rec_discard_title, R.string.rec_discard_body, R.string.rec_discard_confirm)
+      }
+  AlertDialog(
+      onDismissRequest = onDismiss,
+      title = { Text(stringResource(title)) },
+      text = { Text(stringResource(body)) },
+      confirmButton = {
+        TextButton(onClick = onConfirm) {
+          Text(
+              text = stringResource(label),
+              color =
+                  if (action == StopAction.DISCARD) MaterialTheme.colorScheme.error
+                  else MaterialTheme.colorScheme.primary,
+          )
+        }
+      },
+      dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.rec_cancel)) } },
+  )
+}
+
+/** Which data to record from this sensor; the gear icon on the sensor card opens it. */
+@Composable
+private fun DataDialog(sensor: SleepSensor, prefs: RecordingPrefs, onDismiss: () -> Unit) {
+  var ecg by remember(sensor.id) { mutableStateOf(prefs.ecgEnabled(sensor.id)) }
+  var acc by remember(sensor.id) { mutableStateOf(prefs.accEnabled(sensor.id)) }
+  AlertDialog(
+      onDismissRequest = onDismiss,
+      title = { Text(stringResource(R.string.rec_data_title)) },
+      text = {
+        Column {
+          ToggleRow(stringResource(R.string.rec_config_hr), checked = true, enabled = false) {}
+          Text(
+              text = stringResource(R.string.rec_config_hr_note),
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.padding(start = 48.dp, bottom = 8.dp),
+          )
+          if (sensor.capabilities.ecg) {
+            ToggleRow(stringResource(R.string.rec_config_ecg), ecg) {
+              ecg = it
+              prefs.setEcgEnabled(sensor.id, it)
+            }
+          }
+          if (sensor.capabilities.acc) {
+            ToggleRow(stringResource(R.string.rec_config_acc), acc) {
+              acc = it
+              prefs.setAccEnabled(sensor.id, it)
+            }
+          }
+        }
+      },
+      confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.rec_done)) } },
+  )
+}
+
+@Composable
+private fun SensorCard(
+    sensor: SleepSensor?,
+    denied: Boolean,
+    onSelect: () -> Unit,
+    onDisconnect: () -> Unit,
+    onDataSettings: () -> Unit,
+) {
+  TaigaCard {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Box(
+          modifier =
+              Modifier.size(48.dp)
+                  .clip(CircleShape)
+                  .background(MaterialTheme.colorScheme.primaryContainer),
+          contentAlignment = Alignment.Center,
+      ) {
+        Icon(
+            imageVector = Icons.Outlined.Sensors,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+      }
+      Spacer(Modifier.width(14.dp))
+      Column(Modifier.weight(1f)) {
+        if (sensor == null) {
+          Text(
+              text = stringResource(R.string.rec_sensor_none_title),
+              style = MaterialTheme.typography.titleLarge,
+          )
+          Text(
+              text = stringResource(R.string.rec_sensor_none_body),
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        } else {
+          val connection by sensor.connection.collectAsStateWithLifecycle()
+          val battery by sensor.battery.collectAsStateWithLifecycle()
+          Text(text = sensor.name, style = MaterialTheme.typography.titleLarge)
+          Text(
+              text = connectionText(connection),
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          battery?.let {
+            Text(
+                text = stringResource(R.string.rec_battery, it),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+        }
+      }
+      if (sensor != null && (sensor.capabilities.ecg || sensor.capabilities.acc)) {
+        IconButton(onClick = onDataSettings) {
+          Icon(
+              imageVector = Icons.Outlined.Settings,
+              contentDescription = stringResource(R.string.rec_data_settings),
+          )
+        }
+      }
+    }
+    if (denied) {
+      Spacer(Modifier.height(8.dp))
+      Text(
+          text = stringResource(R.string.rec_permission_denied),
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.error,
+      )
+    }
+    Spacer(Modifier.height(16.dp))
+    if (sensor == null) {
+      Button(
+          onClick = onSelect,
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(16.dp),
+      ) {
+        Text(stringResource(R.string.rec_select_sensor))
+      }
+    } else {
+      OutlinedButton(
+          onClick = onDisconnect,
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(16.dp),
+      ) {
+        Text(stringResource(R.string.rec_disconnect))
+      }
+    }
+  }
+}
+
+private const val RECENT_COUNT = 5
+
+// No sample for this long on a stream that has started means it stopped.
+private const val STALL_MS = 3_000L
+
+private fun startRecording(context: Context, sensor: SleepSensor?, prefs: RecordingPrefs) {
+  sensor ?: return
+  RecordingRepository.setIdle()
+  RecordingService.start(
+      context,
+      sensor,
+      StreamConfig(
+          ecg = sensor.capabilities.ecg && prefs.ecgEnabled(sensor.id),
+          acc = sensor.capabilities.acc && prefs.accEnabled(sensor.id),
+      ),
+  )
+}
+
+@Composable
+private fun connectionText(state: ConnectionState) =
+    stringResource(
+        when (state) {
+          ConnectionState.CONNECTED -> R.string.rec_connection_connected
+          ConnectionState.CONNECTING -> R.string.rec_connection_connecting
+          ConnectionState.DISCONNECTED -> R.string.rec_connection_disconnected
+        }
+    )
+
+@Composable
+private fun ToggleRow(label: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+  Row(
+      modifier = Modifier.fillMaxWidth().clickable(enabled = enabled) { onChange(!checked) },
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
+    Spacer(Modifier.width(8.dp))
+    Text(text = label, style = MaterialTheme.typography.bodyLarge)
+  }
+}
+
+@Composable
+private fun ReadinessCard(
+    readiness: Readiness,
+    onBattery: () -> Unit,
+    onSettings: () -> Unit,
+) {
+  TaigaCard {
+    if (readiness.ok) {
+      Text(
+          text = stringResource(R.string.rec_ready_title),
+          style = MaterialTheme.typography.titleLarge,
+      )
+      Spacer(Modifier.height(8.dp))
+      Text(
+          text = stringResource(R.string.rec_ready_body),
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+      return@TaigaCard
+    }
+    Text(
+        text = stringResource(R.string.rec_blocked_title),
+        style = MaterialTheme.typography.titleLarge,
+    )
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text = stringResource(R.string.rec_blocked_body),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    val problems = buildList {
+      if (!readiness.ignoringBatteryOptimizations) add(R.string.rec_blocked_battery)
+      if (!readiness.bucketExempted) add(R.string.rec_blocked_bucket)
+      if (readiness.backgroundRestricted) add(R.string.rec_blocked_restricted)
+    }
+    problems.forEach {
+      Spacer(Modifier.height(6.dp))
+      Text(text = "• " + stringResource(it), style = MaterialTheme.typography.bodyMedium)
+    }
+    Spacer(Modifier.height(16.dp))
+    if (!readiness.ignoringBatteryOptimizations) {
+      Button(
+          onClick = onBattery,
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(16.dp),
+      ) {
+        Text(stringResource(R.string.rec_fix_battery))
+      }
+      Spacer(Modifier.height(8.dp))
+    }
+    OutlinedButton(
+        onClick = onSettings,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+      Text(stringResource(R.string.rec_fix_settings))
+    }
+  }
+}
+
+@Composable
+private fun ActiveCard(status: RecordingStatus) {
+  val now by
+      produceState(System.currentTimeMillis()) {
+        while (true) {
+          value = System.currentTimeMillis()
+          delay(1000)
+        }
+      }
+  val live = status.live
+  TaigaCard {
+    Text(
+        text =
+            stringResource(
+                if (status.phase == Phase.STOPPING) R.string.rec_active_stopping
+                else R.string.rec_active_title
+            ),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+    )
+    Text(
+        text = formatElapsed(now - status.startUtcMs),
+        style = MaterialTheme.typography.displayLarge,
+    )
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text = "${status.sensorName.orEmpty()} · ${connectionText(live.connection)}",
+        style = MaterialTheme.typography.bodyLarge,
+    )
+    live.battery?.let {
+      Text(
+          text = stringResource(R.string.rec_battery, it),
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+    if (!status.liveStreaming) {
+      Spacer(Modifier.height(8.dp))
+      Text(
+          text = stringResource(R.string.rec_active_offline),
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+      return@TaigaCard
+    }
+    Spacer(Modifier.height(12.dp))
+    Text(
+        text = stringResource(R.string.rec_active_hr),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    // Without skin contact the strap's heart rate is noise, so do not show it as a measurement.
+    val noContact = live.contact == false
+    Text(
+        text =
+            if (noContact) stringResource(R.string.rec_active_no_contact)
+            else
+                live.hrBpm?.let { stringResource(R.string.rec_active_hr_value, it) }
+                    ?: stringResource(R.string.rec_active_none),
+        style = MaterialTheme.typography.headlineMedium,
+        color = if (noContact) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+    )
+    if (status.config?.ecg == true) {
+      StreamLine(R.string.rec_active_ecg, live.ecgRateHz, live.lastEcgAgeMs, poor = live.ecgPoor)
+    }
+    if (status.config?.acc == true) {
+      StreamLine(R.string.rec_active_acc, live.accRateHz, live.lastAccAgeMs)
+    }
+    live.writeFailure?.let {
+      Spacer(Modifier.height(8.dp))
+      Text(
+          text = stringResource(R.string.rec_active_failure, it),
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.error,
+      )
+    }
+  }
+}
+
+@Composable
+private fun StreamLine(label: Int, rateHz: Double, ageMs: Long?, poor: Boolean = false) {
+  val name = stringResource(label)
+  // The sensor delivers samples in batches about every half second, so the age of the last one
+  // jumps around between zero and the batch interval. Show the rate, and only call out a stall.
+  val stalled = ageMs != null && ageMs > STALL_MS
+  val problem = stalled || poor
+  Spacer(Modifier.height(6.dp))
+  Text(
+      text =
+          when {
+            ageMs == null -> stringResource(R.string.rec_active_stream_waiting, name)
+            stalled -> stringResource(R.string.rec_active_stream_stalled, name, formatAge(ageMs!!))
+            poor -> stringResource(R.string.rec_active_stream_poor, name)
+            // Rounded to 5 Hz: the batches make the exact figure flicker by a few Hz.
+            else -> stringResource(R.string.rec_active_stream, name, Math.round(rateHz / 5) * 5.0)
+          },
+      style = MaterialTheme.typography.bodyMedium,
+      color =
+          if (problem) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+      maxLines = 1,
+  )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScanSheet(onDismiss: () -> Unit) {
+  val context = LocalContext.current
+  val found by SensorHub.found.collectAsStateWithLifecycle()
+  val scanning by SensorHub.scanning.collectAsStateWithLifecycle()
+  LaunchedEffect(Unit) { SensorHub.startScan(context) }
+  ModalBottomSheet(
+      onDismissRequest = {
+        SensorHub.stopScan()
+        onDismiss()
+      }
+  ) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      Text(
+          text = stringResource(R.string.rec_scan_title),
+          style = MaterialTheme.typography.titleLarge,
+      )
+      Text(
+          text =
+              stringResource(
+                  if (scanning) R.string.rec_scan_searching
+                  else if (found.isEmpty()) R.string.rec_scan_none
+                  else R.string.rec_scan_title
+              ),
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+      found.forEach { s ->
+        Row(
+            modifier =
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable {
+                      SensorHub.select(context, s)
+                      onDismiss()
+                    }
+                    .padding(vertical = 12.dp, horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Icon(Icons.Outlined.Sensors, contentDescription = null)
+          Spacer(Modifier.width(12.dp))
+          Text(s.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+          Text(
+              text =
+                  if (s.kind == SensorKind.SIMULATED) stringResource(R.string.rec_scan_debug)
+                  else "${s.rssi} dBm",
+              style = MaterialTheme.typography.bodyMedium,
+          )
+        }
+      }
+      if (!scanning) {
+        OutlinedButton(
+            onClick = { SensorHub.startScan(context) },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+          Text(stringResource(R.string.rec_scan_again))
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun RecentRow(s: SessionInfo) {
+  val context = LocalContext.current
+  val scope = rememberCoroutineScope()
+  Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.weight(1f)) {
+      Text(formatStart(s.startUtcMs), style = MaterialTheme.typography.titleMedium)
+      Text(
+          text =
+              stringResource(
+                  R.string.rec_recent_row,
+                  stateText(s.state),
+                  formatElapsed(s.durationMs),
+                  formatSize(s.sizeBytes),
+              ),
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+    TextButton(
+        onClick = { scope.launch { Exporter.share(context, s.id) } },
+        enabled = s.state != SessionState.RECORDING,
+    ) {
+      Text(stringResource(R.string.rec_export))
+    }
+  }
+}
+
+@Composable
+private fun stateText(state: SessionState) =
+    stringResource(
+        when (state) {
+          SessionState.RECORDING -> R.string.rec_state_recording
+          SessionState.STOPPED -> R.string.rec_state_stopped
+          SessionState.FORCED_STOP -> R.string.rec_state_forced_stop
+          SessionState.INTERRUPTED -> R.string.rec_state_interrupted
+        }
+    )
+
+private fun formatElapsed(ms: Long): String {
+  val s = (ms / 1000).coerceAtLeast(0)
+  return "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60)
+}
+
+private fun formatAge(ms: Long): String =
+    if (ms < 1000) "$ms ms" else if (ms < 60_000) "${ms / 1000} s" else "${ms / 60_000} min"
+
+private fun formatSize(bytes: Long): String =
+    if (bytes < 1_000_000) "${bytes / 1000} kB" else "%.1f MB".format(bytes / 1_000_000.0)
+
+private fun formatStart(ms: Long): String =
+    java.text.SimpleDateFormat("EEE d MMM, HH:mm", java.util.Locale.getDefault())
+        .format(java.util.Date(ms))

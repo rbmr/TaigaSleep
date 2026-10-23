@@ -20,6 +20,8 @@ android {
     buildConfig = true
   }
 
+  testOptions { unitTests.isReturnDefaultValues = true }
+
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
@@ -39,7 +41,14 @@ dependencies {
   implementation(libs.androidx.compose.material3)
   implementation(libs.androidx.compose.material.icons.extended)
 
+  implementation(libs.polar.ble.sdk)
+  implementation(libs.rxjava)
+  implementation(libs.rxandroid)
+  implementation(libs.kotlinx.coroutines.android)
+
   debugImplementation(libs.androidx.compose.ui.tooling)
 
   testImplementation(libs.junit)
+  // The android.jar stub of org.json does nothing in JVM tests.
+  testImplementation(libs.org.json)
 }
