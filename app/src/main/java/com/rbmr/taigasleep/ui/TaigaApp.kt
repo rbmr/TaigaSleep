@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.ThemeMode
 import com.rbmr.taigasleep.ui.screens.HistoryScreen
 import com.rbmr.taigasleep.ui.screens.HomeScreen
 import com.rbmr.taigasleep.ui.screens.SettingsScreen
@@ -46,7 +47,10 @@ private val tabs =
     )
 
 @Composable
-fun TaigaApp() {
+fun TaigaApp(
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
+) {
   val pagerState = rememberPagerState(initialPage = 1, pageCount = { tabs.size })
   val snackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
@@ -83,7 +87,10 @@ fun TaigaApp() {
         when (page) {
           0 -> HistoryScreen()
           1 -> HomeScreen()
-          2 -> SettingsScreen()
+          2 -> SettingsScreen(
+              themeMode = themeMode,
+              onThemeModeChange = onThemeModeChange,
+          )
         }
       }
     }

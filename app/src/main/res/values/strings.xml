@@ -30,6 +30,13 @@
   <string name="settings_remote_body">Connect to your analysis server</string>
   <string name="settings_appearance_title">Appearance</string>
   <string name="settings_appearance_body">System, light or dark</string>
+  <string name="settings_appearance_body_system">Follow system</string>
+  <string name="settings_appearance_body_light">Light</string>
+  <string name="settings_appearance_body_dark">Dark</string>
+  <string name="appearance_system">Follow system</string>
+  <string name="appearance_light">Light</string>
+  <string name="appearance_dark">Dark</string>
+  <string name="appearance_done">Done</string>
   <string name="settings_about_title">About</string>
   <string name="settings_about_body">Taiga Sleep 0.1.0</string>
 </resources>
