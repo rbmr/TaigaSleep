@@ -15,25 +15,20 @@ import com.rbmr.taigasleep.storage.StreamId
 import java.io.File
 import java.io.IOException
 
-/** What the writer has actually put on disk, for the UI. Times are elapsed-realtime ns. */
-data class WriterStats(
-    val hrSamples: Long = 0,
-    val ecgSamples: Long = 0,
-    val accSamples: Long = 0,
-    val lastHrNs: Long = 0,
-    val lastEcgNs: Long = 0,
-    val lastAccNs: Long = 0,
-    val lastHrBpm: Int? = null,
-    val failure: String? = null,
-    // Null until the sensor says (or when it cannot tell): whether the strap touches the skin.
-    val contact: Boolean? = null,
-    // The ECG is mostly pinned at the sensor's limits, which is what a loose or dry strap looks like.
-    val ecgPoor: Boolean = false,
+/** Raw storage health, owned by the writer and read by the monitor. Times are elapsed-realtime ns. */
+data class StorageHealth(
+    val bytesWritten: Long = 0,
+    val lastError: String? = null,
+    /** When the last fsync succeeded, 0 before the first one. */
+    val lastSyncNs: Long = 0,
 )
 
 /**
- * Owns one session directory: meta.json, events.jsonl and the stream logs. Frames are written as
- * they arrive; [syncIfDue] fsyncs on a cadence. All methods are safe to call from any thread.
+ * Owns one session directory: meta.json, events.jsonl and the stream logs. It encodes and appends
+ * frames in the v1 format, fsyncs on a cadence and exposes [storageHealth]. It derives nothing:
+ * contact, rates, staleness and quality belong to [RecordingMonitor].
+ *
+ * All methods are safe to call from any thread.
  */
 class SessionWriter
 private constructor(
@@ -47,19 +42,10 @@ private constructor(
   private val logs = HashMap<Int, FrameLogWriter>()
   private var closed = false
   private var lastSyncMs = 0L
+  private var lastSyncNs = 0L
   private var errorEvents = 0
 
-  private var hrSamples = 0L
-  private var ecgSamples = 0L
-  private var accSamples = 0L
-  private var lastHrNs = 0L
-  private var lastEcgNs = 0L
-  private var lastAccNs = 0L
-  private var lastHrBpm: Int? = null
   private var failure: String? = null
-  private var contact: Boolean? = null
-  private var ecgPoor = false
-  private val clipHistory = ArrayDeque<Pair<Int, Int>>()
 
   private fun open(stream: Int, name: String) {
     logs[stream] = FrameLogWriter(File(dir, name), stream)
@@ -73,10 +59,11 @@ private constructor(
   }
 
   @Synchronized
-  fun stats() =
-      WriterStats(
-          hrSamples, ecgSamples, accSamples, lastHrNs, lastEcgNs, lastAccNs, lastHrBpm, failure,
-          contact, ecgPoor,
+  fun storageHealth() =
+      StorageHealth(
+          bytesWritten = logs.values.sumOf { it.bytes },
+          lastError = failure,
+          lastSyncNs = lastSyncNs,
       )
 
   @Synchronized
@@ -103,42 +90,12 @@ private constructor(
     val flags = Payloads.hrFlags(s.contactSupported, s.contact, s.rrAvailable)
     val enc = Payloads.encodeHr(stamp.phoneNs, stamp.elapsedNs, s.hr, flags, s.rrMs)
     if (enc.clamped > 0) errorEvent("hr values out of range clamped (${enc.clamped})")
-    append(StreamId.HR, enc.bytes) {
-      hrSamples++
-      lastHrNs = stamp.elapsedNs
-      lastHrBpm = s.hr
-    }
-    noteContact(if (s.contactSupported) s.contact else null)
-  }
-
-  // The strap keeps reporting a heart rate it makes up from noise when it loses the skin, so the
-  // contact flag is the only way to tell; log the changes where a debugger will look.
-  @Synchronized
-  private fun noteContact(now: Boolean?) {
-    if (now == null || now == contact) return
-    val before = contact
-    contact = now
-    if (before != null || !now) event("contact", if (now) "skin contact restored" else "no skin contact")
-  }
-
-  // Looks at the last few batches (about five seconds): a clipped ECG means no usable signal.
-  @Synchronized
-  private fun noteEcgQuality(voltages: IntArray) {
-    clipHistory.addLast(voltages.count { kotlin.math.abs(it) >= ECG_CLIP_UV } to voltages.size)
-    while (clipHistory.size > CLIP_BATCHES) clipHistory.removeFirst()
-    val total = clipHistory.sumOf { it.second }
-    val fraction = if (total == 0) 0.0 else clipHistory.sumOf { it.first }.toDouble() / total
-    val poor = if (ecgPoor) fraction >= CLIP_RECOVER else fraction >= CLIP_POOR
-    if (poor != ecgPoor) {
-      ecgPoor = poor
-      event("ecg_signal", if (poor) "poor signal (ECG pinned at its limits)" else "signal recovered")
-    }
+    append(StreamId.HR, enc.bytes)
   }
 
   @Synchronized
   fun writeEcg(stamp: Stamp, b: EcgBatch) {
     if (closed || b.timestampsNs.isEmpty()) return
-    noteEcgQuality(b.voltageUv)
     for (from in b.timestampsNs.indices step Payloads.MAX_BATCH) {
       val to = minOf(from + Payloads.MAX_BATCH, b.timestampsNs.size)
       val enc =
@@ -148,10 +105,7 @@ private constructor(
               b.timestampsNs.copyOfRange(from, to),
               b.voltageUv.copyOfRange(from, to),
           )
-      append(StreamId.ECG, enc.bytes) {
-        ecgSamples += to - from
-        lastEcgNs = stamp.elapsedNs
-      }
+      append(StreamId.ECG, enc.bytes)
     }
   }
 
@@ -168,18 +122,14 @@ private constructor(
               b.xyzMg.copyOfRange(from * 3, to * 3),
           )
       if (enc.clamped > 0) errorEvent("acc values outside i16 clamped (${enc.clamped})")
-      append(StreamId.ACC, enc.bytes) {
-        accSamples += to - from
-        lastAccNs = stamp.elapsedNs
-      }
+      append(StreamId.ACC, enc.bytes)
     }
   }
 
-  private inline fun append(stream: Int, payload: ByteArray, onWritten: () -> Unit) {
+  private fun append(stream: Int, payload: ByteArray) {
     val log = logs[stream] ?: return
     try {
       log.append(payload)
-      onWritten()
     } catch (e: IOException) {
       failure = e.message ?: "write failed"
       Log.e(TAG, "frame write failed", e)
@@ -198,6 +148,7 @@ private constructor(
   fun sync() {
     try {
       logs.values.forEach { it.sync() }
+      lastSyncNs = clock.elapsedNs()
     } catch (e: IOException) {
       failure = e.message ?: "sync failed"
     }
@@ -233,11 +184,6 @@ private constructor(
   }
 
   companion object {
-    // The H10 saturates at about +-18.4 mV when nothing is picking up a heartbeat.
-    private const val ECG_CLIP_UV = 18_000
-    private const val CLIP_BATCHES = 8
-    private const val CLIP_POOR = 0.25
-    private const val CLIP_RECOVER = 0.05
     private const val TAG = "SessionWriter"
     const val HR_LOG = "hr.log"
     const val ECG_LOG = "ecg.log"

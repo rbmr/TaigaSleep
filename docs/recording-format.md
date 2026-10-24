@@ -143,9 +143,16 @@ i16, log an `error` event and clamp.
 Types in use: `start`, `stop`, `force_stop`, `connect`, `disconnect`,
 `reconnect`, `service_restart`, `watchdog`, `error`, `clock_sync` (the strap's clock was
 set), `stream` (a stream delivered its first sample), `contact` (the strap lost or regained skin contact, from the HR flags),
-`ecg_signal` (the ECG was pinned at the sensor's limits, or recovered), `readiness` (a snapshot of
-the battery/standby settings at start and on every state change). Keep
-messages short and free of personal data.
+`ecg_signal` (the ECG was pinned at the sensor's limits, or recovered), `stream_stalled` (a
+stream stopped delivering without a disconnect), `stream_recovered` (a stalled stream came
+back), `battery` (the sensor battery crossed the low threshold), `storage_error` (a raw frame
+or fsync failed), `readiness` (a snapshot of the battery/standby settings at start and on
+every state change). Keep messages short and free of personal data.
+
+The service owns the lifecycle lines (`start`, `stop`, `force_stop`, `readiness`,
+`service_restart`); the live monitor owns `connect`, `disconnect`, `reconnect`, `contact`,
+`ecg_signal`, `stream_stalled`, `stream_recovered`, `battery` and `storage_error`. Contact,
+ECG quality, rates and staleness are derived only by the live monitor, never by the writer.
 
 ## Durability
 
