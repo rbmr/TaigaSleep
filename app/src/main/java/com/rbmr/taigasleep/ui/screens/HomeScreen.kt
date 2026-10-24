@@ -75,8 +75,17 @@ import com.rbmr.taigasleep.sensor.SleepSensor
 import com.rbmr.taigasleep.sensor.StreamConfig
 import com.rbmr.taigasleep.storage.SessionInfo
 import com.rbmr.taigasleep.storage.SessionState
+import com.rbmr.taigasleep.ui.components.ButtonSize
+import com.rbmr.taigasleep.ui.components.DestructiveButton
+import com.rbmr.taigasleep.ui.components.LogoVariant
+import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.ScreenHeader
+import com.rbmr.taigasleep.ui.components.SecondaryButton
+import com.rbmr.taigasleep.ui.components.StatusBanner
+import com.rbmr.taigasleep.ui.components.StatusKind
+import com.rbmr.taigasleep.ui.components.TaigaLogo
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -247,6 +256,7 @@ private fun InactiveHome(
           subtitle = stringResource(R.string.rec_home_subtitle_idle),
       )
     }
+    item { HomeLogo(if (readiness.ok) LogoVariant.Sleeping else LogoVariant.Awake, glow = false) }
     item {
       SensorCard(
           sensor = sensor,
@@ -266,17 +276,12 @@ private fun InactiveHome(
               color = MaterialTheme.colorScheme.error,
           )
         }
-        Button(
+        PrimaryButton(
+            text = stringResource(R.string.home_start),
             onClick = onStart,
             enabled = canStart,
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape = RoundedCornerShape(18.dp),
-        ) {
-          Text(
-              text = stringResource(R.string.home_start),
-              style = MaterialTheme.typography.titleMedium,
-          )
-        }
+            size = ButtonSize.Large,
+        )
         if (!canStart) {
           Text(
               text =
@@ -331,44 +336,58 @@ private fun ActiveHome(
           subtitle = stringResource(R.string.rec_home_subtitle_active),
       )
     }
+    item { HomeLogo(LogoVariant.Sleeping, glow = true) }
     item { ActiveCard(status) }
     item {
-      Button(
+      PrimaryButton(
+          text = stringResource(R.string.rec_stop),
           onClick = onStop,
           enabled = !stopping,
-          modifier = Modifier.fillMaxWidth().height(56.dp),
-          shape = RoundedCornerShape(18.dp),
-      ) {
-        Text(stringResource(R.string.rec_stop), style = MaterialTheme.typography.titleMedium)
-      }
+          size = ButtonSize.Large,
+      )
     }
     item {
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(
+        SecondaryButton(
+            text = stringResource(R.string.rec_force_stop),
             onClick = onForceStop,
             enabled = !stopping,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-        ) {
-          Text(stringResource(R.string.rec_force_stop))
-        }
+        )
         Note(R.string.rec_force_stop_note)
       }
     }
     item {
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(
+        DestructiveButton(
+            text = stringResource(R.string.rec_discard),
             onClick = onDiscard,
             enabled = !stopping,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-        ) {
-          Text(stringResource(R.string.rec_discard))
-        }
+        )
         Note(R.string.rec_discard_note)
       }
     }
+  }
+}
+
+/** The bear under the header: asleep when all is well, awake when something needs fixing. */
+@Composable
+private fun HomeLogo(variant: LogoVariant, glow: Boolean) {
+  Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+    TaigaLogo(
+        modifier = Modifier.width(if (glow) 170.dp else 190.dp),
+        variant = variant,
+        glow = glow,
+        contentDescription =
+            stringResource(
+                when {
+                  glow -> R.string.home_logo_recording
+                  variant == LogoVariant.Awake -> R.string.home_logo_awake
+                  else -> R.string.home_logo_sleeping
+                }
+            ),
+    )
   }
 }
 
@@ -517,21 +536,13 @@ private fun SensorCard(
     }
     Spacer(Modifier.height(16.dp))
     if (sensor == null) {
-      Button(
-          onClick = onSelect,
-          modifier = Modifier.fillMaxWidth(),
-          shape = RoundedCornerShape(16.dp),
-      ) {
-        Text(stringResource(R.string.rec_select_sensor))
-      }
+      PrimaryButton(text = stringResource(R.string.rec_select_sensor), onClick = onSelect)
     } else {
-      OutlinedButton(
+      SecondaryButton(
+          text = stringResource(R.string.rec_disconnect),
           onClick = onDisconnect,
           modifier = Modifier.fillMaxWidth(),
-          shape = RoundedCornerShape(16.dp),
-      ) {
-        Text(stringResource(R.string.rec_disconnect))
-      }
+      )
     }
   }
 }
@@ -582,58 +593,42 @@ private fun ReadinessCard(
     onBattery: () -> Unit,
     onSettings: () -> Unit,
 ) {
-  TaigaCard {
-    if (readiness.ok) {
-      Text(
-          text = stringResource(R.string.rec_ready_title),
-          style = MaterialTheme.typography.titleLarge,
-      )
-      Spacer(Modifier.height(8.dp))
-      Text(
-          text = stringResource(R.string.rec_ready_body),
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-      return@TaigaCard
-    }
-    Text(
-        text = stringResource(R.string.rec_blocked_title),
-        style = MaterialTheme.typography.titleLarge,
+  if (readiness.ok) {
+    StatusBanner(
+        kind = StatusKind.Ok,
+        title = stringResource(R.string.rec_ready_title),
+        body = stringResource(R.string.rec_ready_body),
     )
-    Spacer(Modifier.height(8.dp))
-    Text(
-        text = stringResource(R.string.rec_blocked_body),
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    val problems = buildList {
-      if (!readiness.ignoringBatteryOptimizations) add(R.string.rec_blocked_battery)
-      if (!readiness.bucketExempted) add(R.string.rec_blocked_bucket)
-      if (readiness.backgroundRestricted) add(R.string.rec_blocked_restricted)
-    }
-    problems.forEach {
-      Spacer(Modifier.height(6.dp))
-      Text(text = "• " + stringResource(it), style = MaterialTheme.typography.bodyMedium)
-    }
-    Spacer(Modifier.height(16.dp))
-    if (!readiness.ignoringBatteryOptimizations) {
-      Button(
-          onClick = onBattery,
-          modifier = Modifier.fillMaxWidth(),
-          shape = RoundedCornerShape(16.dp),
-      ) {
-        Text(stringResource(R.string.rec_fix_battery))
-      }
-      Spacer(Modifier.height(8.dp))
-    }
-    OutlinedButton(
-        onClick = onSettings,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-    ) {
-      Text(stringResource(R.string.rec_fix_settings))
-    }
+    return
   }
+  val problems = buildList {
+    if (!readiness.ignoringBatteryOptimizations) add(R.string.rec_blocked_battery)
+    if (!readiness.bucketExempted) add(R.string.rec_blocked_bucket)
+    if (readiness.backgroundRestricted) add(R.string.rec_blocked_restricted)
+  }
+  StatusBanner(
+      kind = StatusKind.Warn,
+      title = stringResource(R.string.rec_blocked_title),
+      body = stringResource(R.string.rec_blocked_body),
+      details = problems.map { stringResource(it) },
+      actions = {
+        if (!readiness.ignoringBatteryOptimizations) {
+          PrimaryButton(
+              text = stringResource(R.string.rec_fix_battery),
+              onClick = onBattery,
+              modifier = Modifier.weight(1f),
+              containerColor = MaterialTheme.taiga.warn,
+              contentColor = MaterialTheme.taiga.onWarn,
+          )
+        }
+        SecondaryButton(
+            text = stringResource(R.string.rec_fix_settings),
+            onClick = onSettings,
+            modifier = Modifier.weight(1f),
+            borderColor = MaterialTheme.taiga.warnBorder,
+        )
+      },
+  )
 }
 
 @Composable

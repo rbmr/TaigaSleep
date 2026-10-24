@@ -8,15 +8,11 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -35,6 +31,8 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.ThemeMode
 import com.rbmr.taigasleep.guidance.FlowScreen
 import com.rbmr.taigasleep.guidance.GuidanceFlows
+import com.rbmr.taigasleep.ui.components.BottomBarItem
+import com.rbmr.taigasleep.ui.components.TaigaBottomBar
 import com.rbmr.taigasleep.ui.screens.AboutScreen
 import com.rbmr.taigasleep.ui.screens.HistoryScreen
 import com.rbmr.taigasleep.ui.screens.HomeScreen
@@ -52,7 +50,7 @@ private val tabs =
     listOf(
         Tab(R.string.nav_history, Icons.Outlined.History),
         Tab(R.string.nav_home, Icons.Outlined.Home),
-        Tab(R.string.nav_settings, Icons.Outlined.Settings),
+        Tab(R.string.nav_settings, Icons.Outlined.Tune),
     )
 
 @Composable
@@ -93,16 +91,11 @@ fun TaigaApp(
           contentWindowInsets = WindowInsets(0, 0, 0, 0),
           snackbarHost = { SnackbarHost(snackbarHostState) },
           bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-              tabs.forEachIndexed { index, tab ->
-                NavigationBarItem(
-                    selected = pagerState.currentPage == index,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
-                    icon = { Icon(tab.icon, contentDescription = stringResource(tab.labelRes)) },
-                    label = { Text(stringResource(tab.labelRes)) },
-                )
-              }
-            }
+            TaigaBottomBar(
+                items = tabs.map { BottomBarItem(stringResource(it.labelRes), it.icon) },
+                selectedIndex = pagerState.currentPage,
+                onSelect = { scope.launch { pagerState.animateScrollToPage(it) } },
+            )
           },
       ) { padding ->
         HorizontalPager(

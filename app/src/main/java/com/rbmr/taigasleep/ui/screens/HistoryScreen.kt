@@ -4,8 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -21,14 +22,15 @@ import com.rbmr.taigasleep.ui.components.TaigaCard
 fun HistoryScreen() {
   LazyColumn(
       modifier = Modifier.fillMaxSize().statusBarsPadding(),
-      contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
-      verticalArrangement = Arrangement.spacedBy(16.dp),
+      contentPadding = PaddingValues(horizontal = 20.dp, vertical = 32.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
   ) {
     item {
       ScreenHeader(
           kicker = stringResource(R.string.history_kicker),
           title = stringResource(R.string.history_title),
           subtitle = stringResource(R.string.history_subtitle),
+          modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
       )
     }
 

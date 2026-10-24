@@ -1,0 +1,199 @@
+package com.rbmr.taigasleep.ui.components
+
+import android.content.res.Configuration
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import com.rbmr.taigasleep.ui.theme.TaigaTheme
+import com.rbmr.taigasleep.ui.theme.taiga
+
+enum class LogoVariant {
+  Sleeping,
+  Awake,
+}
+
+/**
+ * The bear in its den. The bear and its eyes are one even-odd shape, so the eyes are holes that
+ * show whatever is behind the logo.
+ */
+@Composable
+fun TaigaLogo(
+    modifier: Modifier = Modifier,
+    variant: LogoVariant = LogoVariant.Sleeping,
+    // Soft aurora light behind the den, used while a night is being recorded.
+    glow: Boolean = false,
+    contentDescription: String? = null,
+) {
+  val colors = MaterialTheme.taiga
+  val bear = if (variant == LogoVariant.Awake) colors.bearAwake else colors.bear
+  val body = if (variant == LogoVariant.Awake) awakeBearPath else sleepingBearPath
+  val aurora = listOf(colors.auroraStart, colors.auroraEnd)
+  val semantics =
+      if (contentDescription != null) {
+        Modifier.semantics { this.contentDescription = contentDescription }
+      } else {
+        Modifier
+      }
+
+  Canvas(modifier = modifier.aspectRatio(VIEW_WIDTH / VIEW_HEIGHT).then(semantics)) {
+    val unit = size.width / VIEW_WIDTH
+    if (glow) {
+      // An ellipse of light centred on the bear's resting place.
+      val center = Offset(size.width / 2, size.height * 0.9f)
+      scale(scaleX = 1f, scaleY = GLOW_FLATTENING, pivot = center) {
+        drawCircle(
+            brush =
+                Brush.radialGradient(
+                    colors = listOf(colors.auroraStart.copy(alpha = 0.22f), Color.Transparent),
+                    center = center,
+                    radius = size.width * 0.76f,
+                ),
+            radius = size.width * 0.76f,
+            center = center,
+        )
+      }
+    }
+    scale(scale = unit, pivot = Offset.Zero) {
+      // The gradient runs from the arch's bottom-left to its top-right corner.
+      drawPath(
+          path = archPath,
+          brush =
+              Brush.linearGradient(
+                  colors = aurora,
+                  start = Offset(ARCH_LEFT, ARCH_BOTTOM),
+                  end = Offset(ARCH_RIGHT, ARCH_TOP),
+              ),
+          style = Stroke(width = ARCH_STROKE, cap = StrokeCap.Round, join = StrokeJoin.Round),
+      )
+      drawPath(path = body, color = bear)
+    }
+  }
+}
+
+private const val VIEW_WIDTH = 208.32f
+private const val VIEW_HEIGHT = 124.32f
+private const val ARCH_STROKE = 10f
+private const val ARCH_LEFT = 16.16f
+private const val ARCH_RIGHT = 194.16f
+private const val ARCH_TOP = 16.16f
+private const val ARCH_BOTTOM = 108.16f
+// The glow box in the design is 260 x 150 against a 170-wide bear.
+private const val GLOW_FLATTENING = 150f / 260f
+
+private const val ARCH = "M16.16 108.16H28.5C57 -14.51 153.32 -14.51 181.82 108.16H194.16"
+
+private const val BEAR =
+    "M92.16 55.36L91.64 55.09L91.1 54.84L90.55 54.64L89.99 54.47L89.42 54.33L88.83 54.24" +
+    "L88.25 54.18L87.66 54.16L87.07 54.18L86.49 54.24L85.9 54.33L85.33 54.47L84.77 54.64" +
+    "L84.22 54.84L83.68 55.09L83.16 55.36L82.66 55.68L82.18 56.02L81.73 56.39L81.3 56.79" +
+    "L80.89 57.22L80.52 57.68L80.18 58.16L79.87 58.66L79.59 59.18L79.35 59.71L79.14 60.27" +
+    "L78.97 60.83L78.83 61.4L78.74 61.98L78.68 62.57L78.66 63.16L78.68 63.75L78.74 64.33" +
+    "L78.83 64.91L78.97 65.49L79.14 66.05L79.35 66.6L79.5 66.95L78.69 68.03L77.87 69.2" +
+    "L77.07 70.41L76.31 71.68L75.57 73L74.86 74.37L74.18 75.8L73.53 77.27L72.91 78.8L72.33 80.37" +
+    "L71.78 82.01L71.27 83.69L70.79 85.43L70.35 87.22L69.95 89.06L69.58 90.96L69.26 92.92" +
+    "L68.97 94.93L68.73 96.99L68.53 99.11L68.37 101.29L68.25 103.52L68.18 105.81L68.16 108.16" +
+    "L142.16 108.16L142.14 105.81L142.07 103.52L141.95 101.29L141.79 99.11L141.59 96.99" +
+    "L141.35 94.93L141.06 92.92L140.74 90.96L140.37 89.06L139.97 87.22L139.53 85.43L139.05 83.69" +
+    "L138.54 82.01L137.99 80.37L137.41 78.8L136.79 77.27L136.14 75.8L135.46 74.37L134.75 73" +
+    "L134.01 71.68L133.25 70.41L132.45 69.2L131.63 68.03L130.82 66.95L130.97 66.6L131.18 66.05" +
+    "L131.35 65.49L131.49 64.91L131.58 64.33L131.64 63.75L131.66 63.16L131.64 62.57L131.58 61.98" +
+    "L131.49 61.4L131.35 60.83L131.18 60.27L130.97 59.71L130.73 59.18L130.45 58.66L130.14 58.16" +
+    "L129.8 57.68L129.43 57.22L129.02 56.79L128.59 56.39L128.14 56.02L127.66 55.68L127.16 55.36" +
+    "L126.64 55.09L126.1 54.84L125.55 54.64L124.99 54.47L124.42 54.33L123.83 54.24L123.25 54.18" +
+    "L122.66 54.16L122.07 54.18L121.49 54.24L120.9 54.33L120.33 54.47L119.77 54.64L119.22 54.84" +
+    "L118.68 55.09L118.16 55.36L117.66 55.68L117.18 56.02L116.81 56.32L116.75 56.3L115.63 55.89" +
+    "L114.5 55.52L113.36 55.2L112.2 54.92L111.05 54.69L109.88 54.5L108.71 54.35L107.53 54.24" +
+    "L106.35 54.18L105.16 54.16L103.97 54.18L102.79 54.24L101.61 54.35L100.44 54.5L99.27 54.69" +
+    "L98.12 54.92L96.96 55.2L95.82 55.52L94.69 55.89L93.57 56.3L93.51 56.32L93.14 56.02" +
+    "L92.66 55.68Z"
+
+private const val CLOSED_EYES =
+    "M108.99 87.1L108.88 86.94L108.79 86.76L108.72 86.58L108.68 86.39L108.66 86.19L108.67 85.99" +
+    "L108.7 85.8L108.76 85.61L108.85 85.44L108.95 85.27L109.08 85.12L109.22 84.99L109.38 84.88" +
+    "L109.56 84.79L109.74 84.72L109.93 84.68L110.13 84.66L110.32 84.67L110.52 84.7L110.7 84.76" +
+    "L110.88 84.84L111.05 84.95L111.2 85.08L111.67 85.53L112.12 85.92L112.56 86.27L112.99 86.58" +
+    "L113.42 86.84L113.83 87.07L114.24 87.25L114.63 87.4L115.02 87.51L115.41 87.59L115.78 87.64" +
+    "L116.16 87.66L116.54 87.64L116.91 87.59L117.3 87.51L117.69 87.4L118.08 87.25L118.49 87.07" +
+    "L118.9 86.84L119.33 86.58L119.76 86.27L120.2 85.92L120.65 85.53L121.12 85.08L121.27 84.95" +
+    "L121.44 84.84L121.62 84.76L121.8 84.7L122 84.67L122.19 84.66L122.39 84.68L122.58 84.72" +
+    "L122.76 84.79L122.94 84.88L123.1 84.99L123.24 85.12L123.37 85.27L123.47 85.44L123.56 85.61" +
+    "L123.62 85.8L123.65 85.99L123.66 86.19L123.64 86.39L123.6 86.58L123.53 86.76L123.44 86.94" +
+    "L123.33 87.1L123.2 87.24L122.7 87.72L122.65 87.77L122.15 88.2L122.09 88.25L121.59 88.65" +
+    "L121.53 88.7L121.03 89.05L120.95 89.1L120.45 89.41L120.37 89.46L119.87 89.73L119.78 89.77" +
+    "L119.28 90L119.19 90.04L118.69 90.23L118.58 90.27L118.08 90.41L117.97 90.44L117.47 90.54" +
+    "L117.35 90.56L116.85 90.63L116.72 90.64L116.22 90.66L116.1 90.66L115.6 90.64L115.47 90.63" +
+    "L114.97 90.56L114.85 90.54L114.35 90.44L114.24 90.41L113.74 90.27L113.63 90.23L113.13 90.04" +
+    "L113.04 90L112.54 89.77L112.45 89.73L111.95 89.46L111.87 89.41L111.37 89.1L111.29 89.05" +
+    "L110.79 88.7L110.73 88.65L110.23 88.25L110.17 88.2L109.67 87.77L109.62 87.72L109.12 87.24Z" +
+    "M86.99 87.1L86.88 86.94L86.79 86.76L86.72 86.58L86.68 86.39L86.66 86.19L86.67 85.99" +
+    "L86.7 85.8L86.76 85.61L86.85 85.44L86.95 85.27L87.08 85.12L87.22 84.99L87.38 84.88" +
+    "L87.56 84.79L87.74 84.72L87.93 84.68L88.13 84.66L88.32 84.67L88.52 84.7L88.7 84.76" +
+    "L88.88 84.84L89.05 84.95L89.2 85.08L89.67 85.53L90.12 85.92L90.56 86.27L90.99 86.58" +
+    "L91.42 86.84L91.83 87.07L92.24 87.25L92.63 87.4L93.02 87.51L93.41 87.59L93.78 87.64" +
+    "L94.16 87.66L94.54 87.64L94.91 87.59L95.3 87.51L95.69 87.4L96.08 87.25L96.49 87.07" +
+    "L96.9 86.84L97.33 86.58L97.76 86.27L98.2 85.92L98.65 85.53L99.12 85.08L99.27 84.95" +
+    "L99.44 84.84L99.62 84.76L99.8 84.7L100 84.67L100.19 84.66L100.39 84.68L100.58 84.72" +
+    "L100.76 84.79L100.94 84.88L101.1 84.99L101.24 85.12L101.37 85.27L101.47 85.44L101.56 85.61" +
+    "L101.62 85.8L101.65 85.99L101.66 86.19L101.64 86.39L101.6 86.58L101.53 86.76L101.44 86.94" +
+    "L101.33 87.1L101.2 87.24L100.7 87.72L100.65 87.77L100.15 88.2L100.09 88.25L99.59 88.65" +
+    "L99.53 88.7L99.03 89.05L98.95 89.1L98.45 89.41L98.37 89.46L97.87 89.73L97.78 89.77L97.28 90" +
+    "L97.19 90.04L96.69 90.23L96.58 90.27L96.08 90.41L95.97 90.44L95.47 90.54L95.35 90.56" +
+    "L94.85 90.63L94.72 90.64L94.22 90.66L94.1 90.66L93.6 90.64L93.47 90.63L92.97 90.56" +
+    "L92.85 90.54L92.35 90.44L92.24 90.41L91.74 90.27L91.63 90.23L91.13 90.04L91.04 90" +
+    "L90.54 89.77L90.45 89.73L89.95 89.46L89.87 89.41L89.37 89.1L89.29 89.05L88.79 88.7" +
+    "L88.73 88.65L88.23 88.25L88.17 88.2L87.67 87.77L87.62 87.72L87.12 87.24Z"
+
+private val archPath = PathParser().parsePathString(ARCH).toPath()
+
+private val sleepingBearPath =
+    PathParser().parsePathString(BEAR + CLOSED_EYES).toPath().apply {
+      fillType = PathFillType.EvenOdd
+    }
+
+private val awakeBearPath =
+    Path().apply {
+      fillType = PathFillType.EvenOdd
+      addPath(PathParser().parsePathString(BEAR).toPath())
+      listOf(94.16f, 116.16f).forEach {
+        addOval(Rect(center = Offset(it, 87.7f), radius = 2.8f))
+      }
+    }
+
+@Preview(name = "Light", widthDp = 360, heightDp = 360)
+@Preview(name = "Dark", widthDp = 360, heightDp = 360, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun TaigaLogoPreview() {
+  TaigaTheme {
+    Column(
+        modifier =
+            Modifier.fillMaxWidth()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(24.dp)
+    ) {
+      TaigaLogo(modifier = Modifier.width(190.dp))
+      TaigaLogo(modifier = Modifier.width(190.dp), variant = LogoVariant.Awake)
+    }
+  }
+}
