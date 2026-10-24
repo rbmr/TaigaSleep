@@ -1,0 +1,14 @@
+# Local backend data, secrets and caches (relative to backend/)
+**/pb_data/
+**/pb_data-*/
+**/backups/
+**/.venv/
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.pytest_cache/
+**/.ruff_cache/
+.env
+deploy/.env
+/pocketbase/pocketbase
+/pocketbase/pocketbase.zip

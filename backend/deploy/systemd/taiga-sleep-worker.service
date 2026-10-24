@@ -1,0 +1,43 @@
+[Unit]
+Description=Taiga Sleep analysis worker
+Documentation=https://github.com/rbmr/TaigaSleep
+After=network-online.target taiga-sleep-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=taiga
+Group=taiga
+WorkingDirectory=/opt/taiga-sleep/worker
+Environment=TAIGA_API_URL=http://127.0.0.1:8090
+Environment=TAIGA_POLL_INTERVAL_S=15
+Environment=TAIGA_JOB_LEASE_S=1800
+Environment=TAIGA_JOB_MEMORY_MB=768
+Environment=TAIGA_JOB_TIMEOUT_S=3600
+Environment=OMP_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=NUMEXPR_NUM_THREADS=1
+Environment=VECLIB_MAXIMUM_THREADS=1
+Environment=BLIS_NUM_THREADS=1
+Environment=MALLOC_ARENA_MAX=2
+EnvironmentFile=-/etc/taiga-sleep/worker.env
+
+ExecStart=/opt/taiga-sleep/worker/.venv/bin/python -m taiga_worker
+Restart=on-failure
+RestartSec=10s
+# The analysis subprocess can take a long time; give it time to stop when the
+# job runner kills a leased job on shutdown.
+TimeoutStopSec=45s
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/taiga-sleep
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

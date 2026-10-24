@@ -1,0 +1,13 @@
+# Caddy example for exposing only the JSON API while keeping the PocketBase
+# dashboard private. Point TAIGA_DOMAIN at your DNS name.
+#
+# The dashboard remains available on the server itself:
+#   ssh -L 8090:127.0.0.1:8090 user@server
+#   then open http://127.0.0.1:8090/_/
+{$TAIGA_DOMAIN} {
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8090
+	}
+
+	respond 404
+}
