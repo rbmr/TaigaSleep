@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
@@ -35,7 +36,8 @@ import com.rbmr.taigasleep.ThemeMode
 import com.rbmr.taigasleep.guidance.GuidanceFlows
 import com.rbmr.taigasleep.guidance.PreviewDevice
 import com.rbmr.taigasleep.guidance.Progress
-import com.rbmr.taigasleep.ui.LocalComingSoon
+import com.rbmr.taigasleep.remote.RemoteRepository
+import com.rbmr.taigasleep.remote.RemoteStatus
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.SettingsGroup
@@ -48,9 +50,11 @@ fun SettingsScreen(
     onThemeModeChange: (ThemeMode) -> Unit,
     onAboutClick: () -> Unit,
     onGuidanceClick: () -> Unit,
+    onRemoteClick: () -> Unit,
 ) {
-  val comingSoon = LocalComingSoon.current
   val context = LocalContext.current
+  val remoteRepository = remember { RemoteRepository.of(context) }
+  val remoteStatus by remoteRepository.status.collectAsStateWithLifecycle()
   var showAppearance by remember { mutableStateOf(false) }
   var showPreviewPicker by remember { mutableStateOf(false) }
   val guidanceStore = remember { GuidanceStore(context) }
@@ -106,8 +110,19 @@ fun SettingsScreen(
       SettingsGroup(stringResource(R.string.settings_group_server)) {
         SettingsRow(
             title = stringResource(R.string.settings_remote_title),
-            subtitle = stringResource(R.string.settings_remote_body),
-            onClick = comingSoon,
+            subtitle =
+                when (val state = remoteStatus) {
+                  RemoteStatus.NotConfigured ->
+                      stringResource(R.string.remote_state_not_configured)
+                  is RemoteStatus.Connected ->
+                      stringResource(R.string.remote_state_connected, state.email)
+                  is RemoteStatus.LoginNeeded ->
+                      stringResource(R.string.remote_state_login_needed_short)
+                },
+            subtitleColor =
+                if (remoteStatus is RemoteStatus.Connected) MaterialTheme.taiga.ok
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            onClick = onRemoteClick,
         )
       }
     }

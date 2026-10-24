@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="remote_title">Remote</string>
+  <string name="remote_back">Back</string>
+  <string name="remote_kicker">ANALYSIS SERVER</string>
+  <string name="remote_intro">Taiga uploads recordings to your own server and shows the results here. Recording and history on this phone work without it.</string>
+
+  <string name="remote_state_not_configured">Not configured</string>
+  <string name="remote_state_connected_short">Connected</string>
+  <string name="remote_state_login_needed_short">Login needed</string>
+  <string name="remote_state_connected">Connected as %1$s</string>
+  <string name="remote_last_check">Last check: %1$s</string>
+  <string name="remote_last_check_never">Last check: never</string>
+
+  <string name="remote_group_address">Address</string>
+  <string name="remote_url_label">Server URL</string>
+  <string name="remote_url_placeholder">https://sleep.example.com</string>
+  <string name="remote_email_label">Email</string>
+  <string name="remote_password_label">Password</string>
+  <string name="remote_password_keep">Leave empty to use the current login.</string>
+  <string name="remote_show_password">Show password</string>
+  <string name="remote_hide_password">Hide password</string>
+
+  <string name="remote_address_ok">Server reachable</string>
+  <string name="remote_address_failed">Server not reachable</string>
+
+  <string name="remote_login">Log in</string>
+  <string name="remote_logging_in">Logging in…</string>
+  <string name="remote_login_success_title">Logged in</string>
+  <string name="remote_login_success_body">Taiga is connected as %1$s.</string>
+  <string name="remote_login_failed_title">Login failed</string>
+
+  <string name="remote_logout">Log out</string>
+  <string name="remote_logout_title">Log out of the remote?</string>
+  <string name="remote_logout_body">Taiga forgets the saved token on this phone only; it is not revoked on the server. Recordings stay on the phone and finish normally.</string>
+  <string name="remote_logout_confirm">Log out</string>
+  <string name="remote_cancel">Cancel</string>
+
+  <string name="remote_error_invalid_url">This server URL is not a valid URL. Use the full address, for example https://sleep.example.com.</string>
+  <string name="remote_error_unknown_host">The server address could not be found. Check the URL for spelling mistakes.</string>
+  <string name="remote_error_insecure_url">Plain HTTP is only allowed on a local or private network. Use HTTPS for any other address.</string>
+  <string name="remote_error_missing_credentials">Enter the email and password.</string>
+  <string name="remote_error_unreachable">Cannot reach the server. Check the address and that the server is running.</string>
+  <string name="remote_error_not_taiga">Something answered at that address, but it is not a Taiga Sleep server.</string>
+  <string name="remote_error_bad_credentials">The email or password is wrong.</string>
+  <string name="remote_error_session_expired">The login has expired. Enter your password to log in again.</string>
+  <string name="remote_error_http">The server answered with error %1$d.</string>
+  <string name="remote_error_malformed">The server sent an unexpected response.</string>
+
+  <string name="remote_http_warning_title">Plain HTTP</string>
+  <string name="remote_http_warning_body">This address is not encrypted. Only use it on a network you trust; the password and the token travel in clear text.</string>
+
+  <string name="remote_login_prompt">Remote login needed</string>
+  <string name="remote_login_prompt_action">Fix</string>
+</resources>
