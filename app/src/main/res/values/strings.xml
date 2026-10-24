@@ -24,7 +24,6 @@
   <string name="settings_prevent_title">Preventing shutdown</string>
   <string name="settings_prevent_body">Keep Taiga alive overnight</string>
   <string name="settings_remote_title">Remote</string>
-  <string name="settings_remote_body">Connect to your analysis server</string>
   <string name="settings_appearance_title">Appearance</string>
   <string name="settings_appearance_body">System, light or dark</string>
   <string name="settings_appearance_body_system">Follow system</string>

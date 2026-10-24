@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Plain HTTP is only offered for local or private addresses; RemoteUrl enforces that before any
+  request is made and the Remote screen shows a warning when it is used. Android itself has to
+  allow cleartext for those connections, which a per-domain rule cannot express for arbitrary
+  private IP addresses. HTTPS is still used everywhere else.
+-->
+<network-security-config>
+  <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

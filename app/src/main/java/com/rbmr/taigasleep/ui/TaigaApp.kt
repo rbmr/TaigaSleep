@@ -11,35 +11,38 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.ThemeMode
 import com.rbmr.taigasleep.guidance.FlowScreen
 import com.rbmr.taigasleep.guidance.GuidanceFlows
+import com.rbmr.taigasleep.remote.CheckResult
+import com.rbmr.taigasleep.remote.RemoteError
+import com.rbmr.taigasleep.remote.RemoteRepository
 import com.rbmr.taigasleep.ui.components.BottomBarItem
 import com.rbmr.taigasleep.ui.components.TaigaBottomBar
 import com.rbmr.taigasleep.ui.screens.AboutScreen
 import com.rbmr.taigasleep.ui.screens.HistoryScreen
 import com.rbmr.taigasleep.ui.screens.HomeScreen
+import com.rbmr.taigasleep.ui.screens.RemoteScreen
 import com.rbmr.taigasleep.ui.screens.SettingsScreen
 import kotlinx.coroutines.launch
-
-val LocalComingSoon = staticCompositionLocalOf<() -> Unit> { {} }
 
 private data class Tab(
     val labelRes: Int,
@@ -63,58 +66,88 @@ fun TaigaApp(
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
   val guidanceStore = remember { GuidanceStore(context) }
+  val remote = remember { RemoteRepository.of(context) }
   var showAbout by rememberSaveable { mutableStateOf(false) }
   var showGuidance by rememberSaveable { mutableStateOf(false) }
-  val comingSoon: () -> Unit = {
-    scope.launch {
-      snackbarHostState.currentSnackbarData?.dismiss()
-      snackbarHostState.showSnackbar("This feature doesn't exist yet.")
-    }
-    Unit
-  }
+  var showRemote by rememberSaveable { mutableStateOf(false) }
+  // Prompt once per process; a successful check arms it again for a later expiry.
+  var promptedLogin by remember { mutableStateOf(false) }
+  val loginPrompt = stringResource(R.string.remote_login_prompt)
+  val loginAction = stringResource(R.string.remote_login_prompt_action)
 
-  if (showGuidance) {
-    val preview = GuidanceFlows.previewOf(guidanceStore)
-    val match = remember(preview) { GuidanceFlows.currentMatch(preview) }
-    FlowScreen(
-        match = match,
-        store = guidanceStore,
-        preview = preview != null,
-        onClose = { showGuidance = false },
-    )
-  } else if (showAbout) {
-    AboutScreen(onBack = { showAbout = false })
-  } else {
-    CompositionLocalProvider(LocalComingSoon provides comingSoon) {
-      Scaffold(
-          containerColor = MaterialTheme.colorScheme.background,
-          contentWindowInsets = WindowInsets(0, 0, 0, 0),
-          snackbarHost = { SnackbarHost(snackbarHostState) },
-          bottomBar = {
-            TaigaBottomBar(
-                items = tabs.map { BottomBarItem(stringResource(it.labelRes), it.icon) },
-                selectedIndex = pagerState.currentPage,
-                onSelect = { scope.launch { pagerState.animateScrollToPage(it) } },
-            )
-          },
-      ) { padding ->
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.padding(padding).fillMaxSize(),
-        ) { page ->
-          when (page) {
-            0 -> HistoryScreen()
-            1 -> HomeScreen()
-            2 ->
-                SettingsScreen(
-                    themeMode = themeMode,
-                    onThemeModeChange = onThemeModeChange,
-                    onAboutClick = { showAbout = true },
-                    onGuidanceClick = { showGuidance = true },
-                )
+  // The same check as the Test button, without a password. Recording never waits for it.
+  LifecycleResumeEffect(Unit) {
+    scope.launch {
+      when (val result = remote.verify()) {
+        is CheckResult.Success -> promptedLogin = false
+        is CheckResult.Failure -> {
+          val needsLogin =
+              result.error == RemoteError.SessionExpired ||
+                  result.error == RemoteError.BadCredentials
+          if (needsLogin && !promptedLogin) {
+            promptedLogin = true
+            // The Remote screen already shows the state, so the snackbar is only for the tabs.
+            if (!showRemote) {
+              val answer =
+                  snackbarHostState.showSnackbar(
+                      message = loginPrompt,
+                      actionLabel = loginAction,
+                      withDismissAction = true,
+                      duration = SnackbarDuration.Long,
+                  )
+              if (answer == SnackbarResult.ActionPerformed) showRemote = true
+            }
           }
         }
+        null -> Unit
       }
     }
+    onPauseOrDispose {}
+  }
+
+  when {
+    showRemote -> RemoteScreen(onBack = { showRemote = false })
+    showGuidance -> {
+      val preview = GuidanceFlows.previewOf(guidanceStore)
+      val match = remember(preview) { GuidanceFlows.currentMatch(preview) }
+      FlowScreen(
+          match = match,
+          store = guidanceStore,
+          preview = preview != null,
+          onClose = { showGuidance = false },
+      )
+    }
+    showAbout -> AboutScreen(onBack = { showAbout = false })
+    else ->
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            bottomBar = {
+              TaigaBottomBar(
+                  items = tabs.map { BottomBarItem(stringResource(it.labelRes), it.icon) },
+                  selectedIndex = pagerState.currentPage,
+                  onSelect = { scope.launch { pagerState.animateScrollToPage(it) } },
+              )
+            },
+        ) { padding ->
+          HorizontalPager(
+              state = pagerState,
+              modifier = Modifier.padding(padding).fillMaxSize(),
+          ) { page ->
+            when (page) {
+              0 -> HistoryScreen()
+              1 -> HomeScreen()
+              2 ->
+                  SettingsScreen(
+                      themeMode = themeMode,
+                      onThemeModeChange = onThemeModeChange,
+                      onAboutClick = { showAbout = true },
+                      onGuidanceClick = { showGuidance = true },
+                      onRemoteClick = { showRemote = true },
+                  )
+            }
+          }
+        }
   }
 }

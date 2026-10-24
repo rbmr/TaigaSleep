@@ -1,6 +1,7 @@
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
+  alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -45,10 +46,13 @@ dependencies {
   implementation(libs.rxjava)
   implementation(libs.rxandroid)
   implementation(libs.kotlinx.coroutines.android)
+  implementation(libs.kotlinx.serialization.json)
+  implementation(libs.okhttp)
 
   debugImplementation(libs.androidx.compose.ui.tooling)
 
   testImplementation(libs.junit)
   // The android.jar stub of org.json does nothing in JVM tests.
   testImplementation(libs.org.json)
+  testImplementation(libs.okhttp.mockwebserver)
 }
