@@ -1,0 +1,62 @@
+name: taiga-sleep
+
+services:
+  api:
+    build:
+      context: ./backend/pocketbase
+    restart: unless-stopped
+    ports:
+      # Bind to loopback by default. Put Caddy/nginx in front to expose only
+      # /api/* and keep the dashboard private. Set TAIGA_BIND_ADDR=0.0.0.0 to
+      # expose PocketBase directly (including /_/).
+      - "${TAIGA_BIND_ADDR:-127.0.0.1}:${TAIGA_PORT:-8090}:8090"
+    volumes:
+      - taiga-data:/pb/pb_data
+    environment:
+      TAIGA_HTTP_ADDR: "0.0.0.0:8090"
+      TAIGA_APP_NAME: "${TAIGA_APP_NAME:-Taiga Sleep}"
+      TAIGA_APP_URL: "${TAIGA_APP_URL:-http://127.0.0.1:8090}"
+      TAIGA_JOB_LEASE_S: "${TAIGA_JOB_LEASE_S:-1800}"
+      TAIGA_HOOKS_POOL: "${TAIGA_HOOKS_POOL:-4}"
+      # Optional bootstrap, only needed on the first start.
+      TAIGA_ADMIN_EMAIL: "${TAIGA_ADMIN_EMAIL:-}"
+      TAIGA_ADMIN_PASSWORD: "${TAIGA_ADMIN_PASSWORD:-}"
+      TAIGA_ENCRYPTION_KEY: "${TAIGA_ENCRYPTION_KEY:-}"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8090/api/taiga/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  worker:
+    build:
+      context: ./backend/worker
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    # The analysis subprocess has its own address-space limit (TAIGA_JOB_MEMORY_MB).
+    # Keep this container limit slightly above it for the supervisor and Python.
+    mem_limit: "${TAIGA_WORKER_MEMORY:-1g}"
+    environment:
+      TAIGA_API_URL: "http://api:8090"
+      TAIGA_WORKER_EMAIL: "${TAIGA_WORKER_EMAIL:-}"
+      TAIGA_WORKER_PASSWORD: "${TAIGA_WORKER_PASSWORD:-}"
+      TAIGA_WORKER_ID: "${TAIGA_WORKER_ID:-docker-worker}"
+      TAIGA_POLL_INTERVAL_S: "${TAIGA_POLL_INTERVAL_S:-15}"
+      TAIGA_JOB_LEASE_S: "${TAIGA_JOB_LEASE_S:-1800}"
+      TAIGA_JOB_MEMORY_MB: "${TAIGA_JOB_MEMORY_MB:-768}"
+      TAIGA_JOB_TIMEOUT_S: "${TAIGA_JOB_TIMEOUT_S:-3600}"
+      TAIGA_LOG_LEVEL: "${TAIGA_LOG_LEVEL:-INFO}"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      BLIS_NUM_THREADS: "1"
+      MALLOC_ARENA_MAX: "2"
+    stop_grace_period: 30s
+
+volumes:
+  taiga-data:

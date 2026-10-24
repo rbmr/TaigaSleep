@@ -36,6 +36,13 @@ The debug APK is written to `app/build/outputs/apk/debug/`.
 The current app shell contains the three-tab navigation, theme, and placeholder
 screens. Recording, history sync, and the backend integration are next.
 
+## Backend
+
+The optional self-hosted backend lives in [`backend/`](backend/README.md). It is
+a PocketBase API (SQLite, users, owner-only collections, durable job queue) plus
+a small Python worker supervisor. See the backend README for setup,
+configuration, deployment, backup and restore.
+
 ## Contributing
 
 - Changes land through pull requests. Do not push directly to `main` after the

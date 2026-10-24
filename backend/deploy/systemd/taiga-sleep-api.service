@@ -1,0 +1,43 @@
+[Unit]
+Description=Taiga Sleep API (PocketBase)
+Documentation=https://github.com/rbmr/TaigaSleep
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=taiga
+Group=taiga
+StateDirectory=taiga-sleep
+WorkingDirectory=/opt/taiga-sleep
+
+# Defaults; override in /etc/taiga-sleep/api.env.
+Environment=TAIGA_HTTP_ADDR=127.0.0.1:8090
+Environment=TAIGA_DATA_DIR=/var/lib/taiga-sleep
+Environment=TAIGA_MIGRATIONS_DIR=/opt/taiga-sleep/pb_migrations
+Environment=TAIGA_HOOKS_DIR=/opt/taiga-sleep/pb_hooks
+Environment=TAIGA_HOOKS_POOL=4
+EnvironmentFile=-/etc/taiga-sleep/api.env
+
+ExecStart=/opt/taiga-sleep/pocketbase serve \
+    --http=${TAIGA_HTTP_ADDR} \
+    --dir=${TAIGA_DATA_DIR} \
+    --migrationsDir=${TAIGA_MIGRATIONS_DIR} \
+    --hooksDir=${TAIGA_HOOKS_DIR} \
+    --hooksPool=${TAIGA_HOOKS_POOL} \
+    --automigrate=false \
+    --hooksWatch=false
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/taiga-sleep
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,70 @@
+name: backend
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+
+jobs:
+  worker-unit:
+    name: Worker unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: "0.9.7"
+          enable-cache: true
+          cache-dependency-glob: "backend/worker/uv.lock"
+      - name: Sync locked dependencies
+        run: uv sync --frozen
+      - name: Run unit tests
+        run: uv run --frozen python -m unittest discover -s tests -t . -v
+
+  integration:
+    name: PocketBase hooks and worker integration
+    runs-on: ubuntu-latest
+    env:
+      POCKETBASE_VERSION: "0.40.6"
+      POCKETBASE_SHA256: "0e1f609158ed945f809f8a02ae012aa0427129c66ebb63c1aee76f2c0309373f"
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: "0.9.7"
+          enable-cache: true
+          cache-dependency-glob: "backend/worker/uv.lock"
+
+      - name: Download pinned PocketBase
+        run: |
+          mkdir -p "$RUNNER_TEMP/pocketbase"
+          curl -fsSL -o "$RUNNER_TEMP/pocketbase.zip" \
+            "https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}/pocketbase_${POCKETBASE_VERSION}_linux_amd64.zip"
+          echo "${POCKETBASE_SHA256}  $RUNNER_TEMP/pocketbase.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/pocketbase.zip" pocketbase -d "$RUNNER_TEMP/pocketbase"
+          chmod +x "$RUNNER_TEMP/pocketbase/pocketbase"
+          echo "POCKETBASE_BIN=$RUNNER_TEMP/pocketbase/pocketbase" >> "$GITHUB_ENV"
+
+      - name: Sync worker environment
+        run: uv sync --project worker --frozen
+
+      - name: Run integration tests
+        run: uv run --project worker --frozen python -m unittest tests.test_integration -v
