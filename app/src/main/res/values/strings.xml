@@ -4,17 +4,8 @@
   <string name="nav_home">Home</string>
   <string name="nav_settings">Settings</string>
 
-  <string name="home_kicker">TONIGHT</string>
-  <string name="home_title">Sleep well.</string>
-  <string name="home_subtitle">Connect your sensor. Taiga records the night on your phone.</string>
-  <string name="home_sensor_title">No sensor connected</string>
-  <string name="home_sensor_body">Connect a Polar H10 to start recording heart rate, ECG and movement.</string>
-  <string name="home_connect">Connect sensor</string>
-  <string name="home_readiness_title">Background readiness</string>
-  <string name="home_readiness_body">A few phone settings keep the recorder alive overnight. Taiga will guide you through them.</string>
-  <string name="home_readiness_action">Open setup guide</string>
+  <string name="home_kicker">HOME</string>
   <string name="home_start">Start recording</string>
-  <string name="home_local_note">Recordings stay on this phone until you choose to upload them.</string>
 
   <string name="history_kicker">HISTORY</string>
   <string name="history_title">Your nights</string>

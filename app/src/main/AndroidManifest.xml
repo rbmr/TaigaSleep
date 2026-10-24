@@ -1,6 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+  <!-- Polar H10 over BLE. The scan is not used to derive the location. -->
+  <uses-permission
+      android:name="android.permission.BLUETOOTH_SCAN"
+      android:usesPermissionFlags="neverForLocation"
+      tools:targetApi="s" />
+  <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+  <!-- Recording survives the screen being off: foreground service, wake lock, exact-alarm watchdog. -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+  <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+  <uses-permission
+      android:name="android.permission.SCHEDULE_EXACT_ALARM"
+      android:maxSdkVersion="32" />
+
+  <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
   <application
       android:name=".TaigaApplication"
@@ -23,5 +45,25 @@
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
     </activity>
+
+    <service
+        android:name=".recording.RecordingService"
+        android:exported="false"
+        android:foregroundServiceType="connectedDevice" />
+
+    <receiver
+        android:name=".recording.WatchdogReceiver"
+        android:exported="false" />
+
+    <!-- Lets the share sheet read the on-demand session zip from the cache directory. -->
+    <provider
+        android:name="androidx.core.content.FileProvider"
+        android:authorities="${applicationId}.fileprovider"
+        android:exported="false"
+        android:grantUriPermissions="true">
+      <meta-data
+          android:name="android.support.FILE_PROVIDER_PATHS"
+          android:resource="@xml/file_paths" />
+    </provider>
   </application>
 </manifest>
