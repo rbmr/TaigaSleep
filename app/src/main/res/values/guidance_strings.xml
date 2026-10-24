@@ -2,6 +2,7 @@
   <!-- Flow chrome -->
   <string name="g_flow_title">Preventing shutdown</string>
   <string name="g_close">Close</string>
+  <string name="g_progress">Page %1$d of %2$d</string>
   <string name="g_start">Let\'s start</string>
   <string name="g_next">Next</string>
   <string name="g_back">Back</string>

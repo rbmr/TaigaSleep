@@ -12,12 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.BatterySaver
-import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,7 +37,10 @@ import com.rbmr.taigasleep.guidance.PreviewDevice
 import com.rbmr.taigasleep.guidance.Progress
 import com.rbmr.taigasleep.ui.LocalComingSoon
 import com.rbmr.taigasleep.ui.components.ScreenHeader
+import com.rbmr.taigasleep.ui.components.SettingsDivider
+import com.rbmr.taigasleep.ui.components.SettingsGroup
 import com.rbmr.taigasleep.ui.components.SettingsRow
+import com.rbmr.taigasleep.ui.theme.taiga
 
 @Composable
 fun SettingsScreen(
@@ -76,53 +75,56 @@ fun SettingsScreen(
 
   LazyColumn(
       modifier = Modifier.fillMaxSize().statusBarsPadding(),
-      contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
-      verticalArrangement = Arrangement.spacedBy(10.dp),
+      contentPadding = PaddingValues(horizontal = 20.dp, vertical = 32.dp),
+      verticalArrangement = Arrangement.spacedBy(18.dp),
   ) {
     item {
       ScreenHeader(
           kicker = stringResource(R.string.settings_kicker),
           title = stringResource(R.string.settings_title),
-          subtitle = "",
+          modifier = Modifier.padding(horizontal = 4.dp),
       )
     }
 
     item {
-      SettingsRow(
-          icon = Icons.Outlined.BatterySaver,
-          title = stringResource(R.string.settings_prevent_title),
-          subtitle =
-              stringResource(
-                  if (ready) R.string.g_settings_ready else R.string.g_settings_needs_attention
-              ),
-          onClick = onGuidanceClick,
-          // Debug builds only: pick which device's guidance to preview.
-          onLongClick = if (BuildConfig.DEBUG) ({ showPreviewPicker = true }) else null,
-      )
+      SettingsGroup(stringResource(R.string.settings_group_recording)) {
+        SettingsRow(
+            title = stringResource(R.string.settings_prevent_title),
+            subtitle =
+                "● " +
+                    stringResource(
+                        if (ready) R.string.g_settings_ready else R.string.g_settings_needs_attention
+                    ),
+            subtitleColor = if (ready) MaterialTheme.taiga.ok else MaterialTheme.taiga.warn,
+            onClick = onGuidanceClick,
+            // Debug builds only: pick which device's guidance to preview.
+            onLongClick = if (BuildConfig.DEBUG) ({ showPreviewPicker = true }) else null,
+        )
+      }
     }
     item {
-      SettingsRow(
-          icon = Icons.Outlined.Cloud,
-          title = stringResource(R.string.settings_remote_title),
-          subtitle = stringResource(R.string.settings_remote_body),
-          onClick = comingSoon,
-      )
+      SettingsGroup(stringResource(R.string.settings_group_server)) {
+        SettingsRow(
+            title = stringResource(R.string.settings_remote_title),
+            subtitle = stringResource(R.string.settings_remote_body),
+            onClick = comingSoon,
+        )
+      }
     }
     item {
-      SettingsRow(
-          icon = Icons.Outlined.DarkMode,
-          title = stringResource(R.string.settings_appearance_title),
-          subtitle = appearanceSubtitle,
-          onClick = { showAppearance = true },
-      )
-    }
-    item {
-      SettingsRow(
-          icon = Icons.Outlined.Info,
-          title = stringResource(R.string.settings_about_title),
-          subtitle = stringResource(R.string.settings_about_body),
-          onClick = onAboutClick,
-      )
+      SettingsGroup(stringResource(R.string.settings_group_app)) {
+        SettingsRow(
+            title = stringResource(R.string.settings_appearance_title),
+            subtitle = appearanceSubtitle,
+            onClick = { showAppearance = true },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = stringResource(R.string.settings_about_title),
+            subtitle = stringResource(R.string.settings_about_body),
+            onClick = onAboutClick,
+        )
+      }
     }
   }
 

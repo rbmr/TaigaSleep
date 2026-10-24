@@ -56,6 +56,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.ui.components.ButtonSize
+import com.rbmr.taigasleep.ui.components.PrimaryButton
+import com.rbmr.taigasleep.ui.components.SecondaryButton
+import com.rbmr.taigasleep.ui.components.SegmentedProgress
+import com.rbmr.taigasleep.ui.components.StatusChip
+import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaCard
 
 // Renders any [Flow]: an intro page, one page per step, then the summary.
@@ -112,7 +118,12 @@ fun FlowScreen(
                 }
               },
           )
-          PageProgress(page = page, pages = summaryPage + 1)
+          SegmentedProgress(
+              steps = summaryPage + 1,
+              current = page + 1,
+              description = stringResource(R.string.g_progress, page + 1, summaryPage + 1),
+              modifier = Modifier.padding(horizontal = 24.dp),
+          )
         }
       },
       bottomBar = {
@@ -125,19 +136,25 @@ fun FlowScreen(
               horizontalArrangement = Arrangement.spacedBy(12.dp),
           ) {
             if (page == 0) {
-              Button(onClick = { page++ }, modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.g_start))
-              }
-            } else {
-              OutlinedButton(onClick = { page-- }, modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.g_back))
-              }
-              Button(
-                  onClick = { if (page == summaryPage) onClose() else page++ },
+              PrimaryButton(
+                  text = stringResource(R.string.g_start),
+                  onClick = { page++ },
                   modifier = Modifier.weight(1f),
-              ) {
-                Text(stringResource(if (page == summaryPage) R.string.g_done else R.string.g_next))
-              }
+                  size = ButtonSize.Large,
+              )
+            } else {
+              SecondaryButton(
+                  text = stringResource(R.string.g_back),
+                  onClick = { page-- },
+                  modifier = Modifier.weight(1f),
+                  size = ButtonSize.Large,
+              )
+              PrimaryButton(
+                  text = stringResource(if (page == summaryPage) R.string.g_done else R.string.g_next),
+                  onClick = { if (page == summaryPage) onClose() else page++ },
+                  modifier = Modifier.weight(2f),
+                  size = ButtonSize.Large,
+              )
             }
           }
         }
@@ -300,12 +317,10 @@ private fun StepPage(step: Step, ok: Boolean, onToggle: (Boolean) -> Unit) {
     }
   }
   step.helper?.let { helper ->
-    Button(
+    PrimaryButton(
+        text = stringResource(helper.labelRes),
         onClick = { GuidanceActions.open(context, helper.action) },
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-      Text(stringResource(helper.labelRes))
-    }
+    )
   }
   // Manual steps: ticking the box flips the same OK / NOT YET state a device check would set.
   if (step.check == null) {
@@ -327,58 +342,14 @@ private fun StepPage(step: Step, ok: Boolean, onToggle: (Boolean) -> Unit) {
   StateBadge(ok, Modifier.fillMaxWidth())
 }
 
-// One segment per page: intro, every step, summary.
-@Composable
-private fun PageProgress(page: Int, pages: Int) {
-  Row(
-      modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-      horizontalArrangement = Arrangement.spacedBy(6.dp),
-  ) {
-    repeat(pages) { index ->
-      Box(
-          modifier =
-              Modifier.weight(1f)
-                  .height(5.dp)
-                  .clip(RoundedCornerShape(3.dp))
-                  .background(
-                      if (index <= page) MaterialTheme.colorScheme.primary
-                      else MaterialTheme.colorScheme.outlineVariant
-                  )
-      )
-    }
-  }
-}
-
-// The OK / NOT YET pill, used for read-only states.
+// The OK / NOT YET state, the same chip for device checks and manual confirmation.
 @Composable
 private fun StateBadge(ok: Boolean, modifier: Modifier = Modifier) {
-  Surface(
-      shape = RoundedCornerShape(50),
-      color =
-          if (ok) MaterialTheme.colorScheme.primaryContainer
-          else MaterialTheme.colorScheme.errorContainer,
-      contentColor =
-          if (ok) MaterialTheme.colorScheme.onPrimaryContainer
-          else MaterialTheme.colorScheme.onErrorContainer,
+  StatusChip(
+      kind = if (ok) StatusKind.Ok else StatusKind.Warn,
+      label = stringResource(if (ok) R.string.g_state_ok else R.string.g_state_not_yet).uppercase(),
       modifier = modifier,
-  ) {
-    Row(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-      Icon(
-          imageVector = if (ok) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
-          contentDescription = null,
-          modifier = Modifier.size(18.dp),
-      )
-      Spacer(Modifier.width(8.dp))
-      Text(
-          text = stringResource(if (ok) R.string.g_state_ok else R.string.g_state_not_yet).uppercase(),
-          style = MaterialTheme.typography.labelLarge,
-      )
-    }
-  }
+  )
 }
 
 @Composable
