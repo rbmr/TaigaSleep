@@ -21,6 +21,7 @@ import java.time.ZoneOffset
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -120,6 +121,8 @@ class PolarH10Sensor(
 
   private val ready = HashSet<PolarBleSdkFeature>()
   private val streams = HashMap<String, Disposable>()
+  // Pending "first sample" checks, one per stream; cancelled when the streams are torn down.
+  private val watchdogs = HashMap<String, ScheduledFuture<*>>()
   private var wanted: StreamConfig? = null
   private var listener: SampleListener? = null
   private var userDisconnect = false
@@ -130,6 +133,8 @@ class PolarH10Sensor(
   private var clockSyncing = false
   private var clockWaiting = false
   private val gotData = ConcurrentHashMap.newKeySet<String>()
+  // Incremented whenever the streams are torn down, so delayed retries from the old link give up.
+  @Volatile private var streamGeneration = 0
 
   init {
     PolarSdk.sensors[id] = this
@@ -295,6 +300,9 @@ class PolarH10Sensor(
   }
 
   private fun disposeStreams() {
+    streamGeneration++
+    watchdogs.values.forEach { it.cancel(false) }
+    watchdogs.clear()
     streams.values.forEach { it.dispose() }
     streams.clear()
     gotData.clear()
@@ -305,18 +313,26 @@ class PolarH10Sensor(
     if (gotData.add(name)) l.onNote("stream", "$name streaming")
   }
 
-  /** Restarts a stream that never produced a sample; a silent start failure loses the night. */
+  /**
+   * Restarts a stream that never produced a sample; a silent start failure loses the night. The
+   * check belongs to one stream start: cancel the previous one so a timer left over from before a
+   * disconnect cannot fire after the reconnect and restart streams that just started.
+   */
   private fun watch(name: String, l: SampleListener, restart: () -> Unit) {
-    control.schedule(
-        {
-          if (name !in gotData && wanted != null && _connection.value == ConnectionState.CONNECTED) {
-            l.onError("$name stream: no data after $FIRST_DATA_S s, restarting it")
-            restart()
-          }
-        },
-        FIRST_DATA_S,
-        TimeUnit.SECONDS,
-    )
+    watchdogs.remove(name)?.cancel(false)
+    watchdogs[name] =
+        control.schedule(
+            {
+              if (name !in gotData &&
+                  wanted != null &&
+                  _connection.value == ConnectionState.CONNECTED) {
+                l.onError("$name stream: no data after $FIRST_DATA_S s, restarting it")
+                restart()
+              }
+            },
+            FIRST_DATA_S,
+            TimeUnit.SECONDS,
+        )
   }
 
   private fun startHr(l: SampleListener) {
@@ -438,9 +454,13 @@ class PolarH10Sensor(
 
   private fun retryLater(name: String, l: SampleListener, e: Throwable) {
     l.onError("$name stream error: ${e.javaClass.simpleName}${e.message?.let { ": $it" }.orEmpty()}")
+    val generation = streamGeneration
     control.schedule(
         {
-          if (wanted != null && _connection.value == ConnectionState.CONNECTED) {
+          // A reconnect has already restarted the streams; do not restart them again.
+          if (generation == streamGeneration &&
+              wanted != null &&
+              _connection.value == ConnectionState.CONNECTED) {
             when (name) {
               "hr" -> startHr(l)
               "ecg" -> startEcg(l)
