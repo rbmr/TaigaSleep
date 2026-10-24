@@ -44,7 +44,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -63,10 +62,12 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.Phase
 import com.rbmr.taigasleep.recording.ReadinessGate
+import com.rbmr.taigasleep.recording.RecordingFormat
 import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.RecordingService
 import com.rbmr.taigasleep.recording.Readiness
+import com.rbmr.taigasleep.recording.RecordingState
 import com.rbmr.taigasleep.recording.RecordingStatus
 import com.rbmr.taigasleep.sensor.ConnectionState
 import com.rbmr.taigasleep.sensor.SensorHub
@@ -549,9 +550,6 @@ private fun SensorCard(
 
 private const val RECENT_COUNT = 5
 
-// No sample for this long on a stream that has started means it stopped.
-private const val STALL_MS = 3_000L
-
 private fun startRecording(context: Context, sensor: SleepSensor?, prefs: RecordingPrefs) {
   sensor ?: return
   RecordingRepository.setIdle()
@@ -633,14 +631,7 @@ private fun ReadinessCard(
 
 @Composable
 private fun ActiveCard(status: RecordingStatus) {
-  val now by
-      produceState(System.currentTimeMillis()) {
-        while (true) {
-          value = System.currentTimeMillis()
-          delay(1000)
-        }
-      }
-  val live = status.live
+  val state = status.state
   TaigaCard {
     Text(
         text =
@@ -652,15 +643,15 @@ private fun ActiveCard(status: RecordingStatus) {
         color = MaterialTheme.colorScheme.primary,
     )
     Text(
-        text = formatElapsed(now - status.startUtcMs),
+        text = RecordingFormat.elapsed(state.session.elapsedMs),
         style = MaterialTheme.typography.displayLarge,
     )
     Spacer(Modifier.height(8.dp))
     Text(
-        text = "${status.sensorName.orEmpty()} · ${connectionText(live.connection)}",
+        text = "${status.sensorName.orEmpty()} · ${linkText(state.link.state)}",
         style = MaterialTheme.typography.bodyLarge,
     )
-    live.battery?.let {
+    state.power.percent?.let {
       Text(
           text = stringResource(R.string.rec_battery, it),
           style = MaterialTheme.typography.bodyMedium,
@@ -676,6 +667,10 @@ private fun ActiveCard(status: RecordingStatus) {
       )
       return@TaigaCard
     }
+    state.overall.reason?.let {
+      Spacer(Modifier.height(12.dp))
+      OverallBanner(state)
+    }
     Spacer(Modifier.height(12.dp))
     Text(
         text = stringResource(R.string.rec_active_hr),
@@ -683,23 +678,33 @@ private fun ActiveCard(status: RecordingStatus) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     // Without skin contact the strap's heart rate is noise, so do not show it as a measurement.
-    val noContact = live.contact == false
+    val offBody = state.contact.state == RecordingState.ContactState.OFF_BODY
     Text(
         text =
-            if (noContact) stringResource(R.string.rec_active_no_contact)
+            if (offBody)
+                stringResource(
+                    R.string.rec_active_no_contact_for,
+                    RecordingFormat.duration(state.contact.offBodyMs),
+                )
             else
-                live.hrBpm?.let { stringResource(R.string.rec_active_hr_value, it) }
+                state.heart.bpm?.let { stringResource(R.string.rec_active_hr_value, it) }
                     ?: stringResource(R.string.rec_active_none),
         style = MaterialTheme.typography.headlineMedium,
-        color = if (noContact) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+        color = if (offBody) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
     )
     if (status.config?.ecg == true) {
-      StreamLine(R.string.rec_active_ecg, live.ecgRateHz, live.lastEcgAgeMs, poor = live.ecgPoor)
+      state.streams[RecordingState.StreamKind.ECG]?.let {
+        StreamLine(
+            R.string.rec_active_ecg,
+            it,
+            poor = state.quality.ecg == RecordingState.EcgQuality.POOR,
+        )
+      }
     }
     if (status.config?.acc == true) {
-      StreamLine(R.string.rec_active_acc, live.accRateHz, live.lastAccAgeMs)
+      state.streams[RecordingState.StreamKind.ACC]?.let { StreamLine(R.string.rec_active_acc, it) }
     }
-    live.writeFailure?.let {
+    state.storage.lastError?.let {
       Spacer(Modifier.height(8.dp))
       Text(
           text = stringResource(R.string.rec_active_failure, it),
@@ -710,29 +715,110 @@ private fun ActiveCard(status: RecordingStatus) {
   }
 }
 
+/** The same fixed priority headline the notification shows, formatted for the active screen. */
 @Composable
-private fun StreamLine(label: Int, rateHz: Double, ageMs: Long?, poor: Boolean = false) {
+private fun OverallBanner(state: RecordingState) {
+  val reason = state.overall.reason ?: return
+  val kind =
+      if (state.overall.state == RecordingState.OverallState.ERROR) StatusKind.Bad
+      else StatusKind.Warn
+  val stale =
+      state.streams.values.firstOrNull { it.status == RecordingState.StreamStatus.STALE }
+  var title = ""
+  var body: String? = null
+  when (reason) {
+    RecordingState.Reason.STORAGE_ERROR -> {
+      title = stringResource(R.string.rec_active_storage_error_title)
+      body = state.storage.lastError?.let { stringResource(R.string.rec_active_storage_error_body, it) }
+    }
+    RecordingState.Reason.LINK_LOST -> {
+      title = stringResource(R.string.rec_active_link_lost_title)
+      body = stringResource(R.string.rec_active_link_lost_body)
+    }
+    RecordingState.Reason.OFF_BODY -> {
+      title = stringResource(R.string.rec_active_off_body_title)
+      body = stringResource(R.string.rec_active_off_body_body, RecordingFormat.duration(state.contact.offBodyMs))
+    }
+    RecordingState.Reason.STREAM_STALE -> {
+      title =
+          stringResource(
+              R.string.rec_active_stream_stalled_title,
+              streamLabel(stale?.kind ?: RecordingState.StreamKind.HR),
+          )
+      body =
+          stringResource(
+              R.string.rec_active_stream_stalled_body,
+              RecordingFormat.age(stale?.lastSampleAgeMs ?: 0),
+          )
+    }
+    RecordingState.Reason.ECG_POOR -> {
+      title = stringResource(R.string.rec_active_ecg_poor_title)
+      body = stringResource(R.string.rec_active_ecg_poor_body)
+    }
+    RecordingState.Reason.BATTERY_LOW -> {
+      title = stringResource(R.string.rec_active_battery_low_title)
+      body = stringResource(R.string.rec_active_battery_low_body, state.power.percent ?: 0)
+    }
+  }
+  StatusBanner(kind = kind, title = title, body = body)
+}
+
+@Composable
+private fun streamLabel(kind: RecordingState.StreamKind): String =
+    stringResource(
+        when (kind) {
+          RecordingState.StreamKind.HR -> R.string.rec_active_hr
+          RecordingState.StreamKind.ECG -> R.string.rec_active_ecg
+          RecordingState.StreamKind.ACC -> R.string.rec_active_acc
+        }
+    )
+
+@Composable
+private fun StreamLine(label: Int, stream: RecordingState.Stream, poor: Boolean = false) {
   val name = stringResource(label)
   // The sensor delivers samples in batches about every half second, so the age of the last one
-  // jumps around between zero and the batch interval. Show the rate, and only call out a stall.
-  val stalled = ageMs != null && ageMs > STALL_MS
-  val problem = stalled || poor
+  // jumps around between zero and the batch interval. The monitor owns the staleness decision;
+  // this only formats it.
+  val text =
+      when {
+        stream.status == RecordingState.StreamStatus.WAITING ->
+            stringResource(R.string.rec_active_stream_waiting, name)
+        stream.status == RecordingState.StreamStatus.STALE ->
+            stringResource(
+                R.string.rec_active_stream_stalled,
+                name,
+                RecordingFormat.age(stream.lastSampleAgeMs ?: 0),
+            )
+        poor -> stringResource(R.string.rec_active_stream_poor, name)
+        stream.rateHz == null -> stringResource(R.string.rec_active_stream_measuring, name)
+        // Rounded to 5 Hz: the batches make the exact figure flicker by a few Hz.
+        else ->
+            stringResource(
+                R.string.rec_active_stream,
+                name,
+                Math.round(stream.rateHz!! / 5) * 5.0,
+            )
+      }
+  val problem = stream.status == RecordingState.StreamStatus.STALE || poor
   Spacer(Modifier.height(6.dp))
   Text(
-      text =
-          when {
-            ageMs == null -> stringResource(R.string.rec_active_stream_waiting, name)
-            stalled -> stringResource(R.string.rec_active_stream_stalled, name, formatAge(ageMs!!))
-            poor -> stringResource(R.string.rec_active_stream_poor, name)
-            // Rounded to 5 Hz: the batches make the exact figure flicker by a few Hz.
-            else -> stringResource(R.string.rec_active_stream, name, Math.round(rateHz / 5) * 5.0)
-          },
+      text = text,
       style = MaterialTheme.typography.bodyMedium,
       color =
           if (problem) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
       maxLines = 1,
   )
 }
+
+@Composable
+private fun linkText(state: RecordingState.LinkState) =
+    stringResource(
+        when (state) {
+          RecordingState.LinkState.CONNECTED -> R.string.rec_connection_connected
+          RecordingState.LinkState.CONNECTING -> R.string.rec_connection_connecting
+          RecordingState.LinkState.DISCONNECTED -> R.string.rec_connection_disconnected
+        }
+    )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -813,7 +899,7 @@ private fun RecentRow(s: SessionInfo) {
               stringResource(
                   R.string.rec_recent_row,
                   stateText(s.state),
-                  formatElapsed(s.durationMs),
+                  RecordingFormat.elapsed(s.durationMs),
                   formatSize(s.sizeBytes),
               ),
           style = MaterialTheme.typography.bodyMedium,
@@ -839,14 +925,6 @@ private fun stateText(state: SessionState) =
           SessionState.INTERRUPTED -> R.string.rec_state_interrupted
         }
     )
-
-private fun formatElapsed(ms: Long): String {
-  val s = (ms / 1000).coerceAtLeast(0)
-  return "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60)
-}
-
-private fun formatAge(ms: Long): String =
-    if (ms < 1000) "$ms ms" else if (ms < 60_000) "${ms / 1000} s" else "${ms / 60_000} min"
 
 private fun formatSize(bytes: Long): String =
     if (bytes < 1_000_000) "${bytes / 1000} kB" else "%.1f MB".format(bytes / 1_000_000.0)

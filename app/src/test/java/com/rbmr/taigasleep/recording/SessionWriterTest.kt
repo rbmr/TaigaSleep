@@ -90,16 +90,34 @@ class SessionWriterTest {
     w.writeHr(stamp(), HrSample(60, true, true, true, intArrayOf(1000)))
     w.writeEcg(stamp(), EcgBatch(LongArray(3) { it * 7_692_307L }, intArrayOf(1, -2, 3)))
     w.writeAcc(stamp(), AccBatch(LongArray(2) { it * 20_000_000L }, intArrayOf(1, 2, 3, 4, 5, 6)))
+    val health = w.storageHealth()
     w.finish(SessionState.STOPPED, "done")
 
     val hr = mutableListOf<ByteArray>()
     FrameLog.scan(File(w.dir, "hr.log")) { hr += it }
     assertEquals(60, Payloads.decodeHr(hr.single()).hr)
-    val stats = w.stats()
-    assertEquals(1, stats.hrSamples)
-    assertEquals(3, stats.ecgSamples)
-    assertEquals(2, stats.accSamples)
+    val ecg = mutableListOf<ByteArray>()
+    FrameLog.scan(File(w.dir, "ecg.log")) { ecg += it }
+    assertEquals(1, ecg.size)
+    val acc = mutableListOf<ByteArray>()
+    FrameLog.scan(File(w.dir, "acc.log")) { acc += it }
+    assertEquals(1, acc.size)
     assertEquals(listOf("start", "stop"), events(w.dir).map { it.getString("type") })
+    // The writer owns storage health, not metrics: bytes of all three logs and no failure.
+    assertTrue(health.bytesWritten > 3 * FrameLog.HEADER_SIZE)
+    assertNull(health.lastError)
+    assertEquals(0L, health.lastSyncNs)
+    assertEquals(health.bytesWritten, w.storageHealth().bytesWritten)
+  }
+
+  @Test
+  fun syncRecordsWhenStorageWasLastFlushed() {
+    val root = tmp.newFolder("rec")
+    val w = SessionWriter.create(root, meta(), clock)
+    assertEquals(0L, w.storageHealth().lastSyncNs)
+    clock.advanceMs(30_000)
+    w.sync()
+    assertEquals(clock.elapsedNs(), w.storageHealth().lastSyncNs)
   }
 
   @Test
@@ -156,45 +174,5 @@ class SessionWriterTest {
     // The duration estimate comes from the last HR frame, about one second after the start.
     assertEquals(1000L, info.durationMs)
     assertEquals(SessionState.STOPPED, store.list().first { it.id == "20261022_220000" }.state)
-  }
-
-  private fun hr(contact: Boolean, supported: Boolean = true, bpm: Int = 60) =
-      HrSample(bpm, supported, contact, false, IntArray(0))
-
-  @Test
-  fun contactLossIsTrackedAndLoggedOncePerChange() {
-    val w = SessionWriter.create(tmp.newFolder("rec"), meta(), clock)
-    assertNull(w.stats().contact)
-    w.writeHr(stamp(), hr(contact = true))
-    assertEquals(true, w.stats().contact)
-    w.writeHr(stamp(), hr(contact = false))
-    w.writeHr(stamp(), hr(contact = false, bpm = 90))
-    w.writeHr(stamp(), hr(contact = true))
-    assertEquals(
-        listOf("no skin contact", "skin contact restored"),
-        events(w.dir).filter { it.getString("type") == "contact" }.map { it.getString("message") },
-    )
-  }
-
-  @Test
-  fun aSensorThatCannotReportContactStaysUnknown() {
-    val w = SessionWriter.create(tmp.newFolder("rec"), meta(), clock)
-    w.writeHr(stamp(), hr(contact = false, supported = false))
-    assertNull(w.stats().contact)
-    assertTrue(events(w.dir).none { it.getString("type") == "contact" })
-  }
-
-  @Test
-  fun aPinnedEcgIsFlaggedAndRecovers() {
-    val w = SessionWriter.create(tmp.newFolder("rec"), meta(), clock)
-    fun batch(value: Int) = EcgBatch(LongArray(73) { it * 7_692_000L }, IntArray(73) { value })
-    repeat(4) { w.writeEcg(stamp(), batch(18_464)) }
-    assertTrue(w.stats().ecgPoor)
-    repeat(10) { w.writeEcg(stamp(), batch(300)) }
-    assertFalse(w.stats().ecgPoor)
-    assertEquals(
-        listOf("ecg_signal", "ecg_signal"),
-        events(w.dir).map { it.getString("type") }.filter { it == "ecg_signal" },
-    )
   }
 }

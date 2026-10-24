@@ -1,7 +1,6 @@
 package com.rbmr.taigasleep.recording
 
 import android.content.Context
-import com.rbmr.taigasleep.sensor.ConnectionState
 import com.rbmr.taigasleep.storage.SessionConfig
 import com.rbmr.taigasleep.storage.SessionInfo
 import com.rbmr.taigasleep.storage.SessionStore
@@ -16,24 +15,6 @@ enum class Phase {
   STOPPING,
 }
 
-/** What the service has actually written so far. Ages are null until the first sample. */
-data class LiveStats(
-    val hrBpm: Int? = null,
-    val hrSamples: Long = 0,
-    val ecgSamples: Long = 0,
-    val accSamples: Long = 0,
-    val ecgRateHz: Double = 0.0,
-    val accRateHz: Double = 0.0,
-    val lastHrAgeMs: Long? = null,
-    val lastEcgAgeMs: Long? = null,
-    val lastAccAgeMs: Long? = null,
-    val connection: ConnectionState = ConnectionState.DISCONNECTED,
-    val battery: Int? = null,
-    val writeFailure: String? = null,
-    val contact: Boolean? = null,
-    val ecgPoor: Boolean = false,
-)
-
 data class RecordingStatus(
     val phase: Phase = Phase.IDLE,
     val sessionId: String? = null,
@@ -42,7 +23,8 @@ data class RecordingStatus(
     val sensorName: String? = null,
     /** False for sensors that only store on the device; the UI then shows just the connection. */
     val liveStreaming: Boolean = true,
-    val live: LiveStats = LiveStats(),
+    /** The one live snapshot; the UI and the notification only format it. */
+    val state: RecordingState = RecordingState(),
     /** Why the last start was refused or the session ended abnormally. */
     val error: String? = null,
 )

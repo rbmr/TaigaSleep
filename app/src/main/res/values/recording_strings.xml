@@ -5,6 +5,12 @@
   <string name="rec_notification_connected">%1$s connected</string>
   <string name="rec_notification_reconnecting">%1$s lost, reconnecting</string>
   <string name="rec_notification_disconnected">%1$s disconnected</string>
+  <string name="rec_notification_off_body">%1$s · no skin contact for %2$s</string>
+  <string name="rec_notification_stalled">%1$s · %2$s not receiving data</string>
+  <string name="rec_notification_ecg_poor">%1$s · poor ECG signal</string>
+  <string name="rec_notification_battery_low">%1$s · sensor battery %2$d%%</string>
+  <string name="rec_notification_storage_error">%1$s · writing to the phone failed</string>
+  <string name="rec_notification_rates">%1$s · %2$s</string>
 
   <string name="rec_error_not_ready">Recording was not started: the phone would stop Taiga in the background. Fix the background settings first.</string>
   <string name="rec_error_no_sensor">Recording was not started: no sensor selected.</string>
@@ -59,9 +65,23 @@
   <string name="rec_active_none">–</string>
   <string name="rec_active_stream">%1$s · %2$.0f Hz</string>
   <string name="rec_active_no_contact">No skin contact</string>
+  <string name="rec_active_no_contact_for">No skin contact for %1$s</string>
   <string name="rec_active_stream_poor">%1$s · poor signal</string>
   <string name="rec_active_stream_stalled">%1$s · no data for %2$s</string>
   <string name="rec_active_stream_waiting">%1$s · waiting for data</string>
+  <string name="rec_active_stream_measuring">%1$s · measuring</string>
+  <string name="rec_active_stream_stalled_title">%1$s not receiving data</string>
+  <string name="rec_active_stream_stalled_body">Last sample %1$s ago.</string>
+  <string name="rec_active_link_lost_title">Sensor link lost</string>
+  <string name="rec_active_link_lost_body">Taiga keeps trying to reconnect. No data is recorded until the link is back.</string>
+  <string name="rec_active_off_body_title">No skin contact</string>
+  <string name="rec_active_off_body_body">Off the body for %1$s. Movement and ECG are still recorded.</string>
+  <string name="rec_active_ecg_poor_title">Poor ECG signal</string>
+  <string name="rec_active_ecg_poor_body">The ECG is pinned at the sensor\'s limits. Check that the strap is tight and wet.</string>
+  <string name="rec_active_battery_low_title">Sensor battery low</string>
+  <string name="rec_active_battery_low_body">%1$d%% left.</string>
+  <string name="rec_active_storage_error_title">Writing to the phone failed</string>
+  <string name="rec_active_storage_error_body">%1$s</string>
   <string name="rec_active_ecg">ECG</string>
   <string name="rec_active_acc">Movement</string>
   <string name="rec_active_offline">This sensor stores data on itself. Only the connection is shown.</string>
