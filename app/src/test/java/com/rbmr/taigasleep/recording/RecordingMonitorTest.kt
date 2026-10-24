@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.TestClock
 import com.rbmr.taigasleep.sensor.AccBatch
+import com.rbmr.taigasleep.sensor.ConnectionState
 import com.rbmr.taigasleep.sensor.EcgBatch
 import com.rbmr.taigasleep.sensor.HrSample
 import com.rbmr.taigasleep.sensor.Stamp
@@ -67,7 +68,7 @@ class RecordingMonitorTest {
     m.tick()
     assertEquals(RecordingState.ContactState.ON_BODY, m.state.value.contact.state)
 
-    // A brief loss shorter than a minute is ignored.
+    // A brief loss shorter than a minute is logged immediately but does not change the state.
     clock.advanceMs(1_000)
     m.hr(contact = false)
     m.tick()
@@ -77,6 +78,10 @@ class RecordingMonitorTest {
     clock.advanceMs(1_000)
     m.hr(contact = true)
     m.tick()
+    assertEquals(
+        listOf("contact" to "no skin contact", "contact" to "skin contact restored"),
+        events.filter { it.first == "contact" },
+    )
 
     // Then a real loss: declared after 60 s, not before.
     clock.advanceMs(3_000)
@@ -88,14 +93,17 @@ class RecordingMonitorTest {
     clock.advanceMs(1_000)
     m.tick()
     assertEquals(RecordingState.ContactState.OFF_BODY, m.state.value.contact.state)
-    assertEquals(listOf("contact" to "no skin contact"), events.filter { it.first == "contact" })
+    assertEquals(
+        listOf("contact" to "no skin contact", "contact" to "skin contact restored", "contact" to "no skin contact"),
+        events.filter { it.first == "contact" },
+    )
 
     // Off-body time grows while the strap is off.
     clock.advanceMs(25_000)
     m.tick()
     assertEquals(25_000L, m.state.value.contact.offBodyMs)
 
-    // A flicker back on for less than 5 s does not clear it.
+    // A flicker back on for less than 5 s is logged but does not clear the state yet.
     m.hr(contact = true)
     m.tick()
     clock.advanceMs(4_000)
@@ -106,9 +114,48 @@ class RecordingMonitorTest {
     assertEquals(RecordingState.ContactState.ON_BODY, m.state.value.contact.state)
     assertEquals(30_000L, m.state.value.contact.offBodyMs)
     assertEquals(
+        listOf(
+            "contact" to "no skin contact",
+            "contact" to "skin contact restored",
+            "contact" to "no skin contact",
+            "contact" to "skin contact restored",
+        ),
+        events.filter { it.first == "contact" },
+    )
+  }
+
+  @Test
+  fun shortContactLossesAreLoggedEvenWhenTheStateDoesNotChange() {
+    // This is the pattern in the real 17-step capture: the strap was off for 13 s and 8 s, both
+    // shorter than the 60 s notification hysteresis, but they must still be annotated.
+    val m = monitor()
+    m.hr(contact = true)
+    m.tick()
+    clock.advanceMs(1_000)
+    m.hr(contact = false)
+    m.tick()
+    clock.advanceMs(12_000)
+    m.hr(contact = true)
+    m.tick()
+    assertEquals(RecordingState.ContactState.ON_BODY, m.state.value.contact.state)
+    assertEquals(
         listOf("contact" to "no skin contact", "contact" to "skin contact restored"),
         events.filter { it.first == "contact" },
     )
+  }
+
+  @Test
+  fun linkLossAndReconnectionAreLogged() {
+    val m = monitor()
+    m.onLink(ConnectionState.CONNECTED)
+    m.onLink(ConnectionState.CONNECTING)
+    m.onLink(ConnectionState.CONNECTED)
+    assertEquals(
+        listOf("connect" to "Simulated sensor", "disconnect" to "disconnected", "reconnect" to "Simulated sensor"),
+        events,
+    )
+    assertEquals(RecordingState.LinkState.CONNECTED, m.state.value.link.state)
+    assertEquals(1, m.state.value.link.reconnects)
   }
 
   @Test

@@ -1,0 +1,306 @@
+{
+  "description": "17-step H10 recipe, first capture (before raw contact events were logged)",
+  "duration_s": 162.387,
+  "contact": [
+    {
+      "t": 1.328,
+      "contact": true
+    },
+    {
+      "t": 27.3,
+      "contact": false
+    },
+    {
+      "t": 40.318,
+      "contact": true
+    },
+    {
+      "t": 68.309,
+      "contact": false
+    },
+    {
+      "t": 128.308,
+      "contact": true
+    },
+    {
+      "t": 150.31,
+      "contact": false
+    },
+    {
+      "t": 151.31,
+      "contact": true
+    }
+  ],
+  "events": [
+    {
+      "t": 0.0,
+      "type": "start",
+      "message": "recording started"
+    },
+    {
+      "t": 0.0,
+      "type": "readiness",
+      "message": "ignoring_battery_optimizations=true standby_bucket=5 background_restricted=false"
+    },
+    {
+      "t": 0.002,
+      "type": "connect",
+      "message": "Polar H10"
+    },
+    {
+      "t": 0.117,
+      "type": "clock_sync",
+      "message": "strap clock set to the phone time (UTC)"
+    },
+    {
+      "t": 0.299,
+      "type": "stream",
+      "message": "hr streaming"
+    },
+    {
+      "t": 1.025,
+      "type": "stream",
+      "message": "ecg streaming"
+    },
+    {
+      "t": 1.777,
+      "type": "stream",
+      "message": "acc streaming"
+    },
+    {
+      "t": 18.049,
+      "type": "ecg_signal",
+      "message": "poor signal (ECG pinned at its limits)"
+    },
+    {
+      "t": 40.101,
+      "type": "ecg_signal",
+      "message": "signal recovered"
+    },
+    {
+      "t": 60.143,
+      "type": "ecg_signal",
+      "message": "poor signal (ECG pinned at its limits)"
+    },
+    {
+      "t": 79.176,
+      "type": "stream_stalled",
+      "message": "hr stream stalled: no data for 3 s"
+    },
+    {
+      "t": 79.181,
+      "type": "stream_stalled",
+      "message": "ecg stream stalled: no data for 3 s"
+    },
+    {
+      "t": 79.181,
+      "type": "stream_stalled",
+      "message": "acc stream stalled: no data for 3 s"
+    },
+    {
+      "t": 80.983,
+      "type": "error",
+      "message": "hr stream error: BleDisconnected"
+    },
+    {
+      "t": 80.984,
+      "type": "error",
+      "message": "ecg stream error: PolarDeviceDisconnected"
+    },
+    {
+      "t": 80.986,
+      "type": "error",
+      "message": "acc stream error: PolarDeviceDisconnected"
+    },
+    {
+      "t": 80.998,
+      "type": "disconnect",
+      "message": "connecting"
+    },
+    {
+      "t": 92.999,
+      "type": "reconnect",
+      "message": "Polar H10"
+    },
+    {
+      "t": 94.648,
+      "type": "clock_sync",
+      "message": "strap clock set to the phone time (UTC)"
+    },
+    {
+      "t": 95.038,
+      "type": "stream",
+      "message": "hr streaming"
+    },
+    {
+      "t": 95.215,
+      "type": "stream_recovered",
+      "message": "hr stream recovered"
+    },
+    {
+      "t": 96.248,
+      "type": "stream",
+      "message": "acc streaming"
+    },
+    {
+      "t": 97.223,
+      "type": "stream_recovered",
+      "message": "acc stream recovered"
+    },
+    {
+      "t": 102.226,
+      "type": "error",
+      "message": "hr stream error: BleDisconnected"
+    },
+    {
+      "t": 102.228,
+      "type": "error",
+      "message": "ecg stream error: PolarDeviceDisconnected"
+    },
+    {
+      "t": 102.23,
+      "type": "error",
+      "message": "acc stream error: PolarDeviceDisconnected"
+    },
+    {
+      "t": 102.24,
+      "type": "disconnect",
+      "message": "connecting"
+    },
+    {
+      "t": 105.24,
+      "type": "stream_stalled",
+      "message": "hr stream stalled: no data for 3 s"
+    },
+    {
+      "t": 105.245,
+      "type": "stream_stalled",
+      "message": "acc stream stalled: no data for 3 s"
+    },
+    {
+      "t": 126.39,
+      "type": "reconnect",
+      "message": "Polar H10"
+    },
+    {
+      "t": 128.04,
+      "type": "clock_sync",
+      "message": "strap clock set to the phone time (UTC)"
+    },
+    {
+      "t": 128.309,
+      "type": "stream",
+      "message": "hr streaming"
+    },
+    {
+      "t": 128.838,
+      "type": "stream",
+      "message": "ecg streaming"
+    },
+    {
+      "t": 129.298,
+      "type": "stream_recovered",
+      "message": "hr stream recovered"
+    },
+    {
+      "t": 129.305,
+      "type": "stream_recovered",
+      "message": "ecg stream recovered"
+    },
+    {
+      "t": 129.77,
+      "type": "stream",
+      "message": "acc streaming"
+    },
+    {
+      "t": 130.306,
+      "type": "stream_recovered",
+      "message": "acc stream recovered"
+    },
+    {
+      "t": 132.311,
+      "type": "ecg_signal",
+      "message": "signal recovered"
+    },
+    {
+      "t": 141.817,
+      "type": "error",
+      "message": "hr stream error: BleDisconnected"
+    },
+    {
+      "t": 141.818,
+      "type": "error",
+      "message": "ecg stream error: PolarDeviceDisconnected"
+    },
+    {
+      "t": 141.818,
+      "type": "error",
+      "message": "acc stream error: PolarDeviceDisconnected"
+    },
+    {
+      "t": 141.819,
+      "type": "disconnect",
+      "message": "connecting"
+    },
+    {
+      "t": 144.329,
+      "type": "stream_stalled",
+      "message": "hr stream stalled: no data for 3 s"
+    },
+    {
+      "t": 144.335,
+      "type": "stream_stalled",
+      "message": "acc stream stalled: no data for 3 s"
+    },
+    {
+      "t": 145.337,
+      "type": "stream_stalled",
+      "message": "ecg stream stalled: no data for 3 s"
+    },
+    {
+      "t": 148.393,
+      "type": "reconnect",
+      "message": "Polar H10"
+    },
+    {
+      "t": 150.044,
+      "type": "clock_sync",
+      "message": "strap clock set to the phone time (UTC)"
+    },
+    {
+      "t": 150.31,
+      "type": "stream",
+      "message": "hr streaming"
+    },
+    {
+      "t": 150.345,
+      "type": "stream_recovered",
+      "message": "hr stream recovered"
+    },
+    {
+      "t": 150.827,
+      "type": "stream",
+      "message": "ecg streaming"
+    },
+    {
+      "t": 151.348,
+      "type": "stream_recovered",
+      "message": "ecg stream recovered"
+    },
+    {
+      "t": 151.796,
+      "type": "stream",
+      "message": "acc streaming"
+    },
+    {
+      "t": 152.353,
+      "type": "stream_recovered",
+      "message": "acc stream recovered"
+    },
+    {
+      "t": 162.375,
+      "type": "stop",
+      "message": "stopped by user"
+    }
+  ]
+}

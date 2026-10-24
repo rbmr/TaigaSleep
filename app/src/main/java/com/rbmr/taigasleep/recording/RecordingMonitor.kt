@@ -90,14 +90,23 @@ class RecordingMonitor(
   // Samples. No events and no publishing here: the 1 Hz tick coalesces them.
 
   override fun onHr(stamp: Stamp, sample: HrSample) {
+    var contactEvent: Pair<String, String>? = null
     synchronized(lock) {
       hrBpm = sample.hr
       hrContactSupported = sample.contactSupported
       rrAvailable = sample.rrAvailable
       if (sample.contactSupported) {
         if (rawContact != sample.contact) {
+          val before = rawContact
           rawContact = sample.contact
           rawContactSinceNs = stamp.elapsedNs
+          // Log the raw change immediately, as the raw recording always did. The live state
+          // (and therefore the notification) applies the hysteresis below.
+          if (before != null || !sample.contact) {
+            contactEvent =
+                "contact" to
+                    if (sample.contact) "skin contact restored" else "no skin contact"
+          }
         }
       } else {
         // The sensor cannot tell; keep the last committed state rather than inventing one.
@@ -105,6 +114,7 @@ class RecordingMonitor(
       }
       recordStream(RecordingState.StreamKind.HR, stamp.elapsedNs, 1)
     }
+    contactEvent?.let { emit(listOf(it)) }
   }
 
   override fun onEcg(stamp: Stamp, batch: EcgBatch) {
@@ -147,7 +157,7 @@ class RecordingMonitor(
         next == RecordingState.LinkState.CONNECTED ->
             events += (if (first) "connect" else "reconnect") to meta.sensorName
         previous == RecordingState.LinkState.CONNECTED ->
-            events += "disconnect" to next.name.lowercase()
+            events += "disconnect" to "disconnected"
       }
       publishLocked(nowMs)
     }
@@ -202,7 +212,7 @@ class RecordingMonitor(
     val nowMs = nowNs / NS_PER_MS
     val events = ArrayList<Pair<String, String>>(2)
     synchronized(lock) {
-      evaluateContact(nowMs, events)
+      evaluateContact(nowMs)
       evaluateStreams(nowNs, events)
       evaluateQuality(events)
       evaluateStorage(nowNs, events)
@@ -237,45 +247,34 @@ class RecordingMonitor(
     ecgPoor = if (ecgPoor) fraction >= CLIP_RECOVER else fraction >= CLIP_POOR
   }
 
-  private fun evaluateContact(nowMs: Long, events: MutableList<Pair<String, String>>) {
+  private fun evaluateContact(nowMs: Long) {
     val raw = rawContact ?: return
     val heldMs = (nowMs - rawContactSinceNs / NS_PER_MS).coerceAtLeast(0)
     when (contact) {
       RecordingState.ContactState.UNKNOWN -> {
-        if (raw) commitContact(RecordingState.ContactState.ON_BODY, nowMs, events)
-        else if (heldMs >= OFF_BODY_AFTER_MS) commitContact(RecordingState.ContactState.OFF_BODY, nowMs, events)
+        if (raw) commitContact(RecordingState.ContactState.ON_BODY, nowMs)
+        else if (heldMs >= OFF_BODY_AFTER_MS) commitContact(RecordingState.ContactState.OFF_BODY, nowMs)
       }
       RecordingState.ContactState.ON_BODY -> {
         if (!raw && heldMs >= OFF_BODY_AFTER_MS) {
-          commitContact(RecordingState.ContactState.OFF_BODY, nowMs, events)
+          commitContact(RecordingState.ContactState.OFF_BODY, nowMs)
         }
       }
       RecordingState.ContactState.OFF_BODY -> {
         if (raw && heldMs >= ON_BODY_AFTER_MS) {
-          commitContact(RecordingState.ContactState.ON_BODY, nowMs, events)
+          commitContact(RecordingState.ContactState.ON_BODY, nowMs)
         }
       }
     }
   }
 
-  private fun commitContact(
-      next: RecordingState.ContactState,
-      nowMs: Long,
-      events: MutableList<Pair<String, String>>,
-  ) {
+  private fun commitContact(next: RecordingState.ContactState, nowMs: Long) {
     if (next == contact) return
-    val before = contact
-    if (before == RecordingState.ContactState.OFF_BODY) {
+    if (contact == RecordingState.ContactState.OFF_BODY) {
       offBodyCompletedMs += (nowMs - contactSinceMs).coerceAtLeast(0)
     }
     contact = next
     contactSinceMs = nowMs
-    if (next == RecordingState.ContactState.OFF_BODY) {
-      events += "contact" to "no skin contact"
-    } else if (next == RecordingState.ContactState.ON_BODY &&
-        before == RecordingState.ContactState.OFF_BODY) {
-      events += "contact" to "skin contact restored"
-    }
   }
 
   private fun evaluateStreams(nowNs: Long, events: MutableList<Pair<String, String>>) {
