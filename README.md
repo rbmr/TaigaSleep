@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/taiga-sleep-lockup-horizontal-white.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/taiga-sleep-lockup-horizontal-black.svg">
-    <img src="assets/taiga-sleep-lockup-horizontal-black.svg" alt="Taiga Sleep" width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/taiga-sleep-lockup-horizontal-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/taiga-sleep-lockup-horizontal-light.svg">
+    <img src="assets/taiga-sleep-lockup-horizontal-light.svg" alt="Taiga Sleep" width="420">
   </picture>
 </p>
 

@@ -1,21 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Themed-icon layer: the bold den in one color, the system tints it. -->
+<!-- Themed-icon layer: the bear alone, so the system tint keeps it legible. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
   <group
-      android:scaleX="0.28"
-      android:scaleY="0.28"
-      android:translateX="24.84"
-      android:translateY="36.6">
-    <path
-        android:pathData="M16.16 108.16H28.5C57 -14.51 153.32 -14.51 181.82 108.16H194.16"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="14"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
+      android:scaleX="0.5726"
+      android:scaleY="0.5726"
+      android:translateX="-6.22"
+      android:translateY="10.31">
     <group
         android:pivotX="105.16"
         android:pivotY="108.16"
