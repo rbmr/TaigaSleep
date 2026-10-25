@@ -22,10 +22,11 @@ from ..contract import (
     StagingResult,
     StreamNeed,
 )
+from ..smoothing import smooth_labels, smooth_values
 
 INFO = AlgorithmInfo(
     id="baseline",
-    version="1.0.0",
+    version="1.1.0",
     name="Baseline HR/ACC",
     description=(
         "Deterministic heart-rate and movement reference stager. "
@@ -49,6 +50,7 @@ INFO = AlgorithmInfo(
         "rem_movement_g": 0.04,
         "min_contact_fraction": 0.50,
         "min_hr_coverage": 0.50,
+        "smooth_window_epochs": 7,
     },
     params_schema={
         "type": "object",
@@ -60,22 +62,41 @@ INFO = AlgorithmInfo(
             "rem_movement_g": {"type": "number", "minimum": 0.0},
             "min_contact_fraction": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "min_hr_coverage": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "smooth_window_epochs": {"type": "integer", "minimum": 1, "maximum": 21},
         },
     },
 )
 
 
-def _params(raw: Mapping[str, Any] | None) -> dict[str, float]:
-    merged: dict[str, float] = {
-        key: float(value) for key, value in INFO.default_params.items()
-    }
+def _params(raw: Mapping[str, Any] | None) -> dict[str, Any]:
+    merged: dict[str, Any] = dict(INFO.default_params)
     for key, value in (raw or {}).items():
         if key not in merged:
             raise AnalysisError("invalid_params", f"unknown baseline parameter {key!r}")
+        merged[key] = value
+
+    for key in (
+        "wake_movement_g",
+        "deep_hr_ratio",
+        "rem_hr_std_bpm",
+        "rem_movement_g",
+        "min_contact_fraction",
+        "min_hr_coverage",
+    ):
         try:
-            merged[key] = float(value)
+            merged[key] = float(merged[key])
         except (TypeError, ValueError) as exc:
             raise AnalysisError("invalid_params", f"parameter {key!r} must be a number") from exc
+
+    try:
+        smooth = int(merged["smooth_window_epochs"])
+    except (TypeError, ValueError) as exc:
+        raise AnalysisError(
+            "invalid_params", "smooth_window_epochs must be an integer"
+        ) from exc
+    if not 1 <= smooth <= 21:
+        raise AnalysisError("invalid_params", "smooth_window_epochs must be between 1 and 21")
+    merged["smooth_window_epochs"] = smooth
 
     if merged["wake_movement_g"] < 0:
         raise AnalysisError("invalid_params", "wake_movement_g must be >= 0")
@@ -172,6 +193,15 @@ class BaselineStager(Stager):
             confidence.append(round(_clamp(base_confidence * signal, 0.05, 0.99), 3))
             artifacts.append(hr_coverage < 0.5 or contact < 0.5)
 
+        window = int(config["smooth_window_epochs"])
+        if window > 1:
+            stages = smooth_labels(stages, window)
+            known = [stage != "unknown" for stage in stages]
+            smoothed = smooth_values(confidence, known, window)
+            confidence = [
+                0.0 if value is None else round(float(value), 3) for value in smoothed
+            ]
+
         return StagingResult(
             stages=stages,
             confidence=confidence,
@@ -181,6 +211,7 @@ class BaselineStager(Stager):
                 "night_median_hr_bpm": None if not np.isfinite(night_median) else round(night_median, 1),
                 "params": config,
                 "has_acc": has_acc,
+                "smooth_window_epochs": window,
             },
         )
 

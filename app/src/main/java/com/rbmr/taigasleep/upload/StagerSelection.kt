@@ -1,6 +1,8 @@
 package com.rbmr.taigasleep.upload
 
 import com.rbmr.taigasleep.remote.AlgorithmDto
+import com.rbmr.taigasleep.remote.AlgorithmListDto
+import com.rbmr.taigasleep.remote.TaigaClient
 import com.rbmr.taigasleep.storage.SessionConfig
 
 /** Best-to-worst order used when more than one stager is available. */
@@ -25,7 +27,18 @@ fun selectStager(config: SessionConfig, algorithms: List<AlgorithmDto>): StagerC
   }
   // baseline is built into the worker and is the safe fallback when the algorithm list is empty,
   // the worker has not reported yet, or nothing reported can run on this recording.
-  return StagerChoice("baseline", "1.0.0")
+  return StagerChoice("baseline", "1.1.0")
+}
+
+/**
+ * Ask the backend which stagers are installed, then pick the default for this recording. An
+ * unreachable algorithm endpoint must not block an upload, so it falls back to the built-in
+ * baseline.
+ */
+suspend fun selectInstalledStager(client: TaigaClient, config: SessionConfig): StagerChoice {
+  val algorithms =
+      runCatching { client.getAlgorithms() }.getOrDefault(AlgorithmListDto()).algorithms
+  return selectStager(config, algorithms)
 }
 
 fun compatible(algorithm: AlgorithmDto, config: SessionConfig): Boolean =

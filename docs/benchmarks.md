@@ -27,7 +27,7 @@ Useful options:
 
 | Option | Meaning |
 | --- | --- |
-| `--model` | Stager id. `baseline` is built in; `wav2sleep` and `sleep-ecg` are optional extras (#23, #22). |
+| `--model` | Stager id. `baseline` is built in; `wav2sleep` is an optional extra (#23) and `sleep-ecg` is tracked in #22. |
 | `--version` | Exact algorithm version. Omit for the latest installed version. |
 | `--params` | JSON object of algorithm parameters, e.g. `'{"deep_hr_ratio": 0.85}'`. |
 | `--memory-mb` | Address-space limit for the subprocess. `0` disables it. |
@@ -42,7 +42,7 @@ and metric support.
 ## Reference run (synthetic, not a real night)
 
 The checked-in 120-second synthetic fixture (`backend/worker/tests/analysis_fixture.py`)
-on an x86_64 Linux laptop, CPU-only, baseline `1.0.0`:
+on an x86_64 Linux laptop, CPU-only, baseline `1.1.0`:
 
 | Measure | Value |
 | --- | --- |
@@ -56,6 +56,18 @@ on an x86_64 Linux laptop, CPU-only, baseline `1.0.0`:
 This proves the measurement path and gives a lower bound for the baseline. It is
 **not** a real night, not an accuracy claim, and not representative of the ML
 models.
+
+The optional wav2sleep model on the same fixture, CPU-only, one torch thread,
+`TAIGA_JOB_MEMORY_MB=2048`. The fixture is shorter than wav2sleep's default
+30 min minimum, so pass `--params '{"min_usable_epochs":1}'`:
+
+| Model | Runtime | Peak RSS | Quality | Stage seconds | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `wav2sleep` 1.1.0, variable length | 1.9 s | 399 MiB | 90.8 | light 120 | default; model + torch import included |
+| `wav2sleep` 1.1.0, padded to 10 h | 4.0 s | 624 MiB | 100.0 | wake 120 | `pad_to_max_length=true`; padding dominates a 2 min input |
+
+See [`wav2sleep.md`](wav2sleep.md) for the pinned checkpoint, installation,
+two real H10 nights, contact gating/smoothing and the address-space limits.
 
 ## Real H10 nights
 
@@ -89,8 +101,8 @@ Run the same recording through each installed model and version:
 
 ```bash
 uv run --project worker --frozen python scripts/benchmark_analysis.py /path/to/recording --model baseline
-uv run --project worker --frozen python scripts/benchmark_analysis.py /path/to/recording --model wav2sleep
-uv run --project worker --frozen python scripts/benchmark_analysis.py /path/to/recording --model sleep-ecg
+uv run --project worker --frozen --extra wav2sleep python scripts/benchmark_analysis.py /path/to/recording --model wav2sleep
+uv run --project worker --frozen --extra sleepecg python scripts/benchmark_analysis.py /path/to/recording --model sleep-ecg
 ```
 
 The model/version, licence, citation, runtime, peak RSS and input-quality
@@ -100,10 +112,15 @@ meaningful when the user switches algorithms.
 ## Memory and small machines
 
 The worker runs one job at a time. The analysis subprocess is the only heavy
-part; numeric libraries are forced to one thread. On a 1 GB machine add swap
-before enabling an ML model, and set `TAIGA_JOB_MEMORY_MB` to a realistic value.
-The built-in baseline is small; the wav2sleep and SleepECG extra benchmarks are
-tracked in #23 and #22.
+part; numeric libraries are forced to one thread. The built-in baseline peaks
+around 40–60 MiB RSS. The optional wav2sleep extra needs more address space
+because PyTorch maps a lot at import: 1024 MiB failed on the reference laptop,
+1536 MiB passed, and 2048 MiB is the recommended minimum. Peak RSS on real
+nights was 725–873 MiB. On a 1 GB machine keep the baseline only; for wav2sleep
+use at least 2 vCPU, 4 GB RAM and about 1.5 GB free disk for the extra. Set
+`TAIGA_JOB_MEMORY_MB` above the measured peak with a margin, or `0` to disable
+the cap. The worker logs a warning when wav2sleep is installed with a limit
+below 1536 MiB.
 
 ## Data handling
 

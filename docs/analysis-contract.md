@@ -58,7 +58,7 @@ Stage = Literal["wake", "rem", "nrem", "light", "deep", "sleep", "unknown"]
 | `epoch_seconds` | Output epoch length; 30 is the norm. |
 | `stage_scheme` | `aasm4`, `wake-rem-nrem`, `wake-sleep`, or a documented custom scheme. |
 | `supported_stages` | Stages the algorithm can actually emit. |
-| `capabilities` | At least `stages`; optionally `confidence`, `artifacts`, `beats`. |
+| `capabilities` | At least `stages`; optionally `confidence`, `probabilities`, `artifacts`, `beats`. |
 | `default_params`, `params_schema` | Tunable parameters and their shape. |
 
 ## Input: `Recording`
@@ -118,11 +118,18 @@ StagingResult(
 
 - `stages` is required and must use only `info.supported_stages`.
 - `confidence` and `artifacts` are optional; the shared quality score accounts
-  for missing confidence by renormalizing its weight.
+  for missing confidence by renormalizing its weight. `unknown` means the epoch
+  could not be scored; an epoch may still carry a stage while being flagged as
+  an artifact (for example a short electrode pop), so artifacts are not
+  necessarily unknown.
 - `probabilities` is optional. If confidence is absent, it is derived from the
   maximum probability.
 - `beats_s` is optional and lets an ECG algorithm improve HRV without changing
   the metrics layer. If absent, HRV uses the H10 RR intervals.
+- `provenance` is optional algorithm-specific provenance (checkpoint path,
+  model revision, hashes). The worker merges it into the result under
+  `provenance.algorithm`; it cannot replace the standard licence, citation or
+  contract fields.
 - `extras` is algorithm-specific, must be JSON-serializable and is never used by
   the standard app metrics.
 - A stager must not read files, call the API, write results or depend on the
@@ -171,6 +178,16 @@ analysis can request an exact version.
 Third-party code runs in the worker's analysis subprocess with the existing
 memory/time limits. It is trusted operator-installed code, not a sandbox.
 `TAIGA_ALGORITHMS` can allowlist ids.
+
+Built-ins may be optional. A built-in module can export
+`availability() -> (bool, reason)`; when it returns false the algorithm is not
+advertised. A missing optional dependency stays silent, while a
+configured-but-broken extra is reported in the registry errors. The optional
+wav2sleep stager uses this so a base worker reports only the baseline.
+
+The result's `capabilities` records what the run actually produced, including
+`probabilities`, `confidence`, `artifacts` and `beats`. Per-epoch probabilities
+are stored by stage name in `stages.probabilities`.
 
 ## Minimal example
 

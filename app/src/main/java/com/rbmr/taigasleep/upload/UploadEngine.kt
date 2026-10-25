@@ -1,6 +1,5 @@
 package com.rbmr.taigasleep.upload
 
-import com.rbmr.taigasleep.remote.AlgorithmListDto
 import com.rbmr.taigasleep.remote.TaigaClient
 import com.rbmr.taigasleep.remote.TaigaConflictException
 import com.rbmr.taigasleep.remote.UploadManifestDto
@@ -67,12 +66,10 @@ class UploadEngine(
     }
     onProgress(1f)
 
-    val algorithms =
-        runCatching { client.getAlgorithms() }.getOrDefault(AlgorithmListDto())
     val choice =
-        selectStager(
-            config = metaRecord?.config ?: SessionConfig(hr = true, ecg = false, acc = false),
-            algorithms = algorithms.algorithms,
+        selectInstalledStager(
+            client,
+            metaRecord?.config ?: SessionConfig(hr = true, ecg = false, acc = false),
         )
     val requested = client.requestAnalysis(remoteId, choice.id, choice.version)
     val analysis = requested.analyses.firstOrNull()
@@ -162,9 +159,6 @@ class UploadEngine(
       files.mapValues { it.value.length }.toMutableMap()
 
   companion object {
-    const val MODEL = "baseline"
-    const val MODEL_VERSION = "1.0.0"
-
     private const val META = "meta.json"
     private val FILES = listOf("hr.log", "ecg.log", "acc.log", "events.jsonl")
     private const val MAX_CONFLICTS = 2

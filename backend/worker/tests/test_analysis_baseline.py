@@ -66,3 +66,7 @@ def test_invalid_params_are_rejected(tmp_path: Path) -> None:
     with pytest.raises(AnalysisError) as context:
         baseline.STAGER.stage(recording, {"deep_hr_ratio": 2.0})
     assert context.value.code == "invalid_params"
+
+    with pytest.raises(AnalysisError) as context:
+        baseline.STAGER.stage(recording, {"smooth_window_epochs": 0})
+    assert context.value.code == "invalid_params"
