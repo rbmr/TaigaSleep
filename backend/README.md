@@ -350,26 +350,29 @@ is rejected.
 
 ## Tests
 
-Worker unit tests use the standard library plus numpy. Dependencies and the
-exact interpreter are managed by uv from `backend/worker/uv.lock`:
+Both Python suites run under pytest. It is a dev-only dependency of the worker
+(`[dependency-groups]` in `backend/worker/pyproject.toml`), so the production
+image built with `uv sync --frozen --no-dev` stays pytest-free. Dependencies and
+the exact interpreter are managed by uv from `backend/worker/uv.lock`:
 
 ```bash
 cd backend/worker
 uv sync --frozen
-uv run --frozen python -m unittest discover -s tests -t .
+uv run --frozen pytest
 ```
 
 The integration suite starts a real PocketBase server in a temporary directory,
 applies the migrations, and exercises the hooks and a real worker subprocess.
 It covers upload/resume/validation, analysis requests, algorithm reporting,
 scoped worker downloads, the baseline end-to-end run, result storage, retries
-and owner isolation. Set `POCKETBASE_BIN` to the binary (or put it on `PATH`):
+and owner isolation. Set `POCKETBASE_BIN` to the binary (or put it on `PATH`);
+the suite skips when neither is available:
 
 ```bash
 cd backend
 uv sync --project worker --frozen
 POCKETBASE_BIN=/path/to/pocketbase \
-  uv run --project worker --frozen python -m unittest tests.test_integration -v
+  uv run --project worker --frozen pytest tests/test_integration.py
 ```
 
 Set `TAIGA_KEEP_TEST_DATA=1` to keep the temporary data directory after a run.

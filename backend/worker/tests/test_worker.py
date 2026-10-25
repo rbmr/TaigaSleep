@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import unittest
 from typing import Any, Mapping
 
 from taiga_worker.api import ApiError
@@ -121,118 +120,117 @@ class FakeRunner:
         self.terminated = True
 
 
-class WorkerTest(unittest.TestCase):
-    def test_empty_queue_returns_false(self) -> None:
-        api = FakeApi()
-        worker = Worker(config(), api, FakeRunner(), sleep=lambda _: None)
-        self.assertFalse(worker.run_once())
-        self.assertEqual(api.claims, 1)  # one login, one empty claim
-
-    def test_success_reports_done(self) -> None:
-        api = FakeApi(jobs=[{"id": "job1", "kind": "analysis", "model": "m", "session": "s1", "analysis": "a1"}])
-        runner = FakeRunner(Outcome(ok=True, result={"ok": True}))
-        worker = Worker(config(), api, runner, sleep=lambda _: None)
-
-        self.assertTrue(worker.run_once())
-
-        self.assertEqual(runner.jobs[0]["id"], "job1")
-        self.assertEqual(
-            api.finished,
-            [
-                {
-                    "job_id": "job1",
-                    "worker": "worker-1",
-                    "status": "done",
-                    "result": {"ok": True},
-                    "error": None,
-                    "retryable": None,
-                }
-            ],
-        )
-
-    def test_failure_reports_failed(self) -> None:
-        api = FakeApi(jobs=[{"id": "job1", "session": "s1", "analysis": "a1"}])
-        runner = FakeRunner(Outcome(ok=False, error="bad recording"))
-        worker = Worker(config(), api, runner, sleep=lambda _: None)
-
-        self.assertTrue(worker.run_once())
-
-        self.assertEqual(api.finished[0]["status"], "failed")
-        self.assertEqual(api.finished[0]["error"], "bad recording")
-
-    def test_401_while_claiming_triggers_one_relogin(self) -> None:
-        api = FakeApi(jobs=[{"id": "job1", "session": "s1", "analysis": "a1"}])
-        api.expire_token = True
-        worker = Worker(config(), api, FakeRunner(), sleep=lambda _: None)
-
-        self.assertTrue(worker.run_once())
-        self.assertGreaterEqual(api.logins, 2)
-
-    def test_report_is_retried(self) -> None:
-        api = FakeApi(jobs=[{"id": "job1", "session": "s1", "analysis": "a1"}], finish_failures=2)
-        worker = Worker(config(), api, FakeRunner(), sleep=lambda _: None)
-
-        self.assertTrue(worker.run_once())
-        self.assertEqual(api.finished[0]["job_id"], "job1")
-
-    def test_stop_during_job_leaves_it_leased(self) -> None:
-        api = FakeApi(jobs=[{"id": "job1", "session": "s1", "analysis": "a1"}])
-        holder: dict[str, Worker] = {}
-        runner = FakeRunner(on_run=lambda: holder["worker"].request_stop())
-        worker = Worker(config(), api, runner, sleep=lambda _: None)
-        holder["worker"] = worker
-
-        self.assertTrue(worker.run_once())
-        self.assertEqual(api.finished, [])
-        self.assertTrue(runner.terminated)
-
-    def test_run_forever_polls_then_stops(self) -> None:
-        api = FakeApi()
-        holder: dict[str, Worker] = {}
-        sleeps: list[float] = []
-
-        def fake_sleep(seconds: float) -> None:
-            sleeps.append(seconds)
-            holder["worker"].request_stop()
-
-        worker = Worker(config(), api, FakeRunner(), sleep=fake_sleep)
-        holder["worker"] = worker
-        worker.run_forever()
-
-        self.assertEqual(sleeps, [config().poll_interval_s])
-
-    def test_run_forever_recovers_from_api_errors(self) -> None:
-        api = FakeApi(jobs=[{"id": "job1", "session": "s1", "analysis": "a1"}])
-
-        class FlakyApi(FakeApi):
-            def claim(
-                self,
-                worker: str,
-                lease_seconds: int,
-                algorithms: list[str] | None = None,
-            ) -> dict[str, Any] | None:
-                if self.claims == 0:
-                    self.claims += 1
-                    raise ApiError("down", status=502)
-                return super().claim(worker, lease_seconds, algorithms)
-
-        api = FlakyApi(jobs=[{"id": "job1", "session": "s1", "analysis": "a1"}])
-        holder: dict[str, Worker] = {}
-        sleeps: list[float] = []
-
-        def fake_sleep(seconds: float) -> None:
-            sleeps.append(seconds)
-            if len(sleeps) == 1:
-                return
-            holder["worker"].request_stop()
-
-        worker = Worker(config(), api, FakeRunner(), sleep=fake_sleep)
-        holder["worker"] = worker
-        worker.run_forever()
-
-        self.assertEqual(api.finished[0]["job_id"], "job1")
-        self.assertEqual(sleeps[0], 1.0)
+def test_empty_queue_returns_false() -> None:
+    api = FakeApi()
+    worker = Worker(config(), api, FakeRunner(), sleep=lambda _: None)
+    assert not worker.run_once()
+    assert api.claims == 1  # one login, one empty claim
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_success_reports_done() -> None:
+    api = FakeApi(jobs=[{"id": "job1", "kind": "analysis", "model": "m", "session": "s1", "analysis": "a1"}])
+    runner = FakeRunner(Outcome(ok=True, result={"ok": True}))
+    worker = Worker(config(), api, runner, sleep=lambda _: None)
+
+    assert worker.run_once()
+
+    assert runner.jobs[0]["id"] == "job1"
+    assert api.finished == [
+        {
+            "job_id": "job1",
+            "worker": "worker-1",
+            "status": "done",
+            "result": {"ok": True},
+            "error": None,
+            "retryable": None,
+        }
+    ]
+
+
+def test_failure_reports_failed() -> None:
+    api = FakeApi(jobs=[{"id": "job1", "session": "s1", "analysis": "a1"}])
+    runner = FakeRunner(Outcome(ok=False, error="bad recording"))
+    worker = Worker(config(), api, runner, sleep=lambda _: None)
+
+    assert worker.run_once()
+
+    assert api.finished[0]["status"] == "failed"
+    assert api.finished[0]["error"] == "bad recording"
+
+
+def test_401_while_claiming_triggers_one_relogin() -> None:
+    api = FakeApi(jobs=[{"id": "job1", "session": "s1", "analysis": "a1"}])
+    api.expire_token = True
+    worker = Worker(config(), api, FakeRunner(), sleep=lambda _: None)
+
+    assert worker.run_once()
+    assert api.logins >= 2
+
+
+def test_report_is_retried() -> None:
+    api = FakeApi(jobs=[{"id": "job1", "session": "s1", "analysis": "a1"}], finish_failures=2)
+    worker = Worker(config(), api, FakeRunner(), sleep=lambda _: None)
+
+    assert worker.run_once()
+    assert api.finished[0]["job_id"] == "job1"
+
+
+def test_stop_during_job_leaves_it_leased() -> None:
+    api = FakeApi(jobs=[{"id": "job1", "session": "s1", "analysis": "a1"}])
+    holder: dict[str, Worker] = {}
+    runner = FakeRunner(on_run=lambda: holder["worker"].request_stop())
+    worker = Worker(config(), api, runner, sleep=lambda _: None)
+    holder["worker"] = worker
+
+    assert worker.run_once()
+    assert api.finished == []
+    assert runner.terminated
+
+
+def test_run_forever_polls_then_stops() -> None:
+    api = FakeApi()
+    holder: dict[str, Worker] = {}
+    sleeps: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        holder["worker"].request_stop()
+
+    worker = Worker(config(), api, FakeRunner(), sleep=fake_sleep)
+    holder["worker"] = worker
+    worker.run_forever()
+
+    assert sleeps == [config().poll_interval_s]
+
+
+def test_run_forever_recovers_from_api_errors() -> None:
+    api = FakeApi(jobs=[{"id": "job1", "session": "s1", "analysis": "a1"}])
+
+    class FlakyApi(FakeApi):
+        def claim(
+            self,
+            worker: str,
+            lease_seconds: int,
+            algorithms: list[str] | None = None,
+        ) -> dict[str, Any] | None:
+            if self.claims == 0:
+                self.claims += 1
+                raise ApiError("down", status=502)
+            return super().claim(worker, lease_seconds, algorithms)
+
+    api = FlakyApi(jobs=[{"id": "job1", "session": "s1", "analysis": "a1"}])
+    holder: dict[str, Worker] = {}
+    sleeps: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        if len(sleeps) == 1:
+            return
+        holder["worker"].request_stop()
+
+    worker = Worker(config(), api, FakeRunner(), sleep=fake_sleep)
+    holder["worker"] = worker
+    worker.run_forever()
+
+    assert api.finished[0]["job_id"] == "job1"
+    assert sleeps[0] == 1.0

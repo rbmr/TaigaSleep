@@ -213,7 +213,7 @@ STAGER = MyStager()
 ```bash
 cd backend/worker
 uv sync --frozen
-uv run --frozen python -m unittest discover -s tests -t .
+uv run --frozen pytest
 ```
 
 The integration suite for the upload API and result storage lives in
