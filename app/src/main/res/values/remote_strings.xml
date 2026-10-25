@@ -8,6 +8,7 @@
   <string name="remote_state_not_configured">Not configured</string>
   <string name="remote_state_connected_short">Connected</string>
   <string name="remote_state_login_needed_short">Login needed</string>
+  <string name="remote_state_unreachable_short">Server unreachable</string>
   <string name="remote_state_connected">Connected as %1$s</string>
   <string name="remote_last_check">Last check: %1$s</string>
   <string name="remote_last_check_never">Last check: never</string>
@@ -18,6 +19,7 @@
   <string name="remote_email_label">Email</string>
   <string name="remote_password_label">Password</string>
   <string name="remote_password_keep">Leave empty to use the current login.</string>
+  <string name="remote_password_required">Enter your password to log in.</string>
   <string name="remote_show_password">Show password</string>
   <string name="remote_hide_password">Hide password</string>
 
@@ -25,9 +27,8 @@
   <string name="remote_address_failed">Server not reachable</string>
 
   <string name="remote_login">Log in</string>
-  <string name="remote_logging_in">Logging in…</string>
-  <string name="remote_login_success_title">Logged in</string>
-  <string name="remote_login_success_body">Taiga is connected as %1$s.</string>
+  <string name="remote_check_login">Check login</string>
+  <string name="remote_checking">Checking…</string>
   <string name="remote_login_failed_title">Login failed</string>
 
   <string name="remote_logout">Log out</string>
@@ -46,9 +47,6 @@
   <string name="remote_error_session_expired">The login has expired. Enter your password to log in again.</string>
   <string name="remote_error_http">The server answered with error %1$d.</string>
   <string name="remote_error_malformed">The server sent an unexpected response.</string>
-
-  <string name="remote_http_warning_title">Plain HTTP</string>
-  <string name="remote_http_warning_body">This address is not encrypted. Only use it on a network you trust; the password and the token travel in clear text.</string>
 
   <string name="remote_login_prompt">Remote login needed</string>
   <string name="remote_login_prompt_action">Fix</string>

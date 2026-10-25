@@ -5,14 +5,12 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -38,12 +36,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
@@ -52,6 +50,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.remote.AddressCheck
@@ -71,6 +70,7 @@ import com.rbmr.taigasleep.ui.components.StatusChip
 import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.theme.taiga
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** The server ping of the address field, separate from the login that follows it. */
@@ -85,9 +85,10 @@ private sealed interface AddressPing {
 }
 
 /**
- * Settings → Remote. Connecting to the server and logging in are two separate steps: the address
- * field pings the backend when it loses focus, and the login button stays disabled until that ping
- * succeeds. Nothing here blocks recording.
+ * Settings → Remote. Connecting to the server and logging in are two separate steps: opening the
+ * screen (and resuming it) checks health and then the stored token, and the address field pings the
+ * backend when it loses focus. The status card, the field and the login button read that one shared
+ * state, so they never disagree. Nothing here blocks recording.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,13 +103,13 @@ fun RemoteScreen(onBack: () -> Unit) {
   var password by rememberSaveable { mutableStateOf("") }
   var passwordVisible by rememberSaveable { mutableStateOf(false) }
   var showLogout by rememberSaveable { mutableStateOf(false) }
-  var result by remember { mutableStateOf<CheckResult?>(null) }
+  var result by remember { mutableStateOf<CheckResult.Failure?>(null) }
   var ping by remember { mutableStateOf<AddressPing>(AddressPing.Idle) }
   var pingGeneration by remember { mutableIntStateOf(0) }
   var urlWasFocused by remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
 
-  // Pings the server without logging in; invalid addresses are reported without a request.
+  // Pings the server of the address field; invalid addresses are reported without a request.
   fun pingServer() {
     val raw = url
     if (raw.isBlank()) {
@@ -140,8 +141,31 @@ fun RemoteScreen(onBack: () -> Unit) {
     }
   }
 
-  // A saved address is checked straight away, so the login button need not wait for a re-tap.
-  LaunchedEffect(Unit) { if (url.isNotBlank()) pingServer() }
+  // Both checks on open and on resume: health, then the saved token when health passed. The
+  // shared state never depends on when this screen was last composed.
+  fun checkRemote() {
+    val raw = url
+    if (raw.isBlank()) {
+      ping = AddressPing.Idle
+      return
+    }
+    val generation = ++pingGeneration
+    ping = AddressPing.Checking
+    scope.launch {
+      val checked = repository.check(raw)
+      if (generation != pingGeneration) return@launch
+      ping =
+          when (checked) {
+            is AddressCheck.Reachable -> AddressPing.Reachable(checked.baseUrl)
+            is AddressCheck.Failure -> AddressPing.Failed(checked.error)
+          }
+    }
+  }
+
+  LifecycleResumeEffect(Unit) {
+    checkRemote()
+    onPauseOrDispose {}
+  }
 
   val parsedBase = RemoteUrl.parse(url).getOrNull()?.baseUrl
   val reachableBase = (ping as? AddressPing.Reachable)?.baseUrl
@@ -154,6 +178,13 @@ fun RemoteScreen(onBack: () -> Unit) {
           email.trim().equals(repository.savedEmail, ignoreCase = true)
   val canLogin =
       !checking && addressOk && email.isNotBlank() && (password.isNotEmpty() || passwordless)
+  val passwordHint =
+      when {
+        password.isNotEmpty() -> null
+        passwordless -> R.string.remote_password_keep
+        addressOk -> R.string.remote_password_required
+        else -> null
+      }
 
   BackHandler(onBack = onBack)
 
@@ -291,12 +322,7 @@ fun RemoteScreen(onBack: () -> Unit) {
                       )
                     }
                   },
-                  supportingText =
-                      if (passwordless) {
-                        { Text(stringResource(R.string.remote_password_keep)) }
-                      } else {
-                        null
-                      },
+                  supportingText = passwordHint?.let { hint -> { Text(stringResource(hint)) } },
               )
             }
           }
@@ -304,39 +330,33 @@ fun RemoteScreen(onBack: () -> Unit) {
       }
 
       // Below the fields so that it never moves them while the address is being typed.
-      item(key = "warning") {
-        if (RemoteUrl.parse(url).getOrNull()?.insecure == true) {
-          StatusBanner(
-              kind = StatusKind.Warn,
-              title = stringResource(R.string.remote_http_warning_title),
-              body = stringResource(R.string.remote_http_warning_body),
-          )
-        }
-      }
-
       item(key = "login-action") {
         // Step two only: the address has already been pinged above.
         PrimaryButton(
             text =
                 stringResource(
-                    if (checking) R.string.remote_logging_in else R.string.remote_login
+                    when {
+                      checking -> R.string.remote_checking
+                      passwordless -> R.string.remote_check_login
+                      else -> R.string.remote_login
+                    }
                 ),
             onClick = {
               scope.launch {
                 val outcome =
                     if (passwordless) {
+                      // No password means "check the stored token", like the automatic check.
                       repository.verify()
-                          ?: CheckResult.Failure(RemoteStep.LOGIN, RemoteError.SessionExpired)
+                          ?: CheckResult.Failure(RemoteStep.LOGIN, RemoteError.MissingCredentials)
                     } else {
                       repository.login(url, email, password)
                     }
-                result = outcome
+                result = outcome as? CheckResult.Failure
                 if (outcome is CheckResult.Success) {
                   password = ""
                 } else if (outcome is CheckResult.Failure &&
-                    (outcome.error == RemoteError.Unreachable ||
-                        outcome.error == RemoteError.NotTaiga)) {
-                  // The server stopped answering between the ping and the login.
+                    repository.status.value is RemoteStatus.Unreachable) {
+                  // The server stopped answering between the check and the login.
                   pingGeneration++
                   ping = AddressPing.Failed(outcome.error)
                 }
@@ -400,60 +420,50 @@ private fun StatusCard(status: RemoteStatus) {
         RemoteStatus.NotConfigured -> StatusKind.Warn
         is RemoteStatus.Connected -> StatusKind.Ok
         is RemoteStatus.LoginNeeded -> StatusKind.Warn
+        is RemoteStatus.Unreachable -> StatusKind.Bad
       }
   val chipLabel =
       when (status) {
         RemoteStatus.NotConfigured -> stringResource(R.string.remote_state_not_configured)
         is RemoteStatus.Connected -> stringResource(R.string.remote_state_connected_short)
         is RemoteStatus.LoginNeeded -> stringResource(R.string.remote_state_login_needed_short)
+        is RemoteStatus.Unreachable -> stringResource(R.string.remote_state_unreachable_short)
       }
+  val checkedAt =
+      when (status) {
+        RemoteStatus.NotConfigured -> null
+        is RemoteStatus.Connected -> status.checkedAtMs
+        is RemoteStatus.LoginNeeded -> status.checkedAtMs
+        is RemoteStatus.Unreachable -> status.checkedAtMs
+      }
+  // Keep the relative time honest while the screen is open; checks refresh it too.
+  var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+  LaunchedEffect(checkedAt) {
+    if (checkedAt == null) return@LaunchedEffect
+    nowMs = System.currentTimeMillis()
+    while (true) {
+      delay(1_000)
+      nowMs = System.currentTimeMillis()
+    }
+  }
   TaigaCard {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-      StatusChip(kind = chipKind, label = chipLabel)
-      Spacer(Modifier.weight(1f))
-      Text(
-          text = lastCheck(status),
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-    }
-    val detail =
-        when (status) {
-          RemoteStatus.NotConfigured -> null
-          is RemoteStatus.Connected ->
-              stringResource(R.string.remote_state_connected, status.email)
-          is RemoteStatus.LoginNeeded -> status.reason?.let { errorMessage(it) }
-        }
-    if (detail != null) {
-      Spacer(Modifier.height(8.dp))
-      Text(
-          text = detail,
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-    }
+    StatusChip(kind = chipKind, label = chipLabel)
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text = lastCheck(checkedAt, nowMs),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
   }
 }
 
 @Composable
-private fun CheckResultBanner(result: CheckResult) {
-  when (result) {
-    is CheckResult.Success ->
-        StatusBanner(
-            kind = StatusKind.Ok,
-            title = stringResource(R.string.remote_login_success_title),
-            body = stringResource(R.string.remote_login_success_body, result.email),
-        )
-    is CheckResult.Failure ->
-        StatusBanner(
-            kind = StatusKind.Bad,
-            title = stringResource(R.string.remote_login_failed_title),
-            body = errorMessage(result.error),
-        )
-  }
+private fun CheckResultBanner(failure: CheckResult.Failure) {
+  StatusBanner(
+      kind = StatusKind.Bad,
+      title = stringResource(R.string.remote_login_failed_title),
+      body = errorMessage(failure.error),
+  )
 }
 
 @Composable
@@ -472,19 +482,13 @@ private fun errorMessage(error: RemoteError): String =
     }
 
 @Composable
-private fun lastCheck(status: RemoteStatus): String {
-  val checkedAt =
-      when (status) {
-        RemoteStatus.NotConfigured -> null
-        is RemoteStatus.Connected -> status.checkedAtMs
-        is RemoteStatus.LoginNeeded -> status.checkedAtMs
-      }
+private fun lastCheck(checkedAt: Long?, nowMs: Long): String {
   if (checkedAt == null) return stringResource(R.string.remote_last_check_never)
   val relative =
       DateUtils.getRelativeTimeSpanString(
           checkedAt,
-          System.currentTimeMillis(),
-          DateUtils.MINUTE_IN_MILLIS,
+          nowMs,
+          DateUtils.SECOND_IN_MILLIS,
           DateUtils.FORMAT_ABBREV_RELATIVE,
       )
   return stringResource(R.string.remote_last_check, relative.toString())

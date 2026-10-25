@@ -82,17 +82,27 @@ sealed interface AddressCheck {
   data class Failure(val error: RemoteError) : AddressCheck
 }
 
-/** The state Settings shows. Only these three states exist when nothing is being checked. */
+/**
+ * The state Settings shows. It is always the result of the most recent check, so it can never
+ * claim a connection that no check has confirmed.
+ */
 sealed interface RemoteStatus {
   data object NotConfigured : RemoteStatus
 
   data class Connected(val email: String, val checkedAtMs: Long?) : RemoteStatus
 
+  /**
+   * The backend answered but the stored token is not valid; a password is needed. This is the only
+   * state a rejected token produces: a server that is merely down never gets here.
+   */
   data class LoginNeeded(
       val email: String?,
       val checkedAtMs: Long?,
       val reason: RemoteError? = null,
   ) : RemoteStatus
+
+  /** The backend could not be reached at all; the stored token is kept untouched. */
+  data class Unreachable(val reason: RemoteError, val checkedAtMs: Long?) : RemoteStatus
 }
 
 /** A logged-in session as returned by the backend. */

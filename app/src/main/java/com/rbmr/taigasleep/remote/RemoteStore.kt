@@ -131,6 +131,14 @@ class RemoteStore(
     get() = prefs.getString(KEY_REASON)
     set(value) = prefs.putString(KEY_REASON, value)
 
+  /**
+   * Set while the last check could not reach the backend. It is kept apart from the session state,
+   * so an unreachable server never loses a token and a recovered server can restore the session.
+   */
+  private var unreachableReason: String?
+    get() = prefs.getString(KEY_UNREACHABLE)
+    set(value) = prefs.putString(KEY_UNREACHABLE, value)
+
   /** Null when nothing is stored, or when the Keystore key was invalidated and the token is lost. */
   var token: String?
     get() {
@@ -161,18 +169,31 @@ class RemoteStore(
     token = session.token
     this.checkedAtMs = checkedAtMs
     storedReason = null
+    unreachableReason = null
     loggedIn = true
   }
 
-  fun markChecked(checkedAtMs: Long) {
+  /**
+   * The backend answered; any earlier unreachable state is over, the session state is unchanged.
+   */
+  fun markReachable(checkedAtMs: Long) {
     this.checkedAtMs = checkedAtMs
-    storedReason = null
-    loggedIn = true
+    unreachableReason = null
+  }
+
+  /**
+   * The backend could not be reached. The token and the session state stay as they were, because a
+   * server problem must never log the user out; only the reason and the time are refreshed.
+   */
+  fun markUnreachable(reason: RemoteError, checkedAtMs: Long) {
+    this.checkedAtMs = checkedAtMs
+    unreachableReason = reason.label
   }
 
   fun markLoginNeeded(reason: RemoteError?, checkedAtMs: Long? = this.checkedAtMs) {
     this.checkedAtMs = checkedAtMs
     storedReason = reason?.label
+    unreachableReason = null
     loggedIn = false
   }
 
@@ -182,18 +203,21 @@ class RemoteStore(
   }
 
   fun status(): RemoteStatus {
-    val savedUrl = url?.takeIf { it.isNotBlank() } ?: return RemoteStatus.NotConfigured
-    val savedEmail = email?.takeIf { it.isNotBlank() }
     val checked = checkedAtMs
+    val unreachable = remoteErrorFromLabel(unreachableReason)
+    if (unreachable != null) {
+      return RemoteStatus.Unreachable(reason = unreachable, checkedAtMs = checked)
+    }
+    val savedUrl = url?.takeIf { it.isNotBlank() }
+    val reason = remoteErrorFromLabel(storedReason)
+    // Without an address there is nothing to configure, unless the last attempt needed a login.
+    if (savedUrl == null && reason == null) return RemoteStatus.NotConfigured
+    val savedEmail = email?.takeIf { it.isNotBlank() }
     val hasToken = token != null
     return if (hasToken && loggedIn) {
       RemoteStatus.Connected(email = savedEmail.orEmpty(), checkedAtMs = checked)
     } else {
-      RemoteStatus.LoginNeeded(
-          email = savedEmail,
-          checkedAtMs = checked,
-          reason = remoteErrorFromLabel(storedReason),
-      )
+      RemoteStatus.LoginNeeded(email = savedEmail, checkedAtMs = checked, reason = reason)
     }
   }
 
@@ -204,6 +228,7 @@ class RemoteStore(
     const val KEY_CHECKED_AT = "checked_at_ms"
     const val KEY_STATE = "state"
     const val KEY_REASON = "reason"
+    const val KEY_UNREACHABLE = "unreachable"
     const val STATE_CONNECTED = "connected"
     const val STATE_LOGIN_NEEDED = "login_needed"
   }
