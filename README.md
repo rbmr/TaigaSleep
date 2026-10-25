@@ -17,6 +17,10 @@ The first supported sensor is the Polar H10 (HR, ECG, accelerometer).
 **Status:** early development. Recording, uploads, History and the result
 screens are in place; the analysis algorithms are still experimental.
 
+Taiga Sleep is open source and self-hosted so that the insight it gives can be inspected
+and the data stays with its owner. What the project is for, and the tradeoffs it accepts
+to get there, are written down in [`docs/vision.md`](docs/vision.md).
+
 ## Architecture
 
 - **Android app:** Kotlin, Jetpack Compose, local-first recordings.
