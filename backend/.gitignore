@@ -1,7 +1,6 @@
 # Local backend data, secrets and caches (relative to backend/)
 **/pb_data/
 **/pb_data-*/
-**/backups/
 **/.venv/
 **/__pycache__/
 **/*.py[cod]
