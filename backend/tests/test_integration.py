@@ -26,8 +26,6 @@ from tests import recording_fixture as fx
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_DIR.parent
 WORKER_DIR = BACKEND_DIR / "worker"
-MIGRATIONS_DIR = BACKEND_DIR / "pocketbase" / "pb_migrations"
-HOOKS_DIR = BACKEND_DIR / "pocketbase" / "pb_hooks"
 
 ADMIN_EMAIL = "admin@example.com"
 ADMIN_PASSWORD = "admin-password-123"
@@ -85,13 +83,7 @@ class IntegrationTest(unittest.TestCase):
                 cls.base_url.replace("http://", ""),
                 "--dir",
                 str(data_dir),
-                "--migrationsDir",
-                str(MIGRATIONS_DIR),
-                "--hooksDir",
-                str(HOOKS_DIR),
                 "--automigrate=false",
-                "--hooksWatch=false",
-                "--hooksPool=1",
             ],
             stdout=cls.log_handle,
             stderr=subprocess.STDOUT,

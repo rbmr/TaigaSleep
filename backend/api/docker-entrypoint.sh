@@ -3,7 +3,6 @@ set -eu
 
 data_dir="${TAIGA_DATA_DIR:-/pb/pb_data}"
 http_addr="${TAIGA_HTTP_ADDR:-0.0.0.0:8090}"
-hooks_pool="${TAIGA_HOOKS_POOL:-1}"
 
 mkdir -p "$data_dir"
 
@@ -18,11 +17,7 @@ fi
 set -- serve \
     --http="$http_addr" \
     --dir="$data_dir" \
-    --migrationsDir=/app/pb_migrations \
-    --hooksDir=/app/pb_hooks \
-    --hooksPool="$hooks_pool" \
-    --automigrate=false \
-    --hooksWatch=false
+    --automigrate=false
 
 # Optional at-rest encryption for PocketBase's own settings/params. The value
 # must be exactly 32 characters; PocketBase reads it from this environment

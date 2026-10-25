@@ -17,10 +17,8 @@ backend/
 │   ├── Dockerfile
 │   ├── docker-entrypoint.sh
 │   ├── go.mod / go.sum
-│   └── internal/api/           # Go routes, upload validation, queue, hooks
-├── pocketbase/
-│   ├── pb_hooks/               # empty; the JSVM is used only for migrations
-│   └── pb_migrations/          # existing JS migrations (temporary)
+│   ├── internal/api/           # Go routes, upload validation, queue, hooks
+│   └── migrations/             # embedded Go schema migrations
 ├── worker/
 │   ├── Dockerfile
 │   ├── pyproject.toml
@@ -35,9 +33,8 @@ backend/
 └── scripts/                    # backups, benchmark
 ```
 
-The custom API and record hooks are Go. The existing schema migrations are
-still JavaScript and are loaded by PocketBase's JSVM at startup; the hooks
-directory is intentionally empty. Porting the migrations to Go is a follow-up.
+The custom API, record hooks and schema migrations are all Go. The migrations
+are embedded in the binary; there is no JavaScript runtime or hooks directory.
 
 The Go API process is the only process that touches the SQLite database and the
 stored files. The worker talks to the API only, so it can run on the same
@@ -61,8 +58,6 @@ go build -o ./taiga-sleep-api .
 ./taiga-sleep-api serve \
   --http=127.0.0.1:8090 \
   --dir=./pb_data \
-  --migrationsDir=../pocketbase/pb_migrations \
-  --hooksDir=../pocketbase/pb_hooks \
   --automigrate=false
 ```
 
@@ -73,8 +68,7 @@ meant to be exposed to the internet; see [Admin access](#admin-access).
 The schema is applied automatically on `serve`. To apply it without serving:
 
 ```bash
-./taiga-sleep-api migrate up --dir=./pb_data \
-  --migrationsDir=../pocketbase/pb_migrations
+./taiga-sleep-api migrate up --dir=./pb_data
 ```
 
 ### Create the user and worker accounts
@@ -133,7 +127,6 @@ variables and expand them in the unit/compose files:
 | `TAIGA_APP_URL` | unset | Stored in PocketBase settings; used in auth email links. |
 | `TAIGA_APP_NAME` | `Taiga Sleep` | Display name in the dashboard and emails. |
 | `TAIGA_ENCRYPTION_KEY` | unset | Optional 32-character key for PocketBase settings encryption. |
-| `TAIGA_HOOKS_POOL` | `1` | Prewarmed JS runtimes. The JSVM is only used for migrations, so one runtime is enough. |
 | `TAIGA_MAX_RECORDING_MB` | `256` | Total bytes allowed for one recording directory. |
 | `TAIGA_MAX_RECORDING_FILE_MB` | `64` | Bytes allowed for one stream file. |
 | `TAIGA_MAX_UPLOAD_CHUNK_MB` | `8` | Maximum upload chunk; keep it below PocketBase's 10 MB request-body cap. |
@@ -403,8 +396,6 @@ sudo useradd --system --home /var/lib/taiga-sleep --shell /usr/sbin/nologin taig
 sudo install -d -o taiga -g taiga /opt/taiga-sleep
 (cd backend/api && go build -trimpath -o taiga-sleep-api .)
 sudo install -m 0755 backend/api/taiga-sleep-api /opt/taiga-sleep/taiga-sleep-api
-sudo cp -r backend/pocketbase/pb_migrations /opt/taiga-sleep/
-sudo cp -r backend/pocketbase/pb_hooks /opt/taiga-sleep/
 sudo install -m 0644 backend/deploy/systemd/taiga-sleep-api.service /etc/systemd/system/
 sudo install -m 0644 backend/deploy/systemd/taiga-sleep-worker.service /etc/systemd/system/
 sudo install -m 0640 -g taiga backend/deploy/systemd/taiga-sleep-api.env.example /etc/taiga-sleep/api.env
@@ -472,21 +463,18 @@ is an address-space cap, not a reservation, so the idle footprint stays small.
 
 ## Footprint
 
-Measured on x86_64 Linux with PocketBase 0.40.6 (`--hooksPool=1`) and the
+Measured on x86_64 Linux with PocketBase 0.40.6 and the
 worker idle, using `ps -o rss=` (resident set size, including shared pages):
 
 | Process | Idle RSS |
 | --- | --- |
-| Go API (`serve`, JSVM loaded for migrations, no requests) | ~46 MiB |
+| Go API (`serve`, no requests) | ~35 MiB |
 | Worker supervisor (after algorithm discovery, polling an empty queue) | ~40 MiB |
 
 The supervisor imports numpy when it reports installed algorithms. That keeps
 the worker self-contained; the analysis subprocess is still the only heavy
 part. Its limit is configurable via `TAIGA_JOB_MEMORY_MB`, and numeric libraries
 are single-threaded.
-
-The JSVM is now loaded only to run the existing migrations, so
-`TAIGA_HOOKS_POOL=1` is enough. Raising it buys nothing for the Go routes.
 
 ## Benchmarks
 
@@ -541,8 +529,7 @@ unverified backup is not a backup.
 
 1. Back up first.
 2. Stop the API and worker.
-3. Rebuild the Go binary from the same commit and update `pb_migrations/` and
-   `pb_hooks/` in `/opt/taiga-sleep`.
+3. Rebuild the Go binary from the same commit; migrations are embedded.
 4. Start the API; new migrations apply automatically.
 5. Check `/api/taiga/health`, the cron list and one worker claim.
 
@@ -567,6 +554,3 @@ ground-truth labels, optional compressed uploads (#24), OpenAPI generation
 (#28), the app-side upload and result UI (#11), and a sleep score. The score is
 a product policy over stages and metrics, not a stager.
 
-The current schema migrations are still JavaScript, loaded by the JSVM at
-startup. Porting them to Go is a separate follow-up; the custom API and record
-hooks are already Go.

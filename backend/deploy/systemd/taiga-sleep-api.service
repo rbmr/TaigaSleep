@@ -14,20 +14,13 @@ WorkingDirectory=/opt/taiga-sleep
 # Defaults; override in /etc/taiga-sleep/api.env.
 Environment=TAIGA_HTTP_ADDR=127.0.0.1:8090
 Environment=TAIGA_DATA_DIR=/var/lib/taiga-sleep
-Environment=TAIGA_MIGRATIONS_DIR=/opt/taiga-sleep/pb_migrations
-Environment=TAIGA_HOOKS_DIR=/opt/taiga-sleep/pb_hooks
-Environment=TAIGA_HOOKS_POOL=1
 Environment=TAIGA_JOB_MAX_ATTEMPTS=3
 EnvironmentFile=-/etc/taiga-sleep/api.env
 
 ExecStart=/opt/taiga-sleep/taiga-sleep-api serve \
     --http=${TAIGA_HTTP_ADDR} \
     --dir=${TAIGA_DATA_DIR} \
-    --migrationsDir=${TAIGA_MIGRATIONS_DIR} \
-    --hooksDir=${TAIGA_HOOKS_DIR} \
-    --hooksPool=${TAIGA_HOOKS_POOL} \
-    --automigrate=false \
-    --hooksWatch=false
+    --automigrate=false
 Restart=on-failure
 RestartSec=5s
 
