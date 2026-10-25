@@ -17,6 +17,7 @@ services:
       TAIGA_APP_NAME: "${TAIGA_APP_NAME:-Taiga Sleep}"
       TAIGA_APP_URL: "${TAIGA_APP_URL:-http://127.0.0.1:8090}"
       TAIGA_JOB_LEASE_S: "${TAIGA_JOB_LEASE_S:-1800}"
+      TAIGA_JOB_MAX_ATTEMPTS: "${TAIGA_JOB_MAX_ATTEMPTS:-3}"
       TAIGA_HOOKS_POOL: "${TAIGA_HOOKS_POOL:-4}"
       # Optional bootstrap, only needed on the first start.
       TAIGA_ADMIN_EMAIL: "${TAIGA_ADMIN_EMAIL:-}"
@@ -49,6 +50,7 @@ services:
       TAIGA_JOB_MEMORY_MB: "${TAIGA_JOB_MEMORY_MB:-768}"
       TAIGA_JOB_TIMEOUT_S: "${TAIGA_JOB_TIMEOUT_S:-3600}"
       TAIGA_LOG_LEVEL: "${TAIGA_LOG_LEVEL:-INFO}"
+      TAIGA_ALGORITHMS: "${TAIGA_ALGORITHMS:-}"
       OMP_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"

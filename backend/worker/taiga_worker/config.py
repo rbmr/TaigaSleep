@@ -23,6 +23,7 @@ class Config:
     job_timeout_s: float
     once: bool
     log_level: str
+    algorithms: tuple[str, ...] | None = None
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -78,6 +79,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--log-level",
         help="Python log level (env: TAIGA_LOG_LEVEL, default: INFO)",
+    )
+    parser.add_argument(
+        "--algorithms",
+        help="Comma-separated algorithm id allowlist (env: TAIGA_ALGORITHMS)",
     )
     return parser
 
@@ -175,6 +180,12 @@ def from_env(
         "job timeout",
     )
     log_level = (args.log_level or _env(env, "TAIGA_LOG_LEVEL") or "INFO").upper()
+    algorithms_raw = args.algorithms or _env(env, "TAIGA_ALGORITHMS")
+    algorithms = (
+        tuple(item.strip() for item in algorithms_raw.split(",") if item.strip())
+        if algorithms_raw
+        else None
+    )
 
     if poll_interval < 0.1:
         raise ConfigError("poll interval must be at least 0.1 seconds")
@@ -198,4 +209,5 @@ def from_env(
         job_timeout_s=timeout_s,
         once=bool(args.once),
         log_level=log_level,
+        algorithms=algorithms,
     )

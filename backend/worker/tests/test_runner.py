@@ -31,6 +31,7 @@ class RunnerTest(unittest.TestCase):
         outcome = runner.run({"id": "job1"})
         self.assertFalse(outcome.ok)
         self.assertIn("boom", outcome.error or "")
+        self.assertTrue(outcome.retryable)
 
     def test_invalid_output_is_a_failure(self) -> None:
         runner = JobRunner(
@@ -55,6 +56,21 @@ class RunnerTest(unittest.TestCase):
         outcome = runner.run({"id": "job1"})
         self.assertFalse(outcome.ok)
         self.assertEqual(outcome.error, "bad data")
+        self.assertFalse(outcome.retryable)
+
+    def test_retryable_failure_payload(self) -> None:
+        runner = JobRunner(
+            memory_mb=512,
+            timeout_s=10,
+            command=[
+                sys.executable,
+                "-c",
+                "print('{\"status\": \"failed\", \"error\": \"temporary\", \"retryable\": true}')",
+            ],
+        )
+        outcome = runner.run({"id": "job1"})
+        self.assertFalse(outcome.ok)
+        self.assertTrue(outcome.retryable)
 
     def test_timeout_kills_the_child(self) -> None:
         runner = JobRunner(
@@ -65,6 +81,7 @@ class RunnerTest(unittest.TestCase):
         outcome = runner.run({"id": "job1"})
         self.assertFalse(outcome.ok)
         self.assertIn("timed out", outcome.error or "")
+        self.assertTrue(outcome.retryable)
 
 
 if __name__ == "__main__":

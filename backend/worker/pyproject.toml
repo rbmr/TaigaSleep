@@ -7,10 +7,12 @@ name = "taiga-sleep-worker"
 version = "0.1.0"
 description = "Taiga Sleep analysis worker supervisor"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "numpy>=1.26",
+]
 
 [project.scripts]
 taiga-worker = "taiga_worker.__main__:main"
 
-[tool.setuptools]
-packages = ["taiga_worker"]
+[tool.setuptools.packages.find]
+include = ["taiga_worker*"]

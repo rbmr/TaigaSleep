@@ -3,9 +3,11 @@
 Self-hosted PocketBase API plus a Python analysis worker for Taiga Sleep.
 
 This directory contains everything the optional backend needs: the database
-schema, owner rules, health checks, the durable analysis queue, the worker
-skeleton, deployment examples and backup tooling. It deliberately does **not**
-accept recordings or run sleep staging yet; that is issue #10.
+schema, owner rules, health checks, the durable analysis queue, the analysis
+worker, deployment examples and backup tooling. It accepts append-only
+recordings through an owner-only upload API, runs staging algorithms in a
+separate worker process, and stores one result per session/algorithm/version/
+parameter set. Real ML models are optional follow-ups (#22, #23).
 
 ## What is here
 
@@ -19,7 +21,7 @@ backend/
 ├── worker/
 │   ├── Dockerfile
 │   ├── pyproject.toml
-│   ├── taiga_worker/           # stdlib-only supervisor + placeholder job
+│   ├── taiga_worker/           # supervisor, analysis library and baseline stager
 │   └── tests/
 ├── tests/test_integration.py   # real PocketBase + real worker process
 ├── deploy/
@@ -38,8 +40,8 @@ a larger one without code changes.
 
 - PocketBase **0.40.6** (pinned; the hooks use its current JS API).
 - Python **3.10+** and [uv](https://docs.astral.sh/uv/) for the worker. The
-  worker has no runtime third-party dependencies yet, so the idle supervisor
-  stays small.
+  worker uses numpy for decoding, metrics and the baseline stager; the idle
+  supervisor does not import it, and real ML models are optional extras.
 - Optional: Docker Compose for the container deployment.
 
 ## Quick start (without Docker)
@@ -104,10 +106,15 @@ export TAIGA_WORKER_PASSWORD='<password>'
 uv run --frozen python -m taiga_worker
 ```
 
-It logs in, polls the claim endpoint, and sleeps when the queue is empty. One
-job at a time runs in a fresh subprocess. Until issue #10 lands, that subprocess
-returns a `noop` result and the job is marked `done`; the queue mechanics are
-real and tested.
+It logs in, reports the algorithms it has installed, polls the claim endpoint,
+downloads one recording through the API, runs one stager in a fresh subprocess,
+and reports the result. The supervisor never reads the database or recording
+files directly.
+
+The analysis library lives in `taiga_worker/analysis/`: the stager contract,
+recording decoder, shared metrics/quality and the built-in `baseline` stager.
+See [`docs/analysis-contract.md`](../docs/analysis-contract.md) for the plugin
+interface, canonical stages, result shape and a minimal third-party example.
 
 ## Configuration
 
@@ -124,9 +131,14 @@ variables and expand them in the unit/compose files:
 | `TAIGA_APP_NAME` | `Taiga Sleep` | Display name in the dashboard and emails. |
 | `TAIGA_ENCRYPTION_KEY` | unset | Optional 32-character key for PocketBase settings encryption. |
 | `TAIGA_HOOKS_POOL` | `4` | Prewarmed JS runtimes. The deployment examples use 4 instead of PocketBase's default 15 to keep idle memory down. |
+| `TAIGA_MAX_RECORDING_MB` | `256` | Total bytes allowed for one recording directory. |
+| `TAIGA_MAX_RECORDING_FILE_MB` | `64` | Bytes allowed for one stream file. |
+| `TAIGA_MAX_UPLOAD_CHUNK_MB` | `8` | Maximum upload chunk; keep it below PocketBase's 10 MB request-body cap. |
+| `TAIGA_MAX_META_KB` | `64` | Maximum `meta.json` size. |
 
 The API also reads `TAIGA_JOB_LEASE_S` as the default claim lease (default
-`1800`, clamped to 1 day).
+`1800`, clamped to 1 day) and `TAIGA_JOB_MAX_ATTEMPTS` as the retry limit for
+retryable analysis failures (default `3`).
 
 ### Worker
 
@@ -144,6 +156,7 @@ Command-line flags take precedence over environment variables.
 | `TAIGA_JOB_MEMORY_MB` | `--memory-mb` | `1024` | Address-space limit for one job; `0` disables it. |
 | `TAIGA_JOB_TIMEOUT_S` | `--timeout` | `3600` | Wall-clock limit for one job. |
 | `TAIGA_LOG_LEVEL` | `--log-level` | `INFO` | Python log level. |
+| `TAIGA_ALGORITHMS` | `--algorithms` | unset | Comma-separated algorithm id allowlist. Unset means every installed stager. |
 
 Numeric libraries are forced to one thread in the child process
 (`OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `MKL_NUM_THREADS=1`,
@@ -182,43 +195,163 @@ curl -s http://127.0.0.1:8090/api/taiga/auth-check -H "Authorization: <token>"
 
 These are the two checks the app's connection screen (#9) uses.
 
+### Recording uploads
+
+Uploading and analysing are separate steps. An upload only stores and validates
+the recording and marks it `uploaded`; it never queues analysis. Analysis
+requests, results and the worker download path are added by the rest of #10.
+
+All upload routes are owner-only (`users` token). A session is created or
+resumed from `meta.json` and identified by `(owner, client_session_id)`, so a
+retried create returns the existing session instead of duplicating it.
+
+```text
+POST /api/taiga/sessions                          create or resume from { "meta": {...} }
+GET  /api/taiga/sessions/{id}/upload              current lengths and validation state
+PUT  /api/taiga/sessions/{id}/upload/meta         replace meta.json
+PUT  /api/taiga/sessions/{id}/upload/file/{file}?offset=N   append raw bytes
+POST /api/taiga/sessions/{id}/upload/complete     validate and mark uploaded
+```
+
+- `{file}` is one of `hr.log`, `ecg.log`, `acc.log`, `events.jsonl`. The stream
+  files are the frame logs from `docs/recording-format.md`; `meta.json` is
+  written through the meta route, not as raw bytes.
+- `offset` must equal the server's current length of that file. A wrong offset
+  returns `409` with the expected length in the message. Re-read
+  `GET /upload` to resume, or the response's `length`/`validated_length`.
+- Chunks are raw bytes (`application/octet-stream`, up to 8 MB). The response
+  reports `length`, `validated_length`, `frames`/`lines`, `state` and any error.
+- Validation is incremental. Complete frames are accepted until the first
+  truncated or bad-CRC frame. A truncated final frame is kept while uploading
+  and cut at completion (`truncated: true`, warning in `upload_error`). A bad
+  frame truncates the file to the last valid frame and is reported; the valid
+  prefix can still be completed and analysed.
+- `complete` requires a valid `meta.json`, a non-`recording` state, and at least
+  one valid frame. The session's `state`, `started_at`, `ended_at`,
+  `duration_s` and `device` are derived from `meta.json`.
+- Recordings live in `<pb_data>/recordings/<session id>/`, so PocketBase backups
+  include them. Delete a session with the standard collection route
+  (`DELETE /api/collections/sessions/records/{id}`); the delete hook removes the
+  recording directory and cascades its analyses and jobs.
+
+Limits are configurable through `TAIGA_MAX_RECORDING_MB` (256),
+`TAIGA_MAX_RECORDING_FILE_MB` (64), `TAIGA_MAX_UPLOAD_CHUNK_MB` (8) and
+`TAIGA_MAX_META_KB` (64). The events file has a fixed 8 MB cap. The effective
+limits are returned in the upload manifest.
+
+Example flow:
+
+```bash
+# 1. Create/resume (the body is the meta.json object).
+curl -s -X POST http://127.0.0.1:8090/api/taiga/sessions \
+  -H "Authorization: <user-token>" -H "Content-Type: application/json" \
+  -d '{"meta": {"format":"taiga-recording", "version":1, "session_id":"20261023_223000", "state":"stopped", "start_utc_ms":1792798200000, "end_utc_ms":1792828200000, "timezone":"Europe/Amsterdam", "sensor":{"kind":"polar-h10"}, "config":{"hr":true,"ecg":true,"acc":true,"ecg_rate_hz":130,"acc_rate_hz":50,"acc_range_g":8}}}'
+
+# 2. Append a chunk at the current length.
+curl -s -X PUT "http://127.0.0.1:8090/api/taiga/sessions/<id>/upload/file/hr.log?offset=0" \
+  -H "Authorization: <user-token>" -H "Content-Type: application/octet-stream" \
+  --data-binary @chunk.bin
+
+# 3. Finish.
+curl -s -X POST "http://127.0.0.1:8090/api/taiga/sessions/<id>/upload/complete" \
+  -H "Authorization: <user-token>" -H "Content-Type: application/json" -d '{}'
+```
+
+### Analysis and results
+
+Analysis is an explicit second step after upload. A session can have several
+analyses at once (one per algorithm/version/parameter set), and the app can
+switch between them without re-uploading the recording.
+
+```text
+GET  /api/taiga/algorithms                        algorithms reported by workers
+POST /api/taiga/sessions/{id}/analysis            request one or more models
+GET  /api/taiga/sessions                          paginated summary; filters: state, upload_status, from, to, sort
+GET  /api/taiga/sessions/{id}                     session, upload, analyses, jobs, summary
+GET  /api/taiga/analyses/{id}                     one full result
+POST /api/taiga/jobs/{id}/retry                   requeue a failed analysis
+```
+
+- `POST /analysis` takes `{ "models": [ { "model": "baseline", "version": "1.0.0", "params": {} } ] }`
+  (up to 8). `version` is required; read it from `GET /algorithms`. A single
+  `{model, version, params}` object is also accepted.
+- Requests are idempotent on `(session, model, version, params_hash)`. Asking
+  for the same analysis again returns the existing row and job. A failed
+  analysis stays failed until `POST /jobs/{id}/retry` is used.
+- A worker claims only jobs for algorithms it has installed. The claim response
+  includes the analysis `params`, `model_version` and `params_hash`.
+- `GET /sessions` uses PocketBase filters/sort and returns `hasMore` rather than
+  a total count. Supported filters: `state`, `upload_status`, `from`, `to`;
+  `sort` accepts `started_at`, `created`, `updated`, `duration_s` and a leading
+  `-` for descending. Model/analysis-status filtering is left to the app.
+- The full result contains `contract_version`, `model`, `model_version`,
+  `params`, `params_hash`, compact `stages`, `metrics`, `metric_support`,
+  `quality`, `capabilities`, `provenance`, `extras` and `warnings`.
+- Worker-only download routes are scoped to the job the worker currently holds:
+  `GET /api/taiga/worker/sessions/{id}/manifest?job=...&worker=...` and
+  `GET /api/taiga/worker/sessions/{id}/files/{file}?job=...&worker=...`.
+- Workers report installed algorithms with
+  `POST /api/taiga/worker/capabilities`; the API stores the list and the
+  last-seen time. `GET /algorithms` returns the union of all workers, with
+  `worker_count`.
+- Failed results are retried up to `TAIGA_JOB_MAX_ATTEMPTS` (default 3) with
+  exponential backoff when the worker marks the failure retryable. Invalid
+  input, missing streams, unknown algorithms and malformed results fail
+  permanently with the reason stored on the analysis.
+
 ### Collections
 
 - `users` — built-in auth. Registration is closed (`createRule` is null).
   Users can only list/view/update/delete their own record.
-- `sessions` — one row per recording: `owner`, `device`, `started_at`,
-  `ended_at`, `duration_s`, `state`, `upload_status`, analysis fields
-  (`analysis`, `stages`, `metrics`, `quality`, `error`), plus `created` and
-  `updated`. Owner-only rules.
-- `jobs` — durable queue: `session`, `kind`, `model`, `status`, `attempts`,
-  `available_at`, `lease_until`, `worker`, `error`, `result`, plus timestamps.
-  Owner-only rules evaluated through `session.owner`.
-- `workers` — auth collection for the worker service account. Public create,
-  list, update and delete are disabled; it cannot read sessions or jobs
-  directly.
+- `sessions` — one row per recording: `owner`, `client_session_id`, `device`,
+  `started_at`, `ended_at`, `duration_s`, `state`, `upload_status`, `upload`
+  (per-file lengths and validation state), `uploaded_at`, `upload_error`, plus
+  `created` and `updated`. Owner-only rules.
+- `analyses` — one row per `(session, model, model_version, params_hash)`:
+  `session`, `model`, `model_version`, `params`, `params_hash`, `status`,
+  `contract_version`, `stages`, `metrics`, `metric_support`, `quality`,
+  `capabilities`, `provenance`, `extras`, `warnings`, `error`, plus timestamps.
+  Users can list/view their own rows; create/update/delete are server-only.
+- `jobs` — durable queue: `session`, `analysis`, `kind`, `model`,
+  `model_version`, `params_hash`, `status`, `attempts`, `available_at`,
+  `lease_until`, `worker`, `error`, `result`, plus timestamps. Users can
+  list/view and create their own jobs; direct creation is a tooling/test path.
+  Update/delete are server-only. The app uses the analysis request route.
+- `workers` — auth collection for worker service accounts: `name`, `version`,
+  `algorithms`, `last_seen`. Public create, list, update and delete are
+  disabled; workers cannot read sessions or jobs directly.
 
 ### Job flow
 
-1. The app (or an admin) creates a job for a session. The hook forces
-   `status=queued`, `attempts=0`, `available_at=now`, and clears the lease.
-   Creation is idempotent on `(session, model, kind)`: a repeat returns the
-   existing row. A unique index is the race-safe backstop.
-2. A worker calls `POST /api/taiga/worker/jobs/claim` with its worker id and an
-   optional lease. The hook selects the oldest eligible job and updates it
-   conditionally inside a transaction, so exactly one caller gets it.
-3. The worker runs the job and reports `done` or `failed` through
+1. Upload completion marks the session `uploaded` and does **not** create a
+   job.
+2. `POST /api/taiga/sessions/{id}/analysis` creates an `analyses` row and one
+   `jobs` row per requested model. Creation is idempotent on
+   `(session, model, model_version, params_hash)`; the unique index is the
+   race-safe backstop.
+3. A worker reports its installed algorithms, then calls
+   `POST /api/taiga/worker/jobs/claim` with its worker id and algorithm ids.
+   The hook selects the oldest eligible job it can run and updates it
+   conditionally inside a transaction, so exactly one caller gets it. The
+   analysis status becomes `running` and the response includes the params.
+4. The worker downloads the recording through the scoped worker routes, runs
+   the stager in a fresh subprocess, and reports `done` or `failed` through
    `POST /api/taiga/worker/jobs/{id}/result`. Retried reports are harmless.
-4. Every minute the `taiga_requeue_expired_jobs` cron requeues `running` jobs
-   whose lease has expired. `attempts` is preserved for observability.
-   `POST /api/taiga/worker/jobs/requeue` runs the same operation on demand.
+5. A done result is written into the analysis row atomically with the job
+   status. A retryable failure is requeued with exponential backoff up to
+   `TAIGA_JOB_MAX_ATTEMPTS`; a permanent failure stores the reason on both rows.
+6. Every minute `taiga_requeue_expired_jobs` requeues `running` jobs whose lease
+   has expired and resets their analysis status to `queued`. `attempts` is
+   preserved for observability. `POST /api/taiga/worker/jobs/requeue` runs the
+   same operation on demand.
 
 All `/api/taiga/worker/*` routes require a `workers` token. A normal user token
 is rejected.
 
 ## Tests
 
-Worker unit tests use only the standard library. Dependencies and the exact
-interpreter are managed by uv from `backend/worker/uv.lock`:
+Worker unit tests use the standard library plus numpy. Dependencies and the
+exact interpreter are managed by uv from `backend/worker/uv.lock`:
 
 ```bash
 cd backend/worker
@@ -228,7 +361,9 @@ uv run --frozen python -m unittest discover -s tests -t .
 
 The integration suite starts a real PocketBase server in a temporary directory,
 applies the migrations, and exercises the hooks and a real worker subprocess.
-Set `POCKETBASE_BIN` to the binary (or put it on `PATH`):
+It covers upload/resume/validation, analysis requests, algorithm reporting,
+scoped worker downloads, the baseline end-to-end run, result storage, retries
+and owner isolation. Set `POCKETBASE_BIN` to the binary (or put it on `PATH`):
 
 ```bash
 cd backend
@@ -328,19 +463,38 @@ worker idle, using `ps -o rss=` (resident set size, including shared pages):
 | Process | Idle RSS |
 | --- | --- |
 | PocketBase (`serve`, hooks loaded, no requests) | ~44 MiB |
-| Worker supervisor (Python 3.12, polling an empty queue) | ~25 MiB |
+| Worker supervisor (after algorithm discovery, polling an empty queue) | ~40 MiB |
+
+The supervisor imports numpy when it reports installed algorithms. That keeps
+the worker self-contained; the analysis subprocess is still the only heavy
+part. Its limit is configurable via `TAIGA_JOB_MEMORY_MB`, and numeric libraries
+are single-threaded.
 
 For comparison, PocketBase's default `--hooksPool=15` adds JS runtimes that a
 single-user install does not need. Raising `TAIGA_HOOKS_POOL` buys concurrency,
 not throughput for this workload.
 
-The analysis subprocess is the only heavy part. Its limit is configurable via
-`TAIGA_JOB_MEMORY_MB`, and numeric libraries are single-threaded.
+## Benchmarks
+
+Measure one stager on a local recording without the API or database:
+
+```bash
+cd backend
+uv run --project worker --frozen python scripts/benchmark_analysis.py \
+  /path/to/recording --model baseline
+```
+
+It runs the real job subprocess and reports input size, runtime, wall time, peak
+RSS, stage seconds, quality and warnings. Use it on real H10 nights to decide
+`TAIGA_JOB_MEMORY_MB` for each machine and model. See
+[`docs/benchmarks.md`](../docs/benchmarks.md) for the method, the synthetic
+reference run and the real-night table. Do not commit recordings or results.
 
 ## Backup and restore
 
 Back up the **whole data directory**, not just `data.db`: recordings live under
-`pb_data/storage/`. The provided script uses PocketBase's backup API, which
+`pb_data/recordings/` (and PocketBase's own uploaded files under
+`pb_data/storage/`). The provided script uses PocketBase's backup API, which
 snapshots the database and files together:
 
 ```bash
@@ -394,5 +548,7 @@ public API, but the job payload shape is expected to stay in sync.
 
 ## Out of scope
 
-Receiving recordings, downloading them in the worker, sleep staging, result
-endpoints and the app-side connection screen. Those are #9 and #10.
+The real wav2sleep and SleepECG adapters (#22, #23), accuracy claims without
+ground-truth labels, optional compressed uploads (#24), the app-side upload and
+result UI (#11), and a sleep score. The score is a product policy over stages
+and metrics, not a stager.
