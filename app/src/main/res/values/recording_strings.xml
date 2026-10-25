@@ -99,9 +99,6 @@
   <string name="rec_discard_confirm">Discard</string>
   <string name="rec_cancel">Cancel</string>
 
-  <string name="rec_recent_title">Recent recordings</string>
-  <string name="rec_recent_empty">No recordings on this phone yet.</string>
-  <string name="rec_recent_row">%1$s · %2$s · %3$s</string>
   <string name="rec_export">Export zip</string>
   <string name="rec_state_recording">recording</string>
   <string name="rec_state_stopped">stopped</string>

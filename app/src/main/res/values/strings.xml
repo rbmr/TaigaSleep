@@ -12,13 +12,12 @@
 
   <string name="history_kicker">HISTORY</string>
   <string name="history_title">Your nights</string>
-  <string name="history_subtitle">Processed results and pending uploads will appear here.</string>
+  <string name="history_subtitle">Your analyzed nights and pending uploads.</string>
   <string name="history_empty_title">No nights yet</string>
   <string name="history_empty_body">After your first recording, Taiga will show your sleep stages, heart rate and quality here.</string>
 
   <string name="settings_kicker">SETTINGS</string>
   <string name="settings_title">Settings</string>
-  <string name="settings_group_recording">Recording</string>
   <string name="settings_group_server">Analysis server</string>
   <string name="settings_group_app">App</string>
   <string name="settings_prevent_title">Preventing shutdown</string>

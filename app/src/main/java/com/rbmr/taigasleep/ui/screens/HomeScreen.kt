@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,7 +44,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,7 +57,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.Phase
 import com.rbmr.taigasleep.recording.ReadinessGate
 import com.rbmr.taigasleep.recording.RecordingFormat
@@ -74,8 +71,6 @@ import com.rbmr.taigasleep.sensor.SensorHub
 import com.rbmr.taigasleep.sensor.SensorKind
 import com.rbmr.taigasleep.sensor.SleepSensor
 import com.rbmr.taigasleep.sensor.StreamConfig
-import com.rbmr.taigasleep.storage.SessionInfo
-import com.rbmr.taigasleep.storage.SessionState
 import com.rbmr.taigasleep.ui.components.ButtonSize
 import com.rbmr.taigasleep.ui.components.DestructiveButton
 import com.rbmr.taigasleep.ui.components.LogoVariant
@@ -87,8 +82,6 @@ import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaLogo
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.theme.taiga
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 private val bluetoothPermissions =
     arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
@@ -109,7 +102,6 @@ fun HomeScreen() {
   val context = LocalContext.current
   val status by RecordingRepository.status.collectAsStateWithLifecycle()
   val sensor by SensorHub.sensor.collectAsStateWithLifecycle()
-  val sessions by RecordingRepository.sessions.collectAsStateWithLifecycle()
   val prefs = remember { RecordingPrefs.get(context) }
 
   var readiness by remember { mutableStateOf(ReadinessGate.check(context)) }
@@ -123,17 +115,9 @@ fun HomeScreen() {
     RecordingRepository.reconcile(context)
     SensorHub.restoreLast(context, canConnect = hasBluetooth(context))
   }
-  // Keep the recent list's duration and size moving while a session is being recorded.
-  LaunchedEffect(status.phase) {
-    while (status.phase == Phase.RECORDING) {
-      delay(10_000)
-      RecordingRepository.refreshSessions(context)
-    }
-  }
   // The user may have changed the battery settings in the system UI.
   LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
     readiness = ReadinessGate.check(context)
-    RecordingRepository.refreshSessions(context)
   }
 
   val scanPermissions =
@@ -170,7 +154,6 @@ fun HomeScreen() {
           sensor = sensor,
           denied = denied,
           readiness = readiness,
-          sessions = sessions.take(RECENT_COUNT),
           error = status.error,
           onSelectSensor = {
             if (hasBluetooth(context)) showScan = true
@@ -228,13 +211,12 @@ fun HomeScreen() {
   }
 }
 
-/** Not recording: pick the sensor, check readiness, start, and browse the recent recordings. */
+/** Not recording: pick the sensor, check readiness and start. */
 @Composable
 private fun InactiveHome(
     sensor: SleepSensor?,
     denied: Boolean,
     readiness: Readiness,
-    sessions: List<SessionInfo>,
     error: String?,
     onSelectSensor: () -> Unit,
     onDisconnect: () -> Unit,
@@ -296,23 +278,6 @@ private fun InactiveHome(
         }
       }
     }
-    item {
-      Text(
-          text = stringResource(R.string.rec_recent_title),
-          style = MaterialTheme.typography.titleLarge,
-          modifier = Modifier.padding(top = 16.dp),
-      )
-    }
-    if (sessions.isEmpty()) {
-      item {
-        Text(
-            text = stringResource(R.string.rec_recent_empty),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-    }
-    items(sessions, key = { it.id }) { RecentRow(it) }
   }
 }
 
@@ -547,8 +512,6 @@ private fun SensorCard(
     }
   }
 }
-
-private const val RECENT_COUNT = 5
 
 private fun startRecording(context: Context, sensor: SleepSensor?, prefs: RecordingPrefs) {
   sensor ?: return
@@ -887,48 +850,3 @@ private fun ScanSheet(onDismiss: () -> Unit) {
   }
 }
 
-@Composable
-private fun RecentRow(s: SessionInfo) {
-  val context = LocalContext.current
-  val scope = rememberCoroutineScope()
-  Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-    Column(Modifier.weight(1f)) {
-      Text(formatStart(s.startUtcMs), style = MaterialTheme.typography.titleMedium)
-      Text(
-          text =
-              stringResource(
-                  R.string.rec_recent_row,
-                  stateText(s.state),
-                  RecordingFormat.elapsed(s.durationMs),
-                  formatSize(s.sizeBytes),
-              ),
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-    }
-    TextButton(
-        onClick = { scope.launch { Exporter.share(context, s.id) } },
-        enabled = s.state != SessionState.RECORDING,
-    ) {
-      Text(stringResource(R.string.rec_export))
-    }
-  }
-}
-
-@Composable
-private fun stateText(state: SessionState) =
-    stringResource(
-        when (state) {
-          SessionState.RECORDING -> R.string.rec_state_recording
-          SessionState.STOPPED -> R.string.rec_state_stopped
-          SessionState.FORCED_STOP -> R.string.rec_state_forced_stop
-          SessionState.INTERRUPTED -> R.string.rec_state_interrupted
-        }
-    )
-
-private fun formatSize(bytes: Long): String =
-    if (bytes < 1_000_000) "${bytes / 1000} kB" else "%.1f MB".format(bytes / 1_000_000.0)
-
-private fun formatStart(ms: Long): String =
-    java.text.SimpleDateFormat("EEE d MMM, HH:mm", java.util.Locale.getDefault())
-        .format(java.util.Date(ms))

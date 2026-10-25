@@ -14,16 +14,35 @@ Taiga Sleep records overnight data locally on the phone and can optionally
 upload it to a self-hosted analysis service for sleep staging and history.
 The first supported sensor is the Polar H10 (HR, ECG, accelerometer).
 
-**Status:** early development. The Android app shell is being built.
+**Status:** early development. Recording, uploads, History and the result
+screens are in place; the analysis algorithms are still experimental.
 
-## Planned architecture
+## Architecture
 
 - **Android app:** Kotlin, Jetpack Compose, local-first recordings.
-- **Optional backend:** PocketBase (auth, SQLite, files) and a Python analysis worker.
-- **Analysis:** open-source ECG sleep staging (wav2sleep / SleepECG).
+- **Optional backend:** Go PocketBase API (auth, SQLite, files) and a Python
+  analysis worker.
+- **Analysis:** a built-in reference stager today; open-source ECG models are
+  follow-ups.
 
 The app works offline. The backend is only needed for uploading recordings and
-viewing processed results.
+viewing processed results. A night can be recorded, exported and kept entirely
+on the phone.
+
+## Uploads and results
+
+History lists every local recording and, when connected, remote recordings whose
+local copy is gone. A night can be uploaded manually at any time, or
+automatically when **Upload automatically** is enabled. The default is enabled,
+**Wi-Fi only**, without requiring charging; charging can be required as well.
+Uploads run in WorkManager, resume from the server's byte offset after a network
+drop or app restart, and keep their progress on the individual History rows.
+
+Processed nights open a detail screen with a sleep stages diagram, stage breakdown,
+metrics and quality breakdown. A metric the sensor could not measure stays visible but
+blank with a "Not supported by this device" note. Results are downloaded and
+kept on the phone as soon as they are available. Local raw recordings are kept
+after upload for now; holding a History row or using the night-detail menu can export or delete a recording everywhere. See [`docs/app-uploads.md`](docs/app-uploads.md).
 
 ## Build
 
@@ -33,8 +52,8 @@ viewing processed results.
 
 The debug APK is written to `app/build/outputs/apk/debug/`.
 
-The current app shell contains the three-tab navigation, theme, and placeholder
-screens. Recording, history sync, and the backend integration are next.
+The current app contains the three-tab navigation, local recording, History,
+the optional remote login, upload state and the processed-night detail screen.
 
 ## Backend
 

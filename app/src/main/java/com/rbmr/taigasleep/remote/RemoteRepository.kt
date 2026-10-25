@@ -34,8 +34,23 @@ class RemoteRepository internal constructor(
   val savedEmail: String
     get() = store.email.orEmpty()
 
+  /** Stable local key for account-scoped caches. It is not a secret. */
+  val accountKey: String
+    get() = "${savedUrl}|${savedEmail}"
+
   val hasSession: Boolean
     get() = store.token != null
+
+  /**
+   * A client for the saved address and token. Null until the user has logged in. Call [verify]
+   * first when the token may have expired; this does not perform a network request itself.
+   */
+  fun api(): TaigaClient? {
+    val baseUrl = savedUrl.takeIf { it.isNotBlank() } ?: return null
+    val token = store.token ?: return null
+    if (store.status() !is RemoteStatus.Connected) return null
+    return OkHttpTaigaApi(baseUrl = baseUrl, token = token)
+  }
 
   /**
    * Pings the address typed in the URL field. This is step one, before any login: it validates the
