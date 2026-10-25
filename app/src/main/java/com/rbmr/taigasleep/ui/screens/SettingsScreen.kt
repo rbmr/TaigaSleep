@@ -39,10 +39,13 @@ import com.rbmr.taigasleep.guidance.Progress
 import com.rbmr.taigasleep.remote.RemoteRepository
 import com.rbmr.taigasleep.remote.RemoteStatus
 import com.rbmr.taigasleep.ui.components.ScreenHeader
+import com.rbmr.taigasleep.ui.components.SettingsCheckboxRow
 import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.SettingsGroup
 import com.rbmr.taigasleep.ui.components.SettingsRow
 import com.rbmr.taigasleep.ui.theme.taiga
+import com.rbmr.taigasleep.upload.UploadScheduler
+import com.rbmr.taigasleep.upload.UploadSettings
 
 @Composable
 fun SettingsScreen(
@@ -55,6 +58,8 @@ fun SettingsScreen(
   val context = LocalContext.current
   val remoteRepository = remember { RemoteRepository.of(context) }
   val remoteStatus by remoteRepository.status.collectAsStateWithLifecycle()
+  val uploadSettings = remember { UploadSettings.get(context) }
+  val autoUpload by uploadSettings.autoUpload.collectAsStateWithLifecycle()
   var showAppearance by remember { mutableStateOf(false) }
   var showPreviewPicker by remember { mutableStateOf(false) }
   val guidanceStore = remember { GuidanceStore(context) }
@@ -91,22 +96,6 @@ fun SettingsScreen(
     }
 
     item {
-      SettingsGroup(stringResource(R.string.settings_group_recording)) {
-        SettingsRow(
-            title = stringResource(R.string.settings_prevent_title),
-            subtitle =
-                "● " +
-                    stringResource(
-                        if (ready) R.string.g_settings_ready else R.string.g_settings_needs_attention
-                    ),
-            subtitleColor = if (ready) MaterialTheme.taiga.ok else MaterialTheme.taiga.warn,
-            onClick = onGuidanceClick,
-            // Debug builds only: pick which device's guidance to preview.
-            onLongClick = if (BuildConfig.DEBUG) ({ showPreviewPicker = true }) else null,
-        )
-      }
-    }
-    item {
       SettingsGroup(stringResource(R.string.settings_group_server)) {
         SettingsRow(
             title = stringResource(R.string.settings_remote_title),
@@ -127,7 +116,66 @@ fun SettingsScreen(
       }
     }
     item {
+      SettingsGroup(stringResource(R.string.settings_group_recordings)) {
+        SettingsCheckboxRow(
+            title = stringResource(R.string.settings_auto_upload_title),
+            subtitle = stringResource(R.string.settings_auto_upload_body),
+            checked = autoUpload.enabled,
+            onCheckedChange = {
+              uploadSettings.setEnabled(it)
+              UploadScheduler.rescheduleAll(context)
+            },
+        )
+        if (autoUpload.enabled) {
+          SettingsDivider()
+          SettingsCheckboxRow(
+              title = stringResource(R.string.settings_auto_upload_wifi),
+              checked = autoUpload.wifiOnly,
+              onCheckedChange = {
+                uploadSettings.setWifiOnly(it)
+                UploadScheduler.rescheduleAll(context)
+              },
+          )
+          SettingsDivider()
+          SettingsCheckboxRow(
+              title = stringResource(R.string.settings_auto_upload_charging),
+              checked = autoUpload.chargingOnly,
+              onCheckedChange = {
+                uploadSettings.setChargingOnly(it)
+                UploadScheduler.rescheduleAll(context)
+              },
+          )
+        }
+        SettingsDivider()
+        Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+          Text(
+              text = stringResource(R.string.settings_upload_retention_title),
+              style = MaterialTheme.typography.titleMedium,
+          )
+          Text(
+              text = stringResource(R.string.settings_upload_retention_body),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.padding(top = 2.dp),
+          )
+        }
+      }
+    }
+    item {
       SettingsGroup(stringResource(R.string.settings_group_app)) {
+        SettingsRow(
+            title = stringResource(R.string.settings_prevent_title),
+            subtitle =
+                "● " +
+                    stringResource(
+                        if (ready) R.string.g_settings_ready else R.string.g_settings_needs_attention
+                    ),
+            subtitleColor = if (ready) MaterialTheme.taiga.ok else MaterialTheme.taiga.warn,
+            onClick = onGuidanceClick,
+            // Debug builds only: pick which device's guidance to preview.
+            onLongClick = if (BuildConfig.DEBUG) ({ showPreviewPicker = true }) else null,
+        )
+        SettingsDivider()
         SettingsRow(
             title = stringResource(R.string.settings_appearance_title),
             subtitle = appearanceSubtitle,

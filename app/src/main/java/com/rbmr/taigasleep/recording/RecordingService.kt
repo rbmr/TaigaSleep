@@ -26,6 +26,7 @@ import com.rbmr.taigasleep.storage.SessionConfig
 import com.rbmr.taigasleep.storage.SessionMeta
 import com.rbmr.taigasleep.storage.SessionState
 import com.rbmr.taigasleep.storage.SessionStore
+import com.rbmr.taigasleep.upload.UploadScheduler
 import java.util.TimeZone
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CoroutineScope
@@ -311,6 +312,9 @@ class RecordingService : Service() {
     releaseWakeLock(s)
     RecordingRepository.setIdle()
     RecordingRepository.refreshSessions(this)
+    if (s.writer.meta.state != SessionState.RECORDING) {
+      UploadScheduler.onRecordingFinished(this, s.writer.meta.sessionId)
+    }
     stopForeground(STOP_FOREGROUND_REMOVE)
     stopSelf()
   }

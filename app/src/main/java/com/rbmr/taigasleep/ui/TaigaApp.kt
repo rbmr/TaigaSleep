@@ -40,8 +40,10 @@ import com.rbmr.taigasleep.ui.components.TaigaBottomBar
 import com.rbmr.taigasleep.ui.screens.AboutScreen
 import com.rbmr.taigasleep.ui.screens.HistoryScreen
 import com.rbmr.taigasleep.ui.screens.HomeScreen
+import com.rbmr.taigasleep.ui.screens.NightDetailScreen
 import com.rbmr.taigasleep.ui.screens.RemoteScreen
 import com.rbmr.taigasleep.ui.screens.SettingsScreen
+import com.rbmr.taigasleep.upload.UploadScheduler
 import kotlinx.coroutines.launch
 
 private data class Tab(
@@ -70,6 +72,9 @@ fun TaigaApp(
   var showAbout by rememberSaveable { mutableStateOf(false) }
   var showGuidance by rememberSaveable { mutableStateOf(false) }
   var showRemote by rememberSaveable { mutableStateOf(false) }
+  var detailLocal by rememberSaveable { mutableStateOf<String?>(null) }
+  var detailRemote by rememberSaveable { mutableStateOf<String?>(null) }
+  var detailAnalysis by rememberSaveable { mutableStateOf<String?>(null) }
   // Prompt once per process; a successful check arms it again for a later expiry.
   var promptedLogin by remember { mutableStateOf(false) }
   val loginPrompt = stringResource(R.string.remote_login_prompt)
@@ -79,7 +84,11 @@ fun TaigaApp(
   LifecycleResumeEffect(Unit) {
     scope.launch {
       when (val result = remote.verify()) {
-        is CheckResult.Success -> promptedLogin = false
+        is CheckResult.Success -> {
+          promptedLogin = false
+          UploadScheduler.resumePendingDeletes(context)
+          UploadScheduler.reconcile(context)
+        }
         is CheckResult.Failure -> {
           val needsLogin =
               result.error == RemoteError.SessionExpired ||
@@ -107,6 +116,18 @@ fun TaigaApp(
 
   when {
     showRemote -> RemoteScreen(onBack = { showRemote = false })
+    detailLocal != null || detailRemote != null ->
+        NightDetailScreen(
+            localId = detailLocal,
+            remoteId = detailRemote,
+            analysisId = detailAnalysis,
+            onBack = {
+              detailLocal = null
+              detailRemote = null
+              detailAnalysis = null
+            },
+            onLogin = { showRemote = true },
+        )
     showGuidance -> {
       val preview = GuidanceFlows.previewOf(guidanceStore)
       val match = remember(preview) { GuidanceFlows.currentMatch(preview) }
@@ -136,7 +157,15 @@ fun TaigaApp(
               modifier = Modifier.padding(padding).fillMaxSize(),
           ) { page ->
             when (page) {
-              0 -> HistoryScreen()
+              0 ->
+                  HistoryScreen(
+                      onOpenNight = { local, server, analysis ->
+                        detailLocal = local
+                        detailRemote = server
+                        detailAnalysis = analysis
+                      },
+                      onLoginClick = { showRemote = true },
+                  )
               1 -> HomeScreen()
               2 ->
                   SettingsScreen(
