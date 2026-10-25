@@ -65,9 +65,12 @@ The optional wav2sleep model on the same fixture, CPU-only, one torch thread,
 | --- | --- | --- | --- | --- | --- |
 | `wav2sleep` 1.1.0, variable length | 1.9 s | 399 MiB | 90.8 | light 120 | default; model + torch import included |
 | `wav2sleep` 1.1.0, padded to 10 h | 4.0 s | 624 MiB | 100.0 | wake 120 | `pad_to_max_length=true`; padding dominates a 2 min input |
+| `sleep-ecg` 1.0.0 | 3.4 s | 409 MiB | 86.9 | wake 90, unknown 30 | Keras + torch import included |
 
 See [`wav2sleep.md`](wav2sleep.md) for the pinned checkpoint, installation,
 two real H10 nights, contact gating/smoothing and the address-space limits.
+See [`sleepecg.md`](sleepecg.md) for the HR/RR path, classifiers, licences and
+benchmarks.
 
 ## Real H10 nights
 
@@ -113,13 +116,14 @@ meaningful when the user switches algorithms.
 
 The worker runs one job at a time. The analysis subprocess is the only heavy
 part; numeric libraries are forced to one thread. The built-in baseline peaks
-around 40–60 MiB RSS. The optional wav2sleep extra needs more address space
-because PyTorch maps a lot at import: 1024 MiB failed on the reference laptop,
-1536 MiB passed, and 2048 MiB is the recommended minimum. Peak RSS on real
-nights was 725–873 MiB. On a 1 GB machine keep the baseline only; for wav2sleep
-use at least 2 vCPU, 4 GB RAM and about 1.5 GB free disk for the extra. Set
+around 40–60 MiB RSS. The optional wav2sleep and SleepECG extras need more
+address space because PyTorch maps a lot at import: 1024 MiB failed on the
+reference laptop for both, 1536 MiB passed, and 2048 MiB is the recommended
+minimum. Peak RSS on real nights was 725–873 MiB for wav2sleep and 567–653 MiB
+for SleepECG. On a 1 GB machine keep the baseline only; for either ML model use
+at least 2 vCPU, 4 GB RAM and about 1.5 GB free disk for the extra. Set
 `TAIGA_JOB_MEMORY_MB` above the measured peak with a margin, or `0` to disable
-the cap. The worker logs a warning when wav2sleep is installed with a limit
+the cap. The worker logs a warning when an ML stager is installed with a limit
 below 1536 MiB.
 
 ## Data handling

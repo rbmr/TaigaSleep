@@ -417,6 +417,10 @@ class StagingResult:
     # merged into the standard provenance under ``algorithm``; core keys such
     # as licence and citation cannot be replaced.
     provenance: Mapping[str, Any] = field(default_factory=dict)
+    # A stager whose manifest supports several modes (for example 3-class and
+    # 2-class classifiers) can narrow the stages for this run. It must be a
+    # subset of the manifest's supported_stages.
+    supported_stages: Sequence[Stage] | None = None
 
 
 class Stager(ABC):
@@ -472,7 +476,14 @@ def validate_staging_result(
             "invalid_result",
             f"stager returned {len(result.stages)} stages for {epoch_count} epochs",
         )
-    allowed = set(info.supported_stages)
+    allowed = set(result.supported_stages or info.supported_stages)
+    if result.supported_stages is not None:
+        extra = set(result.supported_stages) - set(info.supported_stages)
+        if extra:
+            raise AnalysisError(
+                "invalid_result",
+                f"stager narrowed to stages outside its manifest: {sorted(extra)}",
+            )
     bad = [stage for stage in result.stages if stage not in allowed]
     if bad:
         raise AnalysisError(

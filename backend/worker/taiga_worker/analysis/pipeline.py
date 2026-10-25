@@ -245,6 +245,7 @@ def run_analysis(
         confidence=confidence,
         artifacts=result.artifacts,
         beats_s=result.beats_s,
+        supported_stages=result.supported_stages,
     )
     serialized_stages = _serialize_stages(recording, grid, result, confidence)
     runtime_s = round(time.monotonic() - started, 3)
@@ -255,8 +256,9 @@ def run_analysis(
         "probabilities": result.probabilities is not None,
         "artifacts": result.artifacts is not None,
         "beats": result.beats_s is not None,
+        "no_deep": "no_deep" in info.capabilities,
         "stage_scheme": info.stage_scheme,
-        "supported_stages": list(info.supported_stages),
+        "supported_stages": list(result.supported_stages or info.supported_stages),
         "needs": [need.name for need in info.needs],
     }
     warnings = list(dict.fromkeys(

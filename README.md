@@ -22,8 +22,8 @@ screens are in place; the analysis algorithms are still experimental.
 - **Android app:** Kotlin, Jetpack Compose, local-first recordings.
 - **Optional backend:** Go PocketBase API (auth, SQLite, files) and a Python
   analysis worker.
-- **Analysis:** a built-in reference stager, plus the optional wav2sleep ECG
-  model from #23. SleepECG is a follow-up (#22).
+- **Analysis:** a built-in reference stager, plus optional wav2sleep (4-class
+  ECG) and SleepECG (HR/RR) models.
 
 The app works offline. The backend is only needed for uploading recordings and
 viewing processed results. A night can be recorded, exported and kept entirely

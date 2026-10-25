@@ -23,6 +23,7 @@ ENTRY_POINT_GROUP = "taiga_sleep.stagers"
 BUILTIN_MODULES = (
     "taiga_worker.analysis.algorithms.baseline",
     "taiga_worker.analysis.algorithms.wav2sleep",
+    "taiga_worker.analysis.algorithms.sleepecg",
 )
 
 

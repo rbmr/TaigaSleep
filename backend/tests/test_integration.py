@@ -930,6 +930,32 @@ def test_14_algorithms_analysis_request_and_views(api: Backend) -> None:
             "params_schema": {},
             "source": "builtin",
         },
+        {
+            "id": "sleep-ecg",
+            "version": "1.0.0",
+            "name": "SleepECG",
+            "description": "test",
+            "license": "BSD-3-Clause",
+            "citation": "Hofer and Brunner, JOSS 2023",
+            "homepage": "https://github.com/cbrnr/sleepecg",
+            "needs": [
+                {"name": "hr", "required": False},
+                {"name": "ecg", "required": False},
+            ],
+            "epoch_seconds": 30,
+            "stage_scheme": "sleep-ecg",
+            "supported_stages": ["wake", "rem", "nrem", "sleep", "unknown"],
+            "capabilities": [
+                "stages",
+                "confidence",
+                "probabilities",
+                "artifacts",
+                "no_deep",
+            ],
+            "default_params": {"classifier": "wrn-gru-mesa"},
+            "params_schema": {},
+            "source": "builtin",
+        },
     ]
     api.request(
         "POST",
@@ -949,6 +975,12 @@ def test_14_algorithms_analysis_request_and_views(api: Backend) -> None:
     assert wav2sleep["license"] == "MIT"
     assert wav2sleep["needs"][0]["name"] == "ecg"
     assert "probabilities" in wav2sleep["capabilities"]
+    sleep_ecg = next(
+        item for item in listing["algorithms"] if item["id"] == "sleep-ecg"
+    )
+    assert sleep_ecg["license"] == "BSD-3-Clause"
+    assert sleep_ecg["stage_scheme"] == "sleep-ecg"
+    assert "no_deep" in sleep_ecg["capabilities"]
 
     session_id = api.create_uploaded_session("20261025_140000")
     api.request(

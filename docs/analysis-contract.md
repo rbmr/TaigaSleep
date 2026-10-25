@@ -56,9 +56,9 @@ Stage = Literal["wake", "rem", "nrem", "light", "deep", "sleep", "unknown"]
 | `license`, `citation`, `homepage` | Provenance shown in results. |
 | `needs` | Required/optional streams and rate ranges. |
 | `epoch_seconds` | Output epoch length; 30 is the norm. |
-| `stage_scheme` | `aasm4`, `wake-rem-nrem`, `wake-sleep`, or a documented custom scheme. |
+| `stage_scheme` | `aasm4`, `wake-rem-nrem`, `wake-sleep`, or a documented custom scheme such as `sleep-ecg`. |
 | `supported_stages` | Stages the algorithm can actually emit. |
-| `capabilities` | At least `stages`; optionally `confidence`, `probabilities`, `artifacts`, `beats`. |
+| `capabilities` | At least `stages`; optionally `confidence`, `probabilities`, `artifacts`, `beats`, `no_deep`. |
 | `default_params`, `params_schema` | Tunable parameters and their shape. |
 
 ## Input: `Recording`
@@ -113,10 +113,16 @@ StagingResult(
     beats_s=[0.81, 1.62, ...],             # optional beat times in seconds
     warnings=["..."],
     extras={"anything": "namespaced"},
+    supported_stages=("wake", "rem", "nrem", "unknown"),  # optional narrow set
 )
 ```
 
 - `stages` is required and must use only `info.supported_stages`.
+- `supported_stages` is optional. A stager whose manifest supports several
+  modes (for example SleepECG's three-class and two-class classifiers) can
+  narrow the stages for this run. The set must be a subset of the manifest and
+  changes the metrics support map; for example a wake/rem/nrem run marks
+  `time_in_sleep_s` unsupported instead of reporting zero.
 - `confidence` and `artifacts` are optional; the shared quality score accounts
   for missing confidence by renormalizing its weight. `unknown` means the epoch
   could not be scored; an epoch may still carry a stage while being flagged as
@@ -183,11 +189,13 @@ Built-ins may be optional. A built-in module can export
 `availability() -> (bool, reason)`; when it returns false the algorithm is not
 advertised. A missing optional dependency stays silent, while a
 configured-but-broken extra is reported in the registry errors. The optional
-wav2sleep stager uses this so a base worker reports only the baseline.
+wav2sleep and SleepECG stagers use this so a base worker reports only the
+baseline.
 
 The result's `capabilities` records what the run actually produced, including
-`probabilities`, `confidence`, `artifacts` and `beats`. Per-epoch probabilities
-are stored by stage name in `stages.probabilities`.
+`probabilities`, `confidence`, `artifacts`, `beats` and whether deep sleep is
+unsupported (`no_deep`). Per-epoch probabilities are stored by stage name in
+`stages.probabilities`.
 
 ## Minimal example
 

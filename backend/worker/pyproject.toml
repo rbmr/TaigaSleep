@@ -18,6 +18,13 @@ wav2sleep = [
     "torch>=2.7.1",
     "wav2sleep @ git+https://github.com/joncarter1/wav2sleep@278e30463c8149c4e6899b8784da492fec695bd9 ; python_version >= '3.11'",
 ]
+# SleepECG uses Keras with the PyTorch backend for the bundled classifiers.
+sleepecg = [
+    "sleepecg>=0.6.0 ; python_version >= '3.11'",
+    "keras>=3.15.0 ; python_version >= '3.11'",
+    "torch>=2.12.0 ; python_version >= '3.11'",
+    "joblib>=1.4.2 ; python_version >= '3.11'",
+]
 
 [project.scripts]
 taiga-worker = "taiga_worker.__main__:main"

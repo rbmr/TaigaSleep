@@ -50,7 +50,7 @@ class StagerSelectionTest {
             ),
         )
 
-    assertEquals(StagerChoice("sleepecg", "1.2.0"), choice)
+    assertEquals(StagerChoice("sleep-ecg", "1.2.0"), choice)
   }
 
   @Test
@@ -96,7 +96,7 @@ class StagerSelectionTest {
 
   private fun sleepEcg(version: String) =
       AlgorithmDto(
-          id = "sleepecg",
+          id = "sleep-ecg",
           version = version,
           needs = listOf(AlgorithmNeedDto("hr", required = true)),
       )

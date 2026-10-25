@@ -467,6 +467,7 @@ fun NightDetailScreen(
                   epochSeconds = epochSecondsOf(state),
                   startUnixMs =
                       start.takeIf { it > 0 } ?: state.analysis?.stages?.start_unix_ms ?: 0L,
+                  support = state.analysis?.metric_support,
               )
             }
           }

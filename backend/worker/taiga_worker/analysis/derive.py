@@ -51,8 +51,8 @@ def _support(status: str, reason: str | None = None) -> dict[str, Any]:
     return {"status": status, "reason": reason}
 
 
-def _stage_support(stage: Stage, info: AlgorithmInfo, reason: str) -> dict[str, Any]:
-    return _support("supported") if stage in info.supported_stages else _support("unsupported_algorithm", reason)
+def _stage_support(stage: Stage, supported: set[Stage], reason: str) -> dict[str, Any]:
+    return _support("supported") if stage in supported else _support("unsupported_algorithm", reason)
 
 
 def _segments(mask: np.ndarray) -> list[tuple[int, int]]:
@@ -195,13 +195,14 @@ def derive(
     confidence: Sequence[float | None] | None = None,
     artifacts: Sequence[bool] | None = None,
     beats_s: Sequence[float] | None = None,
+    supported_stages: Sequence[Stage] | None = None,
 ) -> Derived:
     if len(stages) != grid.count:
         raise ValueError("stage count does not match the epoch grid")
 
     stage_values = np.asarray(stages, dtype=object)
     epoch_seconds = grid.epoch_seconds
-    supported = set(info.supported_stages)
+    supported = set(supported_stages or info.supported_stages)
 
     counts = {stage: int(np.sum(stage_values == stage)) for stage in TIME_STAGES}
     counts["unknown"] = int(np.sum(stage_values == "unknown"))
@@ -244,7 +245,7 @@ def derive(
             stage_support[key] = _support("supported")
         else:
             time_per_stage[key] = None
-            stage_support[key] = _stage_support(stage, info, f"algorithm_does_not_distinguish_{stage}")
+            stage_support[key] = _stage_support(stage, supported, f"algorithm_does_not_distinguish_{stage}")
 
     hr_metrics, hr_support = _hr_metrics(recording)
     hrv_metrics, hrv_support = _hrv_metrics(recording, beats_s)

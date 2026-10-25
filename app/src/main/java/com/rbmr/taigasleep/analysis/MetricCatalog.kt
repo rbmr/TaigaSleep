@@ -131,3 +131,25 @@ fun stageLabelRes(stage: String): Int =
 
 /** The order used by the sleep stages chart and the breakdown. */
 val StageOrder = listOf("wake", "rem", "nrem", "light", "deep", "sleep", "unknown")
+
+/**
+ * Stages that this result can actually display. Algorithm-limited stages are omitted instead of
+ * being shown with a "not supported by this algorithm" row. When the support map is unavailable
+ * (older cached results), fall back to the stages present in the timeline.
+ */
+fun applicableStages(
+    segments: List<com.rbmr.taigasleep.remote.StageSegmentDto>,
+    support: Map<String, MetricSupportDto>?,
+): List<String> {
+  val present = segments.filter { it.count > 0 }.map { it.stage }.toSet()
+  val stages =
+      if (support.isNullOrEmpty()) {
+        StageOrder.filter { it != "unknown" && it in present }
+      } else {
+        StageOrder.filter { stage ->
+          stage != "unknown" &&
+              supportState("time_in_${stage}_s", support) != MetricSupportState.UNSUPPORTED_ALGORITHM
+        }
+      }
+  return if ("unknown" in present) stages + "unknown" else stages
+}

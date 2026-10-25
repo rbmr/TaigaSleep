@@ -136,3 +136,22 @@ def test_valid_optional_fields_are_accepted() -> None:
         epoch_count=1,
         info=_info(),
     )
+
+
+def test_supported_stages_can_only_narrow_the_manifest() -> None:
+    info = _info(supported_stages=AASM4_STAGES)
+    narrowed = StagingResult(
+        stages=["wake", "light", "deep", "rem"],
+        supported_stages=("wake", "light", "unknown"),
+    )
+    with pytest.raises(AnalysisError) as context:
+        validate_staging_result(narrowed, epoch_count=4, info=info)
+    assert context.value.code == "invalid_result"
+
+    outside = StagingResult(
+        stages=["wake", "wake", "wake", "wake"],
+        supported_stages=("wake", "sleep", "unknown"),
+    )
+    with pytest.raises(AnalysisError) as context:
+        validate_staging_result(outside, epoch_count=4, info=info)
+    assert context.value.code == "invalid_result"

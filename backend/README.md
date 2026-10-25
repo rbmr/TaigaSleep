@@ -7,8 +7,8 @@ schema, owner rules, health checks, the durable analysis queue, the analysis
 worker, deployment examples and backup guidance. It accepts append-only
 recordings through an owner-only upload API, runs staging algorithms in a
 separate worker process, and stores one result per session/algorithm/version/
-parameter set. The optional wav2sleep ECG model is available as a worker extra;
-SleepECG is tracked in #22.
+parameter set. The optional wav2sleep ECG model and SleepECG HR/RR stager are
+available as worker extras.
 
 ## What is here
 
@@ -46,9 +46,10 @@ machine or on a larger one without code changes.
 - Go **1.27+** for the API. PocketBase is pinned as a Go module at **0.40.6**.
 - Python **3.10+** and [uv](https://docs.astral.sh/uv/) for the worker. The
   worker uses numpy for decoding, metrics and the baseline stager; the idle
-  supervisor does not import it. The optional wav2sleep ECG model needs Python
-  **3.11+** and is installed as a worker extra, so the base worker stays small.
-  See [`docs/wav2sleep.md`](../docs/wav2sleep.md).
+  supervisor does not import it. The optional wav2sleep and SleepECG models need
+  Python **3.11+** and are installed as worker extras, so the base worker stays
+  small. See [`docs/wav2sleep.md`](../docs/wav2sleep.md) and
+  [`docs/sleepecg.md`](../docs/sleepecg.md).
 - Optional: Docker Compose for the container deployment.
 
 ## Quick start (without Docker)
@@ -139,6 +140,22 @@ too low for PyTorch) and expect about 1.5 GB of extra disk. Full install,
 adapter, provenance and benchmark notes:
 [`docs/wav2sleep.md`](../docs/wav2sleep.md).
 
+### Optional SleepECG stager
+
+SleepECG stages from heartbeat times. It is the fallback for HR/RR-only nights
+and is useful for comparing a different feature set and classifier:
+
+```bash
+cd backend/worker
+uv sync --frozen --extra sleepecg
+```
+
+The bundled classifiers are part of the package, so there is no separate
+checkpoint or runtime download. The default three-class model distinguishes
+Wake/REM/NREM; a two-class Wake/Sleep classifier is also available. Deep sleep
+is never invented. Use `TAIGA_JOB_MEMORY_MB=2048` and expect about 1.5 GB of
+extra disk. See [`docs/sleepecg.md`](../docs/sleepecg.md).
+
 ## Configuration
 
 ### PocketBase
@@ -175,7 +192,7 @@ Command-line flags take precedence over environment variables.
 | `TAIGA_WORKER_ID` | `--worker-id` | hostname-pid | Name recorded on a lease. |
 | `TAIGA_POLL_INTERVAL_S` | `--poll-interval` | `15` | Sleep when the queue is empty. |
 | `TAIGA_JOB_LEASE_S` | `--lease-seconds` | `1800` | Lease length; an expired lease is requeued. |
-| `TAIGA_JOB_MEMORY_MB` | `--memory-mb` | `1024` | Address-space limit for one job; `0` disables it. Use `2048` for wav2sleep. |
+| `TAIGA_JOB_MEMORY_MB` | `--memory-mb` | `1024` | Address-space limit for one job; `0` disables it. Use `2048` for wav2sleep or SleepECG. |
 | `TAIGA_JOB_TIMEOUT_S` | `--timeout` | `3600` | Wall-clock limit for one job. |
 | `TAIGA_WAV2SLEEP_CHECKPOINT` | - | unset | Local checkpoint directory for the optional wav2sleep extra. |
 | `TAIGA_LOG_LEVEL` | `--log-level` | `INFO` | Python log level. |
@@ -195,6 +212,7 @@ so installs are reproducible:
 cd backend/worker
 uv sync --frozen          # exact lockfile, including the interpreter
 uv sync --frozen --extra wav2sleep   # optional CPU torch + wav2sleep
+uv sync --frozen --extra sleepecg    # optional Keras + CPU torch + SleepECG
 uv add <package>          # update pyproject.toml and uv.lock together
 uv run --frozen python -m taiga_worker
 ```
@@ -714,8 +732,7 @@ public API, but the job payload shape is expected to stay in sync.
 
 ## Out of scope
 
-The real wav2sleep and SleepECG adapters (#22, #23), accuracy claims without
-ground-truth labels, optional compressed uploads (#24), OpenAPI generation
-(#28), the app-side upload and result UI (#11), and a sleep score. The score is
-a product policy over stages and metrics, not a stager.
+Accuracy claims without ground-truth labels, optional compressed uploads (#24),
+OpenAPI generation (#28), the app-side upload and result UI (#11), and a sleep
+score. The score is a product policy over stages and metrics, not a stager.
 
