@@ -107,10 +107,15 @@ fun SettingsScreen(
                       stringResource(R.string.remote_state_connected, state.email)
                   is RemoteStatus.LoginNeeded ->
                       stringResource(R.string.remote_state_login_needed_short)
+                  is RemoteStatus.Unreachable ->
+                      stringResource(R.string.remote_state_unreachable_short)
                 },
             subtitleColor =
-                if (remoteStatus is RemoteStatus.Connected) MaterialTheme.taiga.ok
-                else MaterialTheme.colorScheme.onSurfaceVariant,
+                when (remoteStatus) {
+                  is RemoteStatus.Connected -> MaterialTheme.taiga.ok
+                  is RemoteStatus.Unreachable -> MaterialTheme.taiga.bad
+                  else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
             onClick = onRemoteClick,
         )
       }

@@ -16,6 +16,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,14 +28,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.ThemeMode
 import com.rbmr.taigasleep.guidance.FlowScreen
 import com.rbmr.taigasleep.guidance.GuidanceFlows
-import com.rbmr.taigasleep.remote.CheckResult
 import com.rbmr.taigasleep.remote.RemoteError
 import com.rbmr.taigasleep.remote.RemoteRepository
+import com.rbmr.taigasleep.remote.RemoteStatus
 import com.rbmr.taigasleep.ui.components.BottomBarItem
 import com.rbmr.taigasleep.ui.components.TaigaBottomBar
 import com.rbmr.taigasleep.ui.screens.AboutScreen
@@ -69,6 +71,7 @@ fun TaigaApp(
   val context = LocalContext.current
   val guidanceStore = remember { GuidanceStore(context) }
   val remote = remember { RemoteRepository.of(context) }
+  val remoteStatus by remote.status.collectAsStateWithLifecycle()
   var showAbout by rememberSaveable { mutableStateOf(false) }
   var showGuidance by rememberSaveable { mutableStateOf(false) }
   var showRemote by rememberSaveable { mutableStateOf(false) }
@@ -80,38 +83,41 @@ fun TaigaApp(
   val loginPrompt = stringResource(R.string.remote_login_prompt)
   val loginAction = stringResource(R.string.remote_login_prompt_action)
 
-  // The same check as the Test button, without a password. Recording never waits for it.
+  // The same check as the Remote screen, without a password. Recording never waits for it.
   LifecycleResumeEffect(Unit) {
     scope.launch {
-      when (val result = remote.verify()) {
-        is CheckResult.Success -> {
-          promptedLogin = false
-          UploadScheduler.resumePendingDeletes(context)
-          UploadScheduler.reconcile(context)
-        }
-        is CheckResult.Failure -> {
-          val needsLogin =
-              result.error == RemoteError.SessionExpired ||
-                  result.error == RemoteError.BadCredentials
-          if (needsLogin && !promptedLogin) {
-            promptedLogin = true
-            // The Remote screen already shows the state, so the snackbar is only for the tabs.
-            if (!showRemote) {
-              val answer =
-                  snackbarHostState.showSnackbar(
-                      message = loginPrompt,
-                      actionLabel = loginAction,
-                      withDismissAction = true,
-                      duration = SnackbarDuration.Long,
-                  )
-              if (answer == SnackbarResult.ActionPerformed) showRemote = true
-            }
-          }
-        }
-        null -> Unit
+      remote.verify()
+      if (remote.status.value is RemoteStatus.Connected) {
+        UploadScheduler.resumePendingDeletes(context)
+        UploadScheduler.reconcile(context)
       }
     }
     onPauseOrDispose {}
+  }
+
+  // The prompt follows the shared state, wherever the rejected token was noticed.
+  LaunchedEffect(remoteStatus) {
+    when (val status = remoteStatus) {
+      is RemoteStatus.Connected -> promptedLogin = false
+      is RemoteStatus.LoginNeeded -> {
+        val rejectedToken =
+            status.reason == RemoteError.SessionExpired ||
+                status.reason == RemoteError.BadCredentials
+        if (rejectedToken && !promptedLogin && !showRemote) {
+          promptedLogin = true
+          // The Remote screen already shows the state, so the snackbar is only for the tabs.
+          val answer =
+              snackbarHostState.showSnackbar(
+                  message = loginPrompt,
+                  actionLabel = loginAction,
+                  withDismissAction = true,
+                  duration = SnackbarDuration.Long,
+              )
+          if (answer == SnackbarResult.ActionPerformed) showRemote = true
+        }
+      }
+      else -> Unit
+    }
   }
 
   when {

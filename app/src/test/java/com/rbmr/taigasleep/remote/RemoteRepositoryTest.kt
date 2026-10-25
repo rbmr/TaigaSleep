@@ -103,10 +103,19 @@ class RemoteRepositoryTest {
   fun `a wrong password is reported at the login step`() {
     api.loginError = RemoteError.BadCredentials
 
-    val result = login(repository())
+    val repo = repository()
+    val result = login(repo)
 
     assertEquals(CheckResult.Failure(RemoteStep.LOGIN, RemoteError.BadCredentials), result)
     assertNull(store().url)
+    assertEquals(
+        RemoteStatus.LoginNeeded(
+            email = null,
+            checkedAtMs = now,
+            reason = RemoteError.BadCredentials,
+        ),
+        repo.status.value,
+    )
     assertEquals(listOf("login:me@example.com"), api.calls)
   }
 
@@ -114,18 +123,47 @@ class RemoteRepositoryTest {
   fun `a rejected token is reported at the authenticated step`() {
     api.authError = RemoteError.SessionExpired
 
-    val result = login(repository())
+    val repo = repository()
+    val result = login(repo)
 
     assertEquals(CheckResult.Failure(RemoteStep.AUTHENTICATED, RemoteError.SessionExpired), result)
     assertNull(store().token)
+    val status = repo.status.value as RemoteStatus.LoginNeeded
+    assertEquals(RemoteError.SessionExpired, status.reason)
   }
 
   @Test
   fun `missing credentials are reported before any network call`() {
-    val result = runBlocking { repository().login("http://localhost:8090", "", "") }
+    val repo = repository()
+    val result = runBlocking { repo.login("http://localhost:8090", "", "") }
 
     assertEquals(CheckResult.Failure(RemoteStep.LOGIN, RemoteError.MissingCredentials), result)
     assertTrue(api.calls.isEmpty())
+    assertEquals(RemoteStatus.NotConfigured, repo.status.value)
+  }
+
+  @Test
+  fun `an empty password with no stored token is refused`() {
+    val repo = repository()
+
+    val result = runBlocking { repo.login("http://localhost:8090", "me@example.com", "") }
+
+    assertEquals(CheckResult.Failure(RemoteStep.LOGIN, RemoteError.MissingCredentials), result)
+    assertTrue(api.calls.isEmpty())
+    assertNull(store().token)
+  }
+
+  @Test
+  fun `a login that cannot reach the server keeps the stored session`() {
+    val repo = repository()
+    login(repo)
+    api.loginError = RemoteError.Unreachable
+
+    val result = runBlocking { repo.login("http://localhost:8090", "me@example.com", "new") }
+
+    assertEquals(CheckResult.Failure(RemoteStep.LOGIN, RemoteError.Unreachable), result)
+    assertEquals("token-1", store().token)
+    assertTrue(repo.status.value is RemoteStatus.Unreachable)
   }
 
   @Test
@@ -159,16 +197,105 @@ class RemoteRepositoryTest {
   }
 
   @Test
-  fun `an unreachable server on resume does not log the user out`() {
+  fun `an unreachable server on resume reports unreachable and keeps the token`() {
     val repo = repository()
     login(repo)
+    now += 3 * 24 * 60 * 60 * 1000L
     api.healthError = RemoteError.Unreachable
 
     val result = runBlocking { repo.verify() }
 
     assertEquals(CheckResult.Failure(RemoteStep.REACHABLE, RemoteError.Unreachable), result)
-    assertEquals(RemoteStatus.Connected("me@example.com", now), repo.status.value)
+    assertEquals(RemoteStatus.Unreachable(RemoteError.Unreachable, now), repo.status.value)
     assertEquals("token-1", store().token)
+    // A restart must not bring the old Connected state back.
+    assertEquals(
+        RemoteStatus.Unreachable(RemoteError.Unreachable, now),
+        RemoteRepository(store(), api).status.value,
+    )
+  }
+
+  @Test
+  fun `opening the remote reports unreachable and keeps the token`() {
+    val repo = repository()
+    login(repo)
+    now += 5 * 60_000
+    api.healthError = RemoteError.Unreachable
+
+    val checked = runBlocking { repo.check("http://localhost:8090") }
+
+    assertEquals(AddressCheck.Failure(RemoteError.Unreachable), checked)
+    assertEquals(RemoteStatus.Unreachable(RemoteError.Unreachable, now), repo.status.value)
+    assertEquals("token-1", store().token)
+  }
+
+  @Test
+  fun `a recovered server restores the session and advances the check time`() {
+    val repo = repository()
+    login(repo)
+    api.healthError = RemoteError.Unreachable
+    runBlocking { repo.check("http://localhost:8090") }
+
+    api.healthError = null
+    now += 60_000
+    val checked = runBlocking { repo.check("http://localhost:8090") }
+
+    assertEquals(AddressCheck.Reachable("http://localhost:8090", insecure = true), checked)
+    assertEquals(RemoteStatus.Connected("me@example.com", now), repo.status.value)
+    assertEquals("token-2", store().token)
+    assertEquals("auth-check:token-2", api.calls.last())
+  }
+
+  @Test
+  fun `a different address is only checked for health`() {
+    val repo = repository()
+    login(repo)
+    api.calls.clear()
+
+    runBlocking { repo.check("http://other.local:8090") }
+
+    // The saved token belongs to the saved address, so it is not sent anywhere else.
+    assertEquals(listOf("health"), api.calls)
+  }
+
+  @Test
+  fun `an unreachable server during the token proof saves no session`() {
+    api.authError = RemoteError.Unreachable
+
+    val repo = repository()
+    val result = login(repo)
+
+    assertEquals(CheckResult.Failure(RemoteStep.AUTHENTICATED, RemoteError.Unreachable), result)
+    assertNull(store().token)
+    assertTrue(repo.status.value is RemoteStatus.Unreachable)
+  }
+
+  @Test
+  fun `a configured remote without a token needs a password`() {
+    store().url = "http://localhost:8090"
+    now += 1_000
+
+    val repo = repository()
+    val result = runBlocking { repo.verify() }
+
+    assertEquals(CheckResult.Failure(RemoteStep.LOGIN, RemoteError.MissingCredentials), result)
+    assertEquals(
+        RemoteStatus.LoginNeeded(email = null, checkedAtMs = now, reason = null),
+        repo.status.value,
+    )
+    assertEquals(listOf("health"), api.calls)
+  }
+
+  @Test
+  fun `an unreachable server without a token is still unreachable`() {
+    store().url = "http://localhost:8090"
+    api.healthError = RemoteError.Unreachable
+
+    val repo = repository()
+    val result = runBlocking { repo.verify() }
+
+    assertEquals(CheckResult.Failure(RemoteStep.REACHABLE, RemoteError.Unreachable), result)
+    assertEquals(RemoteStatus.Unreachable(RemoteError.Unreachable, now), repo.status.value)
   }
 
   @Test
