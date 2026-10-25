@@ -111,3 +111,45 @@ def test_missing_hr_is_unsupported_and_quality_is_renormalized(tmp_path: Path) -
     assert derived.support["hr_mean_bpm"]["status"] == "unsupported_device"
     assert not derived.quality["components"]["hr_coverage"]["available"]
     assert derived.quality["score"] is not None
+
+
+def test_narrowed_supported_stages_remove_unused_metrics(tmp_path: Path) -> None:
+    from taiga_worker.analysis.algorithms import sleepecg
+
+    recording = _recording(tmp_path)
+    grid = recording.epochs(30)
+    derived = derive(
+        recording,
+        grid,
+        ["wake", "rem", "nrem", "unknown"],
+        sleepecg.INFO,
+        confidence=[0.8, 0.8, 0.8, None],
+        artifacts=[False, False, False, True],
+        supported_stages=("wake", "rem", "nrem", "unknown"),
+    )
+
+    assert derived.metrics["time_in_nrem_s"] == 30.0
+    assert derived.metrics["time_in_sleep_s"] is None
+    assert derived.metrics["time_in_deep_s"] is None
+    assert derived.support["time_in_nrem_s"]["status"] == "supported"
+    assert derived.support["time_in_sleep_s"]["status"] == "unsupported_algorithm"
+    assert derived.support["time_in_deep_s"]["status"] == "unsupported_algorithm"
+
+
+def test_two_class_supported_stages_mark_nrem_unsupported(tmp_path: Path) -> None:
+    from taiga_worker.analysis.algorithms import sleepecg
+
+    recording = _recording(tmp_path)
+    grid = recording.epochs(30)
+    derived = derive(
+        recording,
+        grid,
+        ["wake", "sleep", "wake", "sleep"],
+        sleepecg.INFO,
+        supported_stages=("wake", "sleep", "unknown"),
+    )
+
+    assert derived.metrics["time_in_sleep_s"] == 60.0
+    assert derived.metrics["time_in_nrem_s"] is None
+    assert derived.support["time_in_sleep_s"]["status"] == "supported"
+    assert derived.support["time_in_nrem_s"]["status"] == "unsupported_algorithm"

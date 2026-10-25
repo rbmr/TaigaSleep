@@ -35,11 +35,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.analysis.MetricSupportState
+import com.rbmr.taigasleep.analysis.applicableStages
 import com.rbmr.taigasleep.analysis.formatSeconds
 import com.rbmr.taigasleep.analysis.stageLabelRes
 import com.rbmr.taigasleep.analysis.stageSeconds
-import com.rbmr.taigasleep.analysis.supportState
 import com.rbmr.taigasleep.remote.MetricSupportDto
 import com.rbmr.taigasleep.remote.StageSegmentDto
 import com.rbmr.taigasleep.ui.theme.taiga
@@ -204,8 +203,9 @@ fun SleepStagesChart(
     startUnixMs: Long,
     modifier: Modifier = Modifier,
     chartHeight: Int = 176,
+    support: Map<String, MetricSupportDto>? = null,
 ) {
-  val lanes = listOf("wake", "rem", "light", "deep", "unknown")
+  val lanes = applicableStages(segments, support).ifEmpty { listOf("unknown") }
   val total = segments.sumOf { it.count }.coerceAtLeast(1)
   val totalSeconds = total.toLong() * epochSeconds.coerceAtLeast(1)
   val endUnixMs = if (startUnixMs > 0) startUnixMs + totalSeconds * 1000L else 0L
@@ -250,7 +250,11 @@ fun SleepStagesChart(
         var cursor = 0
         for (segment in segments) {
           if (segment.count <= 0) continue
-          val lane = sleepStageLane(segment.stage)
+          val lane = lanes.indexOf(segment.stage)
+          if (lane < 0) {
+            cursor += segment.count
+            continue
+          }
           val x0 = (cursor.toFloat() / total.toFloat()) * size.width
           val x1 = ((cursor + segment.count).toFloat() / total.toFloat()) * size.width
           val top = lane * laneHeight + laneHeight * 0.17f
@@ -290,18 +294,10 @@ fun StageBreakdown(
 ) {
   val durations = stageSeconds(segments, epochSeconds)
   val total = durations.values.sum().coerceAtLeast(1)
-  val stages =
-      buildList {
-        addAll(listOf("wake", "rem", "light", "deep"))
-        if (durations.containsKey("nrem")) add("nrem")
-        if (durations.containsKey("sleep")) add("sleep")
-        if ((durations["unknown"] ?: 0) > 0) add("unknown")
-      }
+  val stages = applicableStages(segments, support)
   Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
     for (stage in stages) {
       val seconds = durations[stage] ?: 0L
-      val state = supportState("time_in_${stage}_s", support)
-      val unsupported = state == MetricSupportState.UNSUPPORTED_ALGORITHM
       Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(10.dp).background(stageColor(stage), CircleShape)
@@ -312,50 +308,31 @@ fun StageBreakdown(
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f),
         )
-        if (unsupported) {
-          Text(
-              text = stringResource(R.string.night_metric_unsupported_algorithm),
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        } else {
-          Text(
-              text = formatSeconds(seconds.toDouble()),
-              style = MaterialTheme.typography.bodyMedium,
-          )
-          Spacer(Modifier.width(10.dp))
-          Text(
-              text = "${(seconds.toDouble() / total.toDouble() * 100).roundToInt()}%",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.width(38.dp),
-          )
-        }
+        Text(
+            text = formatSeconds(seconds.toDouble()),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "${(seconds.toDouble() / total.toDouble() * 100).roundToInt()}%",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(38.dp),
+        )
       }
-      if (!unsupported) {
+      Box(
+          Modifier.fillMaxWidth().padding(start = 19.dp).height(4.dp)
+              .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
+      ) {
         Box(
-            Modifier.fillMaxWidth().padding(start = 19.dp).height(4.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
-        ) {
-          Box(
-              Modifier.fillMaxWidth((seconds.toFloat() / total.toFloat()).coerceIn(0f, 1f))
-                  .fillMaxHeight()
-                  .background(stageColor(stage), RoundedCornerShape(50))
-          )
-        }
+            Modifier.fillMaxWidth((seconds.toFloat() / total.toFloat()).coerceIn(0f, 1f))
+                .fillMaxHeight()
+                .background(stageColor(stage), RoundedCornerShape(50))
+        )
       }
     }
   }
 }
-
-private fun sleepStageLane(stage: String): Int =
-    when (stage) {
-      "wake" -> 0
-      "rem" -> 1
-      "deep" -> 3
-      "unknown" -> 4
-      else -> 2
-    }
 
 private fun clock(ms: Long): String =
     if (ms <= 0) "—"
@@ -375,9 +352,16 @@ private fun NightChartsPreview() {
           StageSegmentDto("unknown", 1),
       )
   val support =
-      listOf("wake", "rem", "light", "deep").associateWith {
-        com.rbmr.taigasleep.remote.MetricSupportDto("supported")
-      }
+      listOf("wake", "rem", "light", "deep").associate {
+        "time_in_${it}_s" to com.rbmr.taigasleep.remote.MetricSupportDto("supported")
+      } +
+          listOf("nrem", "sleep").associate {
+            "time_in_${it}_s" to
+                com.rbmr.taigasleep.remote.MetricSupportDto(
+                    "unsupported_algorithm",
+                    "algorithm_does_not_distinguish_$it",
+                )
+          }
   PreviewTheme {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
       QualityBadge(82.0)
@@ -389,6 +373,7 @@ private fun NightChartsPreview() {
         epochSeconds = 30,
         startUnixMs = 1_790_000_000_000,
         chartHeight = 140,
+        support = support,
     )
     StageBreakdown(segments = segments, epochSeconds = 30, support = support)
   }

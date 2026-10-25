@@ -6,7 +6,7 @@ import com.rbmr.taigasleep.remote.TaigaClient
 import com.rbmr.taigasleep.storage.SessionConfig
 
 /** Best-to-worst order used when more than one stager is available. */
-val StagerPreference = listOf("wav2sleep", "sleepecg", "baseline")
+val StagerPreference = listOf("wav2sleep", "sleep-ecg", "baseline")
 
 data class StagerChoice(val id: String, val version: String)
 

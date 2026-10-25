@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.analysis
 
 import com.rbmr.taigasleep.remote.AnalysisDto
+import com.rbmr.taigasleep.remote.MetricSupportDto
 import com.rbmr.taigasleep.remote.StageSegmentDto
 import com.rbmr.taigasleep.ui.components.QualityBand
 import com.rbmr.taigasleep.ui.components.qualityBand
@@ -74,5 +75,69 @@ class MetricCatalogTest {
     assertEquals(QualityBand.FAIR, qualityBand(45.0))
     assertEquals(QualityBand.POOR, qualityBand(12.0))
     assertEquals(QualityBand.NONE, qualityBand(null))
+  }
+  @Test
+  fun applicableStagesOmitAlgorithmLimitedStages() {
+    val segments =
+        listOf(
+            StageSegmentDto("wake", 2),
+            StageSegmentDto("rem", 3),
+            StageSegmentDto("nrem", 8),
+            StageSegmentDto("unknown", 1),
+        )
+    val support =
+        mapOf(
+            "time_in_wake_s" to MetricSupportDto("supported"),
+            "time_in_rem_s" to MetricSupportDto("supported"),
+            "time_in_nrem_s" to MetricSupportDto("supported"),
+            "time_in_light_s" to
+                MetricSupportDto("unsupported_algorithm", "algorithm_does_not_distinguish_light"),
+            "time_in_deep_s" to
+                MetricSupportDto("unsupported_algorithm", "algorithm_does_not_distinguish_deep"),
+            "time_in_sleep_s" to
+                MetricSupportDto("unsupported_algorithm", "algorithm_does_not_distinguish_sleep"),
+        )
+
+    assertEquals(
+        listOf("wake", "rem", "nrem", "unknown"),
+        applicableStages(segments, support),
+    )
+  }
+
+  @Test
+  fun applicableStagesKeepFourClassStages() {
+    val segments =
+        listOf(
+            StageSegmentDto("wake", 2),
+            StageSegmentDto("rem", 3),
+            StageSegmentDto("light", 8),
+            StageSegmentDto("deep", 4),
+        )
+    val support =
+        mapOf(
+            "time_in_wake_s" to MetricSupportDto("supported"),
+            "time_in_rem_s" to MetricSupportDto("supported"),
+            "time_in_light_s" to MetricSupportDto("supported"),
+            "time_in_deep_s" to MetricSupportDto("supported"),
+            "time_in_nrem_s" to
+                MetricSupportDto("unsupported_algorithm", "algorithm_does_not_distinguish_nrem"),
+            "time_in_sleep_s" to
+                MetricSupportDto("unsupported_algorithm", "algorithm_does_not_distinguish_sleep"),
+        )
+
+    assertEquals(
+        listOf("wake", "rem", "light", "deep"),
+        applicableStages(segments, support),
+    )
+  }
+
+  @Test
+  fun applicableStagesFallBackToPresentStagesWithoutSupport() {
+    val segments =
+        listOf(
+            StageSegmentDto("rem", 1),
+            StageSegmentDto("nrem", 4),
+        )
+    assertEquals(listOf("rem", "nrem"), applicableStages(segments, null))
   }
 }
