@@ -7,46 +7,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 )
 
 func Register(app core.App) {
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
-		se.Router.GET("/api/taiga/health", func(e *core.RequestEvent) error {
-			return e.JSON(http.StatusOK, map[string]any{
-				"status":  "ok",
-				"service": "taiga-sleep",
-				"time":    nowString(),
-			})
-		})
-
-		se.Router.GET("/api/taiga/auth-check", func(e *core.RequestEvent) error {
-			return e.JSON(http.StatusOK, map[string]any{
-				"ok":         true,
-				"id":         e.Auth.Id,
-				"collection": e.Auth.Collection().Name,
-			})
-		}).Bind(apis.RequireAuth())
-
-		se.Router.POST("/api/taiga/sessions", CreateSession).Bind(apis.RequireAuth())
-		se.Router.GET("/api/taiga/sessions/{id}/upload", GetUpload).Bind(apis.RequireAuth())
-		se.Router.PUT("/api/taiga/sessions/{id}/upload/meta", PutMeta).Bind(apis.RequireAuth())
-		se.Router.PUT("/api/taiga/sessions/{id}/upload/file/{file}", PutFile).Bind(apis.RequireAuth())
-		se.Router.POST("/api/taiga/sessions/{id}/upload/complete", CompleteUpload).Bind(apis.RequireAuth())
-		se.Router.POST("/api/taiga/sessions/{id}/analysis", RequestAnalyses).Bind(apis.RequireAuth())
-		se.Router.GET("/api/taiga/sessions", ListSessions).Bind(apis.RequireAuth())
-		se.Router.GET("/api/taiga/sessions/{id}", GetSession).Bind(apis.RequireAuth())
-		se.Router.GET("/api/taiga/analyses/{id}", GetAnalysis).Bind(apis.RequireAuth())
-		se.Router.POST("/api/taiga/jobs/{id}/retry", RetryJob).Bind(apis.RequireAuth())
-		se.Router.GET("/api/taiga/algorithms", ListAlgorithms).Bind(apis.RequireAuth())
-
-		se.Router.POST("/api/taiga/worker/jobs/claim", ClaimJobs).Bind(apis.RequireAuth("workers"))
-		se.Router.POST("/api/taiga/worker/jobs/{id}/result", ResultJob).Bind(apis.RequireAuth("workers"))
-		se.Router.POST("/api/taiga/worker/jobs/requeue", RequeueJobs).Bind(apis.RequireAuth("workers"))
-		se.Router.POST("/api/taiga/worker/capabilities", ReportCapabilities).Bind(apis.RequireAuth("workers"))
-		se.Router.GET("/api/taiga/worker/sessions/{id}/manifest", WorkerManifest).Bind(apis.RequireAuth("workers"))
-		se.Router.GET("/api/taiga/worker/sessions/{id}/files/{file}", WorkerFile).Bind(apis.RequireAuth("workers"))
+		RegisterRoutes(se.Router)
 
 		return se.Next()
 	})

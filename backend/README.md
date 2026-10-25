@@ -17,7 +17,7 @@ backend/
 │   ├── Dockerfile
 │   ├── docker-entrypoint.sh
 │   ├── go.mod / go.sum
-│   ├── internal/api/           # Go routes, upload validation, queue, hooks
+│   ├── internal/api/           # Go routes, OpenAPI docs, validation, queue
 │   └── migrations/             # embedded Go schema migrations
 ├── worker/
 │   ├── Dockerfile
@@ -190,6 +190,42 @@ curl -s http://127.0.0.1:8090/api/taiga/auth-check -H "Authorization: <token>"
 ```
 
 These are the two checks the app's connection screen (#9) uses.
+
+### OpenAPI document
+
+Every custom route is declared once in `api/internal/api/openapi.go`. That
+manifest mounts the handler and generates the OpenAPI 3.1 document, so the
+router and the documentation cannot disagree.
+
+The document is generated when the process starts and kept in memory. Nothing
+is checked in, so there is no generated artifact to regenerate or keep in sync:
+
+- `GET /api/taiga/docs` (public) is the interactive Swagger UI page for the
+  running build. It works offline: Swagger UI 5.34.0 is vendored under
+  `api/internal/api/swaggerui/` (Apache-2.0, see the `LICENSE` there) and
+  embedded in the binary, so there is no CDN, no extra container and no config.
+  The page is plain Swagger UI, unmodified, with no Taiga chrome added.
+- `GET /api/taiga/openapi.json` (public) serves the generated document for any
+  tool that wants to read or download it.
+
+Both routes are public, like FastAPI's `/docs`: the document describes shapes
+only and contains no recordings, health values or credentials. PocketBase's
+dashboard remains the only authenticated UI.
+
+To use the document elsewhere, point any of these at the URL of your deployment,
+for example `http://127.0.0.1:8090/api/taiga/openapi.json`:
+
+- **Redoc** — <https://redocly.github.io/redoc/> with the URL in the `url`
+  parameter, or the `redocly` CLI for a static build.
+- **Postman / Insomnia** — `Import > Link` with the same URL. The two security
+  schemes map to the `Authorization` header; paste the raw PocketBase token
+  without a `Bearer` prefix.
+- **VS Code** — the *OpenAPI (Swagger) Editor* extension can open the downloaded
+  `openapi.json`.
+
+PocketBase's built-in collection API is not part of this document; it has its
+own docs. Nothing in the document is derived from a recording or a health
+value, only from the Go types.
 
 ### Recording uploads
 
@@ -367,9 +403,9 @@ uv run --frozen pytest
 The integration suite builds the Go API, starts it in a temporary directory,
 applies the migrations, and exercises the routes and a real worker subprocess.
 It covers upload/resume/validation, analysis requests, algorithm reporting,
-scoped worker downloads, the baseline end-to-end run, result storage, retries
-and owner isolation. Set `POCKETBASE_BIN` to the built Go binary; the suite
-skips when it is not available:
+scoped worker downloads, the baseline end-to-end run, result storage, retries,
+the served OpenAPI document and docs page, and owner isolation. Set `POCKETBASE_BIN` to the
+built Go binary; the suite skips when it is not available:
 
 ```bash
 cd backend
@@ -478,6 +514,10 @@ The supervisor imports numpy when it reports installed algorithms. That keeps
 the worker self-contained; the analysis subprocess is still the only heavy
 part. Its limit is configurable via `TAIGA_JOB_MEMORY_MB`, and numeric libraries
 are single-threaded.
+
+The Go binary is about 38 MB on disk. Roughly 1.9 MB of that is the embedded
+Swagger UI for `/api/taiga/docs`; it is read-only data that the idle server
+never touches, so it does not count towards the idle figures above.
 
 ## Benchmarks
 

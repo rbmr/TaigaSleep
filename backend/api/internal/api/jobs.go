@@ -34,8 +34,8 @@ type JobView struct {
 
 type ClaimRequest struct {
 	Worker       string   `json:"worker"`
-	LeaseSeconds int      `json:"lease_seconds"`
-	Algorithms   []string `json:"algorithms"`
+	LeaseSeconds int      `json:"lease_seconds,omitempty"`
+	Algorithms   []string `json:"algorithms,omitempty"`
 }
 
 type JobResultPayload struct {
@@ -45,9 +45,9 @@ type JobResultPayload struct {
 type JobResultRequest struct {
 	Worker    string            `json:"worker"`
 	Status    string            `json:"status"`
-	Result    *JobResultPayload `json:"result"`
-	Error     string            `json:"error"`
-	Retryable *bool             `json:"retryable"`
+	Result    *JobResultPayload `json:"result,omitempty"`
+	Error     string            `json:"error,omitempty"`
+	Retryable *bool             `json:"retryable,omitempty"`
 }
 
 func serializeJob(record *core.Record) JobView {
@@ -171,7 +171,7 @@ func ClaimJobs(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
-	return e.JSON(http.StatusOK, map[string]any{"job": claimed})
+	return e.JSON(http.StatusOK, ClaimJobsResponse{Job: claimed})
 }
 
 func ResultJob(e *core.RequestEvent) error {
@@ -230,7 +230,7 @@ func ResultJob(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
-	return e.JSON(http.StatusOK, map[string]any{"job": resultJob})
+	return e.JSON(http.StatusOK, JobResultResponse{Job: resultJob})
 }
 
 func RequeueJobs(e *core.RequestEvent) error {
@@ -246,7 +246,7 @@ func RequeueJobs(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
-	return e.JSON(http.StatusOK, map[string]any{"requeued": requeued})
+	return e.JSON(http.StatusOK, RequeueJobsResponse{Requeued: requeued})
 }
 
 func requeueExpired(txApp core.App) (int64, error) {

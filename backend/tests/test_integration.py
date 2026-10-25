@@ -1071,3 +1071,56 @@ def test_16_worker_result_validation_and_retry(api: Backend) -> None:
     claimed = api.claim_job()
     assert claimed["id"] == job["id"]
     api.finish_job(claimed, "failed", error="cleanup", retryable=False)
+
+
+def test_17_openapi_document_is_served(api: Backend) -> None:
+    """The API serves a generated OpenAPI 3.1 document, not a checked-in file."""
+
+    status, document = api.request("GET", "/api/taiga/openapi.json")
+    assert status == 200
+    assert document["openapi"] == "3.1.0"
+    assert document["info"]["title"]
+
+    paths = document["paths"]
+    assert "/api/taiga/health" in paths
+    assert "/api/taiga/worker/jobs/claim" in paths
+
+    public = ("/api/taiga/health", "/api/taiga/openapi.json", "/api/taiga/docs")
+    for path, item in paths.items():
+        for operation in item.values():
+            assert operation["operationId"]
+            assert operation["responses"]
+            scheme = None
+            if "security" in operation:
+                scheme = next(iter(operation["security"][0]))
+            if path.startswith("/api/taiga/worker/"):
+                assert scheme == "workerToken"
+            elif path.startswith(public):
+                assert scheme is None
+            else:
+                assert scheme == "userToken"
+
+    # Shapes only: no credentials, session ids or recorded values.
+    text = json.dumps(document)
+    assert api.session_a_id not in text
+    assert api.token_a not in text
+    assert USER_PASSWORD not in text
+
+
+def test_18_docs_page_and_assets_are_served(api: Backend) -> None:
+    """Swagger UI is served by the API itself, with no CDN or extra service."""
+
+    _, page = api.request_bytes("/api/taiga/docs")
+    assert b"SwaggerUIBundle(" in page
+    assert b'url: "/api/taiga/openapi.json"' in page
+    assert b"/api/taiga/docs/swagger-ui.css" in page
+    assert b"/api/taiga/docs/swagger-ui-bundle.js" in page
+    assert b"taiga-bar" not in page
+
+    _, css = api.request_bytes("/api/taiga/docs/swagger-ui.css")
+    assert b".swagger-ui" in css
+
+    _, bundle = api.request_bytes("/api/taiga/docs/swagger-ui-bundle.js")
+    assert b"SwaggerUIBundle" in bundle
+
+    api.request("GET", "/api/taiga/docs/not-an-asset", expected=404)

@@ -30,7 +30,7 @@ type AlgorithmView struct {
 }
 
 type CapabilitiesRequest struct {
-	Worker     string          `json:"worker"`
+	Worker     string          `json:"worker,omitempty"`
 	Version    string          `json:"version"`
 	Algorithms []AlgorithmView `json:"algorithms"`
 }
@@ -86,11 +86,11 @@ func ReportCapabilities(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
-	return e.JSON(http.StatusOK, map[string]any{
-		"ok":      true,
-		"worker":  worker,
-		"version": body.Version,
-		"count":   len(body.Algorithms),
+	return e.JSON(http.StatusOK, CapabilitiesResponse{
+		OK:      true,
+		Worker:  worker,
+		Version: body.Version,
+		Count:   len(body.Algorithms),
 	})
 }
 
@@ -151,5 +151,5 @@ func ListAlgorithms(e *core.RequestEvent) error {
 		item.WorkerCount = len(entry.workers)
 		result = append(result, item)
 	}
-	return e.JSON(http.StatusOK, map[string]any{"algorithms": result})
+	return e.JSON(http.StatusOK, AlgorithmsResponse{Algorithms: result})
 }
