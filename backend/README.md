@@ -20,7 +20,7 @@ backend/
 ├── worker/
 │   ├── Dockerfile
 │   ├── pyproject.toml
-│   ├── taiga_worker/           # stdlib-only supervisor + placeholder job
+│   ├── taiga_worker/           # supervisor, analysis library and baseline stager
 │   └── tests/
 ├── tests/test_integration.py   # real PocketBase + real worker process
 ├── deploy/
@@ -39,8 +39,8 @@ a larger one without code changes.
 
 - PocketBase **0.40.6** (pinned; the hooks use its current JS API).
 - Python **3.10+** and [uv](https://docs.astral.sh/uv/) for the worker. The
-  worker has no runtime third-party dependencies yet, so the idle supervisor
-  stays small.
+  worker uses numpy for decoding, metrics and the baseline stager; the idle
+  supervisor does not import it, and real ML models are optional extras.
 - Optional: Docker Compose for the container deployment.
 
 ## Quick start (without Docker)
@@ -106,9 +106,13 @@ uv run --frozen python -m taiga_worker
 ```
 
 It logs in, polls the claim endpoint, and sleeps when the queue is empty. One
-job at a time runs in a fresh subprocess. Until issue #10 lands, that subprocess
-returns a `noop` result and the job is marked `done`; the queue mechanics are
-real and tested.
+job at a time runs in a fresh subprocess.
+
+The analysis library lives in `taiga_worker/analysis/`: the stager contract,
+recording decoder, shared metrics/quality and the built-in `baseline` stager.
+The job subprocess is wired to it in the next slice of #10. See
+[`docs/analysis-contract.md`](../docs/analysis-contract.md) for the plugin
+interface, canonical stages, result shape and a minimal third-party example.
 
 ## Configuration
 
@@ -284,8 +288,8 @@ is rejected.
 
 ## Tests
 
-Worker unit tests use only the standard library. Dependencies and the exact
-interpreter are managed by uv from `backend/worker/uv.lock`:
+Worker unit tests use the standard library plus numpy. Dependencies and the
+exact interpreter are managed by uv from `backend/worker/uv.lock`:
 
 ```bash
 cd backend/worker
