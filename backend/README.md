@@ -502,12 +502,20 @@ the API to loopback. Use a reverse proxy for remote access.
 cd backend
 cp deploy/.env.example deploy/.env
 # edit deploy/.env (never commit it)
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+
+# Published images, rebuilt from every push to main:
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml pull
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --no-build
 ```
 
-The API image builds the Go binary from `backend/api`; the worker image is
-unchanged. The API port is published on loopback by default, and the data
-directory is a named volume. The worker has a configurable container limit
+The published images are `ghcr.io/rbmr/taigasleep-api:latest` and
+`ghcr.io/rbmr/taigasleep-worker:latest`. The `latest` tag is replaced on every
+push to `main`, so pull a digest instead if you need a reproducible deployment.
+
+To build both images from source instead, use `up -d --build`. The API image
+builds the Go binary from `backend/api`; the worker image installs the locked
+Python dependencies. The API port is published on loopback by default, and the
+data directory is a named volume. The worker has a configurable container limit
 (`TAIGA_WORKER_MEMORY`) with the job subprocess limit slightly below it
 (`TAIGA_JOB_MEMORY_MB`). On the first start, `TAIGA_ADMIN_EMAIL` and
 `TAIGA_ADMIN_PASSWORD` can bootstrap the admin account; remove them afterwards.

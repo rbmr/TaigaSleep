@@ -211,7 +211,6 @@ object Diagnostics {
     synchronized(lock) { store = newStore }
 
     val startElapsed = Process.getStartElapsedRealtime()
-    val info = packageInfo(app)
     val verdict =
         when {
           previous.file == null && previousMarker == null -> "first_run"
@@ -225,8 +224,10 @@ object Diagnostics {
             "start_elapsed_ms" to startElapsed,
             "process_name" to Application.getProcessName(),
             "debug" to BuildConfig.DEBUG,
-            "version_name" to info?.versionName,
-            "version_code" to info?.longVersionCode,
+            "build_type" to BuildConfig.BUILD_TYPE,
+            "git_commit" to BuildConfig.GIT_COMMIT,
+            "version_name" to BuildConfig.VERSION_NAME,
+            "version_code" to BuildConfig.VERSION_CODE,
             "device" to
                 linkedMapOf(
                     "manufacturer" to Build.MANUFACTURER,
@@ -328,13 +329,6 @@ object Diagnostics {
   }
 
   private fun memoryOrNull(): Any? = app?.let { DeviceState.safe { DeviceState.memory(it) } }
-
-  private fun packageInfo(a: Application) =
-      try {
-        a.packageManager.getPackageInfo(a.packageName, 0)
-      } catch (_: Exception) {
-        null
-      }
 
   private fun nowMs() = System.currentTimeMillis()
 

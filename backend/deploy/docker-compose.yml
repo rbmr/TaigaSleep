@@ -2,6 +2,9 @@ name: taiga-sleep
 
 services:
   api:
+    # Published on every push to main; `build` lets you build from source
+    # instead. Use `docker compose pull` for the published image.
+    image: ghcr.io/rbmr/taigasleep-api:latest
     build:
       context: ../api
       dockerfile: Dockerfile
@@ -31,6 +34,7 @@ services:
       start_period: 10s
 
   worker:
+    image: ghcr.io/rbmr/taigasleep-worker:latest
     build:
       context: ../worker
     restart: unless-stopped

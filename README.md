@@ -54,10 +54,52 @@ after upload for now; holding a History row or using the night-detail menu can e
 ./gradlew :app:assembleDebug
 ```
 
-The debug APK is written to `app/build/outputs/apk/debug/`.
+The debug APK is written to `app/build/outputs/apk/debug/`. Debug builds use the
+`com.rbmr.taigasleep.debug` package, so a test build and the release app install
+side by side and keep separate data.
+
+The release build is signed with the project release key:
+
+```bash
+./gradlew :app:assembleRelease
+```
+
+Locally that needs `keystore.properties` at the repository root; without it the
+APK is left unsigned. CI signs it and publishes it, see
+[`docs/releases.md`](docs/releases.md).
 
 The current app contains the three-tab navigation, local recording, History,
 the optional remote login, upload state and the processed-night detail screen.
+
+## Install
+
+Every push to `main` replaces the
+[`latest` release](https://github.com/rbmr/TaigaSleep/releases/tag/latest):
+
+| Asset | What it is |
+| --- | --- |
+| `taiga-sleep.apk` | Signed release build, package `com.rbmr.taigasleep` |
+| `taiga-sleep.apk.sha256` | SHA-256 checksum of the APK |
+
+Download both, verify the checksum, then install:
+
+```bash
+sha256sum -c taiga-sleep.apk.sha256
+adb install -r taiga-sleep.apk
+```
+
+On the phone, open the downloaded APK and allow installs from that app; there is
+no store listing.
+
+There are no version numbers yet: `latest` is overwritten in place on every
+change, so that URL always serves the newest build (see
+[#13](https://github.com/rbmr/TaigaSleep/issues/13)). Installing a newer build
+over an older one keeps the app's data, because the release key does not change.
+
+Debug and release builds use different signing keys and different package names,
+so both can be installed. The one exception is a device that still has an old
+debug install of `com.rbmr.taigasleep`: uninstall it once before installing the
+release APK, because a release-signed APK cannot replace a debug-signed one.
 
 ## Backend
 
