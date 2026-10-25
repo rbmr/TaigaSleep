@@ -230,7 +230,9 @@ POST /api/taiga/sessions/{id}/upload/complete     validate and mark uploaded
   one valid frame. The session's `state`, `started_at`, `ended_at`,
   `duration_s` and `device` are derived from `meta.json`.
 - Recordings live in `<pb_data>/recordings/<session id>/`, so PocketBase backups
-  include them. Deleting a session removes its directory.
+  include them. Delete a session with the standard collection route
+  (`DELETE /api/collections/sessions/records/{id}`); the delete hook removes the
+  recording directory and cascades its analyses and jobs.
 
 Limits are configurable through `TAIGA_MAX_RECORDING_MB` (256),
 `TAIGA_MAX_RECORDING_FILE_MB` (64), `TAIGA_MAX_UPLOAD_CHUNK_MB` (8) and
@@ -471,6 +473,22 @@ are single-threaded.
 For comparison, PocketBase's default `--hooksPool=15` adds JS runtimes that a
 single-user install does not need. Raising `TAIGA_HOOKS_POOL` buys concurrency,
 not throughput for this workload.
+
+## Benchmarks
+
+Measure one stager on a local recording without the API or database:
+
+```bash
+cd backend
+uv run --project worker --frozen python scripts/benchmark_analysis.py \
+  /path/to/recording --model baseline
+```
+
+It runs the real job subprocess and reports input size, runtime, wall time, peak
+RSS, stage seconds, quality and warnings. Use it on real H10 nights to decide
+`TAIGA_JOB_MEMORY_MB` for each machine and model. See
+[`docs/benchmarks.md`](../docs/benchmarks.md) for the method, the synthetic
+reference run and the real-night table. Do not commit recordings or results.
 
 ## Backup and restore
 
