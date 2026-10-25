@@ -31,7 +31,7 @@ jobs:
       - name: Sync locked dependencies
         run: uv sync --frozen
       - name: Run unit tests
-        run: uv run --frozen python -m unittest discover -s tests -t . -v
+        run: uv run --frozen pytest
 
   integration:
     name: Go API and worker integration
@@ -68,4 +68,4 @@ jobs:
         run: uv sync --project worker --frozen
 
       - name: Run integration tests
-        run: uv run --project worker --frozen python -m unittest tests.test_integration -v
+        run: uv run --project worker --frozen pytest tests/test_integration.py -v

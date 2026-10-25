@@ -14,5 +14,13 @@ dependencies = [
 [project.scripts]
 taiga-worker = "taiga_worker.__main__:main"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
 [tool.setuptools.packages.find]
 include = ["taiga_worker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

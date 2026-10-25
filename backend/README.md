@@ -353,27 +353,30 @@ cd backend/api
 go test ./...
 ```
 
-Worker unit tests use the standard library plus numpy. Dependencies and the
-exact interpreter are managed by uv from `backend/worker/uv.lock`:
+Both Python suites run under pytest. It is a dev-only dependency of the worker
+(`[dependency-groups]` in `backend/worker/pyproject.toml`), so the production
+image built with `uv sync --frozen --no-dev` stays pytest-free. Dependencies and
+the exact interpreter are managed by uv from `backend/worker/uv.lock`:
 
 ```bash
 cd backend/worker
 uv sync --frozen
-uv run --frozen python -m unittest discover -s tests -t .
+uv run --frozen pytest
 ```
 
 The integration suite builds the Go API, starts it in a temporary directory,
 applies the migrations, and exercises the routes and a real worker subprocess.
 It covers upload/resume/validation, analysis requests, algorithm reporting,
 scoped worker downloads, the baseline end-to-end run, result storage, retries
-and owner isolation:
+and owner isolation. Set `POCKETBASE_BIN` to the built Go binary; the suite
+skips when it is not available:
 
 ```bash
 cd backend
 (cd api && go build -o /tmp/taiga-sleep-api .)
 uv sync --project worker --frozen
 POCKETBASE_BIN=/tmp/taiga-sleep-api \
-  uv run --project worker --frozen python -m unittest tests.test_integration -v
+  uv run --project worker --frozen pytest tests/test_integration.py
 ```
 
 Set `TAIGA_KEEP_TEST_DATA=1` to keep the temporary data directory after a run.
