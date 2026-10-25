@@ -201,6 +201,7 @@ def run_analysis(
     registry: Registry | None = None,
     allowlist: Iterable[str] | None = None,
     worker: str | None = None,
+    params_hash_override: str | None = None,
 ) -> AnalysisOutput:
     """Run one stager over one recording directory."""
 
@@ -210,7 +211,8 @@ def run_analysis(
         raise AnalysisError("invalid_params", "params must be a JSON object")
 
     registry = registry or discover(allowlist)
-    registered = registry.select(model, version)
+    requested_version = None if version in (None, "", "latest", "unversioned") else version
+    registered = registry.select(model, requested_version)
     info = registered.info
 
     recording = load_recording(directory)
@@ -294,7 +296,7 @@ def run_analysis(
         model=info.id,
         model_version=info.version,
         params=_jsonable(requested_params),
-        params_hash=params_hash(requested_params),
+        params_hash=params_hash_override or params_hash(requested_params),
         stages=serialized_stages,
         metrics=derived.metrics,
         metric_support=derived.support,

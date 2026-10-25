@@ -2,9 +2,9 @@
 
 // Taiga Sleep API hooks.
 //
-// Everything here is deliberately small: a health endpoint, an auth check, the
-// worker claim/complete/requeue routes and one cron job. Job claiming is the
-// only place that needs a database transaction.
+// Routes are thin wrappers around lib/*; the handlers keep their module scope
+// because PocketBase executes route actions outside the registering module.
+// Job claiming, analysis creation and result storage are transactional.
 
 routerAdd("GET", "/api/taiga/health", (e) => {
   return e.json(200, {
@@ -65,6 +65,70 @@ routerAdd(
   $apis.requireAuth()
 );
 
+// Analysis request, result views, retries and algorithm discovery.
+routerAdd(
+  "POST",
+  "/api/taiga/sessions/{id}/analysis",
+  (e) => require(`${__hooks}/lib/analysis_routes.js`).requestAnalyses(e),
+  $apis.requireAuth()
+);
+
+routerAdd(
+  "GET",
+  "/api/taiga/sessions",
+  (e) => require(`${__hooks}/lib/analysis_routes.js`).listSessions(e),
+  $apis.requireAuth()
+);
+
+routerAdd(
+  "GET",
+  "/api/taiga/sessions/{id}",
+  (e) => require(`${__hooks}/lib/analysis_routes.js`).getSession(e),
+  $apis.requireAuth()
+);
+
+routerAdd(
+  "GET",
+  "/api/taiga/analyses/{id}",
+  (e) => require(`${__hooks}/lib/analysis_routes.js`).getAnalysis(e),
+  $apis.requireAuth()
+);
+
+routerAdd(
+  "POST",
+  "/api/taiga/jobs/{id}/retry",
+  (e) => require(`${__hooks}/lib/analysis_routes.js`).retryJob(e),
+  $apis.requireAuth()
+);
+
+routerAdd(
+  "GET",
+  "/api/taiga/algorithms",
+  (e) => require(`${__hooks}/lib/analysis_routes.js`).listAlgorithms(e),
+  $apis.requireAuth()
+);
+
+routerAdd(
+  "POST",
+  "/api/taiga/worker/capabilities",
+  (e) => require(`${__hooks}/lib/analysis_routes.js`).reportCapabilities(e),
+  $apis.requireAuth("workers")
+);
+
+routerAdd(
+  "GET",
+  "/api/taiga/worker/sessions/{id}/manifest",
+  (e) => require(`${__hooks}/lib/analysis_routes.js`).workerManifest(e),
+  $apis.requireAuth("workers")
+);
+
+routerAdd(
+  "GET",
+  "/api/taiga/worker/sessions/{id}/files/{file}",
+  (e) => require(`${__hooks}/lib/analysis_routes.js`).workerFile(e),
+  $apis.requireAuth("workers")
+);
+
 routerAdd(
   "POST",
   "/api/taiga/worker/jobs/claim",
@@ -91,9 +155,13 @@ routerAdd(
       leaseSeconds = 86400;
     }
 
+    const algorithms = Array.isArray(body.algorithms)
+      ? body.algorithms.map((item) => toString(item)).slice(0, 100)
+      : [];
+
     let claimed = null;
     $app.runInTransaction((txApp) => {
-      claimed = jobs.claim(txApp, worker, leaseSeconds);
+      claimed = jobs.claim(txApp, worker, leaseSeconds, algorithms);
     });
 
     return e.json(200, { job: claimed });
@@ -106,6 +174,7 @@ routerAdd(
   "/api/taiga/worker/jobs/{id}/result",
   (e) => {
     const jobs = require(`${__hooks}/lib/jobs.js`);
+    const analyses = require(`${__hooks}/lib/analyses.js`);
     const body = e.requestInfo().body || {};
 
     const worker = toString(body.worker || "").trim();
@@ -119,6 +188,8 @@ routerAdd(
     }
 
     const error = toString(body.error || "").slice(0, 4000);
+    const retryable = body.retryable === true;
+    const result = body.result === undefined ? null : body.result;
 
     let resultJob = null;
     $app.runInTransaction((txApp) => {
@@ -143,11 +214,16 @@ routerAdd(
         throw new BadRequestError("job is not running");
       }
 
-      record.set("status", status);
-      record.set("lease_until", "");
-      record.set("error", error);
-      record.set("result", body.result === undefined ? null : body.result);
-      txApp.save(record);
+      if (status === "done") {
+        const analysisResult = result && result.analysis ? result.analysis : null;
+        if (!analysisResult) {
+          analyses.fail(txApp, record, "worker returned no analysis result", false);
+        } else {
+          analyses.complete(txApp, record, analysisResult);
+        }
+      } else {
+        analyses.fail(txApp, record, error, retryable);
+      }
 
       resultJob = jobs.serializeJob(record);
     });
@@ -187,8 +263,6 @@ cronAdd("taiga_requeue_expired_jobs", "* * * * *", () => {
   }
 });
 
-// Fill in the queue fields for jobs created through the public API. Users may
-// create a job for their own session, but they cannot pre-set its state.
 // A deleted session must not leave recording bytes behind. PocketBase owns the
 // files, so this is the only place that removes the directory.
 onRecordAfterDeleteSuccess((e) => {
@@ -197,32 +271,46 @@ onRecordAfterDeleteSuccess((e) => {
   e.next();
 }, "sessions");
 
+// Direct job creation is kept for tooling and tests. The app uses
+// POST /api/taiga/sessions/{id}/analysis, which creates the analysis and job
+// together. Here we fill in a matching analysis and force the queue state.
 onRecordCreateRequest((e) => {
   const dates = require(`${__hooks}/lib/dates.js`);
+  const analyses = require(`${__hooks}/lib/analyses.js`);
 
+  const session = e.record.get("session");
+  const model = toString(e.record.get("model") || "").trim();
+  if (!model) {
+    throw new BadRequestError("model is required");
+  }
+  const version = toString(e.record.get("model_version") || "").trim() || "unversioned";
+  const hash = analyses.paramsHash({});
+
+  let analysis = analyses.findAnalysis(e.app, session, model, version, hash);
+  if (!analysis) {
+    analysis = analyses.createAnalysis(e.app, {
+      session: session,
+      model: model,
+      model_version: version,
+      params: {},
+      params_hash: hash,
+    });
+  }
+
+  const existing = analyses.findJob(e.app, analysis.id);
+  if (existing) {
+    return e.json(200, existing);
+  }
+
+  e.record.set("analysis", analysis.id);
+  e.record.set("model_version", version);
+  e.record.set("params_hash", hash);
   e.record.set("status", "queued");
   e.record.set("attempts", 0);
   e.record.set("available_at", dates.nowString());
   e.record.set("worker", "");
   e.record.set("lease_until", "");
   e.record.set("error", "");
-
-  // Make creation idempotent on (session, model, kind). The unique index in the
-  // migration is the race-safe backstop; this branch gives a friendly response.
-  try {
-    const existing = e.app.findFirstRecordByFilter(
-      "jobs",
-      "session = {:session} && model = {:model} && kind = {:kind}",
-      {
-        session: e.record.get("session"),
-        model: e.record.get("model"),
-        kind: e.record.get("kind"),
-      }
-    );
-    return e.json(200, existing);
-  } catch (_) {
-    // No duplicate: continue with the normal create flow.
-  }
 
   e.next();
 }, "jobs");

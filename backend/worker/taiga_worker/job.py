@@ -1,10 +1,9 @@
-"""Placeholder analysis job.
+"""Analysis subprocess entry point.
 
-Issue #10 replaces the body of `analyze()` with the real sleep staging
-pipeline. Everything around it already has the shape the real job needs: the
-worker sends one job JSON document on stdin, the subprocess runs with a memory
-limit and single-threaded numeric libraries, and the last stdout line is a JSON
-result object.
+The supervisor downloads the recording and sends one job JSON document on
+stdin. The subprocess loads the normalized recording, runs the selected stager,
+derives metrics/quality and prints one JSON result line. It never talks to the
+API or the database.
 """
 
 from __future__ import annotations
@@ -13,19 +12,29 @@ import json
 import sys
 from typing import Any, Mapping
 
+from .analysis import AnalysisError, run_analysis
+
+RETRYABLE = {"algorithm_failed"}
+
 
 def analyze(job: Mapping[str, Any]) -> dict[str, Any]:
-    """Run the (not yet implemented) analysis for one job."""
+    recording_dir = job.get("recording_dir")
+    if not recording_dir:
+        raise AnalysisError("missing_recording", "job payload is missing recording_dir")
+    output = run_analysis(
+        str(recording_dir),
+        str(job.get("model") or ""),
+        job.get("params") or {},
+        version=job.get("model_version"),
+        allowlist=job.get("algorithms"),
+        worker=job.get("worker"),
+        params_hash_override=job.get("params_hash"),
+    )
+    return output.to_dict()
 
-    return {
-        "ok": True,
-        "noop": True,
-        "reason": "analysis pipeline not implemented yet",
-        "job_id": job.get("id"),
-        "kind": job.get("kind"),
-        "model": job.get("model"),
-        "session": job.get("session"),
-    }
+
+def _failure(error: str, retryable: bool) -> dict[str, Any]:
+    return {"status": "failed", "error": error[:4000], "retryable": retryable}
 
 
 def main() -> int:
@@ -35,12 +44,19 @@ def main() -> int:
             raise ValueError("job payload must be a JSON object")
         if not job.get("id"):
             raise ValueError("job payload is missing id")
-
-        print(json.dumps(analyze(job)))
+        result = analyze(job)
+        print(json.dumps({"analysis": result}))
         return 0
-    except Exception as exc:  # noqa: BLE001 - the exit code is the signal
-        print(f"taiga job failed: {exc}", file=sys.stderr)
-        return 1
+    except AnalysisError as exc:
+        print(
+            json.dumps(
+                _failure(f"{exc.code}: {exc}", exc.code in RETRYABLE)
+            )
+        )
+        return 0
+    except Exception as exc:  # noqa: BLE001 - report a clean job failure
+        print(json.dumps(_failure(f"{type(exc).__name__}: {exc}", True)))
+        return 0
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.job_memory_mb, 1024)
         self.assertEqual(config.job_timeout_s, 3600.0)
         self.assertFalse(config.once)
+        self.assertIsNone(config.algorithms)
 
     def test_env_overrides_and_url_is_normalized(self) -> None:
         env = dict(BASE)
@@ -56,6 +57,15 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.api_url, "http://10.0.0.2:8090")
         self.assertEqual(config.lease_seconds, 90)
         self.assertTrue(config.once)
+
+    def test_algorithms_allowlist(self) -> None:
+        env = dict(BASE)
+        env["TAIGA_ALGORITHMS"] = "baseline, sleep-ecg"
+        config = from_env(env=env, argv=[])
+        self.assertEqual(config.algorithms, ("baseline", "sleep-ecg"))
+
+        config = from_env(env=env, argv=["--algorithms", "wav2sleep"])
+        self.assertEqual(config.algorithms, ("wav2sleep",))
 
     def test_password_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

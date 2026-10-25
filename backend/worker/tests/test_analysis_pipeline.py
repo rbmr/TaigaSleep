@@ -48,6 +48,20 @@ class PipelineTest(unittest.TestCase):
         self.assertNotEqual(first.params_hash, second.params_hash)
         self.assertEqual(second.params_hash, third.params_hash)
 
+    def test_params_hash_override_and_latest_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fx.write_recording(tmp, duration_s=60)
+            output = run_analysis(
+                tmp,
+                "baseline",
+                {},
+                version="latest",
+                params_hash_override="api-hash",
+            )
+
+        self.assertEqual(output.params_hash, "api-hash")
+        self.assertEqual(output.model_version, "1.0.0")
+
     def test_invalid_params_fail_with_a_clear_code(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fx.write_recording(tmp, duration_s=60)

@@ -166,7 +166,12 @@ def recording(
         )
 
     files: dict[str, object] = {
-        "meta": meta(session_id, start_utc_ms=start_ms, state=state),
+        "meta": meta(
+            session_id,
+            start_utc_ms=start_ms,
+            duration_s=hr_frames,
+            state=state,
+        ),
         "hr.log": bytes(hr),
         "events.jsonl": event_line(start_ns, 0, "start", "recording started")
         + event_line(start_ns + hr_frames * 1_000_000_000, hr_frames * 1_000_000_000, "stop", "recording stopped"),

@@ -239,6 +239,30 @@ class IntegrationTest(unittest.TestCase):
             raise AssertionError(f"{method} {path} returned {status}, expected {allowed}: {payload}")
         return status, payload
 
+    @classmethod
+    def request_bytes(
+        cls,
+        path: str,
+        token: str | None = None,
+        expected: int | tuple[int, ...] = 200,
+    ) -> tuple[int, bytes]:
+        headers = {}
+        if token:
+            headers["Authorization"] = token
+        request = urllib.request.Request(cls.base_url + path, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                status = response.status
+                raw = response.read()
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            raw = exc.read()
+
+        allowed = (expected,) if isinstance(expected, int) else expected
+        if status not in allowed:
+            raise AssertionError(f"GET {path} returned {status}, expected {allowed}: {raw[:200]!r}")
+        return status, raw
+
     def _create_upload_session(self, session_id: str, **kwargs: Any) -> tuple[str, dict[str, Any]]:
         metadata = fx.meta(session_id, **kwargs)
         _, payload = self.request(
@@ -268,6 +292,76 @@ class IntegrationTest(unittest.TestCase):
             data = files.get(name)
             if isinstance(data, bytes) and data:
                 self._upload_bytes(session_id, name, data)
+
+    @staticmethod
+    def _analysis_result(model: str, version: str = "unversioned") -> dict[str, Any]:
+        return {
+            "contract_version": 1,
+            "model": model,
+            "model_version": version,
+            "stages": {
+                "epoch_seconds": 30,
+                "start_unix_ms": 0,
+                "count": 1,
+                "segments": [{"stage": "light", "count": 1}],
+                "confidence": [0.5],
+                "artifacts": [False],
+                "probabilities": None,
+            },
+            "metrics": {"total_duration_s": 30.0},
+            "metric_support": {},
+            "quality": {"score": 100.0, "components": {}, "notes": []},
+            "capabilities": {"stages": True},
+            "provenance": {"runtime_s": 0.1, "peak_rss_mb": 10.0},
+            "extras": {},
+            "warnings": [],
+        }
+
+    def _create_uploaded_session(self, session_id: str, hr_frames: int = 120) -> str:
+        files = fx.recording(session_id, hr_frames=hr_frames)
+        sid, _ = self._create_upload_session(session_id)
+        self._upload_recording(sid, files)
+        self.request(
+            "POST",
+            f"/api/taiga/sessions/{sid}/upload/complete",
+            {},
+            token=self.token_a,
+        )
+        return sid
+
+    def _claim_job(self, worker: str = "worker-1", lease_seconds: int = 30):
+        _, payload = self.request(
+            "POST",
+            "/api/taiga/worker/jobs/claim",
+            {"worker": worker, "lease_seconds": lease_seconds},
+            token=self.worker_token,
+        )
+        return payload["job"]
+
+    def _finish_job(
+        self,
+        job: dict[str, Any],
+        status: str,
+        *,
+        worker: str = "worker-1",
+        result: dict[str, Any] | None = None,
+        error: str = "",
+        retryable: bool | None = None,
+    ) -> None:
+        body: dict[str, Any] = {
+            "worker": worker,
+            "status": status,
+            "result": result,
+            "error": error,
+        }
+        if retryable is not None:
+            body["retryable"] = retryable
+        self.request(
+            "POST",
+            f"/api/taiga/worker/jobs/{job['id']}/result",
+            body,
+            token=self.worker_token,
+        )
 
     @classmethod
     def _login(cls, collection: str, email: str, password: str) -> str:
@@ -390,7 +484,7 @@ class IntegrationTest(unittest.TestCase):
         self.request(
             "DELETE",
             f"/api/collections/jobs/records/{first['id']}",
-            token=self.token_a,
+            token=self.admin_token,
             expected=204,
         )
 
@@ -426,20 +520,26 @@ class IntegrationTest(unittest.TestCase):
             expected=403,
         )
 
+        result = {"analysis": self._analysis_result("claim-model")}
         _, payload = self.request(
             "POST",
             f"/api/taiga/worker/jobs/{job['id']}/result",
-            {"worker": "worker-1", "status": "done", "result": {"noop": True}},
+            {"worker": "worker-1", "status": "done", "result": result},
             token=self.worker_token,
         )
         self.assertEqual(payload["job"]["status"], "done")
-        self.assertEqual(payload["job"]["result"], {"noop": True})
+        analysis_id = payload["job"]["result"]["analysis"]
+        _, analysis = self.request(
+            "GET", f"/api/taiga/analyses/{analysis_id}", token=self.token_a
+        )
+        self.assertEqual(analysis["status"], "done")
+        self.assertEqual(analysis["model"], "claim-model")
 
         # Retried completion after a lost response must be harmless.
         self.request(
             "POST",
             f"/api/taiga/worker/jobs/{job['id']}/result",
-            {"worker": "worker-1", "status": "done", "result": {"noop": True}},
+            {"worker": "worker-1", "status": "done", "result": result},
             token=self.worker_token,
         )
 
@@ -494,7 +594,23 @@ class IntegrationTest(unittest.TestCase):
         )
 
     def test_07_worker_process_runs_a_job(self) -> None:
-        job = self._create_job("worker-e2e-model")
+        files = fx.recording("20261025_070000", hr_frames=120)
+        session_id, _ = self._create_upload_session("20261025_070000")
+        self._upload_recording(session_id, files)
+        self.request(
+            "POST",
+            f"/api/taiga/sessions/{session_id}/upload/complete",
+            {},
+            token=self.token_a,
+        )
+        _, requested = self.request(
+            "POST",
+            f"/api/taiga/sessions/{session_id}/analysis",
+            {"models": [{"model": "baseline", "version": "1.0.0", "params": {}}]},
+            token=self.token_a,
+        )
+        job = requested["jobs"][0]
+        analysis_id = requested["analyses"][0]["id"]
 
         env = os.environ.copy()
         env.update(
@@ -503,9 +619,10 @@ class IntegrationTest(unittest.TestCase):
                 "TAIGA_WORKER_EMAIL": WORKER_EMAIL,
                 "TAIGA_WORKER_PASSWORD": WORKER_PASSWORD,
                 "TAIGA_WORKER_ID": "integration-worker",
-                "TAIGA_JOB_MEMORY_MB": "256",
-                "TAIGA_JOB_TIMEOUT_S": "60",
+                "TAIGA_JOB_MEMORY_MB": "512",
+                "TAIGA_JOB_TIMEOUT_S": "120",
                 "TAIGA_LOG_LEVEL": "INFO",
+                "TAIGA_ALGORITHMS": "baseline",
             }
         )
         result = subprocess.run(
@@ -514,22 +631,33 @@ class IntegrationTest(unittest.TestCase):
             env=env,
             capture_output=True,
             text=True,
-            timeout=90,
+            timeout=120,
         )
         if result.returncode != 0:
             self._dump_log_on_failure()
             self.fail(f"worker exited with {result.returncode}\n{result.stderr}")
 
-        _, payload = self.request(
+        _, job_payload = self.request(
             "GET",
             f"/api/collections/jobs/records/{job['id']}",
             token=self.token_a,
         )
-        self.assertEqual(payload["status"], "done")
-        self.assertEqual(payload["attempts"], 1)
-        self.assertEqual(payload["worker"], "integration-worker")
-        self.assertTrue(payload["result"]["noop"])
-        self.assertEqual(payload["result"]["model"], "worker-e2e-model")
+        self.assertEqual(job_payload["status"], "done")
+        self.assertEqual(job_payload["attempts"], 1)
+        self.assertEqual(job_payload["worker"], "integration-worker")
+        self.assertEqual(job_payload["result"]["analysis"], analysis_id)
+
+        _, analysis = self.request(
+            "GET", f"/api/taiga/analyses/{analysis_id}", token=self.token_a
+        )
+        self.assertEqual(analysis["status"], "done")
+        self.assertEqual(analysis["model"], "baseline")
+        self.assertEqual(analysis["model_version"], "1.0.0")
+        self.assertGreater(analysis["stages"]["count"], 0)
+        self.assertIn("metrics", analysis)
+        self.assertIn("quality", analysis)
+        self.assertIsNotNone(analysis["quality"]["score"])
+        self.assertEqual(analysis["provenance"]["worker"], "integration-worker")
 
     def test_08_worker_routes_require_a_worker_token(self) -> None:
         self.request("POST", "/api/taiga/worker/jobs/claim", {"worker": "x"}, expected=401)
@@ -751,6 +879,188 @@ class IntegrationTest(unittest.TestCase):
             expected=200,
         )
         self.assertEqual(first["session"]["id"], second["session"]["id"])
+
+
+    def test_14_algorithms_analysis_request_and_views(self) -> None:
+        capabilities = [
+            {
+                "id": "baseline",
+                "version": "1.0.0",
+                "name": "Baseline HR/ACC",
+                "description": "test",
+                "license": "GPL-3.0-or-later",
+                "citation": None,
+                "homepage": None,
+                "needs": [{"name": "hr", "required": True}],
+                "epoch_seconds": 30,
+                "stage_scheme": "aasm4",
+                "supported_stages": ["wake", "rem", "light", "deep", "unknown"],
+                "capabilities": ["stages", "confidence", "artifacts"],
+                "default_params": {},
+                "params_schema": {},
+                "source": "builtin",
+            }
+        ]
+        self.request(
+            "POST",
+            "/api/taiga/worker/capabilities",
+            {"worker": "integration-worker", "version": "0.1.0", "algorithms": capabilities},
+            token=self.worker_token,
+        )
+        _, listing = self.request("GET", "/api/taiga/algorithms", token=self.token_a)
+        self.assertIn("baseline", [item["id"] for item in listing["algorithms"]])
+        baseline = next(item for item in listing["algorithms"] if item["id"] == "baseline")
+        self.assertEqual(baseline["version"], "1.0.0")
+        self.assertEqual(baseline["worker_count"], 1)
+        self.assertIn("supported_stages", baseline)
+
+        session_id = self._create_uploaded_session("20261025_140000")
+        self.request(
+            "POST",
+            f"/api/taiga/sessions/{self.session_a_id}/analysis",
+            {"models": [{"model": "baseline", "version": "1.0.0"}]},
+            token=self.token_a,
+            expected=409,
+        )
+        self.request(
+            "POST",
+            f"/api/taiga/sessions/{session_id}/analysis",
+            {"models": [{"model": "baseline"}]},
+            token=self.token_a,
+            expected=400,
+        )
+
+        body = {"models": [{"model": "baseline", "version": "1.0.0", "params": {}}]}
+        _, first = self.request(
+            "POST", f"/api/taiga/sessions/{session_id}/analysis", body, token=self.token_a
+        )
+        _, second = self.request(
+            "POST", f"/api/taiga/sessions/{session_id}/analysis", body, token=self.token_a
+        )
+        self.assertEqual(first["analyses"][0]["id"], second["analyses"][0]["id"])
+        self.assertEqual(first["jobs"][0]["id"], second["jobs"][0]["id"])
+        analysis_id = first["analyses"][0]["id"]
+        job = first["jobs"][0]
+
+        _, detail = self.request(
+            "GET", f"/api/taiga/sessions/{session_id}", token=self.token_a
+        )
+        self.assertEqual(detail["session"]["id"], session_id)
+        self.assertEqual(detail["analysis_summary"]["queued"], 1)
+        self.assertEqual(detail["analyses"][0]["id"], analysis_id)
+        self.assertEqual(detail["jobs"][0]["id"], job["id"])
+        self.assertIn("upload", detail)
+
+        _, sessions = self.request(
+            "GET", "/api/taiga/sessions?upload_status=uploaded&perPage=50", token=self.token_a
+        )
+        self.assertIn(session_id, [item["session"]["id"] for item in sessions["items"]])
+        self.assertIn("hasMore", sessions)
+
+        self.request(
+            "GET", f"/api/taiga/sessions/{session_id}", token=self.token_b, expected=404
+        )
+        self.request(
+            "GET", f"/api/taiga/analyses/{analysis_id}", token=self.token_b, expected=404
+        )
+
+        claimed = self._claim_job()
+        self.assertEqual(claimed["id"], job["id"])
+        self.assertEqual(claimed["params"], {})
+        self._finish_job(
+            claimed,
+            "done",
+            result={"analysis": self._analysis_result("baseline", "1.0.0")},
+        )
+        _, analysis = self.request(
+            "GET", f"/api/taiga/analyses/{analysis_id}", token=self.token_a
+        )
+        self.assertEqual(analysis["status"], "done")
+        self.assertEqual(analysis["model_version"], "1.0.0")
+
+        _, stopped = self.request(
+            "GET", "/api/taiga/sessions?state=stopped&perPage=50", token=self.token_a
+        )
+        self.assertIn(session_id, [item["session"]["id"] for item in stopped["items"]])
+
+    def test_15_worker_download_is_scoped(self) -> None:
+        session_id = self._create_uploaded_session("20261025_150000")
+        _, requested = self.request(
+            "POST",
+            f"/api/taiga/sessions/{session_id}/analysis",
+            {"models": [{"model": "baseline", "version": "1.0.0", "params": {}}]},
+            token=self.token_a,
+        )
+        job = requested["jobs"][0]
+        claimed = self._claim_job()
+        self.assertEqual(claimed["id"], job["id"])
+
+        self.request(
+            "GET",
+            f"/api/taiga/worker/sessions/{session_id}/manifest",
+            token=self.worker_token,
+            expected=400,
+        )
+        self.request(
+            "GET",
+            f"/api/taiga/worker/sessions/{session_id}/manifest?job={job['id']}&worker=other",
+            token=self.worker_token,
+            expected=403,
+        )
+        _, manifest = self.request(
+            "GET",
+            f"/api/taiga/worker/sessions/{session_id}/manifest?job={job['id']}&worker=worker-1",
+            token=self.worker_token,
+        )
+        self.assertIn("hr.log", manifest["upload"]["files"])
+        self.assertIn("meta.json", manifest["upload"]["files"])
+
+        _, data = self.request_bytes(
+            f"/api/taiga/worker/sessions/{session_id}/files/hr.log?job={job['id']}&worker=worker-1",
+            token=self.worker_token,
+        )
+        self.assertTrue(data.startswith(b"TSLG"))
+        self.request_bytes(
+            f"/api/taiga/worker/sessions/{session_id}/files/hr.log?job={job['id']}&worker=other",
+            token=self.worker_token,
+            expected=403,
+        )
+
+        self._finish_job(claimed, "failed", error="cleanup", retryable=False)
+
+    def test_16_worker_result_validation_and_retry(self) -> None:
+        session_id = self._create_uploaded_session("20261025_160000")
+        _, requested = self.request(
+            "POST",
+            f"/api/taiga/sessions/{session_id}/analysis",
+            {"models": [{"model": "baseline", "version": "1.0.0", "params": {}}]},
+            token=self.token_a,
+        )
+        job = requested["jobs"][0]
+        analysis_id = requested["analyses"][0]["id"]
+        claimed = self._claim_job()
+        self.assertEqual(claimed["id"], job["id"])
+
+        self._finish_job(claimed, "done", result={})
+        _, job_payload = self.request(
+            "GET", f"/api/collections/jobs/records/{job['id']}", token=self.token_a
+        )
+        self.assertEqual(job_payload["status"], "failed")
+        _, analysis = self.request(
+            "GET", f"/api/taiga/analyses/{analysis_id}", token=self.token_a
+        )
+        self.assertEqual(analysis["status"], "failed")
+        self.assertIn("no analysis result", analysis["error"])
+
+        _, retried = self.request(
+            "POST", f"/api/taiga/jobs/{job['id']}/retry", {}, token=self.token_a
+        )
+        self.assertEqual(retried["job"]["status"], "queued")
+        self.assertEqual(retried["analysis"]["status"], "queued")
+
+        claimed = self._claim_job()
+        self.assertEqual(claimed["id"], job["id"])
+        self._finish_job(claimed, "failed", error="cleanup", retryable=False)
 
 
 if __name__ == "__main__":

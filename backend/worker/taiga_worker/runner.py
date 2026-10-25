@@ -28,6 +28,7 @@ class Outcome:
     ok: bool
     result: Mapping[str, Any] | None = None
     error: str | None = None
+    retryable: bool | None = None
 
 
 class JobRunner:
@@ -96,6 +97,7 @@ class JobRunner:
                 return Outcome(
                     ok=False,
                     error=f"job timed out after {self.timeout_s:g}s",
+                    retryable=True,
                 )
             finally:
                 self._process = None
@@ -105,6 +107,7 @@ class JobRunner:
             return Outcome(
                 ok=False,
                 error=detail or f"job subprocess exited with code {process.returncode}",
+                retryable=True,
             )
 
         return self._parse_output(stdout, stderr)
@@ -128,7 +131,11 @@ class JobRunner:
         if not isinstance(result, dict):
             return Outcome(ok=False, error="job result must be a JSON object")
         if result.get("status") == "failed":
-            return Outcome(ok=False, error=str(result.get("error") or "job reported failure"))
+            return Outcome(
+                ok=False,
+                error=str(result.get("error") or "job reported failure"),
+                retryable=bool(result.get("retryable")),
+            )
 
         return Outcome(ok=True, result=result)
 
