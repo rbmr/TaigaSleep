@@ -12,3 +12,5 @@
 deploy/.env
 /pocketbase/pocketbase
 /pocketbase/pocketbase.zip
+
+/api/taiga-sleep-api

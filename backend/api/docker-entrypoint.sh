@@ -3,7 +3,7 @@ set -eu
 
 data_dir="${TAIGA_DATA_DIR:-/pb/pb_data}"
 http_addr="${TAIGA_HTTP_ADDR:-0.0.0.0:8090}"
-hooks_pool="${TAIGA_HOOKS_POOL:-4}"
+hooks_pool="${TAIGA_HOOKS_POOL:-1}"
 
 mkdir -p "$data_dir"
 
@@ -11,15 +11,15 @@ mkdir -p "$data_dir"
 # the superuser is stored in the database. No credentials are baked into the
 # image.
 if [ -n "${TAIGA_ADMIN_EMAIL:-}" ] && [ -n "${TAIGA_ADMIN_PASSWORD:-}" ]; then
-    /pb/pocketbase superuser upsert "$TAIGA_ADMIN_EMAIL" "$TAIGA_ADMIN_PASSWORD" --dir "$data_dir"
+    /app/taiga-sleep-api superuser upsert "$TAIGA_ADMIN_EMAIL" "$TAIGA_ADMIN_PASSWORD" --dir "$data_dir"
     unset TAIGA_ADMIN_PASSWORD
 fi
 
 set -- serve \
     --http="$http_addr" \
     --dir="$data_dir" \
-    --migrationsDir=/pb/pb_migrations \
-    --hooksDir=/pb/pb_hooks \
+    --migrationsDir=/app/pb_migrations \
+    --hooksDir=/app/pb_hooks \
     --hooksPool="$hooks_pool" \
     --automigrate=false \
     --hooksWatch=false
@@ -31,4 +31,4 @@ if [ -n "${TAIGA_ENCRYPTION_KEY:-}" ]; then
     set -- "$@" --encryptionEnv TAIGA_ENCRYPTION_KEY
 fi
 
-exec /pb/pocketbase "$@"
+exec /app/taiga-sleep-api "$@"

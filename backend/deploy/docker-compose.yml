@@ -3,7 +3,8 @@ name: taiga-sleep
 services:
   api:
     build:
-      context: ./backend/pocketbase
+      context: ..
+      dockerfile: api/Dockerfile
     restart: unless-stopped
     ports:
       # Bind to loopback by default. Put Caddy/nginx in front to expose only
@@ -18,7 +19,7 @@ services:
       TAIGA_APP_URL: "${TAIGA_APP_URL:-http://127.0.0.1:8090}"
       TAIGA_JOB_LEASE_S: "${TAIGA_JOB_LEASE_S:-1800}"
       TAIGA_JOB_MAX_ATTEMPTS: "${TAIGA_JOB_MAX_ATTEMPTS:-3}"
-      TAIGA_HOOKS_POOL: "${TAIGA_HOOKS_POOL:-4}"
+      TAIGA_HOOKS_POOL: "${TAIGA_HOOKS_POOL:-1}"
       # Optional bootstrap, only needed on the first start.
       TAIGA_ADMIN_EMAIL: "${TAIGA_ADMIN_EMAIL:-}"
       TAIGA_ADMIN_PASSWORD: "${TAIGA_ADMIN_PASSWORD:-}"
@@ -32,7 +33,7 @@ services:
 
   worker:
     build:
-      context: ./backend/worker
+      context: ../worker
     restart: unless-stopped
     depends_on:
       api:

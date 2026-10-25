@@ -62,7 +62,7 @@ class IntegrationTest(unittest.TestCase):
         binary = os.environ.get("POCKETBASE_BIN") or shutil.which("pocketbase")
         if not binary:
             raise unittest.SkipTest(
-                "pocketbase binary not found; set POCKETBASE_BIN or add pocketbase to PATH"
+                "API binary not found; set POCKETBASE_BIN to the built Go binary"
             )
 
         cls.tmpdir = tempfile.mkdtemp(prefix="taiga-backend-test-")

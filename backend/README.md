@@ -1,6 +1,6 @@
 # Backend
 
-Self-hosted PocketBase API plus a Python analysis worker for Taiga Sleep.
+Self-hosted Go PocketBase API plus a Python analysis worker for Taiga Sleep.
 
 This directory contains everything the optional backend needs: the database
 schema, owner rules, health checks, the durable analysis queue, the analysis
@@ -13,32 +13,39 @@ parameter set. Real ML models are optional follow-ups (#22, #23).
 
 ```
 backend/
-├── pocketbase/
+├── api/
 │   ├── Dockerfile
 │   ├── docker-entrypoint.sh
-│   ├── pb_hooks/               # PocketBase JS hooks (routes, cron, queue)
-│   └── pb_migrations/          # versioned collections and settings
+│   ├── go.mod / go.sum
+│   └── internal/api/           # Go routes, upload validation, queue, hooks
+├── pocketbase/
+│   ├── pb_hooks/               # empty; the JSVM is used only for migrations
+│   └── pb_migrations/          # existing JS migrations (temporary)
 ├── worker/
 │   ├── Dockerfile
 │   ├── pyproject.toml
 │   ├── taiga_worker/           # supervisor, analysis library and baseline stager
 │   └── tests/
-├── tests/test_integration.py   # real PocketBase + real worker process
+├── tests/test_integration.py   # real Go API + real worker process
 ├── deploy/
 │   ├── docker-compose.yml
 │   ├── .env.example
 │   ├── Caddyfile
 │   └── systemd/
-└── scripts/                    # online and offline backups
+└── scripts/                    # backups, benchmark
 ```
 
-PocketBase is the only process that touches the SQLite database and the stored
-files. The worker talks to the API only, so it can run on the same machine or on
-a larger one without code changes.
+The custom API and record hooks are Go. The existing schema migrations are
+still JavaScript and are loaded by PocketBase's JSVM at startup; the hooks
+directory is intentionally empty. Porting the migrations to Go is a follow-up.
+
+The Go API process is the only process that touches the SQLite database and the
+stored files. The worker talks to the API only, so it can run on the same
+machine or on a larger one without code changes.
 
 ## Requirements
 
-- PocketBase **0.40.6** (pinned; the hooks use its current JS API).
+- Go **1.27+** for the API. PocketBase is pinned as a Go module at **0.40.6**.
 - Python **3.10+** and [uv](https://docs.astral.sh/uv/) for the worker. The
   worker uses numpy for decoding, metrics and the baseline stager; the idle
   supervisor does not import it, and real ML models are optional extras.
@@ -47,31 +54,27 @@ a larger one without code changes.
 ## Quick start (without Docker)
 
 ```bash
-cd backend/pocketbase
-
-# Download the pinned server binary.
-curl -fsSL -o pocketbase.zip \
-  https://github.com/pocketbase/pocketbase/releases/download/v0.40.6/pocketbase_0.40.6_linux_amd64.zip
-unzip -q pocketbase.zip pocketbase
-chmod +x pocketbase
+cd backend/api
+go build -o ./taiga-sleep-api .
 
 # Apply the schema into a local data directory and start the API.
-./pocketbase serve \
+./taiga-sleep-api serve \
   --http=127.0.0.1:8090 \
   --dir=./pb_data \
-  --migrationsDir=./pb_migrations \
-  --hooksDir=./pb_hooks \
+  --migrationsDir=../pocketbase/pb_migrations \
+  --hooksDir=../pocketbase/pb_hooks \
   --automigrate=false
 ```
 
 Open `http://127.0.0.1:8090/_/` and create the first admin account, or run
-`./pocketbase superuser upsert <email> <password>`. The dashboard is **not**
+`./taiga-sleep-api superuser upsert <email> <password>`. The dashboard is **not**
 meant to be exposed to the internet; see [Admin access](#admin-access).
 
 The schema is applied automatically on `serve`. To apply it without serving:
 
 ```bash
-./pocketbase migrate up --dir=./pb_data --migrationsDir=./pb_migrations
+./taiga-sleep-api migrate up --dir=./pb_data \
+  --migrationsDir=../pocketbase/pb_migrations
 ```
 
 ### Create the user and worker accounts
@@ -130,7 +133,7 @@ variables and expand them in the unit/compose files:
 | `TAIGA_APP_URL` | unset | Stored in PocketBase settings; used in auth email links. |
 | `TAIGA_APP_NAME` | `Taiga Sleep` | Display name in the dashboard and emails. |
 | `TAIGA_ENCRYPTION_KEY` | unset | Optional 32-character key for PocketBase settings encryption. |
-| `TAIGA_HOOKS_POOL` | `4` | Prewarmed JS runtimes. The deployment examples use 4 instead of PocketBase's default 15 to keep idle memory down. |
+| `TAIGA_HOOKS_POOL` | `1` | Prewarmed JS runtimes. The JSVM is only used for migrations, so one runtime is enough. |
 | `TAIGA_MAX_RECORDING_MB` | `256` | Total bytes allowed for one recording directory. |
 | `TAIGA_MAX_RECORDING_FILE_MB` | `64` | Bytes allowed for one stream file. |
 | `TAIGA_MAX_UPLOAD_CHUNK_MB` | `8` | Maximum upload chunk; keep it below PocketBase's 10 MB request-body cap. |
@@ -350,6 +353,13 @@ is rejected.
 
 ## Tests
 
+Go unit tests cover frame/CRC validation, meta validation and params hashing:
+
+```bash
+cd backend/api
+go test ./...
+```
+
 Worker unit tests use the standard library plus numpy. Dependencies and the
 exact interpreter are managed by uv from `backend/worker/uv.lock`:
 
@@ -359,23 +369,24 @@ uv sync --frozen
 uv run --frozen python -m unittest discover -s tests -t .
 ```
 
-The integration suite starts a real PocketBase server in a temporary directory,
-applies the migrations, and exercises the hooks and a real worker subprocess.
+The integration suite builds the Go API, starts it in a temporary directory,
+applies the migrations, and exercises the routes and a real worker subprocess.
 It covers upload/resume/validation, analysis requests, algorithm reporting,
 scoped worker downloads, the baseline end-to-end run, result storage, retries
-and owner isolation. Set `POCKETBASE_BIN` to the binary (or put it on `PATH`):
+and owner isolation:
 
 ```bash
 cd backend
+(cd api && go build -o /tmp/taiga-sleep-api .)
 uv sync --project worker --frozen
-POCKETBASE_BIN=/path/to/pocketbase \
+POCKETBASE_BIN=/tmp/taiga-sleep-api \
   uv run --project worker --frozen python -m unittest tests.test_integration -v
 ```
 
 Set `TAIGA_KEEP_TEST_DATA=1` to keep the temporary data directory after a run.
 
-CI (`.github/workflows/backend.yml`) runs both suites with uv on every pull
-request that touches `backend/`.
+CI (`.github/workflows/backend.yml`) runs the Go tests, the worker tests and the
+integration suite on every pull request that touches `backend/`.
 
 ## Deployment
 
@@ -383,14 +394,17 @@ request that touches `backend/`.
 
 The units assume:
 
-- the binary and assets live in `/opt/taiga-sleep`;
+- the Go binary and migrations live in `/opt/taiga-sleep`;
 - data lives in `/var/lib/taiga-sleep` (`StateDirectory`);
 - secrets live in `/etc/taiga-sleep/*.env`, owned by root and mode `0640`.
 
 ```bash
 sudo useradd --system --home /var/lib/taiga-sleep --shell /usr/sbin/nologin taiga
 sudo install -d -o taiga -g taiga /opt/taiga-sleep
-# copy pocketbase, pb_hooks/ and pb_migrations/ into /opt/taiga-sleep
+(cd backend/api && go build -trimpath -o taiga-sleep-api .)
+sudo install -m 0755 backend/api/taiga-sleep-api /opt/taiga-sleep/taiga-sleep-api
+sudo cp -r backend/pocketbase/pb_migrations /opt/taiga-sleep/
+sudo cp -r backend/pocketbase/pb_hooks /opt/taiga-sleep/
 sudo install -m 0644 backend/deploy/systemd/taiga-sleep-api.service /etc/systemd/system/
 sudo install -m 0644 backend/deploy/systemd/taiga-sleep-worker.service /etc/systemd/system/
 sudo install -m 0640 -g taiga backend/deploy/systemd/taiga-sleep-api.env.example /etc/taiga-sleep/api.env
@@ -413,8 +427,9 @@ cp deploy/.env.example deploy/.env
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
 
-The API port is published on loopback by default, and the data directory is a
-named volume. The worker has a configurable container limit
+The API image builds the Go binary from `backend/api`; the worker image is
+unchanged. The API port is published on loopback by default, and the data
+directory is a named volume. The worker has a configurable container limit
 (`TAIGA_WORKER_MEMORY`) with the job subprocess limit slightly below it
 (`TAIGA_JOB_MEMORY_MB`). On the first start, `TAIGA_ADMIN_EMAIL` and
 `TAIGA_ADMIN_PASSWORD` can bootstrap the admin account; remove them afterwards.
@@ -457,12 +472,12 @@ is an address-space cap, not a reservation, so the idle footprint stays small.
 
 ## Footprint
 
-Measured on x86_64 Linux with PocketBase 0.40.6 (`--hooksPool=4`) and the
+Measured on x86_64 Linux with PocketBase 0.40.6 (`--hooksPool=1`) and the
 worker idle, using `ps -o rss=` (resident set size, including shared pages):
 
 | Process | Idle RSS |
 | --- | --- |
-| PocketBase (`serve`, hooks loaded, no requests) | ~44 MiB |
+| Go API (`serve`, JSVM loaded for migrations, no requests) | ~46 MiB |
 | Worker supervisor (after algorithm discovery, polling an empty queue) | ~40 MiB |
 
 The supervisor imports numpy when it reports installed algorithms. That keeps
@@ -470,9 +485,8 @@ the worker self-contained; the analysis subprocess is still the only heavy
 part. Its limit is configurable via `TAIGA_JOB_MEMORY_MB`, and numeric libraries
 are single-threaded.
 
-For comparison, PocketBase's default `--hooksPool=15` adds JS runtimes that a
-single-user install does not need. Raising `TAIGA_HOOKS_POOL` buys concurrency,
-not throughput for this workload.
+The JSVM is now loaded only to run the existing migrations, so
+`TAIGA_HOOKS_POOL=1` is enough. Raising it buys nothing for the Go routes.
 
 ## Benchmarks
 
@@ -527,8 +541,8 @@ unverified backup is not a backup.
 
 1. Back up first.
 2. Stop the API and worker.
-3. Replace the PocketBase binary (or image tag) and update `pb_hooks/` and
-   `pb_migrations/` from the new release.
+3. Rebuild the Go binary from the same commit and update `pb_migrations/` and
+   `pb_hooks/` in `/opt/taiga-sleep`.
 4. Start the API; new migrations apply automatically.
 5. Check `/api/taiga/health`, the cron list and one worker claim.
 
@@ -549,6 +563,10 @@ public API, but the job payload shape is expected to stay in sync.
 ## Out of scope
 
 The real wav2sleep and SleepECG adapters (#22, #23), accuracy claims without
-ground-truth labels, optional compressed uploads (#24), the app-side upload and
-result UI (#11), and a sleep score. The score is a product policy over stages
-and metrics, not a stager.
+ground-truth labels, optional compressed uploads (#24), OpenAPI generation
+(#28), the app-side upload and result UI (#11), and a sleep score. The score is
+a product policy over stages and metrics, not a stager.
+
+The current schema migrations are still JavaScript, loaded by the JSVM at
+startup. Porting them to Go is a separate follow-up; the custom API and record
+hooks are already Go.
