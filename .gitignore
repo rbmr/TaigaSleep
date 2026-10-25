@@ -24,3 +24,4 @@ recordings/
 .env
 *.token
 secrets.properties
+keystore.properties
