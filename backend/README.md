@@ -4,7 +4,7 @@ Self-hosted Go PocketBase API plus a Python analysis worker for Taiga Sleep.
 
 This directory contains everything the optional backend needs: the database
 schema, owner rules, health checks, the durable analysis queue, the analysis
-worker, deployment examples and backup tooling. It accepts append-only
+worker, deployment examples and backup guidance. It accepts append-only
 recordings through an owner-only upload API, runs staging algorithms in a
 separate worker process, and stores one result per session/algorithm/version/
 parameter set. The optional wav2sleep ECG model is available as a worker extra;
@@ -31,7 +31,7 @@ backend/
 │   ├── .env.example
 │   ├── Caddyfile
 │   └── systemd/
-└── scripts/                    # backups, benchmark
+└── scripts/                    # benchmark and model download
 ```
 
 The custom API, record hooks and schema migrations are all Go. The migrations
@@ -567,36 +567,126 @@ reference run and the real-night table. Do not commit recordings or results.
 
 ## Backup and restore
 
-Back up the **whole data directory**, not just `data.db`: recordings live under
-`pb_data/recordings/` (and PocketBase's own uploaded files under
-`pb_data/storage/`). The provided script uses PocketBase's backup API, which
-snapshots the database and files together:
+Backups use PocketBase's built-in feature; the repository ships no backup
+script. A backup is a zip of the **whole data directory**, not just `data.db`:
+recordings live under `pb_data/recordings/` and PocketBase's uploaded files under
+`pb_data/storage/`, so both are included. The archive is a consistent snapshot;
+the API keeps serving while it is written.
+
+### Schedule and retention
+
+Configure this under `Settings -> Backups` in the dashboard, or patch the
+settings as a superuser (`jq` is only used to read the token here):
 
 ```bash
-cd backend
-TAIGA_API_URL=http://127.0.0.1:8090 \
-TAIGA_ADMIN_EMAIL=you@example.com \
-./scripts/backup.sh /srv/backups
+BASE=http://127.0.0.1:8090
+TOKEN=$(curl -fsS -X POST "$BASE/api/collections/_superusers/auth-with-password" \
+  -H 'Content-Type: application/json' \
+  -d '{"identity":"admin@example.com","password":"..."}' | jq -r .token)
+
+curl -fsS -X PATCH "$BASE/api/settings" \
+  -H "Authorization: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"backups":{"cron":"0 3 * * *","cronMaxKeep":14}}'
 ```
 
-It downloads `taiga-sleep-backup-<timestamp>.zip`, validates it, and removes the
-server-side copy. Use `--keep-remote` to keep it. For a stopped instance (or a
-consistent filesystem snapshot), use:
+- `cron` is a five-field cron expression. It is **empty by default**, which
+  leaves automatic backups disabled. Choose a schedule that matches how much
+  history you are willing to lose; a nightly run with two weeks of copies
+  (`0 3 * * *`, `cronMaxKeep: 14`) is a common baseline, not a requirement.
+- `cronMaxKeep` is required once `cron` is set and limits how many automatic
+  backups are kept.
+- Automatic backups are written to `<data dir>/backups/` as
+  `@auto_pb_backup_<app name>_<timestamp>.zip` and listed under
+  `Settings -> Backups`.
+- Budget free disk space for roughly twice the data directory while a backup is
+  being created, and remember that these copies live on the same disk.
+- **Retention caveat:** `cronMaxKeep` prunes only `@auto_pb_backup_*` files.
+  Manual backups created in the dashboard or through the API are never deleted
+  automatically, so remove them yourself.
+
+The cron job runs inside the API process, so scheduled backups need no superuser
+credentials at run time; the password above is only used to change the settings.
+
+### Offsite copies (optional)
+
+An automatic backup on the same disk is not disaster recovery. Both of the
+following are first class; pick one, both or neither.
+
+**PocketBase's S3 backup target.** Fill in `Settings -> Backups -> S3` with the
+bucket, region, endpoint, access key, secret and, for S3-compatible servers such
+as MinIO, `forcePathStyle`. All fields are required when the target is enabled;
+`endpoint` is your provider's S3 endpoint (for AWS, for example
+`https://s3.eu-central-1.amazonaws.com`). While this is enabled, new backups are
+uploaded to the bucket instead of being written to `pb_data/backups/`, and
+`cronMaxKeep` applies to the bucket contents.
+
+The access key and secret are stored in the app settings in `pb_data/data.db`.
+Protect that directory and set [`TAIGA_ENCRYPTION_KEY`](#configuration) if you
+want the settings encrypted at rest; remember that a restore then needs the same
+key.
+
+**rclone or another file-sync tool.** Leave the S3 backup target disabled and
+copy the local backup directory offsite:
 
 ```bash
-./scripts/backup-offline.sh /var/lib/taiga-sleep /srv/backups
+rclone sync /var/lib/taiga-sleep/backups remote:taiga-sleep-backups
 ```
 
-Restore with the service stopped:
+Sync only `<data dir>/backups/`. Copying `pb_data/` while the API is running
+captures SQLite files that are changing underneath you; the zips in `backups/`
+are self-contained and safe. `rclone sync` mirrors the local retention, so old
+automatic backups disappear offsite as well; use `rclone copy` plus a remote-side
+retention policy if you want a longer offsite history. Run it from cron, a
+systemd timer or whichever scheduler your sync tool provides. With the Compose
+example the data directory is `/pb/pb_data` inside the `taiga-data` volume, so
+mount that volume into the sync container.
 
-1. Move the current data directory aside.
-2. Extract the archive so that `data.db`, `auxiliary.db` and `storage/` are at
-   the top level of the data directory.
-3. Fix ownership (`taiga:taiga`) and start the service.
+### Restore
 
-PocketBase can also restore an uploaded backup from the dashboard, but that
-restarts the process. Verify a restore periodically on a scratch machine; an
-unverified backup is not a backup.
+Restore from the dashboard (`Settings -> Backups`, restore icon) while the API
+runs. PocketBase moves the current data aside, unpacks the archive and
+re-executes the API process in place, so systemd and Docker do not need to
+restart the unit. Stop the worker first (it may be reading recordings or writing
+results while the data directory is replaced) and start it again afterwards.
+
+To restore a downloaded archive on a stopped instance:
+
+1. Stop the API and the worker.
+2. Move the current data directory aside, keeping it until the restore is verified.
+3. Extract the archive into an empty data directory so that `data.db`,
+   `auxiliary.db`, `storage/` and `recordings/` are at its top level.
+4. Fix ownership, start the API, then check `/api/taiga/health` and one session.
+5. Remove the old directory once the restored instance looks right.
+
+```bash
+sudo systemctl stop taiga-sleep-api taiga-sleep-worker
+sudo mv /var/lib/taiga-sleep /var/lib/taiga-sleep.old-$(date -u +%Y%m%d-%H%M%S)
+sudo install -d -o taiga -g taiga /var/lib/taiga-sleep
+sudo -u taiga unzip -q /srv/backups/@auto_pb_backup_taiga_sleep_20260101030000.zip \
+  -d /var/lib/taiga-sleep
+sudo systemctl start taiga-sleep-api
+```
+
+If `TAIGA_ENCRYPTION_KEY` is set, restore with the same key; otherwise the
+settings stored in `data.db`, including the S3 secret, cannot be decrypted.
+
+With the Compose example, the data directory is `/pb/pb_data` inside the
+`taiga-data` volume; run the same steps in a helper container that mounts the
+volume, or use the dashboard restore.
+
+For a stopped instance without a PocketBase archive, an archive of the data
+directory is enough. This is the only case that needs the API to be down:
+
+```bash
+sudo systemctl stop taiga-sleep-api
+sudo tar -C /var/lib -czf /srv/backups/taiga-sleep-data-$(date -u +%Y%m%d-%H%M%S).tar.gz taiga-sleep
+sudo systemctl start taiga-sleep-api
+```
+
+That includes `pb_data/backups/` unless you exclude it, so store the result off
+the same disk. Verify a restore on a scratch instance after changing the backup
+setup; an unverified backup is not a backup.
 
 ## Upgrade
 
@@ -612,7 +702,9 @@ public API, but the job payload shape is expected to stay in sync.
 ## Security notes
 
 - No secrets, tokens or recordings are stored in this repository. `.env` files,
-  `pb_data/`, `backups/` and Python caches are ignored.
+  `pb_data/` and Python caches are ignored.
+- PocketBase settings, including the optional backup S3 secret, live in
+  `pb_data/data.db`. Set `TAIGA_ENCRYPTION_KEY` to encrypt them at rest.
 - Registration is disabled; there is one app user in the intended setup.
 - Worker credentials are separate from the app user. The worker cannot read
   records directly.
