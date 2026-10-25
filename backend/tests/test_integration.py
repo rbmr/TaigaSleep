@@ -21,6 +21,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from tests import recording_fixture as fx
+
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_DIR.parent
 WORKER_DIR = BACKEND_DIR / "worker"
@@ -208,6 +210,64 @@ class IntegrationTest(unittest.TestCase):
         if status not in allowed:
             raise AssertionError(f"{method} {path} returned {status}, expected {allowed}: {payload}")
         return status, payload
+
+    @classmethod
+    def request_raw(
+        cls,
+        method: str,
+        path: str,
+        data: bytes,
+        token: str | None = None,
+        expected: int | tuple[int, ...] = 200,
+    ) -> tuple[int, Any]:
+        headers = {"Content-Type": "application/octet-stream"}
+        if token:
+            headers["Authorization"] = token
+
+        request = urllib.request.Request(cls.base_url + path, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                status = response.status
+                raw = response.read()
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            raw = exc.read()
+
+        payload = json.loads(raw) if raw else None
+        allowed = (expected,) if isinstance(expected, int) else expected
+        if status not in allowed:
+            raise AssertionError(f"{method} {path} returned {status}, expected {allowed}: {payload}")
+        return status, payload
+
+    def _create_upload_session(self, session_id: str, **kwargs: Any) -> tuple[str, dict[str, Any]]:
+        metadata = fx.meta(session_id, **kwargs)
+        _, payload = self.request(
+            "POST",
+            "/api/taiga/sessions",
+            {"meta": metadata},
+            token=self.token_a,
+            expected=(200, 201),
+        )
+        return str(payload["session"]["id"]), payload
+
+    def _upload_bytes(self, session_id: str, name: str, data: bytes, chunk_size: int = 7) -> dict[str, Any]:
+        offset = 0
+        last: dict[str, Any] = {}
+        for chunk in fx.chunks(data, chunk_size):
+            _, last = self.request_raw(
+                "PUT",
+                f"/api/taiga/sessions/{session_id}/upload/file/{name}?offset={offset}",
+                chunk,
+                token=self.token_a,
+            )
+            offset += len(chunk)
+        return last
+
+    def _upload_recording(self, session_id: str, files: dict[str, object]) -> None:
+        for name in ("hr.log", "ecg.log", "acc.log", "events.jsonl"):
+            data = files.get(name)
+            if isinstance(data, bytes) and data:
+                self._upload_bytes(session_id, name, data)
 
     @classmethod
     def _login(cls, collection: str, email: str, password: str) -> str:
@@ -487,6 +547,210 @@ class IntegrationTest(unittest.TestCase):
             token=self.token_a,
             expected=403,
         )
+
+    def test_09_upload_create_resume_and_complete(self) -> None:
+        files = fx.recording("20261025_090000")
+        session_id, created = self._create_upload_session("20261025_090000")
+        self.assertEqual(created["session"]["upload_status"], "pending")
+        self.assertEqual(created["upload"]["files"]["meta.json"]["state"], "ok")
+
+        hr = files["hr.log"]
+        _, first = self.request_raw(
+            "PUT",
+            f"/api/taiga/sessions/{session_id}/upload/file/hr.log?offset=0",
+            hr[:10],
+            token=self.token_a,
+        )
+        self.assertEqual(first["state"], "partial")
+        self.assertEqual(first["validated_length"], 8)
+
+        _, second = self.request_raw(
+            "PUT",
+            f"/api/taiga/sessions/{session_id}/upload/file/hr.log?offset=10",
+            hr[10:],
+            token=self.token_a,
+        )
+        self.assertEqual(second["state"], "ok")
+        self.assertEqual(second["frames"], 3)
+        self.assertEqual(second["length"], len(hr))
+
+        status, wrong = self.request_raw(
+            "PUT",
+            f"/api/taiga/sessions/{session_id}/upload/file/hr.log?offset=5",
+            b"x",
+            token=self.token_a,
+            expected=409,
+        )
+        self.assertIn("expected", wrong["message"])
+
+        for name in ("events.jsonl", "ecg.log", "acc.log"):
+            data = files.get(name)
+            if isinstance(data, bytes) and data:
+                self._upload_bytes(session_id, name, data)
+
+        _, jobs_before = self.request("GET", "/api/collections/jobs/records", token=self.token_a)
+        _, complete = self.request(
+            "POST",
+            f"/api/taiga/sessions/{session_id}/upload/complete",
+            {},
+            token=self.token_a,
+        )
+        self.assertEqual(complete["session"]["upload_status"], "uploaded")
+        self.assertTrue(complete["upload"]["completed"])
+        self.assertEqual(complete["upload"]["files"]["hr.log"]["state"], "ok")
+        _, jobs_after = self.request("GET", "/api/collections/jobs/records", token=self.token_a)
+        self.assertEqual(len(jobs_after["items"]), len(jobs_before["items"]))
+
+        _, manifest = self.request(
+            "GET",
+            f"/api/taiga/sessions/{session_id}/upload",
+            token=self.token_a,
+        )
+        self.assertIsNotNone(manifest["upload"]["meta"])
+        self.assertEqual(manifest["upload"]["meta"]["session_id"], "20261025_090000")
+
+    def test_10_upload_truncated_and_corrupt_tails(self) -> None:
+        truncated = fx.recording("20261025_100000")
+        session_id, _ = self._create_upload_session("20261025_100000")
+        self._upload_bytes(session_id, "hr.log", truncated["hr.log"] + b"\x10\x00\x00\x00abc")
+        _, done = self.request(
+            "POST",
+            f"/api/taiga/sessions/{session_id}/upload/complete",
+            {},
+            token=self.token_a,
+        )
+        entry = done["upload"]["files"]["hr.log"]
+        self.assertEqual(entry["state"], "ok")
+        self.assertEqual(entry["length"], len(truncated["hr.log"]))
+        self.assertTrue(entry["truncated"])
+        self.assertIn("truncated", done["upload"]["upload_error"])
+
+        corrupt = fx.recording("20261025_100001")
+        session_id, _ = self._create_upload_session("20261025_100001")
+        data = corrupt["hr.log"] + fx.frame(b"abcd", bad_crc=True)
+        _, append = self.request_raw(
+            "PUT",
+            f"/api/taiga/sessions/{session_id}/upload/file/hr.log?offset=0",
+            data,
+            token=self.token_a,
+        )
+        self.assertEqual(append["state"], "corrupt")
+        self.assertEqual(append["length"], len(corrupt["hr.log"]))
+        self.assertIn("CRC", append["error"])
+
+        _, done = self.request(
+            "POST",
+            f"/api/taiga/sessions/{session_id}/upload/complete",
+            {},
+            token=self.token_a,
+        )
+        entry = done["upload"]["files"]["hr.log"]
+        self.assertEqual(entry["length"], len(corrupt["hr.log"]))
+        self.assertIn("truncated", done["upload"]["upload_error"])
+
+    def test_11_upload_validation_and_owner_isolation(self) -> None:
+        bad = fx.meta("20261025_110000")
+        bad["format"] = "not-taiga"
+        self.request(
+            "POST",
+            "/api/taiga/sessions",
+            {"meta": bad},
+            token=self.token_a,
+            expected=400,
+        )
+
+        files = fx.recording("20261025_110001")
+        session_id, created = self._create_upload_session("20261025_110001")
+
+        self.request(
+            "GET",
+            f"/api/taiga/sessions/{session_id}/upload",
+            token=self.token_b,
+            expected=404,
+        )
+        self.request_raw(
+            "PUT",
+            f"/api/taiga/sessions/{session_id}/upload/file/hr.log?offset=0",
+            b"x",
+            token=self.token_b,
+            expected=404,
+        )
+        self.request(
+            "POST",
+            f"/api/taiga/sessions/{session_id}/upload/complete",
+            {},
+            token=self.token_b,
+            expected=404,
+        )
+
+        self.request_raw(
+            "PUT",
+            f"/api/taiga/sessions/{session_id}/upload/file/other.log?offset=0",
+            b"x",
+            token=self.token_a,
+            expected=400,
+        )
+        self.request_raw(
+            "PUT",
+            f"/api/taiga/sessions/{session_id}/upload/file/..%2Fmeta.json?offset=0",
+            b"x",
+            token=self.token_a,
+            expected=(400, 404),
+        )
+
+        changed = dict(created["upload"]["meta"])
+        changed["session_id"] = "20261025_110002"
+        self.request(
+            "PUT",
+            f"/api/taiga/sessions/{session_id}/upload/meta",
+            {"meta": changed},
+            token=self.token_a,
+            expected=400,
+        )
+
+        recording_id, _ = self._create_upload_session("20261025_110003", state="recording")
+        self._upload_bytes(recording_id, "hr.log", files["hr.log"])
+        self.request(
+            "POST",
+            f"/api/taiga/sessions/{recording_id}/upload/complete",
+            {},
+            token=self.token_a,
+            expected=409,
+        )
+
+    def test_12_upload_delete_removes_recording_directory(self) -> None:
+        files = fx.recording("20261025_120000")
+        session_id, _ = self._create_upload_session("20261025_120000")
+        self._upload_bytes(session_id, "hr.log", files["hr.log"])
+
+        directory = Path(self.tmpdir) / "pb_data" / "recordings" / session_id
+        self.assertTrue(directory.is_dir())
+
+        self.request(
+            "DELETE",
+            f"/api/collections/sessions/records/{session_id}",
+            token=self.token_a,
+            expected=204,
+        )
+        self.assertFalse(directory.exists())
+
+    def test_13_upload_create_is_idempotent(self) -> None:
+        metadata = fx.meta("20261025_130000")
+        _, first = self.request(
+            "POST",
+            "/api/taiga/sessions",
+            {"meta": metadata},
+            token=self.token_a,
+            expected=(200, 201),
+        )
+        _, second = self.request(
+            "POST",
+            "/api/taiga/sessions",
+            {"meta": metadata},
+            token=self.token_a,
+            expected=200,
+        )
+        self.assertEqual(first["session"]["id"], second["session"]["id"])
 
 
 if __name__ == "__main__":

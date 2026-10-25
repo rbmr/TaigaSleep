@@ -27,6 +27,44 @@ routerAdd(
   $apis.requireAuth()
 );
 
+// Recording upload routes (issue #10). These are owner-only and deliberately
+// separate from the analysis request routes. Keep the route wrappers in this
+// bundle so their module scope survives; the handlers live in lib/uploads.js.
+routerAdd(
+  "POST",
+  "/api/taiga/sessions",
+  (e) => require(`${__hooks}/lib/uploads.js`).createSession(e),
+  $apis.requireAuth()
+);
+
+routerAdd(
+  "GET",
+  "/api/taiga/sessions/{id}/upload",
+  (e) => require(`${__hooks}/lib/uploads.js`).getUpload(e),
+  $apis.requireAuth()
+);
+
+routerAdd(
+  "PUT",
+  "/api/taiga/sessions/{id}/upload/meta",
+  (e) => require(`${__hooks}/lib/uploads.js`).putMeta(e),
+  $apis.requireAuth()
+);
+
+routerAdd(
+  "PUT",
+  "/api/taiga/sessions/{id}/upload/file/{file}",
+  (e) => require(`${__hooks}/lib/uploads.js`).putFile(e),
+  $apis.requireAuth()
+);
+
+routerAdd(
+  "POST",
+  "/api/taiga/sessions/{id}/upload/complete",
+  (e) => require(`${__hooks}/lib/uploads.js`).completeUpload(e),
+  $apis.requireAuth()
+);
+
 routerAdd(
   "POST",
   "/api/taiga/worker/jobs/claim",
@@ -151,6 +189,14 @@ cronAdd("taiga_requeue_expired_jobs", "* * * * *", () => {
 
 // Fill in the queue fields for jobs created through the public API. Users may
 // create a job for their own session, but they cannot pre-set its state.
+// A deleted session must not leave recording bytes behind. PocketBase owns the
+// files, so this is the only place that removes the directory.
+onRecordAfterDeleteSuccess((e) => {
+  const recordings = require(`${__hooks}/lib/recordings.js`);
+  recordings.removeDir(e.record.id);
+  e.next();
+}, "sessions");
+
 onRecordCreateRequest((e) => {
   const dates = require(`${__hooks}/lib/dates.js`);
 
@@ -208,3 +254,6 @@ onBootstrap((e) => {
     e.app.save(settings);
   }
 });
+
+
+

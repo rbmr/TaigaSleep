@@ -161,8 +161,14 @@ ECG quality, rates and staleness are derived only by the live monitor, never by 
 - The writer never holds more than one batch in memory.
 - `meta.json` is the only file that is rewritten; use write-temp + rename.
 
-## Export / upload (future)
+## Export / upload
 
 Because files only grow, the uploader sends `(file, byte_offset, bytes)` and
-resumes from the server's current length. For manual export the app can zip the
-session directory on demand (never stored permanently).
+resumes from the server's current length. The backend route is
+`PUT /api/taiga/sessions/{id}/upload/file/{file}?offset=N`; see
+[`backend/README.md`](../backend/README.md#recording-uploads) for the full
+create/resume/complete flow.
+
+For manual export the app can zip the session directory on demand (never stored
+permanently). The backend stores the same files under
+`<pb_data>/recordings/<session id>/`.

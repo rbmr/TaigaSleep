@@ -4,8 +4,9 @@ Self-hosted PocketBase API plus a Python analysis worker for Taiga Sleep.
 
 This directory contains everything the optional backend needs: the database
 schema, owner rules, health checks, the durable analysis queue, the worker
-skeleton, deployment examples and backup tooling. It deliberately does **not**
-accept recordings or run sleep staging yet; that is issue #10.
+skeleton, deployment examples and backup tooling. It accepts append-only
+recordings through an owner-only upload API. The analysis contract, result
+endpoints and worker download path are the next slices of issue #10.
 
 ## What is here
 
@@ -124,6 +125,10 @@ variables and expand them in the unit/compose files:
 | `TAIGA_APP_NAME` | `Taiga Sleep` | Display name in the dashboard and emails. |
 | `TAIGA_ENCRYPTION_KEY` | unset | Optional 32-character key for PocketBase settings encryption. |
 | `TAIGA_HOOKS_POOL` | `4` | Prewarmed JS runtimes. The deployment examples use 4 instead of PocketBase's default 15 to keep idle memory down. |
+| `TAIGA_MAX_RECORDING_MB` | `256` | Total bytes allowed for one recording directory. |
+| `TAIGA_MAX_RECORDING_FILE_MB` | `64` | Bytes allowed for one stream file. |
+| `TAIGA_MAX_UPLOAD_CHUNK_MB` | `8` | Maximum upload chunk; keep it below PocketBase's 10 MB request-body cap. |
+| `TAIGA_MAX_META_KB` | `64` | Maximum `meta.json` size. |
 
 The API also reads `TAIGA_JOB_LEASE_S` as the default claim lease (default
 `1800`, clamped to 1 day).
@@ -182,14 +187,76 @@ curl -s http://127.0.0.1:8090/api/taiga/auth-check -H "Authorization: <token>"
 
 These are the two checks the app's connection screen (#9) uses.
 
+### Recording uploads
+
+Uploading and analysing are separate steps. An upload only stores and validates
+the recording and marks it `uploaded`; it never queues analysis. Analysis
+requests, results and the worker download path are added by the rest of #10.
+
+All upload routes are owner-only (`users` token). A session is created or
+resumed from `meta.json` and identified by `(owner, client_session_id)`, so a
+retried create returns the existing session instead of duplicating it.
+
+```text
+POST /api/taiga/sessions                          create or resume from { "meta": {...} }
+GET  /api/taiga/sessions/{id}/upload              current lengths and validation state
+PUT  /api/taiga/sessions/{id}/upload/meta         replace meta.json
+PUT  /api/taiga/sessions/{id}/upload/file/{file}?offset=N   append raw bytes
+POST /api/taiga/sessions/{id}/upload/complete     validate and mark uploaded
+```
+
+- `{file}` is one of `hr.log`, `ecg.log`, `acc.log`, `events.jsonl`. The stream
+  files are the frame logs from `docs/recording-format.md`; `meta.json` is
+  written through the meta route, not as raw bytes.
+- `offset` must equal the server's current length of that file. A wrong offset
+  returns `409` with the expected length in the message. Re-read
+  `GET /upload` to resume, or the response's `length`/`validated_length`.
+- Chunks are raw bytes (`application/octet-stream`, up to 8 MB). The response
+  reports `length`, `validated_length`, `frames`/`lines`, `state` and any error.
+- Validation is incremental. Complete frames are accepted until the first
+  truncated or bad-CRC frame. A truncated final frame is kept while uploading
+  and cut at completion (`truncated: true`, warning in `upload_error`). A bad
+  frame truncates the file to the last valid frame and is reported; the valid
+  prefix can still be completed and analysed.
+- `complete` requires a valid `meta.json`, a non-`recording` state, and at least
+  one valid frame. The session's `state`, `started_at`, `ended_at`,
+  `duration_s` and `device` are derived from `meta.json`.
+- Recordings live in `<pb_data>/recordings/<session id>/`, so PocketBase backups
+  include them. Deleting a session removes its directory.
+
+Limits are configurable through `TAIGA_MAX_RECORDING_MB` (256),
+`TAIGA_MAX_RECORDING_FILE_MB` (64), `TAIGA_MAX_UPLOAD_CHUNK_MB` (8) and
+`TAIGA_MAX_META_KB` (64). The events file has a fixed 8 MB cap. The effective
+limits are returned in the upload manifest.
+
+Example flow:
+
+```bash
+# 1. Create/resume (the body is the meta.json object).
+curl -s -X POST http://127.0.0.1:8090/api/taiga/sessions \
+  -H "Authorization: <user-token>" -H "Content-Type: application/json" \
+  -d '{"meta": {"format":"taiga-recording", "version":1, "session_id":"20261023_223000", "state":"stopped", "start_utc_ms":1792798200000, "end_utc_ms":1792828200000, "timezone":"Europe/Amsterdam", "sensor":{"kind":"polar-h10"}, "config":{"hr":true,"ecg":true,"acc":true,"ecg_rate_hz":130,"acc_rate_hz":50,"acc_range_g":8}}}'
+
+# 2. Append a chunk at the current length.
+curl -s -X PUT "http://127.0.0.1:8090/api/taiga/sessions/<id>/upload/file/hr.log?offset=0" \
+  -H "Authorization: <user-token>" -H "Content-Type: application/octet-stream" \
+  --data-binary @chunk.bin
+
+# 3. Finish.
+curl -s -X POST "http://127.0.0.1:8090/api/taiga/sessions/<id>/upload/complete" \
+  -H "Authorization: <user-token>" -H "Content-Type: application/json" -d '{}'
+```
+
 ### Collections
 
 - `users` — built-in auth. Registration is closed (`createRule` is null).
   Users can only list/view/update/delete their own record.
-- `sessions` — one row per recording: `owner`, `device`, `started_at`,
-  `ended_at`, `duration_s`, `state`, `upload_status`, analysis fields
-  (`analysis`, `stages`, `metrics`, `quality`, `error`), plus `created` and
-  `updated`. Owner-only rules.
+- `sessions` — one row per recording: `owner`, `client_session_id`, `device`,
+  `started_at`, `ended_at`, `duration_s`, `state`, `upload_status`, `upload`
+  (per-file lengths and validation state), `uploaded_at`, `upload_error`,
+  analysis fields (`analysis`, `stages`, `metrics`, `quality`, `error`), plus
+  `created` and `updated`. The analysis fields are the #8 placeholder; the
+  analysis collection replaces them in the next slice of #10. Owner-only rules.
 - `jobs` — durable queue: `session`, `kind`, `model`, `status`, `attempts`,
   `available_at`, `lease_until`, `worker`, `error`, `result`, plus timestamps.
   Owner-only rules evaluated through `session.owner`.
@@ -340,7 +407,8 @@ The analysis subprocess is the only heavy part. Its limit is configurable via
 ## Backup and restore
 
 Back up the **whole data directory**, not just `data.db`: recordings live under
-`pb_data/storage/`. The provided script uses PocketBase's backup API, which
+`pb_data/recordings/` (and PocketBase's own uploaded files under
+`pb_data/storage/`). The provided script uses PocketBase's backup API, which
 snapshots the database and files together:
 
 ```bash
