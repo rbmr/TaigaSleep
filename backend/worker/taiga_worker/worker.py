@@ -78,6 +78,16 @@ class Worker:
                 self._algorithm_ids = [
                     str(item["id"]) for item in self._capabilities if item.get("id")
                 ]
+                if (
+                    self.config.job_memory_mb
+                    and self.config.job_memory_mb < 1536
+                    and "wav2sleep" in self._algorithm_ids
+                ):
+                    self.log.warning(
+                        "wav2sleep needs about 1.5 GiB of address space; "
+                        "TAIGA_JOB_MEMORY_MB is %s",
+                        self.config.job_memory_mb,
+                    )
                 if registry.errors:
                     self.log.warning("algorithm discovery errors: %s", "; ".join(registry.errors))
             except Exception:  # noqa: BLE001 - keep the supervisor alive

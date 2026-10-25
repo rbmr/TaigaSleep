@@ -55,7 +55,7 @@ class UploadEngineTest {
     assertEquals(1f, progress)
     assertTrue(client.completed)
     assertEquals("baseline", client.requestedModel)
-    assertEquals("1.0.0", client.requestedVersion)
+    assertEquals("1.1.0", client.requestedVersion)
   }
 
   @Test

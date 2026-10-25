@@ -7,7 +7,8 @@ schema, owner rules, health checks, the durable analysis queue, the analysis
 worker, deployment examples and backup tooling. It accepts append-only
 recordings through an owner-only upload API, runs staging algorithms in a
 separate worker process, and stores one result per session/algorithm/version/
-parameter set. Real ML models are optional follow-ups (#22, #23).
+parameter set. The optional wav2sleep ECG model is available as a worker extra;
+SleepECG is tracked in #22.
 
 ## What is here
 
@@ -45,7 +46,9 @@ machine or on a larger one without code changes.
 - Go **1.27+** for the API. PocketBase is pinned as a Go module at **0.40.6**.
 - Python **3.10+** and [uv](https://docs.astral.sh/uv/) for the worker. The
   worker uses numpy for decoding, metrics and the baseline stager; the idle
-  supervisor does not import it, and real ML models are optional extras.
+  supervisor does not import it. The optional wav2sleep ECG model needs Python
+  **3.11+** and is installed as a worker extra, so the base worker stays small.
+  See [`docs/wav2sleep.md`](../docs/wav2sleep.md).
 - Optional: Docker Compose for the container deployment.
 
 ## Quick start (without Docker)
@@ -113,6 +116,29 @@ recording decoder, shared metrics/quality and the built-in `baseline` stager.
 See [`docs/analysis-contract.md`](../docs/analysis-contract.md) for the plugin
 interface, canonical stages, result shape and a minimal third-party example.
 
+### Optional wav2sleep stager
+
+The ECG model is deliberately not installed by default:
+
+```bash
+cd backend/worker
+uv sync --frozen --extra wav2sleep
+cd ..
+uv run --project worker --frozen --extra wav2sleep \
+  python scripts/download_wav2sleep_checkpoint.py --dest /srv/taiga/models/wav2sleep
+export TAIGA_WAV2SLEEP_CHECKPOINT=/srv/taiga/models/wav2sleep
+```
+
+The checkpoint is pinned by revision and SHA-256 and is never downloaded during
+a job. When the extra and checkpoint are present the worker advertises
+`wav2sleep`; the app prefers it over the baseline when the recording has ECG.
+The adapter gates on Polar HR contact and ECG signal quality, so a detached
+strap becomes `unknown` instead of wake, and smooths stage probabilities to
+remove per-epoch flicker. Set `TAIGA_JOB_MEMORY_MB=2048` (the default 1024 is
+too low for PyTorch) and expect about 1.5 GB of extra disk. Full install,
+adapter, provenance and benchmark notes:
+[`docs/wav2sleep.md`](../docs/wav2sleep.md).
+
 ## Configuration
 
 ### PocketBase
@@ -149,8 +175,9 @@ Command-line flags take precedence over environment variables.
 | `TAIGA_WORKER_ID` | `--worker-id` | hostname-pid | Name recorded on a lease. |
 | `TAIGA_POLL_INTERVAL_S` | `--poll-interval` | `15` | Sleep when the queue is empty. |
 | `TAIGA_JOB_LEASE_S` | `--lease-seconds` | `1800` | Lease length; an expired lease is requeued. |
-| `TAIGA_JOB_MEMORY_MB` | `--memory-mb` | `1024` | Address-space limit for one job; `0` disables it. |
+| `TAIGA_JOB_MEMORY_MB` | `--memory-mb` | `1024` | Address-space limit for one job; `0` disables it. Use `2048` for wav2sleep. |
 | `TAIGA_JOB_TIMEOUT_S` | `--timeout` | `3600` | Wall-clock limit for one job. |
+| `TAIGA_WAV2SLEEP_CHECKPOINT` | - | unset | Local checkpoint directory for the optional wav2sleep extra. |
 | `TAIGA_LOG_LEVEL` | `--log-level` | `INFO` | Python log level. |
 | `TAIGA_ALGORITHMS` | `--algorithms` | unset | Comma-separated algorithm id allowlist. Unset means every installed stager. |
 
@@ -167,12 +194,15 @@ so installs are reproducible:
 ```bash
 cd backend/worker
 uv sync --frozen          # exact lockfile, including the interpreter
+uv sync --frozen --extra wav2sleep   # optional CPU torch + wav2sleep
 uv add <package>          # update pyproject.toml and uv.lock together
 uv run --frozen python -m taiga_worker
 ```
 
-Both the Docker image and CI use `uv sync --frozen`. Do not install packages
-with `pip` into the worker environment or edit `uv.lock` by hand.
+Both the Docker image and CI use `uv sync --frozen` without the extra, so they
+stay small. The extra pins PyTorch from the CPU-only index and `wav2sleep` at a
+specific git commit. Do not install packages with `pip` into the worker
+environment or edit `uv.lock` by hand.
 
 ## API
 
@@ -268,7 +298,7 @@ GET  /api/taiga/analyses/{id}                     one full result
 POST /api/taiga/jobs/{id}/retry                   requeue a failed analysis
 ```
 
-- `POST /analysis` takes `{ "models": [ { "model": "baseline", "version": "1.0.0", "params": {} } ] }`
+- `POST /analysis` takes `{ "models": [ { "model": "baseline", "version": "1.1.0", "params": {} } ] }`
   (up to 8). `version` is required; read it from `GET /algorithms`. A single
   `{model, version, params}` object is also accepted.
 - Requests are idempotent on `(session, model, version, params_hash)`. Asking

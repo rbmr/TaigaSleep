@@ -19,7 +19,7 @@ def test_full_result_is_json_serializable_and_model_agnostic(tmp_path: Path) -> 
     assert '"baseline"' in encoded
     assert payload["contract_version"] == CONTRACT_VERSION
     assert payload["model"] == "baseline"
-    assert payload["model_version"] == "1.0.0"
+    assert payload["model_version"] == "1.1.0"
     assert len(payload["params_hash"]) == 16
     assert payload["stages"]["epoch_seconds"] == 30
     assert payload["stages"]["count"] == 4
@@ -32,6 +32,8 @@ def test_full_result_is_json_serializable_and_model_agnostic(tmp_path: Path) -> 
     assert "capabilities" in payload
     assert "provenance" in payload
     assert payload["capabilities"]["stages"]
+    assert payload["provenance"]["algorithm"]["id"] == "baseline"
+    assert payload["provenance"]["algorithm"]["version"] == "1.1.0"
     assert payload["provenance"]["recording"]["session_id"] == "20261023_223000"
     assert payload["provenance"]["runtime_s"] >= 0
     assert payload["provenance"]["peak_rss_mb"] > 0
@@ -58,7 +60,7 @@ def test_params_hash_override_and_latest_version(tmp_path: Path) -> None:
     )
 
     assert output.params_hash == "api-hash"
-    assert output.model_version == "1.0.0"
+    assert output.model_version == "1.1.0"
 
 
 def test_invalid_params_fail_with_a_clear_code(tmp_path: Path) -> None:

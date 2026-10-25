@@ -6,12 +6,27 @@ import com.rbmr.taigasleep.remote.RemoteRepository
 import com.rbmr.taigasleep.remote.TaigaHttpException
 import com.rbmr.taigasleep.remote.TaigaUnauthorizedException
 import com.rbmr.taigasleep.remote.label
+import com.rbmr.taigasleep.storage.SessionConfig
+import com.rbmr.taigasleep.storage.SessionMeta
+import com.rbmr.taigasleep.storage.SessionStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** User-initiated recovery actions that need a live server call. */
 object UploadCoordinator {
+  private val HR_ONLY = SessionConfig(hr = true, ecg = false, acc = false)
+
+  /**
+   * Configuration of the local recording behind [key]. A remote-only recording has no local
+   * metadata, so the safe answer is an HR-only recording, which selects the built-in baseline.
+   */
+  private fun localConfig(context: Context, key: String): SessionConfig {
+    val localId = key.takeUnless { it.startsWith("remote-") } ?: return HR_ONLY
+    val meta = SessionMeta.read(SessionStore.of(context).dir(localId))
+    return meta?.config ?: HR_ONLY
+  }
+
   /**
    * Retry a failed analysis. Pending analyses only need a fresh poll; a failed job must be requeued
    * through the job route first.
@@ -65,8 +80,8 @@ object UploadCoordinator {
             targetAnalysis = retried.analysis?.id ?: targetAnalysis
             targetJob = retried.job.id.ifBlank { failedJob.id }
           } else if (targetAnalysis == null) {
-            val requested =
-                api.requestAnalysis(remoteId, UploadEngine.MODEL, UploadEngine.MODEL_VERSION)
+            val choice = selectInstalledStager(api, localConfig(context, key))
+            val requested = api.requestAnalysis(remoteId, choice.id, choice.version)
             targetAnalysis = requested.analyses.firstOrNull()?.id
             targetJob = requested.jobs.firstOrNull()?.id
           }

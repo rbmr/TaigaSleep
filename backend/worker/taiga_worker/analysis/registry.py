@@ -20,7 +20,10 @@ from typing import Any, Iterable, Mapping
 from .contract import AnalysisError, RegisteredAlgorithm, Stager
 
 ENTRY_POINT_GROUP = "taiga_sleep.stagers"
-BUILTIN_MODULES = ("taiga_worker.analysis.algorithms.baseline",)
+BUILTIN_MODULES = (
+    "taiga_worker.analysis.algorithms.baseline",
+    "taiga_worker.analysis.algorithms.wav2sleep",
+)
 
 
 @dataclass
@@ -101,12 +104,25 @@ def _coerce_stager(value: Any, source: str) -> Stager:
     )
 
 
-def _load_builtins() -> Iterable[tuple[str, Stager]]:
+def _load_builtins(registry: Registry) -> Iterable[tuple[str, Stager]]:
     for module_name in BUILTIN_MODULES:
-        module = importlib.import_module(module_name)
-        stager = getattr(module, "STAGER", None)
-        if stager is None:
-            raise ImportError(f"{module_name} does not export STAGER")
+        try:
+            module = importlib.import_module(module_name)
+            probe = getattr(module, "availability", None)
+            if probe is not None:
+                available, reason = probe()
+                if not available:
+                    # A missing optional extra is expected on a base worker and
+                    # stays silent; a configured-but-broken extra is reported.
+                    if reason:
+                        registry.errors.append(f"{module_name}: {reason}")
+                    continue
+            stager = getattr(module, "STAGER", None)
+            if stager is None:
+                raise ImportError(f"{module_name} does not export STAGER")
+        except Exception as exc:  # noqa: BLE001 - one bad builtin must not hide the rest
+            registry.errors.append(f"{module_name}: {exc}")
+            continue
         yield module_name, stager
 
 
@@ -135,7 +151,7 @@ def discover(allowlist: Iterable[str] | None = None) -> Registry:
             return
         registry.algorithms[key] = RegisteredAlgorithm(info=info, stager=stager, source=source)
 
-    for module_name, stager in _load_builtins():
+    for module_name, stager in _load_builtins(registry):
         try:
             add(_coerce_stager(stager, module_name), "builtin")
         except Exception as exc:  # noqa: BLE001 - one bad builtin must not hide the rest

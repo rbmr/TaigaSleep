@@ -252,6 +252,7 @@ def run_analysis(
     capabilities = {
         "stages": "stages" in info.capabilities,
         "confidence": confidence is not None,
+        "probabilities": result.probabilities is not None,
         "artifacts": result.artifacts is not None,
         "beats": result.beats_s is not None,
         "stage_scheme": info.stage_scheme,
@@ -261,8 +262,14 @@ def run_analysis(
     warnings = list(dict.fromkeys(
         list(recording.quality.warnings) + list(result.warnings)
     ))
+    algorithm_provenance = {
+        "id": info.id,
+        "version": info.version,
+        **{str(key): _jsonable(value) for key, value in result.provenance.items()},
+    }
     provenance = {
         "contract_version": CONTRACT_VERSION,
+        "algorithm": algorithm_provenance,
         "algorithm_source": registered.source,
         "license": info.license,
         "citation": info.citation,

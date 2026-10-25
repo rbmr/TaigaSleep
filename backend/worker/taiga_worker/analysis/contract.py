@@ -413,6 +413,10 @@ class StagingResult:
     beats_s: Sequence[float] | None = None
     warnings: Sequence[str] = ()
     extras: Mapping[str, Any] = field(default_factory=dict)
+    # Algorithm-specific provenance (checkpoint, model revision, ...). It is
+    # merged into the standard provenance under ``algorithm``; core keys such
+    # as licence and citation cannot be replaced.
+    provenance: Mapping[str, Any] = field(default_factory=dict)
 
 
 class Stager(ABC):

@@ -19,7 +19,7 @@ class StagerSelectionTest {
 
   @Test
   fun anEmptyAlgorithmListFallsBackToBaseline() {
-    assertEquals(StagerChoice("baseline", "1.0.0"), selectStager(fullConfig, emptyList()))
+    assertEquals(StagerChoice("baseline", "1.1.0"), selectStager(fullConfig, emptyList()))
   }
 
   @Test

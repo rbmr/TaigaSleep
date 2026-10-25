@@ -608,7 +608,7 @@ def test_07_worker_process_runs_a_job(api: Backend) -> None:
     _, requested = api.request(
         "POST",
         f"/api/taiga/sessions/{session_id}/analysis",
-        {"models": [{"model": "baseline", "version": "1.0.0", "params": {}}]},
+        {"models": [{"model": "baseline", "version": "1.1.0", "params": {}}]},
         token=api.token_a,
     )
     job = requested["jobs"][0]
@@ -654,7 +654,7 @@ def test_07_worker_process_runs_a_job(api: Backend) -> None:
     )
     assert analysis["status"] == "done"
     assert analysis["model"] == "baseline"
-    assert analysis["model_version"] == "1.0.0"
+    assert analysis["model_version"] == "1.1.0"
     assert analysis["stages"]["count"] > 0
     assert "metrics" in analysis
     assert "quality" in analysis
@@ -907,7 +907,29 @@ def test_14_algorithms_analysis_request_and_views(api: Backend) -> None:
             "default_params": {},
             "params_schema": {},
             "source": "builtin",
-        }
+        },
+        {
+            "id": "wav2sleep",
+            "version": "1.0.0",
+            "name": "wav2sleep ECG",
+            "description": "test",
+            "license": "MIT",
+            "citation": "Carter and Tarassenko, ML4H 2024",
+            "homepage": "https://github.com/joncarter1/wav2sleep",
+            "needs": [{"name": "ecg", "required": True, "min_rate_hz": 50.0}],
+            "epoch_seconds": 30,
+            "stage_scheme": "aasm4",
+            "supported_stages": ["wake", "rem", "light", "deep", "unknown"],
+            "capabilities": [
+                "stages",
+                "confidence",
+                "probabilities",
+                "artifacts",
+            ],
+            "default_params": {"max_length_hours": 10},
+            "params_schema": {},
+            "source": "builtin",
+        },
     ]
     api.request(
         "POST",
@@ -921,6 +943,12 @@ def test_14_algorithms_analysis_request_and_views(api: Backend) -> None:
     assert baseline["version"] == "1.0.0"
     assert baseline["worker_count"] == 1
     assert "supported_stages" in baseline
+    wav2sleep = next(
+        item for item in listing["algorithms"] if item["id"] == "wav2sleep"
+    )
+    assert wav2sleep["license"] == "MIT"
+    assert wav2sleep["needs"][0]["name"] == "ecg"
+    assert "probabilities" in wav2sleep["capabilities"]
 
     session_id = api.create_uploaded_session("20261025_140000")
     api.request(
