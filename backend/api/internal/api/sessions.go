@@ -259,9 +259,9 @@ func RetryJob(e *core.RequestEvent) error {
 		view := serializeAnalysis(analysis)
 		analysisView = &view
 	}
-	return e.JSON(http.StatusOK, map[string]any{
-		"job":      serializeJob(resultJob),
-		"analysis": analysisView,
+	return e.JSON(http.StatusOK, RetryJobResponse{
+		Job:      serializeJob(resultJob),
+		Analysis: analysisView,
 	})
 }
 

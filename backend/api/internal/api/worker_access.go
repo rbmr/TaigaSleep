@@ -54,10 +54,10 @@ func WorkerManifest(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
-	return e.JSON(http.StatusOK, map[string]any{
-		"job":    jobID,
-		"worker": worker,
-		"upload": m,
+	return e.JSON(http.StatusOK, WorkerManifestResponse{
+		Job:    jobID,
+		Worker: worker,
+		Upload: m,
 	})
 }
 

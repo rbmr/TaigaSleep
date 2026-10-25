@@ -46,14 +46,14 @@ type AnalysisResultWire struct {
 type AnalysisModel struct {
 	Model   string          `json:"model"`
 	Version string          `json:"version"`
-	Params  json.RawMessage `json:"params"`
+	Params  json.RawMessage `json:"params,omitempty"`
 }
 
 type AnalysisRequest struct {
-	Models  []AnalysisModel `json:"models"`
-	Model   string          `json:"model"`
-	Version string          `json:"version"`
-	Params  json.RawMessage `json:"params"`
+	Models  []AnalysisModel `json:"models,omitempty"`
+	Model   string          `json:"model,omitempty"`
+	Version string          `json:"version,omitempty"`
+	Params  json.RawMessage `json:"params,omitempty"`
 }
 
 type AnalysisView struct {

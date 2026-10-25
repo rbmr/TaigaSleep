@@ -20,7 +20,8 @@ type metaRequest struct {
 	Meta json.RawMessage `json:"meta"`
 }
 
-type appendResult struct {
+// AppendResult reports the state of one appended chunk.
+type AppendResult struct {
 	File            string `json:"file"`
 	Offset          int64  `json:"offset"`
 	Written         int    `json:"written"`
@@ -124,7 +125,7 @@ func CreateSession(e *core.RequestEvent) error {
 	if created {
 		status = http.StatusCreated
 	}
-	return e.JSON(status, map[string]any{"session": serializeSession(record), "upload": m})
+	return e.JSON(status, SessionUploadResponse{Session: serializeSession(record), Upload: m})
 }
 
 func GetUpload(e *core.RequestEvent) error {
@@ -139,7 +140,7 @@ func GetUpload(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
-	return e.JSON(http.StatusOK, map[string]any{"session": serializeSession(record), "upload": m})
+	return e.JSON(http.StatusOK, SessionUploadResponse{Session: serializeSession(record), Upload: m})
 }
 
 func PutMeta(e *core.RequestEvent) error {
@@ -197,7 +198,7 @@ func PutMeta(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
-	return e.JSON(http.StatusOK, map[string]any{"session": serializeSession(record), "upload": m})
+	return e.JSON(http.StatusOK, SessionUploadResponse{Session: serializeSession(record), Upload: m})
 }
 
 func PutFile(e *core.RequestEvent) error {
@@ -224,7 +225,7 @@ func PutFile(e *core.RequestEvent) error {
 	}
 
 	sessionID := e.Request.PathValue("id")
-	var result appendResult
+	var result AppendResult
 	err = e.App.RunInTransaction(func(txApp core.App) error {
 		record, err := findSessionForUser(txApp, sessionID, e.Auth)
 		if err != nil {
@@ -291,7 +292,7 @@ func PutFile(e *core.RequestEvent) error {
 		if err := txApp.Save(record); err != nil {
 			return err
 		}
-		result = appendResult{
+		result = AppendResult{
 			File:            name,
 			Offset:          offset,
 			Written:         len(data),
@@ -416,7 +417,7 @@ func CompleteUpload(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
-	return e.JSON(http.StatusOK, map[string]any{"session": serializeSession(record), "upload": m})
+	return e.JSON(http.StatusOK, SessionUploadResponse{Session: serializeSession(record), Upload: m})
 }
 
 func finalizeLog(path string, stream byte, entry *UploadFile) error {
