@@ -27,8 +27,6 @@ from tests import recording_fixture as fx
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_DIR.parent
 WORKER_DIR = BACKEND_DIR / "worker"
-MIGRATIONS_DIR = BACKEND_DIR / "pocketbase" / "pb_migrations"
-HOOKS_DIR = BACKEND_DIR / "pocketbase" / "pb_hooks"
 
 ADMIN_EMAIL = "admin@example.com"
 ADMIN_PASSWORD = "admin-password-123"
@@ -46,7 +44,7 @@ def free_port() -> int:
 
 
 class Backend:
-    """A running PocketBase server and the records the tests share."""
+    """A running API server and the records the tests share."""
 
     def __init__(self, binary: str) -> None:
         self.binary = binary
@@ -88,13 +86,7 @@ class Backend:
                 self.base_url.replace("http://", ""),
                 "--dir",
                 str(data_dir),
-                "--migrationsDir",
-                str(MIGRATIONS_DIR),
-                "--hooksDir",
-                str(HOOKS_DIR),
                 "--automigrate=false",
-                "--hooksWatch=false",
-                "--hooksPool=1",
             ],
             stdout=self.log_handle,
             stderr=subprocess.STDOUT,
@@ -391,7 +383,7 @@ class Backend:
 def api() -> Iterator[Backend]:
     binary = os.environ.get("POCKETBASE_BIN") or shutil.which("pocketbase")
     if not binary:
-        pytest.skip("pocketbase binary not found; set POCKETBASE_BIN or add pocketbase to PATH")
+        pytest.skip("API binary not found; set POCKETBASE_BIN to the built Go binary")
 
     backend = Backend(binary)
     try:
