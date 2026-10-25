@@ -1,5 +1,7 @@
 # Contributing
 
+- Read [`docs/vision.md`](docs/vision.md) first. Changes should fit what the
+  project is for.
 - `main` is protected. After the initial commit, open a pull request from a
   feature branch; do not push directly to `main`.
 - Use [Conventional Commits](https://www.conventionalcommits.org/):
