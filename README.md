@@ -33,6 +33,17 @@ The app works offline. The backend is only needed for uploading recordings and
 viewing processed results. A night can be recorded, exported and kept entirely
 on the phone.
 
+## Preventing shutdown
+
+A recording streamed over Bluetooth keeps the phone busy for hours, and phones
+stop background apps to save battery. While that is the case, Home always shows
+one **Ready for tonight** card: it opens a short guide that sets the phone up
+once, and it says whether those settings are already in place. The same guide is
+always reachable from **Settings → Preventing shutdown**. The card is not
+permanent by design. A tracker that stores the night on itself and hands it over
+in the morning does not need the phone to stay awake, and the app will say so
+instead of asking for settings.
+
 ## Uploads and results
 
 History lists every local recording and, when connected, remote recordings whose

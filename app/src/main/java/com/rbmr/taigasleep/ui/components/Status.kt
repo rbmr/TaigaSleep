@@ -2,6 +2,8 @@ package com.rbmr.taigasleep.ui.components
 
 import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -63,7 +65,9 @@ private fun StatusKind.container(colors: TaigaColors) =
 /**
  * A message about the state of the phone or the sensor. The ok banner is quiet and one color; warn
  * and bad ones have a border, plain text and optional [actions] (buttons that take `weight(1f)`).
+ * With an [onClick] the whole banner becomes one button, which is how Home opens the flow.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun StatusBanner(
     kind: StatusKind,
@@ -72,6 +76,8 @@ fun StatusBanner(
     body: String? = null,
     details: List<String> = emptyList(),
     actions: (@Composable RowScope.() -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
   val colors = MaterialTheme.taiga
   val ink = MaterialTheme.colorScheme.onSurface
@@ -83,8 +89,19 @@ fun StatusBanner(
         StatusKind.Warn -> BorderStroke(1.dp, colors.warnBorder)
         StatusKind.Bad -> BorderStroke(1.dp, colors.badBorder)
       }
+  val clickable =
+      if (onClick != null) {
+        Modifier.combinedClickable(
+            role = Role.Button,
+            onClickLabel = title,
+            onClick = onClick,
+            onLongClick = onLongClick,
+        )
+      } else {
+        Modifier
+      }
   Surface(
-      modifier = modifier.fillMaxWidth(),
+      modifier = modifier.fillMaxWidth().then(clickable),
       shape = RoundedCornerShape(22.dp),
       color = kind.container(colors),
       border = border,

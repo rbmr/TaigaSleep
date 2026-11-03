@@ -56,14 +56,18 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.debug.DebugTools
+import com.rbmr.taigasleep.debug.GuidancePreviewPicker
+import com.rbmr.taigasleep.guidance.GuidanceFlows
+import com.rbmr.taigasleep.guidance.HomeState
+import com.rbmr.taigasleep.guidance.ReadinessState
 import com.rbmr.taigasleep.recording.Phase
-import com.rbmr.taigasleep.recording.ReadinessGate
 import com.rbmr.taigasleep.recording.RecordingFormat
 import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.RecordingService
-import com.rbmr.taigasleep.recording.Readiness
 import com.rbmr.taigasleep.recording.RecordingState
 import com.rbmr.taigasleep.recording.RecordingStatus
 import com.rbmr.taigasleep.sensor.ConnectionState
@@ -81,7 +85,6 @@ import com.rbmr.taigasleep.ui.components.StatusBanner
 import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaLogo
 import com.rbmr.taigasleep.ui.components.TaigaCard
-import com.rbmr.taigasleep.ui.theme.taiga
 
 private val bluetoothPermissions =
     arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
@@ -98,15 +101,20 @@ private enum class StopAction {
 }
 
 @Composable
-fun HomeScreen() {
+fun HomeScreen(onGuidanceClick: () -> Unit) {
   val context = LocalContext.current
   val status by RecordingRepository.status.collectAsStateWithLifecycle()
   val sensor by SensorHub.sensor.collectAsStateWithLifecycle()
   val prefs = remember { RecordingPrefs.get(context) }
+  val guidanceStore = remember { GuidanceStore(context) }
 
-  var readiness by remember { mutableStateOf(ReadinessGate.check(context)) }
+  // The debug-only preview of another OS, honoured by the card exactly as the flow honours it.
+  fun stateNow() =
+      ReadinessState.state(context, guidanceStore, GuidanceFlows.previewOf(guidanceStore))
+  var tonight by remember { mutableStateOf(stateNow()) }
   var showScan by remember { mutableStateOf(false) }
   var showData by remember { mutableStateOf(false) }
+  var showPreviewPicker by remember { mutableStateOf(false) }
   var confirm by remember { mutableStateOf<StopAction?>(null) }
   var denied by remember { mutableStateOf(false) }
 
@@ -115,10 +123,8 @@ fun HomeScreen() {
     RecordingRepository.reconcile(context)
     SensorHub.restoreLast(context, canConnect = hasBluetooth(context))
   }
-  // The user may have changed the battery settings in the system UI.
-  LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-    readiness = ReadinessGate.check(context)
-  }
+  // The user may have changed the battery settings in the system UI or in the flow.
+  LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tonight = stateNow() }
 
   val scanPermissions =
       rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -153,7 +159,7 @@ fun HomeScreen() {
       InactiveHome(
           sensor = sensor,
           denied = denied,
-          readiness = readiness,
+          tonight = tonight,
           error = status.error,
           onSelectSensor = {
             if (hasBluetooth(context)) showScan = true
@@ -164,8 +170,9 @@ fun HomeScreen() {
             prefs.lastSensor = null
           },
           onDataSettings = { showData = true },
-          onFixBattery = { context.startActivity(ReadinessGate.batteryOptimizationIntent(context)) },
-          onFixSettings = { context.startActivity(ReadinessGate.appSettingsIntent(context)) },
+          onReadiness = onGuidanceClick,
+          onReadinessLongClick =
+              if (DebugTools.GUIDANCE_PREVIEW) ({ showPreviewPicker = true }) else null,
           onStart = {
             val needsNotification =
                 Build.VERSION.SDK_INT >= 33 &&
@@ -192,6 +199,15 @@ fun HomeScreen() {
 
   if (showScan) ScanSheet(onDismiss = { showScan = false })
   if (showData) sensor?.let { DataDialog(it, prefs, onDismiss = { showData = false }) }
+  if (showPreviewPicker) {
+    GuidancePreviewPicker(
+        store = guidanceStore,
+        onDismiss = {
+          showPreviewPicker = false
+          tonight = stateNow()
+        },
+    )
+  }
   confirm?.let { action ->
     ConfirmDialog(
         action = action,
@@ -216,17 +232,17 @@ fun HomeScreen() {
 private fun InactiveHome(
     sensor: SleepSensor?,
     denied: Boolean,
-    readiness: Readiness,
+    tonight: HomeState,
     error: String?,
     onSelectSensor: () -> Unit,
     onDisconnect: () -> Unit,
     onDataSettings: () -> Unit,
-    onFixBattery: () -> Unit,
-    onFixSettings: () -> Unit,
+    onReadiness: () -> Unit,
+    onReadinessLongClick: (() -> Unit)?,
     onStart: () -> Unit,
 ) {
   val connected = sensor?.connection?.collectAsStateWithLifecycle()?.value
-  val canStart = connected == ConnectionState.CONNECTED && readiness.ok
+  val canStart = connected == ConnectionState.CONNECTED && tonight == HomeState.READY
   LazyColumn(
       modifier = Modifier.fillMaxSize().statusBarsPadding(),
       contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
@@ -239,7 +255,12 @@ private fun InactiveHome(
           subtitle = stringResource(R.string.rec_home_subtitle_idle),
       )
     }
-    item { HomeLogo(if (readiness.ok) LogoVariant.Sleeping else LogoVariant.Awake, glow = false) }
+    item {
+      HomeLogo(
+          if (tonight == HomeState.READY) LogoVariant.Sleeping else LogoVariant.Awake,
+          glow = false,
+      )
+    }
     item {
       SensorCard(
           sensor = sensor,
@@ -249,7 +270,9 @@ private fun InactiveHome(
           onDataSettings = onDataSettings,
       )
     }
-    item { ReadinessCard(readiness = readiness, onBattery = onFixBattery, onSettings = onFixSettings) }
+    item {
+      ReadinessCard(tonight = tonight, onClick = onReadiness, onLongClick = onReadinessLongClick)
+    }
     item {
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         error?.let {
@@ -548,47 +571,20 @@ private fun ToggleRow(label: String, checked: Boolean, enabled: Boolean = true, 
   }
 }
 
+/**
+ * The one place Home surfaces preventing shutdown: a single button in two states, always opening
+ * the flow, which owns the instructions and the fixes. The detailed per-setting list and the
+ * system intents used to live here as well; the flow now owns both.
+ */
 @Composable
-private fun ReadinessCard(
-    readiness: Readiness,
-    onBattery: () -> Unit,
-    onSettings: () -> Unit,
-) {
-  if (readiness.ok) {
-    StatusBanner(
-        kind = StatusKind.Ok,
-        title = stringResource(R.string.rec_ready_title),
-        body = stringResource(R.string.rec_ready_body),
-    )
-    return
-  }
-  val problems = buildList {
-    if (!readiness.ignoringBatteryOptimizations) add(R.string.rec_blocked_battery)
-    if (!readiness.bucketExempted) add(R.string.rec_blocked_bucket)
-    if (readiness.backgroundRestricted) add(R.string.rec_blocked_restricted)
-  }
+private fun ReadinessCard(tonight: HomeState, onClick: () -> Unit, onLongClick: (() -> Unit)?) {
+  val ready = tonight == HomeState.READY
   StatusBanner(
-      kind = StatusKind.Warn,
-      title = stringResource(R.string.rec_blocked_title),
-      body = stringResource(R.string.rec_blocked_body),
-      details = problems.map { stringResource(it) },
-      actions = {
-        if (!readiness.ignoringBatteryOptimizations) {
-          PrimaryButton(
-              text = stringResource(R.string.rec_fix_battery),
-              onClick = onBattery,
-              modifier = Modifier.weight(1f),
-              containerColor = MaterialTheme.taiga.warn,
-              contentColor = MaterialTheme.taiga.onWarn,
-          )
-        }
-        SecondaryButton(
-            text = stringResource(R.string.rec_fix_settings),
-            onClick = onSettings,
-            modifier = Modifier.weight(1f),
-            borderColor = MaterialTheme.taiga.warnBorder,
-        )
-      },
+      kind = if (ready) StatusKind.Ok else StatusKind.Warn,
+      title = stringResource(if (ready) R.string.rec_ready_title else R.string.rec_not_ready_title),
+      body = stringResource(if (ready) R.string.rec_ready_body else R.string.rec_not_ready_body),
+      onClick = onClick,
+      onLongClick = onLongClick,
   )
 }
 

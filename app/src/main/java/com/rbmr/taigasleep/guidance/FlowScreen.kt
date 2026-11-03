@@ -95,11 +95,8 @@ fun FlowScreen(
     resumes++
     onPauseOrDispose {}
   }
-  val checks =
-      remember(resumes, flow.id) {
-        steps.mapNotNull { s -> s.check?.let { s.id to it(context) } }.toMap()
-      }
-  val isOk: (Step) -> Boolean = { Progress.isOk(checks[it.id], manual[it.id] == true) }
+  val readiness = remember(resumes) { Readiness.read(context) }
+  val isOk: (Step) -> Boolean = { Progress.isOk(readiness, { manual[it.id] == true }, it) }
 
   BackHandler { if (page > 0) page-- else onClose() }
 
@@ -301,17 +298,19 @@ private fun StepPage(step: Step, ok: Boolean, onToggle: (Boolean) -> Unit) {
       style = MaterialTheme.typography.bodyLarge,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
   )
-  TaigaCard {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-      step.guideRes.forEach { res ->
-        Row {
-          Text(
-              text = "•",
-              style = MaterialTheme.typography.titleMedium,
-              color = MaterialTheme.colorScheme.primary,
-              modifier = Modifier.width(20.dp),
-          )
-          Text(text = stringResource(res), style = MaterialTheme.typography.bodyLarge)
+  if (step.guideRes.isNotEmpty()) {
+    TaigaCard {
+      Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        step.guideRes.forEach { res ->
+          Row {
+            Text(
+                text = "•",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.width(20.dp),
+            )
+            Text(text = stringResource(res), style = MaterialTheme.typography.bodyLarge)
+          }
         }
       }
     }

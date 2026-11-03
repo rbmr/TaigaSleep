@@ -1,6 +1,8 @@
 package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.diagnostics.Diagnostics
+import com.rbmr.taigasleep.guidance.Readiness
+import com.rbmr.taigasleep.guidance.ReadinessState
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -15,6 +17,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import com.rbmr.taigasleep.BuildConfig
+import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.sensor.ConnectionState
 import com.rbmr.taigasleep.sensor.SensorHub
@@ -53,6 +56,7 @@ class RecordingService : Service() {
 
   private lateinit var store: SessionStore
   private lateinit var prefs: RecordingPrefs
+  private lateinit var guidance: GuidanceStore
 
   private class Live(
       val writer: SessionWriter,
@@ -69,6 +73,7 @@ class RecordingService : Service() {
     super.onCreate()
     store = SessionStore.of(this)
     prefs = RecordingPrefs.get(this)
+    guidance = GuidanceStore(this)
     getSystemService(NotificationManager::class.java)
         .createNotificationChannel(
             NotificationChannel(
@@ -119,9 +124,9 @@ class RecordingService : Service() {
 
   private suspend fun start(intent: Intent) {
     if (live != null) return
-    val readiness = ReadinessGate.check(this)
-    if (!readiness.ok) {
-      Log.w(TAG, "start refused: ${readiness.summary()}")
+    // The same answer Home shows, from the flow the user picked. No separate copy here.
+    if (!ReadinessState.ready(this, guidance, preview = null)) {
+      Log.w(TAG, "start refused: ${Readiness.read(this).summary()}")
       leave(getString(R.string.rec_error_not_ready))
       return
     }
@@ -172,7 +177,7 @@ class RecordingService : Service() {
           leave(getString(R.string.rec_error_storage))
           return
         }
-    writer.event("readiness", readiness.summary())
+    writer.event("readiness", Readiness.read(this).summary())
     attach(writer, sensor)
   }
 
@@ -194,7 +199,7 @@ class RecordingService : Service() {
       leave(null)
       return
     }
-    writer.event("readiness", ReadinessGate.check(this).summary())
+    writer.event("readiness", Readiness.read(this).summary())
     val sensor =
         try {
           SensorHub.obtain(this, kind, meta.sensorId, meta.sensorName)
@@ -353,7 +358,7 @@ class RecordingService : Service() {
   private suspend fun tickLoop(s: Live) {
     var lastHeartbeat = 0L
     var lastReadinessCheck = 0L
-    var readiness = ReadinessGate.check(this)
+    var readiness = Readiness.read(this)
     while (true) {
       val nowMs = SystemClock.elapsedRealtime()
       val nowNs = SystemClockSource.elapsedNs()
@@ -369,7 +374,7 @@ class RecordingService : Service() {
       }
       if (nowMs - lastReadinessCheck >= READINESS_MS) {
         lastReadinessCheck = nowMs
-        val now = ReadinessGate.check(this)
+        val now = Readiness.read(this)
         if (now != readiness) s.writer.event("readiness", now.summary())
         readiness = now
       }

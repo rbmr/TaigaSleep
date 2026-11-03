@@ -60,7 +60,12 @@ class FlowsTest {
     GuidanceFlows.all.forEach { flow ->
       val ids = flow.steps.map { it.id }
       assertEquals(flow.id, ids.distinct(), ids)
-      flow.steps.forEach { assertTrue("${flow.id}/${it.id}", it.guideRes.size in 1..4) }
+      flow.steps.forEach { step ->
+        val size = step.guideRes.size
+        // A required step's helper is the whole instruction; the rest keep a short bullet list.
+        if (step.kind == StepKind.REQUIRED) assertTrue("${flow.id}/${step.id}", size == 0)
+        else assertTrue("${flow.id}/${step.id}", size in 1..4)
+      }
     }
   }
 
@@ -89,16 +94,21 @@ class FlowsTest {
   }
 
   @Test
-  fun helpersMatchTheSteps() {
-    assertEquals(
-        GuidanceAction.REQUEST_EXEMPTION,
-        GenericFlow.steps.first { it.id == "exemption" }.helper?.action,
-    )
-    assertEquals(
-        GuidanceAction.APP_DETAILS,
-        OnePlusFlow.steps.first { it.id == "background" }.helper?.action,
-    )
-    assertNull(OnePlusFlow.steps.first { it.id == "sleep_standby" }.helper)
+  fun everyRequiredStepOffersTheExemptionPopup() {
+    GuidanceFlows.all.forEach { flow ->
+      flow.steps.filter { it.kind == StepKind.REQUIRED }.forEach { step ->
+        assertEquals("${flow.id}/${step.id}", GuidanceAction.REQUEST_EXEMPTION, step.helper?.action)
+      }
+    }
+  }
+
+  @Test
+  fun onlyRequiredStepsOfferAHelper() {
+    GuidanceFlows.all.forEach { flow ->
+      flow.steps.filter { it.kind == StepKind.RECOMMENDED }.forEach { step ->
+        assertNull("${flow.id}/${step.id}", step.helper)
+      }
+    }
   }
 
   @Test
