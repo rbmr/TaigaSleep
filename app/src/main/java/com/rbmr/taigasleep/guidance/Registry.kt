@@ -1,8 +1,8 @@
 package com.rbmr.taigasleep.guidance
 
 import android.os.Build
-import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.GuidanceStore
+import com.rbmr.taigasleep.debug.DebugTools
 
 // Debug-only way to preview another brand's guidance on any phone or emulator.
 enum class PreviewDevice(
@@ -69,7 +69,7 @@ object GuidanceFlows {
 
   // The debug-only preview override is ignored in release builds.
   fun previewOf(store: GuidanceStore): PreviewDevice? =
-      if (BuildConfig.DEBUG) store.previewDevice else null
+      if (DebugTools.GUIDANCE_PREVIEW) store.previewDevice else null
 
   // The flow for the preview device if there is one, else for this phone.
   fun currentMatch(preview: PreviewDevice?): DeviceMatch =

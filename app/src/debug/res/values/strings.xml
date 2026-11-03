@@ -1,0 +1,6 @@
+<resources>
+  <!-- Debug builds install next to the release app, so the launcher label tells them apart. -->
+  <string name="app_name">Taiga Debug</string>
+  <string name="g_preview_title">Preview device guidance</string>
+  <string name="g_preview_real">This phone (real)</string>
+</resources>

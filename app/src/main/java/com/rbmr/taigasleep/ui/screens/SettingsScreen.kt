@@ -29,12 +29,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.ThemeMode
+import com.rbmr.taigasleep.debug.DebugTools
+import com.rbmr.taigasleep.debug.GuidancePreviewPicker
 import com.rbmr.taigasleep.guidance.GuidanceFlows
-import com.rbmr.taigasleep.guidance.PreviewDevice
 import com.rbmr.taigasleep.guidance.Progress
 import com.rbmr.taigasleep.remote.RemoteRepository
 import com.rbmr.taigasleep.remote.RemoteStatus
@@ -178,7 +178,7 @@ fun SettingsScreen(
             subtitleColor = if (ready) MaterialTheme.taiga.ok else MaterialTheme.taiga.warn,
             onClick = onGuidanceClick,
             // Debug builds only: pick which device's guidance to preview.
-            onLongClick = if (BuildConfig.DEBUG) ({ showPreviewPicker = true }) else null,
+            onLongClick = if (DebugTools.GUIDANCE_PREVIEW) ({ showPreviewPicker = true }) else null,
         )
         SettingsDivider()
         SettingsRow(
@@ -244,7 +244,7 @@ fun SettingsScreen(
   }
 
   if (showPreviewPicker) {
-    PreviewPicker(
+    GuidancePreviewPicker(
         store = guidanceStore,
         onDismiss = {
           showPreviewPicker = false
@@ -252,37 +252,4 @@ fun SettingsScreen(
         },
     )
   }
-}
-
-@Composable
-private fun PreviewPicker(store: GuidanceStore, onDismiss: () -> Unit) {
-  var selected by remember { mutableStateOf(store.previewDevice) }
-  AlertDialog(
-      onDismissRequest = onDismiss,
-      title = { Text(stringResource(R.string.g_preview_title)) },
-      text = {
-        Column {
-          (listOf<PreviewDevice?>(null) + PreviewDevice.entries).forEach { device ->
-            Row(
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .clickable {
-                          store.previewDevice = device
-                          selected = device
-                          onDismiss()
-                        }
-                        .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-              RadioButton(selected = selected == device, onClick = null)
-              Spacer(Modifier.width(12.dp))
-              Text(device?.label ?: stringResource(R.string.g_preview_real))
-            }
-          }
-        }
-      },
-      confirmButton = {
-        TextButton(onClick = onDismiss) { Text(stringResource(R.string.appearance_done)) }
-      },
-  )
 }

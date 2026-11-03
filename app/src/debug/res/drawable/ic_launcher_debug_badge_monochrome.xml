@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon twin of the debug badge: an outline, since the system tint has no second colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+  <path
+      android:pathData="M64.25 35a7.75 7.75 0 1 0 15.5 0a7.75 7.75 0 1 0 -15.5 0Z"
+      android:strokeColor="#FF000000"
+      android:strokeWidth="1.5" />
+  <path
+      android:pathData="M68.85 32.3L66.15 35L68.85 37.7M75.15 32.3L77.85 35L75.15 37.7M73.08 31.58L70.92 38.42"
+      android:strokeColor="#FF000000"
+      android:strokeLineCap="round"
+      android:strokeLineJoin="round"
+      android:strokeWidth="1.45" />
+</vector>
