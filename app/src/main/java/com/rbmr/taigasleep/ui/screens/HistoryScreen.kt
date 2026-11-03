@@ -55,6 +55,7 @@ import com.rbmr.taigasleep.ui.components.StageBar
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.components.TertiaryButton
 import com.rbmr.taigasleep.upload.PendingDeleteStore
+import com.rbmr.taigasleep.upload.RawRetention
 import com.rbmr.taigasleep.upload.RecordingDeleter
 import com.rbmr.taigasleep.upload.RemoteHistoryCache
 import com.rbmr.taigasleep.upload.UploadCoordinator
@@ -91,6 +92,7 @@ fun HistoryScreen(
     RecordingRepository.refreshSessions(context)
     UploadScheduler.resumePendingDeletes(context)
     UploadScheduler.reconcile(context)
+    RawRetention.enforce(context)
   }
   LifecycleResumeEffect(Unit) {
     RecordingRepository.refreshSessions(context)
@@ -451,7 +453,7 @@ private fun NightRow(
     ) {
       DropdownMenuItem(
           text = { Text(stringResource(R.string.night_export)) },
-          enabled = item.localId != null,
+          enabled = item.local?.hasRaw == true,
           onClick = {
             actionsOpen = false
             onExport()

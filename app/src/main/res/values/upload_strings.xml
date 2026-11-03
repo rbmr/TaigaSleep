@@ -6,8 +6,13 @@
   <string name="settings_auto_upload_charging">Only while charging</string>
   <string name="settings_upload_compress_title">Compress uploads</string>
   <string name="settings_upload_compress_body">Send less data over the network. The recording on this phone stays uncompressed.</string>
-  <string name="settings_upload_retention_title">Local recordings</string>
-  <string name="settings_upload_retention_body">Kept on this phone after upload. Automatic raw cleanup is not enabled yet.</string>
+  <string name="settings_raw_retention_title">Raw recordings</string>
+  <string name="settings_raw_retention_body">Raw streams are removed from this phone only after the server confirms the upload. The metadata, the analysis and the server copy stay, so the night remains in History and the raw data can be downloaded again.</string>
+  <string name="raw_retention_never">Keep raw data on this phone</string>
+  <string name="raw_retention_immediate">Delete raw data straight after upload</string>
+  <string name="raw_retention_days_5">Delete raw data after 5 days</string>
+  <string name="raw_retention_days_14">Delete raw data after 14 days</string>
+  <string name="raw_retention_days_30">Delete raw data after 30 days</string>
 
   <string name="upload_notification_channel">Uploads</string>
   <string name="upload_notification_title">Uploading recording</string>
@@ -51,6 +56,16 @@
   <string name="night_delete_body">This removes the local recording and its analysis, and deletes the server copy. If the server is offline, the remote deletion is retried later.</string>
   <string name="night_delete_confirm">Delete</string>
   <string name="night_cancel">Cancel</string>
+  <string name="night_raw_download">Download raw data</string>
+  <string name="night_raw_downloading">Downloading raw data…</string>
+  <string name="night_raw_delete">Delete raw data from this phone</string>
+  <string name="night_raw_delete_title">Delete the raw data from this phone?</string>
+  <string name="night_raw_delete_body">Only the raw streams on this phone are removed. The metadata, the analysis and the server copy stay, so this night remains in History and the raw data can be downloaded again later.</string>
+  <string name="night_raw_delete_confirm">Delete raw data</string>
+  <string name="night_raw_gone">Raw data is on the server only. Download it again to export or inspect it.</string>
+  <string name="night_raw_not_uploaded">Upload the recording before deleting its raw data.</string>
+  <string name="night_raw_restore_failed">Could not download the raw data.</string>
+  <string name="night_raw_delete_failed">Could not delete the raw data.</string>
   <string name="night_kicker">NIGHT</string>
   <string name="night_sleep_score">Sleep score</string>
   <string name="night_sleep_score_none">No sleep score</string>

@@ -248,6 +248,9 @@ class UploadEngineTest {
     override suspend fun getSession(sessionId: String): SessionDetailDto =
         throw UnsupportedOperationException()
 
+    override suspend fun downloadSessionFile(sessionId: String, file: String, target: File) =
+        throw UnsupportedOperationException()
+
     override suspend fun listSessions(perPage: Int): SessionListDto =
         throw UnsupportedOperationException()
 

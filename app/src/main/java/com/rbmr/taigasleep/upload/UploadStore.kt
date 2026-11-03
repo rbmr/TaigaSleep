@@ -59,6 +59,16 @@ data class UploadRecord(
     val modelVersion: String? = null,
     /** True only when the full analysis payload is in the local result cache. */
     val resultDownloaded: Boolean = false,
+    /**
+     * When the server last confirmed that the upload is complete. Raw cleanup counts from here.
+     * Null for a night that was never uploaded or whose state predates this field.
+     */
+    val uploadedAtMs: Long? = null,
+    /**
+     * The user downloaded this night's raw files again, or chose to keep them. Automatic cleanup
+     * leaves it alone until the user deletes the raw files explicitly.
+     */
+    val keepRawOnPhone: Boolean = false,
 ) {
   val isPending: Boolean
     get() =
@@ -105,14 +115,18 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
   }
 
   fun markUploading(id: String, progress: Float) {
+    val value = progress.coerceIn(0f, 1f)
+    val observedAt = now()
+    val confirmedAt = if (value >= 1f) observedAt else null
     update(id) {
       it.copy(
           phase = UploadPhase.UPLOADING,
-          progress = progress.coerceIn(0f, 1f),
+          progress = value,
           failure = null,
           errorDetail = null,
           warning = null,
-          updatedAtMs = now(),
+          updatedAtMs = observedAt,
+          uploadedAtMs = it.uploadedAtMs ?: confirmedAt,
       )
     }
   }
@@ -124,6 +138,7 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
       jobId: String?,
       warning: String? = null,
   ) {
+    val confirmedAt = now()
     update(id) {
       it.copy(
           phase = UploadPhase.PROCESSING,
@@ -134,7 +149,8 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
           failure = null,
           errorDetail = null,
           warning = warning,
-          updatedAtMs = now(),
+          updatedAtMs = confirmedAt,
+          uploadedAtMs = it.uploadedAtMs ?: confirmedAt,
       )
     }
   }
@@ -151,6 +167,7 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
       sleepScore: Double?,
       resultDownloaded: Boolean,
   ) {
+    val doneAt = now()
     update(id) {
       it.copy(
           phase = UploadPhase.DONE,
@@ -161,13 +178,14 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
           failure = null,
           errorDetail = null,
           warning = null,
-          updatedAtMs = now(),
+          updatedAtMs = doneAt,
           model = model,
           modelVersion = modelVersion,
           epochSeconds = epochSeconds,
           segments = segments,
           sleepScore = sleepScore,
           resultDownloaded = resultDownloaded,
+          uploadedAtMs = it.uploadedAtMs ?: doneAt,
       )
     }
   }
@@ -207,6 +225,12 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
           updatedAtMs = now(),
       )
     }
+  }
+
+  /** The user downloaded this night's raw files again; keep them out of automatic cleanup. */
+  fun markKeepRaw(id: String) {
+    if (_records.value[id] == null) return
+    update(id) { it.copy(keepRawOnPhone = true) }
   }
 
   fun clear(id: String) {

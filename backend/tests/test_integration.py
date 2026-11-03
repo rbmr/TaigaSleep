@@ -1486,3 +1486,55 @@ def test_21_worker_reports_a_corrupt_tail_of_a_compressed_stream(
     )
     assert job_payload["status"] == "failed"
     assert "truncated gzip member" in job_payload["error"]
+
+
+def test_19_owner_can_download_raw_files(api: Backend) -> None:
+    files = fx.recording("20261103_230000", hr_frames=20, include_ecg=False, include_acc=False)
+    plain_id, _ = api.create_upload_session("20261103_230000")
+    api.upload_recording(plain_id, files)
+    api.request(
+        "POST",
+        f"/api/taiga/sessions/{plain_id}/upload/complete",
+        {},
+        token=api.token_a,
+    )
+
+    status, raw = api.request_bytes(
+        f"/api/taiga/sessions/{plain_id}/files/hr.log", token=api.token_a
+    )
+    assert status == 200
+    assert raw == files["hr.log"]
+
+    api.request_bytes(
+        f"/api/taiga/sessions/{plain_id}/files/ecg.log",
+        token=api.token_a,
+        expected=404,
+    )
+    api.request_bytes(
+        f"/api/taiga/sessions/{plain_id}/files/other.log",
+        token=api.token_a,
+        expected=400,
+    )
+    api.request_bytes(
+        f"/api/taiga/sessions/{plain_id}/files/hr.log",
+        token=api.token_b,
+        expected=404,
+    )
+    api.request_bytes(
+        f"/api/taiga/sessions/{plain_id}/files/hr.log", expected=401
+    )
+
+    # A compressed server copy is inflated, so the phone gets the original stream back.
+    gz_files = fx.recording("20261103_230001", hr_frames=20)
+    gz_id, _ = api.create_upload_session("20261103_230001")
+    api.upload_gzip_recording(gz_id, gz_files)
+    api.request(
+        "POST",
+        f"/api/taiga/sessions/{gz_id}/upload/complete",
+        {},
+        token=api.token_a,
+    )
+    _, restored = api.request_bytes(
+        f"/api/taiga/sessions/{gz_id}/files/hr.log", token=api.token_a
+    )
+    assert restored == gz_files["hr.log"]

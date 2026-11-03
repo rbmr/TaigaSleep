@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,8 +40,11 @@ import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.SettingsGroup
 import com.rbmr.taigasleep.ui.components.SettingsRow
 import com.rbmr.taigasleep.ui.theme.taiga
+import com.rbmr.taigasleep.upload.RawRetention
+import com.rbmr.taigasleep.upload.RawRetentionMode
 import com.rbmr.taigasleep.upload.UploadScheduler
 import com.rbmr.taigasleep.upload.UploadSettings
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
@@ -56,7 +60,10 @@ fun SettingsScreen(
   val uploadSettings = remember { UploadSettings.get(context) }
   val autoUpload by uploadSettings.autoUpload.collectAsStateWithLifecycle()
   val compressUploads by uploadSettings.compressUploads.collectAsStateWithLifecycle()
+  val rawRetention by uploadSettings.rawRetention.collectAsStateWithLifecycle()
+  val scope = rememberCoroutineScope()
   var showAppearance by remember { mutableStateOf(false) }
+  var showRetention by remember { mutableStateOf(false) }
   val appearanceSubtitle =
       stringResource(
           when (themeMode) {
@@ -143,18 +150,11 @@ fun SettingsScreen(
             onCheckedChange = { uploadSettings.setCompressUploads(it) },
         )
         SettingsDivider()
-        Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-          Text(
-              text = stringResource(R.string.settings_upload_retention_title),
-              style = MaterialTheme.typography.titleMedium,
-          )
-          Text(
-              text = stringResource(R.string.settings_upload_retention_body),
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.padding(top = 2.dp),
-          )
-        }
+        SettingsRow(
+            title = stringResource(R.string.settings_raw_retention_title),
+            subtitle = rawRetentionLabel(rawRetention),
+            onClick = { showRetention = true },
+        )
       }
     }
     item {
@@ -179,6 +179,45 @@ fun SettingsScreen(
         )
       }
     }
+  }
+
+  if (showRetention) {
+    AlertDialog(
+        onDismissRequest = { showRetention = false },
+        title = { Text(stringResource(R.string.settings_raw_retention_title)) },
+        text = {
+          Column {
+            Text(
+                text = stringResource(R.string.settings_raw_retention_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            RawRetentionMode.entries.forEach { mode ->
+              Row(
+                  modifier =
+                      Modifier.fillMaxWidth()
+                          .clickable {
+                            uploadSettings.setRawRetention(mode)
+                            showRetention = false
+                            scope.launch { RawRetention.enforce(context) }
+                          }
+                          .padding(vertical = 10.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+              ) {
+                RadioButton(selected = rawRetention == mode, onClick = null)
+                Spacer(Modifier.width(8.dp))
+                Text(rawRetentionLabel(mode))
+              }
+            }
+          }
+        },
+        confirmButton = {
+          TextButton(onClick = { showRetention = false }) {
+            Text(stringResource(R.string.appearance_done))
+          }
+        },
+    )
   }
 
   if (showAppearance) {
@@ -228,3 +267,15 @@ fun SettingsScreen(
     )
   }
 }
+
+@Composable
+private fun rawRetentionLabel(mode: RawRetentionMode): String =
+    stringResource(
+        when (mode) {
+          RawRetentionMode.NEVER -> R.string.raw_retention_never
+          RawRetentionMode.IMMEDIATE -> R.string.raw_retention_immediate
+          RawRetentionMode.DAYS_5 -> R.string.raw_retention_days_5
+          RawRetentionMode.DAYS_14 -> R.string.raw_retention_days_14
+          RawRetentionMode.DAYS_30 -> R.string.raw_retention_days_30
+        }
+    )

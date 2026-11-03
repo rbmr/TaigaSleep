@@ -22,7 +22,8 @@ data class AutoUploadSettings(
  * Compression is a separate setting and is on by default: it halves the bytes sent and stored.
  * Users can turn it off for a very fast server or to keep the server-side files directly readable.
  *
- * Local recordings are kept after upload. Retention is intentionally not destructive yet.
+ * Raw retention decides when the local stream files of an uploaded recording may be removed.
+ * The default, [RawRetentionMode.NEVER], keeps every raw file on the phone.
  */
 class UploadSettings private constructor(context: Context) {
   private val prefs =
@@ -33,6 +34,10 @@ class UploadSettings private constructor(context: Context) {
 
   private val _compressUploads = MutableStateFlow(prefs.getBoolean(KEY_COMPRESS, true))
   val compressUploads: StateFlow<Boolean> = _compressUploads.asStateFlow()
+
+  private val _rawRetention =
+      MutableStateFlow(RawRetentionMode.fromStored(prefs.getString(KEY_RAW_RETENTION, null)))
+  val rawRetention: StateFlow<RawRetentionMode> = _rawRetention.asStateFlow()
 
   fun setEnabled(enabled: Boolean) {
     update(_autoUpload.value.copy(enabled = enabled))
@@ -53,6 +58,11 @@ class UploadSettings private constructor(context: Context) {
   fun setCompressUploads(compress: Boolean) {
     prefs.edit().putBoolean(KEY_COMPRESS, compress).apply()
     _compressUploads.value = compress
+  }
+
+  fun setRawRetention(mode: RawRetentionMode) {
+    prefs.edit().putString(KEY_RAW_RETENTION, mode.storedValue).apply()
+    _rawRetention.value = mode
   }
 
   private fun update(settings: AutoUploadSettings) {
@@ -101,6 +111,7 @@ class UploadSettings private constructor(context: Context) {
     private const val KEY_WIFI_ONLY = "auto_upload_wifi_only"
     private const val KEY_CHARGING_ONLY = "auto_upload_charging_only"
     private const val KEY_COMPRESS = "upload_compress"
+    private const val KEY_RAW_RETENTION = "raw_retention"
     private const val LEGACY_KEY = "auto_transfer"
 
     @Volatile private var instance: UploadSettings? = null

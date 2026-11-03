@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.remote
 
 import com.rbmr.taigasleep.BuildConfig
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +51,9 @@ interface TaigaClient {
   suspend fun getAnalysis(analysisId: String): AnalysisDto
 
   suspend fun getSession(sessionId: String): SessionDetailDto
+
+  /** Downloads one raw recording file, inflating the server's compressed copy when needed. */
+  suspend fun downloadSessionFile(sessionId: String, file: String, target: File)
 
   suspend fun listSessions(perPage: Int = 100): SessionListDto
 
@@ -153,6 +157,30 @@ class OkHttpTaigaApi(
 
   override suspend fun getSession(sessionId: String): SessionDetailDto =
       decode(execute(get("/api/taiga/sessions/${path(sessionId)}")))
+
+  override suspend fun downloadSessionFile(sessionId: String, file: String, target: File) {
+    withContext(Dispatchers.IO) {
+      val request = get("/api/taiga/sessions/${path(sessionId)}/files/${path(file)}")
+      try {
+        client.newCall(request).execute().use { response ->
+          if (!response.isSuccessful) {
+            throw failure(response.code, response.body?.string().orEmpty())
+          }
+          val body = response.body
+          if (body == null) {
+            throw TaigaMalformedException(IllegalStateException("empty response body"))
+          }
+          target.outputStream().use { out -> body.byteStream().copyTo(out) }
+        }
+      } catch (e: TaigaException) {
+        target.delete()
+        throw e
+      } catch (e: IOException) {
+        target.delete()
+        throw TaigaNetworkException(e)
+      }
+    }
+  }
 
   override suspend fun listSessions(perPage: Int): SessionListDto =
       decode(execute(get("/api/taiga/sessions?perPage=${perPage.coerceIn(1, 100)}&sort=-started_at")))

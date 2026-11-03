@@ -1,12 +1,19 @@
 package api
 
 import (
+	"compress/gzip"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pocketbase/dbx"
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -222,6 +229,56 @@ func GetSession(e *core.RequestEvent) error {
 		Jobs:            jobViews,
 		AnalysisSummary: analysisCounts(analyses),
 	})
+}
+
+// SessionFile streams one raw recording file to its owner. A compressed server copy is inflated
+// on the fly, so the app always receives the original bytes. This is the exception that makes
+// "download the raw data again" work after the phone copy was cleaned up.
+func SessionFile(e *core.RequestEvent) error {
+	if err := requireUser(e); err != nil {
+		return err
+	}
+	name := e.Request.PathValue("file")
+	if !contains(allFiles, name) {
+		return e.BadRequestError("unknown recording file", nil)
+	}
+	record, err := findSessionForUser(e.App, e.Request.PathValue("id"), e.Auth)
+	if err != nil {
+		return err
+	}
+	dir, err := recordingDir(e.App, record.Id)
+	if err != nil {
+		return err
+	}
+	encoding := uploadEncoding(readUpload(record))
+	compressed := name != metaFileName && encoding == encodingGzip
+	stored := storedName(name, encoding)
+	path := filepath.Join(dir, stored)
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return apis.NewNotFoundError("recording file not found", nil)
+		}
+		return err
+	}
+	if !compressed {
+		return e.FileFS(os.DirFS(dir), stored)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	reader, err := gzip.NewReader(file)
+	if err != nil {
+		return apis.NewBadRequestError("the stored recording file is not valid gzip", err)
+	}
+	defer reader.Close()
+	e.Response.Header().Set("Content-Type", "application/octet-stream")
+	e.Response.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
+	if _, err := io.Copy(e.Response, reader); err != nil {
+		return err
+	}
+	return nil
 }
 
 func GetAnalysis(e *core.RequestEvent) error {

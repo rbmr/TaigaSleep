@@ -135,16 +135,46 @@ User-configurable stager preferences are tracked in #32.
 
 ## Local retention
 
-For now **local raw recordings are kept forever after a successful upload.**
-Uploading does not delete, truncate or archive the phone copy. The History row
-remains usable offline and the original files can still be exported or inspected.
+Raw stream files (`hr.log`, `ecg.log`, `acc.log`) are the large part of a
+recording. **Settings → Recordings → Raw recordings** chooses when they may leave
+the phone:
 
-The metadata and analysis results are treated as the enduring parts of a
+| Setting | Effect |
+| --- | --- |
+| Keep raw data on this phone | Default. Raw files are never removed automatically. |
+| Delete raw data straight after upload | Removed as soon as the server confirms the upload. |
+| Delete raw data after 5 / 14 / 30 days | Removed once that many days have passed since the confirmed upload. |
+
+`meta.json` and `events.jsonl` are metadata, not raw stream data, and are always
+kept, so History, the upload state and the cached analysis survive raw cleanup.
+Cleanup only runs after the server confirmed the upload, so a recording that was
+never transferred is never touched. The policy is applied on app start, when
+History opens, when an upload completes and when the setting changes, so a night
+whose retention time has already passed is cleaned up at the next of those
+moments. Changing the setting therefore applies immediately to old nights.
+
+The backend keeps its raw copy until the whole recording is deleted. Two
+per-night exceptions live in the night-detail three-dot menu:
+
+- **Delete raw data from this phone** removes the local raw files of one uploaded
+  night immediately. Metadata, results and the server copy stay.
+- **Download raw data** fetches the raw files of one night back from the server
+  through `GET /api/taiga/sessions/{id}/files/{file}`. The backend inflates its
+  compressed copy on the fly, so the restored files are the original streams. A
+  restored night is then protected from automatic cleanup until its raw data is
+  deleted explicitly.
+
+The metadata, upload state and analysis results are the enduring parts of a
 recording. A finished analysis is cached in the app's private `files/analysis/`
 directory so the detail screen can show the last result when the server is
 unreachable. That cache is not uploaded and contains no credentials.
 
-Configurable raw cleanup (immediate, 5, 14 or 30 days) is tracked in #33.
+Raw data that was never uploaded exists only on this phone. Deleting the app or
+its data loses it, and no other copy exists. Once the upload is confirmed, the
+server copy is what makes the night recoverable after local cleanup.
+
+Export in the night-detail and History menus is disabled once the raw files are
+gone; download them again first if a copy is needed.
 
 ## Deleting a recording
 

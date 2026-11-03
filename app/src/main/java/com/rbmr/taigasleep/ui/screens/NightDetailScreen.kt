@@ -96,6 +96,8 @@ import com.rbmr.taigasleep.ui.components.StatusBanner
 import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.theme.taiga
+import com.rbmr.taigasleep.upload.RawActionResult
+import com.rbmr.taigasleep.upload.RawRetention
 import com.rbmr.taigasleep.upload.RecordingDeleter
 import com.rbmr.taigasleep.upload.ResultCache
 import com.rbmr.taigasleep.upload.UploadCoordinator
@@ -154,8 +156,13 @@ fun NightDetailScreen(
   var actionError by remember { mutableStateOf<String?>(null) }
   var showMenu by remember { mutableStateOf(false) }
   var showDelete by remember { mutableStateOf(false) }
+  var showRawDelete by remember { mutableStateOf(false) }
+  var rawBusy by remember { mutableStateOf(false) }
   val loadFailed = stringResource(R.string.night_load_failed)
   val loginError = stringResource(R.string.upload_error_login)
+  val rawRestoreFailed = stringResource(R.string.night_raw_restore_failed)
+  val rawDeleteFailed = stringResource(R.string.night_raw_delete_failed)
+  val rawNotUploaded = stringResource(R.string.night_raw_not_uploaded)
 
   LaunchedEffect(
       localId,
@@ -336,6 +343,39 @@ fun NightDetailScreen(
     }
   }
 
+  fun downloadRaw() {
+    val id = state.local?.id ?: localId ?: return
+    val server = state.remoteId ?: return
+    if (rawBusy) return
+    actionError = null
+    rawBusy = true
+    scope.launch {
+      val result = RawRetention.restore(context, id, server)
+      rawBusy = false
+      result
+          .onSuccess { refreshKey++ }
+          .onFailure {
+            actionError =
+                listOfNotNull(rawRestoreFailed, it.message?.takeIf { message -> message.isNotBlank() })
+                    .joinToString(": ")
+          }
+    }
+  }
+
+  fun deleteRaw() {
+    val id = state.local?.id ?: localId ?: return
+    actionError = null
+    scope.launch {
+      when (val result = RawRetention.deleteRaw(context, id)) {
+        RawActionResult.Done,
+        RawActionResult.NothingToDelete -> refreshKey++
+        RawActionResult.NotUploaded,
+        RawActionResult.Recording -> actionError = rawNotUploaded
+        is RawActionResult.Failed -> actionError = rawDeleteFailed
+      }
+    }
+  }
+
   Scaffold(
       containerColor = MaterialTheme.colorScheme.background,
       topBar = {
@@ -365,9 +405,10 @@ fun NightDetailScreen(
                   onDismissRequest = { showMenu = false },
               ) {
                 val rawId = state.local?.id ?: localId
+                val rawOnPhone = state.local?.hasRaw == true
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.night_export)) },
-                    enabled = rawId != null,
+                    enabled = rawId != null && rawOnPhone,
                     onClick = {
                       showMenu = false
                       if (rawId != null) {
@@ -375,6 +416,32 @@ fun NightDetailScreen(
                       }
                     },
                 )
+                if (rawId != null && !rawOnPhone && state.remoteId != null) {
+                  DropdownMenuItem(
+                      text = {
+                        Text(
+                            stringResource(
+                                if (rawBusy) R.string.night_raw_downloading
+                                else R.string.night_raw_download
+                            )
+                        )
+                      },
+                      enabled = !rawBusy,
+                      onClick = {
+                        showMenu = false
+                        downloadRaw()
+                      },
+                  )
+                }
+                if (rawId != null && rawOnPhone) {
+                  DropdownMenuItem(
+                      text = { Text(stringResource(R.string.night_raw_delete)) },
+                      onClick = {
+                        showMenu = false
+                        showRawDelete = true
+                      },
+                  )
+                }
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.night_delete)) },
                     onClick = {
@@ -413,6 +480,17 @@ fun NightDetailScreen(
             processed = processed,
             onScoreClick = { if (state.analysis != null) showSleepScore = true },
         )
+      }
+
+      state.local?.takeIf { !it.hasRaw && state.remoteId != null }?.let {
+        item {
+          Text(
+              text = stringResource(R.string.night_raw_gone),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.padding(horizontal = 4.dp),
+          )
+        }
       }
 
       state.error?.takeIf { !state.offlineSaved }?.let { message ->
@@ -703,6 +781,28 @@ fun NightDetailScreen(
     }
     selectedMetricSpec?.let { spec ->
       MetricSheet(spec = spec, onDismiss = { metric = null })
+    }
+    if (showRawDelete) {
+      AlertDialog(
+          onDismissRequest = { showRawDelete = false },
+          title = { Text(stringResource(R.string.night_raw_delete_title)) },
+          text = { Text(stringResource(R.string.night_raw_delete_body)) },
+          confirmButton = {
+            TextButton(
+                onClick = {
+                  showRawDelete = false
+                  deleteRaw()
+                }
+            ) {
+              Text(stringResource(R.string.night_raw_delete_confirm))
+            }
+          },
+          dismissButton = {
+            TextButton(onClick = { showRawDelete = false }) {
+              Text(stringResource(R.string.night_cancel))
+            }
+          },
+      )
     }
     if (showDelete) {
       AlertDialog(
