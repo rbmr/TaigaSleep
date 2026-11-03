@@ -59,6 +59,9 @@
   <string name="remote_error_not_taiga">Something answered at that address, but it is not a Taiga Sleep server.</string>
   <string name="remote_error_bad_credentials">The email or password is wrong.</string>
   <string name="remote_error_session_expired">The login has expired. Enter your password to log in again.</string>
+  <string name="remote_error_api_unversioned">This server does not report an API version, so it is older than this app, which needs API version %1$d. Update the server.</string>
+  <string name="remote_error_api_server_old">The server is older than this app. The app speaks API version %1$d; the server speaks API version %2$d. Update the server.</string>
+  <string name="remote_error_api_app_old">This app is older than the server. The app speaks API version %1$d; the server speaks API version %2$d. Update the app.</string>
   <string name="remote_error_http">The server answered with error %1$d.</string>
   <string name="remote_error_malformed">The server sent an unexpected response.</string>
 

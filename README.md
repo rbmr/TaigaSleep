@@ -73,8 +73,9 @@ the optional remote login, upload state and the processed-night detail screen.
 
 ## Install
 
-Every push to `main` replaces the
-[`latest` release](https://github.com/rbmr/TaigaSleep/releases/tag/latest):
+Every merge into `main` publishes a new app release, tagged `app-v<version>`, and
+the [latest release](https://github.com/rbmr/TaigaSleep/releases/latest) always
+serves the newest one:
 
 | Asset | What it is |
 | --- | --- |
@@ -91,10 +92,12 @@ adb install -r taiga-sleep.apk
 On the phone, open the downloaded APK and allow installs from that app; there is
 no store listing.
 
-There are no version numbers yet: `latest` is overwritten in place on every
-change, so that URL always serves the newest build (see
-[#13](https://github.com/rbmr/TaigaSleep/issues/13)). Installing a newer build
-over an older one keeps the app's data, because the release key does not change.
+The app version comes from [`app/version.properties`](app/version.properties) and
+is shown on the About page. Install a newer build over an older one to keep the
+app's data; the release key does not change, and the version code only ever
+increases. Older releases stay downloadable by tag. The backend is versioned
+separately, and the two agree on an API revision, so an out of date pair tells
+you which side to update: see [`docs/versioning.md`](docs/versioning.md).
 
 Debug and release builds use different signing keys and different package names,
 so both can be installed. The one exception is a device that still has an old

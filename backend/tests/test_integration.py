@@ -412,6 +412,9 @@ def test_01_health_is_public(api: Backend) -> None:
     assert status == 200
     assert payload["status"] == "ok"
     assert payload["service"] == "taiga-sleep"
+    # The app refuses a server whose contract revision differs from its own.
+    assert payload["version"]
+    assert payload["api"] > 0
 
 
 def test_02_registration_disabled_and_auth_check(api: Backend) -> None:

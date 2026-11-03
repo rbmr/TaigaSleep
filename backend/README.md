@@ -231,7 +231,7 @@ a valid token and confirms which collection it belongs to.
 
 ```bash
 curl -s http://127.0.0.1:8090/api/taiga/health
-# {"status":"ok","service":"taiga-sleep","time":"..."}
+# {"status":"ok","service":"taiga-sleep","version":"0.1.0","api":1,"time":"..."}
 
 curl -s http://127.0.0.1:8090/api/taiga/auth-check -H "Authorization: <token>"
 # {"ok":true,"id":"...","collection":"users"}
@@ -512,9 +512,17 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml pull
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --no-build
 ```
 
-The published images are `ghcr.io/rbmr/taigasleep-api:latest` and
-`ghcr.io/rbmr/taigasleep-worker:latest`. The `latest` tag is replaced on every
-push to `main`, so pull a digest instead if you need a reproducible deployment.
+The published images are `ghcr.io/rbmr/taigasleep-api` and
+`ghcr.io/rbmr/taigasleep-worker`. Each backend release is tagged twice:
+
+- `:latest` follows the newest backend build;
+- `:v<version>`, for example `:v0.1.0`, is immutable, so pin it in
+  `deploy/docker-compose.yml` for a reproducible deployment.
+
+The version, and the API revision it speaks, live in
+[`backend/version.properties`](version.properties); see
+[`docs/versioning.md`](../docs/versioning.md). An app refuses a backend that
+speaks a different API revision, and says which side to update.
 
 To build both images from source instead, use `up -d --build`. The API image
 builds the Go binary from `backend/api`; the worker image installs the locked

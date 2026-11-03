@@ -46,7 +46,7 @@ step).
   "start_utc_ms": 1792798200000,
   "end_utc_ms": null,
   "timezone": "Europe/Amsterdam",
-  "app": { "version": "0.1.0", "version_code": 1 },
+  "app": { "version": "0.2.0", "version_code": 2000 },
   "phone": { "manufacturer": "OnePlus", "model": "CPH2769", "android": "16", "sdk": 36 },
   "sensor": {
     "kind": "polar-h10",

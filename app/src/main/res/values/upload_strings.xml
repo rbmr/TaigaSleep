@@ -18,6 +18,7 @@
   <string name="upload_error_analysis">The analysis failed.</string>
   <string name="upload_error_recording">The recording is still in progress.</string>
   <string name="upload_error_generic">Upload failed.</string>
+  <string name="upload_error_version">The app and the server speak different API versions. Update whichever is older.</string>
 
   <string name="history_status_all_title">Everything is processed</string>
   <string name="history_nights_label">Nights</string>

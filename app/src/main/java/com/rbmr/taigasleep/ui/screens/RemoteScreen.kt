@@ -584,6 +584,16 @@ private fun errorMessage(error: RemoteError): String =
       RemoteError.NotTaiga -> stringResource(R.string.remote_error_not_taiga)
       RemoteError.BadCredentials -> stringResource(R.string.remote_error_bad_credentials)
       RemoteError.SessionExpired -> stringResource(R.string.remote_error_session_expired)
+      is RemoteError.IncompatibleApi ->
+          when {
+            // A server from before API versioning answers with nothing, which is too old by
+            // definition.
+            error.server == 0 ->
+                stringResource(R.string.remote_error_api_unversioned, error.required)
+            error.server < error.required ->
+                stringResource(R.string.remote_error_api_server_old, error.required, error.server)
+            else -> stringResource(R.string.remote_error_api_app_old, error.required, error.server)
+          }
       is RemoteError.Http -> stringResource(R.string.remote_error_http, error.status)
       RemoteError.MalformedResponse -> stringResource(R.string.remote_error_malformed)
     }

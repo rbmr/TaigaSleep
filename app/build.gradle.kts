@@ -6,9 +6,42 @@ plugins {
   alias(libs.plugins.kotlin.serialization)
 }
 
-// Versioning stays at 0.1.0 until #13 lands a version file. The commit hash is
-// build provenance for the diagnostics log; a source archive without git says
-// "unknown" instead of failing the build.
+// The release version and the backend contract revision live in one file. The
+// versionCode is derived from the version, so no number is ever typed twice.
+// See docs/versioning.md.
+val versionProperties =
+    Properties().also { properties ->
+      val file = project.file("version.properties")
+      require(file.isFile) { "app/version.properties is missing" }
+      file.inputStream().use(properties::load)
+    }
+
+val appVersion = versionProperties.getProperty("version")?.trim().orEmpty()
+val appVersionParts =
+    appVersion
+        .split('.')
+        .also { parts ->
+          require(parts.size == 3 && parts.all { it.toIntOrNull() != null }) {
+            "app/version.properties: version must be MAJOR.MINOR.PATCH, got '$appVersion'"
+          }
+        }
+        .map(String::toInt)
+
+// Three digits per part keep the derived code unique and increasing:
+// 0.2.0 -> 2000, 1.0.0 -> 1000000. The check runs for every task, so an
+// out-of-range version fails the build instead of silently colliding.
+require(appVersionParts.all { it in 0..999 }) {
+  "app/version.properties: every part of '$appVersion' must be between 0 and 999"
+}
+
+val appVersionCode = appVersionParts[0] * 1_000_000 + appVersionParts[1] * 1_000 + appVersionParts[2]
+
+val requiredApiVersion: Int =
+    versionProperties.getProperty("requires_api")?.trim()?.toIntOrNull()
+        ?: error("app/version.properties: requires_api must be an integer")
+
+// The commit hash is build provenance for the diagnostics log; a source archive
+// without git says "unknown" instead of failing the build.
 fun gitShortCommit(): String =
     runCatching {
           providers
@@ -51,9 +84,10 @@ android {
     applicationId = "com.rbmr.taigasleep"
     minSdk = 31
     targetSdk = 36
-    versionCode = 1
-    versionName = "0.1.0"
+    versionCode = appVersionCode
+    versionName = appVersion
     buildConfigField("String", "GIT_COMMIT", "\"${gitShortCommit()}\"")
+    buildConfigField("int", "API_VERSION", requiredApiVersion.toString())
   }
 
   signingConfigs {
