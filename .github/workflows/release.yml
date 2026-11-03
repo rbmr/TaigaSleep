@@ -1,11 +1,12 @@
 name: release
 
-# One rolling release, overwritten on every push to main. There are no version
-# numbers or tags yet; proper versioning is tracked in #13.
+# One release per component whose version changed: app-v<version> carries the
+# signed APK, backend-v<version> marks the images built from the same commit. A
+# backend-only merge never rebuilds the APK. See docs/versioning.md.
 #
-# Run this workflow manually on a branch to check the build and signing steps
-# without publishing anything: the images are built but not pushed, and the
-# release job is skipped.
+# Run this workflow manually on a branch to exercise both builds without
+# publishing anything: the images are built but not pushed, and no tag or release
+# is created.
 
 on:
   push:
@@ -16,14 +17,68 @@ permissions:
   contents: write
   packages: write
 
+# Releases are serialised and never cancelled: a cancelled run could leave a tag
+# without its assets. Each run publishes only its own versions.
 concurrency:
-  group: release-latest
-  cancel-in-progress: true
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  app:
-    name: Signed release APK
+  plan:
+    name: Plan
     runs-on: ubuntu-latest
+    outputs:
+      app_version: ${{ steps.versions.outputs.app_version }}
+      backend_version: ${{ steps.versions.outputs.backend_version }}
+      app_release: ${{ steps.versions.outputs.app_release }}
+      backend_release: ${{ steps.versions.outputs.backend_release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Read the version files
+        id: versions
+        run: |
+          set -euo pipefail
+          app=$(sed -n 's/^version=//p' app/version.properties)
+          backend=$(sed -n 's/^version=//p' backend/version.properties)
+          if [ -z "$app" ] || [ -z "$backend" ]; then
+            echo "::error::cannot read the version files"
+            exit 1
+          fi
+          echo "app_version=$app" >> "$GITHUB_OUTPUT"
+          echo "backend_version=$backend" >> "$GITHUB_OUTPUT"
+
+          for kind in app backend; do
+            if [ "$kind" = app ]; then version="$app"; else version="$backend"; fi
+            tag="$kind-v$version"
+            # A manual run builds both tracks and publishes nothing, so it may
+            # reuse an already released version.
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+              echo "${kind}_release=true" >> "$GITHUB_OUTPUT"
+              continue
+            fi
+            existing=$(git rev-list -n 1 "refs/tags/$tag" 2>/dev/null || true)
+            if [ -z "$existing" ]; then
+              echo "${kind}_release=true" >> "$GITHUB_OUTPUT"
+            elif [ "$existing" = "$GITHUB_SHA" ]; then
+              echo "${kind}_release=false" >> "$GITHUB_OUTPUT"
+              echo "$tag is already published for this commit; skipping it"
+            else
+              echo "::error::$tag already exists on another commit; bump the version instead of reusing it"
+              exit 1
+            fi
+          done
+
+  app:
+    name: App release
+    needs: plan
+    if: needs.plan.outputs.app_release == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.plan.outputs.app_version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -76,6 +131,16 @@ jobs:
             echo "::error::release APK is debuggable"
             exit 1
           fi
+          IFS=. read -r major minor patch <<< "$VERSION"
+          expected=$((major * 1000000 + minor * 1000 + patch))
+          if ! echo "$badging" | grep -q "versionName='$VERSION'"; then
+            echo "::error::release APK does not carry versionName $VERSION"
+            exit 1
+          fi
+          if ! echo "$badging" | grep -q "versionCode='$expected'"; then
+            echo "::error::release APK does not carry versionCode $expected"
+            exit 1
+          fi
 
       - name: Stage release assets
         run: |
@@ -85,15 +150,28 @@ jobs:
           (cd dist && sha256sum taiga-sleep.apk > taiga-sleep.apk.sha256)
           cat dist/taiga-sleep.apk.sha256
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-apk
-          path: dist/
-          if-no-files-found: error
+      - name: Publish the release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release create "app-v$VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "App v$VERSION" \
+            --generate-notes \
+            --latest \
+            dist/taiga-sleep.apk \
+            dist/taiga-sleep.apk.sha256
 
   backend:
     name: Backend images
+    needs: plan
+    if: needs.plan.outputs.backend_release == 'true'
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.plan.outputs.backend_version }}
     strategy:
       matrix:
         include:
@@ -107,58 +185,47 @@ jobs:
       - name: Build image
         run: |
           set -euo pipefail
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.name }}:latest"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.name }}"
           docker build \
             --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
-            --tag "$image" \
+            --tag "$image:build" \
             "${{ matrix.context }}"
 
-      - name: Push image
+      - name: Push images
         if: github.event_name == 'push'
         env:
           REGISTRY_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.name }}:latest"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.name }}"
           printf '%s' "$REGISTRY_TOKEN" |
             docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          docker push "$image"
+          # The immutable tag is what a deployment should pin; latest always
+          # points at the newest backend build.
+          docker tag "$image:build" "$image:v$VERSION"
+          docker tag "$image:build" "$image:latest"
+          docker push "$image:v$VERSION"
+          docker push "$image:latest"
 
-  publish:
-    name: Publish latest release
-    needs: [app, backend]
-    if: github.event_name == 'push'
+  publish-backend:
+    name: Publish backend release
+    needs: [plan, backend]
+    # Never marked latest: releases/latest stays the newest app release, so the
+    # APK download link keeps working.
+    if: github.event_name == 'push' && needs.plan.outputs.backend_release == 'true'
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.plan.outputs.backend_version }}
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-apk
-          path: dist
+      - uses: actions/checkout@v4
 
-      - name: Replace the rolling release
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          tag=latest
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release delete "$tag" --yes --cleanup-tag
-          fi
-          cat > notes.md <<EOF
-          Rolling build of \`main\` at \`${GITHUB_SHA::12}\`.
-
-          - Release app: \`com.rbmr.taigasleep\`
-          - Debug app: \`com.rbmr.taigasleep.debug\`
-          - Backend images: \`ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/taigasleep-api:latest\` and \`ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/taigasleep-worker:latest\`
-
-          This release is replaced on every push to \`main\`. There are no per-change
-          version numbers or changelog yet; see #13.
-          EOF
-          gh release create "$tag" \
+          gh release create "backend-v$VERSION" \
             --target "$GITHUB_SHA" \
-            --title "Latest build" \
-            --notes-file notes.md \
-            --latest \
-            dist/taiga-sleep.apk \
-            dist/taiga-sleep.apk.sha256
+            --title "Backend v$VERSION" \
+            --generate-notes

@@ -8,7 +8,12 @@ package api
 type HealthResponse struct {
 	Status  string `json:"status"`
 	Service string `json:"service"`
-	Time    string `json:"time"`
+	// Version is the backend release version.
+	Version string `json:"version"`
+	// API is the app/backend contract revision. An app refuses a server whose
+	// value differs from the one it was built for.
+	API  int    `json:"api"`
+	Time string `json:"time"`
 }
 
 type AuthCheckResponse struct {

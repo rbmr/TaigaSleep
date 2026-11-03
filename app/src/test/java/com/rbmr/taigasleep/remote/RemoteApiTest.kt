@@ -46,14 +46,18 @@ class RemoteApiTest {
 
   @Test
   fun `health, login and auth check use the documented routes`() {
-    server.enqueue(json("""{"status":"ok","service":"taiga-sleep","time":"now"}"""))
+    server.enqueue(
+        json("""{"status":"ok","service":"taiga-sleep","version":"0.1.0","api":1,"time":"now"}""")
+    )
     server.enqueue(json("""{"token":"tok-1","record":{"id":"u1","email":"me@example.com"}}"""))
     server.enqueue(json("""{"ok":true,"id":"u1","collection":"users"}"""))
 
-    api.health(baseUrl)
+    val serverHealth = api.health(baseUrl)
     val session = api.login(baseUrl, "me@example.com", "secret")
     val user = api.authCheck(baseUrl, session.token)
 
+    assertEquals("0.1.0", serverHealth.version)
+    assertEquals(1, serverHealth.api)
     assertEquals("tok-1", session.token)
     assertEquals("me@example.com", session.email)
     assertEquals("u1", user.id)
@@ -87,6 +91,18 @@ class RemoteApiTest {
         MockResponse().setResponseCode(200).setHeader("Content-Type", "text/html").setBody("<html/>")
     )
     assertEquals(RemoteError.NotTaiga, failure { api.health(baseUrl) })
+  }
+
+  @Test
+  fun `the health route reports the server version and contract revision`() {
+    server.enqueue(
+        json("""{"status":"ok","service":"taiga-sleep","version":"0.3.1","api":2,"time":"now"}""")
+    )
+
+    val health = api.health(baseUrl)
+
+    assertEquals("0.3.1", health.version)
+    assertEquals(2, health.api)
   }
 
   @Test

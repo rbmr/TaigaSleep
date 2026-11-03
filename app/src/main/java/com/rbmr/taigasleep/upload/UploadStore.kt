@@ -33,6 +33,8 @@ enum class UploadFailure {
   STORAGE,
   ANALYSIS,
   RECORDING,
+  /** The app and the server speak different API versions; one of them has to be updated. */
+  VERSION,
 }
 
 @Serializable

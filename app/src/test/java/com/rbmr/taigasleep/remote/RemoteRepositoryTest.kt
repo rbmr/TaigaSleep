@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.remote
 
+import com.rbmr.taigasleep.BuildConfig
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -27,6 +28,40 @@ class RemoteRepositoryTest {
     assertEquals(AddressCheck.Reachable("http://localhost:8090", insecure = true), checked)
     assertEquals(listOf("health"), api.calls)
     assertNull(store().url)
+  }
+
+  @Test
+  fun `a server with another api revision is refused with both numbers`() {
+    api.serverApi = BuildConfig.API_VERSION + 1
+
+    val checked = runBlocking { repository().checkAddress("http://localhost:8090") }
+
+    assertEquals(
+        AddressCheck.Failure(
+            RemoteError.IncompatibleApi(required = BuildConfig.API_VERSION, server = api.serverApi)
+        ),
+        checked,
+    )
+    assertNull(store().url)
+  }
+
+  @Test
+  fun `an outdated server keeps the saved token and reports the mismatch`() {
+    login(repository())
+    api.serverApi = BuildConfig.API_VERSION - 1
+
+    val repo = RemoteRepository(store(), api) { now }
+    val verified = runBlocking { repo.verify() }
+
+    assertEquals(
+        CheckResult.Failure(
+            RemoteStep.REACHABLE,
+            RemoteError.IncompatibleApi(required = BuildConfig.API_VERSION, server = api.serverApi),
+        ),
+        verified,
+    )
+    // A version mismatch is not a rejected token, so the login survives it.
+    assertEquals("token-1", store().token)
   }
 
   @Test
@@ -464,15 +499,18 @@ private class FakeSecretBox : SecretBox {
 
 private class FakeRemoteApi : RemoteApi {
   var healthError: RemoteError? = null
+  var serverApi = BuildConfig.API_VERSION
+  var serverVersion = "0.1.0"
   var loginError: RemoteError? = null
   var refreshError: RemoteError? = null
   var authError: RemoteError? = null
   var loginEmail = "me@example.com"
   val calls = mutableListOf<String>()
 
-  override fun health(baseUrl: String) {
+  override fun health(baseUrl: String): ServerHealth {
     calls += "health"
     healthError?.let { throw RemoteFailure(it) }
+    return ServerHealth(version = serverVersion, api = serverApi)
   }
 
   override fun login(baseUrl: String, email: String, password: String): AuthSession {

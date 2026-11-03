@@ -1,0 +1,30 @@
+name: version
+
+# Every pull request into main must bump the version of each component it
+# changes, because merging publishes exactly those components. See
+# docs/versioning.md for the rules; the check itself lives in
+# tools/check_version_bump.py so it can also run locally.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: version bump
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The check compares against the merge base, which needs history.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check the changed components have a new version
+        run: python3 tools/check_version_bump.py

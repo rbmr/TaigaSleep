@@ -79,12 +79,7 @@ fun AboutScreen(onBack: () -> Unit) {
       }
       item {
         Text(
-            text =
-                stringResource(
-                    R.string.about_version,
-                    BuildConfig.VERSION_NAME,
-                    BuildConfig.VERSION_CODE,
-                ),
+            text = stringResource(R.string.about_version, BuildConfig.VERSION_NAME),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

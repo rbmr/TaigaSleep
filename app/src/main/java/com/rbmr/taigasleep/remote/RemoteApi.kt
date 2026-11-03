@@ -13,7 +13,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 /** The calls the remote check needs. Kept small so the check logic can be tested with a fake. */
 interface RemoteApi {
   /** The unauthenticated alive check. Throws [RemoteFailure]. */
-  fun health(baseUrl: String)
+  fun health(baseUrl: String): ServerHealth
 
   /** Exchanges the email and password for a token. */
   fun login(baseUrl: String, email: String, password: String): AuthSession
@@ -36,7 +36,7 @@ class OkHttpRemoteApi(
 ) : RemoteApi {
   private val json = Json { ignoreUnknownKeys = true }
 
-  override fun health(baseUrl: String) {
+  override fun health(baseUrl: String): ServerHealth {
     val body =
         try {
           execute(Request.Builder().url(url(baseUrl, HEALTH)).get().header("Accept", JSON).build())
@@ -56,6 +56,7 @@ class OkHttpRemoteApi(
     if (health.status != "ok") throw RemoteFailure(RemoteError.NotTaiga)
     // The service name is what tells a Taiga backend apart from any other "ok" endpoint.
     if (health.service != "taiga-sleep") throw RemoteFailure(RemoteError.NotTaiga)
+    return ServerHealth(version = health.version, api = health.api)
   }
 
   override fun login(baseUrl: String, email: String, password: String): AuthSession {
@@ -179,7 +180,13 @@ class OkHttpRemoteApi(
   }
 }
 
-@Serializable private data class HealthDto(val status: String = "", val service: String = "")
+@Serializable
+private data class HealthDto(
+    val status: String = "",
+    val service: String = "",
+    val version: String = "",
+    val api: Int = 0,
+)
 @Serializable
 private data class AuthResponse(
     val token: String = "",

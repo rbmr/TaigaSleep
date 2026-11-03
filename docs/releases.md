@@ -1,29 +1,36 @@
 # Releases
 
-Taiga Sleep has no version numbers yet. Every push to `main` replaces one rolling
-GitHub release and republishes the backend images from the same commit. Semantic
-versioning, per-release tags, changelogs and a version-bump check are tracked in
-[#13](https://github.com/rbmr/TaigaSleep/issues/13).
+Every merge into `main` publishes one release per component whose version changed:
+a signed APK for the app and versioned images for the backend. The version rules
+live in [`docs/versioning.md`](versioning.md); this document is about the
+artifacts and the signing key.
 
 ## What a push to `main` publishes
 
-[`.github/workflows/release.yml`](../.github/workflows/release.yml) runs the app
-unit tests, builds the signed release APK and the two backend images, then
-replaces the `latest` release.
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) reads
+`app/version.properties` and `backend/version.properties`, then runs the tracks
+that have a new version.
 
 | Artifact | Where |
 | --- | --- |
-| Release APK | `https://github.com/rbmr/TaigaSleep/releases/download/latest/taiga-sleep.apk` |
-| Checksum | `https://github.com/rbmr/TaigaSleep/releases/download/latest/taiga-sleep.apk.sha256` |
-| API image | `ghcr.io/rbmr/taigasleep-api:latest` |
-| Worker image | `ghcr.io/rbmr/taigasleep-worker:latest` |
+| Newest release APK | `https://github.com/rbmr/TaigaSleep/releases/latest/download/taiga-sleep.apk` |
+| Its checksum | `https://github.com/rbmr/TaigaSleep/releases/latest/download/taiga-sleep.apk.sha256` |
+| A specific app build | `https://github.com/rbmr/TaigaSleep/releases/download/app-v0.2.0/taiga-sleep.apk` |
+| API image | `ghcr.io/rbmr/taigasleep-api:v0.1.0` and `:latest` |
+| Worker image | `ghcr.io/rbmr/taigasleep-worker:v0.1.0` and `:latest` |
 
-The release body names the commit it was built from. Older builds are not kept:
-the `latest` tag and its assets are deleted and recreated, so download links stay
-stable and always serve the newest build.
+- `app-v<version>` releases carry the APK and its SHA-256 and are marked latest,
+  so `releases/latest/download/...` always serves the newest app.
+- `backend-v<version>` releases have no assets. They mark the commit the images
+  were built from and are deliberately not marked latest.
+- A backend-only merge does not rebuild the APK; an app-only merge does not
+  republish the images.
+- The image `:latest` tag follows the newest backend build; pin `:v<version>` for a
+  reproducible deployment.
 
-The workflow is serialised: a newer push cancels an older run, so the release
-always matches the tip of `main`.
+Releases are serialised and never cancelled, so a run cannot leave a tag without
+its assets. A version whose tag already exists on another commit fails the
+workflow; a rerun on the same commit skips it.
 
 The first workflow run creates both container packages, which GitHub makes
 **private** by default. Open each package's settings once and change its
@@ -36,8 +43,8 @@ visibility to public so `docker compose pull` works without logging in:
 
 | Build | Package | Version |
 | --- | --- | --- |
-| Release | `com.rbmr.taigasleep` | `0.1.0` |
-| Debug | `com.rbmr.taigasleep.debug` | `0.1.0-debug` |
+| Release | `com.rbmr.taigasleep` | from `app/version.properties`, for example `0.2.0` |
+| Debug | `com.rbmr.taigasleep.debug` | the same, with a `-debug` suffix |
 
 The different package names let both install on one phone and keep separate
 recordings and settings, so a test build can talk to a development backend
@@ -59,10 +66,10 @@ adb install -r taiga-sleep.apk
 On the phone, opening the APK requires allowing installs from the app that
 downloaded it. There is no store listing.
 
-Android accepts a new APK with the same `versionCode` as the installed one and
-keeps the app data, so the rolling release can be reinstalled repeatedly. A
-`versionCode` that goes backwards is refused; that is one of the reasons the
-release workflow never invents version codes yet.
+Android keeps the app's data when the new `versionCode` is higher, and refuses a
+`versionCode` that goes backwards. The code is derived from the version
+(`major * 1000000 + minor * 1000 + patch`), so it only ever increases; a build
+with the same version can be reinstalled over another one.
 
 ## Signing key
 
@@ -126,14 +133,21 @@ the build produces an unsigned APK, which is fine for `testDebugUnitTest` and
 ## Testing the workflow without publishing
 
 Run the `release` workflow manually on a branch (`workflow_dispatch`). It runs the
-tests, builds and verifies the signed APK, and builds both images, but does not
-push the images or touch the `latest` release. That is the way to check a signing
-or Docker change before merging it.
+tests, builds and verifies the APK, and builds both images, but does not push the
+images or create a tag or release. That is the way to check a signing or Docker
+change before merging it.
+
+## The pull request check
+
+`.github/workflows/version.yml` runs `tools/check_version_bump.py` on every pull
+request into `main` and fails unless each changed component has a strictly greater
+version. Make it a required status check in branch protection, together with the
+app tests and the backend workflow, so a change cannot merge unreleased and
+unbuilt.
 
 ## Not done yet
 
-- No semantic version numbers, tags, changelogs or version-bump checks (#13).
 - Minification and R8 are off, so the release APK is unminified until it has been
   tested against a real sensor.
-- No reproducible backend digest is recorded in the release body; `latest` is
-  rebuilt in place.
+- No reproducible backend digest is recorded in the release body; `:latest` is
+  rebuilt in place, so pin `:v<version>` when you need one.

@@ -29,6 +29,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.ThemeMode
@@ -189,7 +190,7 @@ fun SettingsScreen(
         SettingsDivider()
         SettingsRow(
             title = stringResource(R.string.settings_about_title),
-            subtitle = stringResource(R.string.settings_about_body),
+            subtitle = stringResource(R.string.settings_about_body, BuildConfig.VERSION_NAME),
             onClick = onAboutClick,
         )
       }

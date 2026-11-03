@@ -52,7 +52,8 @@ class UploadWorker(
       }
       is CheckResult.Failure -> {
         val failure = failureFor(verified.error)
-        if (failure == UploadFailure.LOGIN) {
+        // A version mismatch is not fixed by waiting: the app or the server has to be updated.
+        if (failure == UploadFailure.LOGIN || failure == UploadFailure.VERSION) {
           store.markFailed(localId, failure, verified.error.label)
           return Result.failure()
         }
@@ -214,6 +215,7 @@ class UploadWorker(
         RemoteError.BadCredentials,
         RemoteError.SessionExpired,
         RemoteError.NotTaiga -> UploadFailure.LOGIN
+        is RemoteError.IncompatibleApi -> UploadFailure.VERSION
         is RemoteError.Http,
         RemoteError.MalformedResponse -> UploadFailure.SERVER
       }

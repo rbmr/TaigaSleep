@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.remote
 
 import android.content.Context
+import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.diagnostics.Diagnostics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -232,18 +233,34 @@ class RemoteRepository internal constructor(
     return CheckResult.Success(session.email, now)
   }
 
-  /** The unauthenticated alive check. A failure is a server problem, never a login problem. */
+  /**
+   * The unauthenticated alive check. A failure is a server problem, never a login problem. The
+   * server also has to speak this build's API contract revision, because a mismatch would fail
+   * later in ways the user cannot read.
+   */
   private fun health(baseUrl: String, source: String): RemoteError? =
       try {
-        api.health(baseUrl)
-        onReachable()
-        log(source, true)
-        null
+        val server = api.health(baseUrl)
+        val details = serverDetails(server)
+        if (server.api != BuildConfig.API_VERSION) {
+          val error =
+              RemoteError.IncompatibleApi(required = BuildConfig.API_VERSION, server = server.api)
+          onUnreachable(error)
+          log(source, false, RemoteStep.REACHABLE, error, details)
+          error
+        } else {
+          onReachable()
+          log(source, true, extra = details)
+          null
+        }
       } catch (e: RemoteFailure) {
         onUnreachable(e.error)
         log(source, false, RemoteStep.REACHABLE, e.error)
         e.error
       }
+
+  private fun serverDetails(health: ServerHealth): Map<String, Any?> =
+      mapOf("server_version" to health.version, "server_api" to health.api)
 
   private fun failedAddress(error: RemoteError, source: String): AddressCheck.Failure {
     onUnreachable(error)
@@ -314,6 +331,7 @@ class RemoteRepository internal constructor(
       ok: Boolean,
       step: RemoteStep? = null,
       error: RemoteError? = null,
+      extra: Map<String, Any?> = emptyMap(),
   ) {
     val fields =
         buildMap<String, Any?> {
@@ -323,6 +341,7 @@ class RemoteRepository internal constructor(
           put("remote", _state.value.name.lowercase())
           if (step != null) put("step", step.name.lowercase())
           if (error != null) put("error", error.label)
+          putAll(extra)
         }
     Diagnostics.log("remote_check", fields)
   }

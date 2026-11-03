@@ -514,6 +514,7 @@ private fun uploadFailureText(failure: UploadFailure?): String =
           UploadFailure.STORAGE -> R.string.upload_error_storage
           UploadFailure.ANALYSIS -> R.string.upload_error_analysis
           UploadFailure.RECORDING -> R.string.upload_error_recording
+          UploadFailure.VERSION -> R.string.upload_error_version
           null -> R.string.upload_error_generic
         }
     )

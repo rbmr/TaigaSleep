@@ -11,6 +11,8 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/router"
+
+	"github.com/rbmr/TaigaSleep/backend/api/internal/version"
 )
 
 // The route manifest below is the single declaration of the custom API: it
@@ -517,6 +519,8 @@ func GetHealth(e *core.RequestEvent) error {
 	return e.JSON(http.StatusOK, HealthResponse{
 		Status:  "ok",
 		Service: "taiga-sleep",
+		Version: version.Number,
+		API:     version.API,
 		Time:    nowString(),
 	})
 }
