@@ -5,6 +5,10 @@ import android.app.Application
 import android.os.Bundle
 import com.rbmr.taigasleep.debug.DebugTools
 import com.rbmr.taigasleep.diagnostics.Diagnostics
+import com.rbmr.taigasleep.upload.RawRetention
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class TaigaApplication : Application() {
   private var startedActivities = 0
@@ -14,6 +18,8 @@ class TaigaApplication : Application() {
     Diagnostics.init(this)
     registerActivityLifecycleCallbacks(lifecycleLogger)
     DebugTools.install(this)
+    // Apply the raw-retention setting to any recording whose cleanup time has passed.
+    CoroutineScope(Dispatchers.IO).launch { RawRetention.enforce(this@TaigaApplication) }
   }
 
   override fun onTrimMemory(level: Int) {

@@ -94,6 +94,10 @@ shrink. The worker always extracts to its temporary directory and deletes it
 after the job. The upload manifest names the stored file (`stored_name`) and
 its encoding, so a worker never has to guess.
 
+The owner download route (`GET /api/taiga/sessions/{id}/files/{file}`) reads the
+same layout and inflates a stored gzip stream on the fly, so the phone can
+restore a raw file it cleaned up locally as the original bytes.
+
 ## Limits
 
 Defaults, all overridable per deployment:

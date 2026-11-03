@@ -114,6 +114,8 @@ class UploadWorker(
           outcome.jobId,
           outcome.warning,
       )
+      // The server has the bytes now, so an immediate or overdue cleanup may run.
+      RawRetention.enforce(context)
 
       val poller = AnalysisPoller(api, store, ResultCache.of(context), localId)
       try {

@@ -19,6 +19,8 @@ data class SessionInfo(
     val endUtcMs: Long?,
     val sizeBytes: Long,
     val sensorName: String,
+    /** At least one raw stream file is on this phone. False after a retention cleanup. */
+    val hasRaw: Boolean = true,
 ) {
   val durationMs: Long
     get() = ((endUtcMs ?: startUtcMs) - startUtcMs).coerceAtLeast(0)
@@ -57,8 +59,13 @@ class SessionStore(val root: File) {
         endUtcMs = end,
         sizeBytes = dir.listFiles()?.sumOf { it.length() } ?: 0,
         sensorName = meta.sensorName,
+        hasRaw = hasRaw(dir),
     )
   }
+
+  /** True while the recorded streams are still on this phone; meta.json alone is not raw data. */
+  fun hasRaw(dir: File): Boolean =
+      RAW_FILES.any { name -> File(dir, name).let { it.isFile && it.length() > 0 } }
 
   /** Wall-clock ms of the last valid HR frame (about one per second), or null if none. */
   fun lastFrameMs(dir: File): Long? {
@@ -106,6 +113,9 @@ class SessionStore(val root: File) {
   }
 
   companion object {
+    /** The recorded stream files. meta.json and events.jsonl are not raw data. */
+    val RAW_FILES = listOf("hr.log", "ecg.log", "acc.log")
+
     fun of(context: Context): SessionStore {
       val base = context.getExternalFilesDir(null) ?: context.filesDir
       return SessionStore(File(base, "recordings"))

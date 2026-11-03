@@ -229,12 +229,44 @@ func Routes() []openAPIRoute {
 		},
 		{
 			Method:      http.MethodGet,
+			Path:        "/api/taiga/sessions/{id}/files/{file}",
+			OperationID: "getSessionFile",
+			Summary:     "Download one raw recording file",
+			Description: "Streams the original bytes of one raw file of the caller's own session. A compressed server copy is inflated, " +
+				"so the download restores the file exactly as the phone recorded it. Used after local raw cleanup.",
+			Tag:      tagSessions,
+			Security: securityUser,
+			Params: []routeParam{
+				pathParam("id", "Session record id."),
+				{
+					Name:        "file",
+					In:          "path",
+					Required:    true,
+					Description: "Recording file to download.",
+					Schema: map[string]any{"type": "string", "enum": []string{
+						metaFileName, eventsFileName, hrFileName, ecgFileName, accFileName,
+					}},
+				},
+			},
+			Responses: withErrors([]routeResponse{
+				{
+					Status:      200,
+					Description: "The raw recording file.",
+					ContentType: "application/octet-stream",
+					Schema: func(*schemaReflector) map[string]any {
+						return map[string]any{"type": "string", "format": "binary"}
+					},
+				},
+			}, 400, 401, 403, 404),
+			Handler: SessionFile,
+		},
+		{
+			Method:      http.MethodGet,
 			Path:        "/api/taiga/sessions/{id}/upload",
-			OperationID: "getUpload",
-			Summary:     "Get the upload manifest of a session",
-			Tag:         tagUploads,
-			Security:    securityUser,
-			Params:      []routeParam{pathParam("id", "Session record id.")},
+			OperationID: "getUpload", Summary: "Get the upload manifest of a session",
+			Tag:      tagUploads,
+			Security: securityUser,
+			Params:   []routeParam{pathParam("id", "Session record id.")},
 			Responses: withErrors([]routeResponse{
 				jsonResponse(200, "The session and its upload manifest.", SessionUploadResponse{}),
 			}, 401, 403, 404),
