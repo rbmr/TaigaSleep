@@ -2,7 +2,7 @@
 
 Epochs are aligned to the recording start and cover the whole recording. A
 stager may use any internal window size, but its output is aggregated to this
-grid so hypnograms and metrics remain comparable across algorithms.
+grid so sleep-stage timelines and metrics remain comparable across algorithms.
 """
 
 from __future__ import annotations

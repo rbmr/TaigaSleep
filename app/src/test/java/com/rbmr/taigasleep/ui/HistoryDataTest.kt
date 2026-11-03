@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.ui
 
 import com.rbmr.taigasleep.remote.AnalysisSummaryDto
 import com.rbmr.taigasleep.remote.QualityDto
+import com.rbmr.taigasleep.remote.SleepQualityDto
 import com.rbmr.taigasleep.remote.SessionDto
 import com.rbmr.taigasleep.remote.SessionListDto
 import com.rbmr.taigasleep.remote.SessionSummaryDto
@@ -38,7 +39,7 @@ class HistoryDataTest {
             analysisId = "a1",
             phase = UploadPhase.DONE,
             segments = segmentSeconds(),
-            qualityScore = 81.0,
+            sleepScore = 81.0,
         )
 
     val item = buildNightItems(listOf(local), mapOf("local" to record), null).single()
@@ -47,7 +48,7 @@ class HistoryDataTest {
     assertEquals("s1", item.remoteId)
     assertEquals("a1", item.analysisId)
     assertEquals(UploadPhase.DONE, item.phase)
-    assertEquals(81.0, item.qualityScore ?: 0.0, 0.001)
+    assertEquals(81.0, item.sleepScore ?: 0.0, 0.001)
     assertEquals(2, item.segments.size)
   }
 
@@ -76,6 +77,7 @@ class HistoryDataTest {
                                     model_version = "1.0.0",
                                     status = "done",
                                     quality = QualityDto(score = 88.0),
+                                    sleep_quality = SleepQualityDto(score = 92.0),
                                     stages =
                                         StageSummaryDto(
                                             epoch_seconds = 30,
@@ -97,8 +99,45 @@ class HistoryDataTest {
     assertEquals(UploadPhase.DONE, item.phase)
     assertEquals("s1", item.remoteId)
     assertEquals("a1", item.analysisId)
-    assertEquals(88.0, item.qualityScore ?: 0.0, 0.001)
+    assertEquals(92.0, item.sleepScore ?: 0.0, 0.001)
     assertEquals(1L, item.segments.last().count.toLong())
+  }
+
+  @Test
+  fun aDataQualityScoreIsNeverShownAsTheSleepScore() {
+    val remote =
+        SessionListDto(
+            items =
+                listOf(
+                    SessionSummaryDto(
+                        session =
+                            SessionDto(
+                                id = "s1",
+                                client_session_id = "local",
+                                upload_status = "uploaded",
+                            ),
+                        analyses =
+                            listOf(
+                                AnalysisSummaryDto(
+                                    id = "a1",
+                                    status = "done",
+                                    quality = QualityDto(score = 88.0),
+                                    stages =
+                                        StageSummaryDto(
+                                            epoch_seconds = 30,
+                                            count = 1,
+                                            segments = listOf(StageSegmentDto("light", 1)),
+                                        ),
+                                )
+                            ),
+                    )
+                )
+        )
+
+    val item = buildNightItems(listOf(local), emptyMap(), remote).single()
+
+    assertEquals(UploadPhase.DONE, item.phase)
+    assertNull(item.sleepScore)
   }
 
   @Test
@@ -191,7 +230,7 @@ class HistoryDataTest {
           warning = null,
           epochSeconds = 30,
           segments = emptyList(),
-          qualityScore = null,
+          sleepScore = null,
           model = null,
           modelVersion = null,
           resultDownloaded = false,

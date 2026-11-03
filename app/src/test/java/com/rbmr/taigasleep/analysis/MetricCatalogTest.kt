@@ -69,6 +69,28 @@ class MetricCatalogTest {
   }
 
   @Test
+  fun aMetricExplanationKeepsItsSourceOnItsOwnLine() {
+    val explanation =
+        splitMetricExplanation("Time scored as sleep. Source: the stage timeline.")
+
+    assertEquals("Time scored as sleep.", explanation.body)
+    assertEquals("Source: the stage timeline.", explanation.source)
+    assertNull(splitMetricExplanation("No source here.").source)
+  }
+
+  @Test
+  fun nightSectionsDoNotShowTheSameFigureTwice() {
+    val groups =
+        listOf(SleepMetricKeys, HeartRateMetricKeys, DataQualityMetricKeys, MovementMetricKeys)
+    val sectioned = groups.flatten()
+    assertEquals(sectioned.size, sectioned.toSet().size)
+    assertEquals(
+        listOf("final_awakening_s", "hrv_rr_count"),
+        MetricCatalog.map { it.key } - sectioned.toSet(),
+    )
+  }
+
+  @Test
   fun qualityBandsFollowTheDisplayThresholds() {
     assertEquals(QualityBand.EXCELLENT, qualityBand(92.0))
     assertEquals(QualityBand.GOOD, qualityBand(72.0))
@@ -129,6 +151,31 @@ class MetricCatalogTest {
         listOf("wake", "rem", "light", "deep"),
         applicableStages(segments, support),
     )
+  }
+
+  @Test
+  fun applicableStagesOmitUnscoredWhenItHasNoTime() {
+    val segments =
+        listOf(
+            StageSegmentDto("wake", 2),
+            StageSegmentDto("light", 8),
+            StageSegmentDto("unknown", 0),
+        )
+    val support =
+        mapOf(
+            "time_in_wake_s" to MetricSupportDto("supported"),
+            "time_in_light_s" to MetricSupportDto("supported"),
+            "time_in_deep_s" to
+                MetricSupportDto("unsupported_algorithm", "algorithm_does_not_distinguish_deep"),
+            "time_in_rem_s" to
+                MetricSupportDto("unsupported_algorithm", "algorithm_does_not_distinguish_rem"),
+            "time_in_nrem_s" to
+                MetricSupportDto("unsupported_algorithm", "algorithm_does_not_distinguish_nrem"),
+            "time_in_sleep_s" to
+                MetricSupportDto("unsupported_algorithm", "algorithm_does_not_distinguish_sleep"),
+        )
+
+    assertEquals(listOf("wake", "light"), applicableStages(segments, support))
   }
 
   @Test

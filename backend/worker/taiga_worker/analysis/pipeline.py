@@ -40,9 +40,11 @@ class AnalysisOutput:
     params: dict[str, Any]
     params_hash: str
     stages: dict[str, Any]
+    hr: dict[str, Any]
     metrics: dict[str, Any]
     metric_support: dict[str, Any]
     quality: dict[str, Any]
+    sleep_quality: dict[str, Any]
     capabilities: dict[str, Any]
     provenance: dict[str, Any]
     extras: dict[str, Any]
@@ -57,9 +59,11 @@ class AnalysisOutput:
             "params": self.params,
             "params_hash": self.params_hash,
             "stages": self.stages,
+            "hr": self.hr,
             "metrics": self.metrics,
             "metric_support": self.metric_support,
             "quality": self.quality,
+            "sleep_quality": self.sleep_quality,
             "capabilities": self.capabilities,
             "provenance": self.provenance,
             "extras": self.extras,
@@ -159,6 +163,22 @@ def _serialize_stages(
     }
 
 
+def _serialize_hr(recording: Recording, grid: EpochGrid) -> dict[str, Any]:
+    """The epoch-aligned HR series, with nulls for epochs without valid samples."""
+
+    means = [
+        None if not np.isfinite(value) else round(float(value), 1)
+        for value in grid.hr_mean_bpm
+    ]
+    return {
+        "epoch_seconds": grid.epoch_seconds,
+        "start_unix_ms": recording.start_unix_ns // 1_000_000,
+        "count": grid.count,
+        "mean_bpm": means,
+        "sample_count": [int(value) for value in grid.hr_sample_count],
+    }
+
+
 def _required_streams(recording: Recording, info: Any) -> None:
     for need in info.needs:
         if not need.required:
@@ -248,6 +268,7 @@ def run_analysis(
         supported_stages=result.supported_stages,
     )
     serialized_stages = _serialize_stages(recording, grid, result, confidence)
+    serialized_hr = _serialize_hr(recording, grid)
     runtime_s = round(time.monotonic() - started, 3)
 
     capabilities = {
@@ -307,9 +328,11 @@ def run_analysis(
         params=_jsonable(requested_params),
         params_hash=params_hash_override or params_hash(requested_params),
         stages=serialized_stages,
+        hr=serialized_hr,
         metrics=derived.metrics,
         metric_support=derived.support,
         quality=derived.quality,
+        sleep_quality=derived.sleep_quality,
         capabilities=capabilities,
         provenance=provenance,
         extras=_jsonable(dict(result.extras)),

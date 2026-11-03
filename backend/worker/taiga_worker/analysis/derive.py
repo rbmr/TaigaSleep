@@ -30,6 +30,22 @@ QUALITY_WEIGHTS = {
     "hr_coverage": 0.15,
 }
 QUALITY_WEIGHTS_VERSION = 1
+# A transparent, versioned product policy over the sleep figures. Each component
+# is scaled to 0..1 where higher is better; unavailable components are removed and
+# the remaining weights are renormalized. The score deliberately has no target
+# sleep duration: duration is reported as its own figure instead.
+SLEEP_SCORE_WEIGHTS = {
+    "sleep_efficiency": 0.30,
+    "waso": 0.20,
+    "awakenings_per_hour": 0.20,
+    "sleep_latency": 0.15,
+    "restorative_sleep_share": 0.15,
+}
+SLEEP_SCORE_VERSION = 1
+WASO_ZERO_SCORE_SECONDS = 7200.0
+AWAKENINGS_PER_HOUR_ZERO_SCORE = 6.0
+SLEEP_LATENCY_ZERO_SCORE_SECONDS = 3600.0
+RESTORATIVE_SHARE_FULL_SCORE = 0.5
 USABLE_COVERAGE_THRESHOLD = 0.5
 USABLE_CONTACT_THRESHOLD = 0.5
 ARTIFACT_COVERAGE_THRESHOLD = 0.5
@@ -38,6 +54,8 @@ MIN_RR_INTERVALS = 120
 RR_MIN_MS = 300.0
 RR_MAX_MS = 2000.0
 MOVEMENT_THRESHOLD_G = 0.08
+# A wake period is only an awakening when it lasts longer than two minutes.
+AWAKENING_MIN_SECONDS = 120.0
 
 
 @dataclass(frozen=True)
@@ -45,6 +63,7 @@ class Derived:
     metrics: dict[str, Any]
     support: dict[str, Any]
     quality: dict[str, Any]
+    sleep_quality: dict[str, Any]
 
 
 def _support(status: str, reason: str | None = None) -> dict[str, Any]:
@@ -228,7 +247,7 @@ def derive(
         waso = float(np.sum(wake_between) * epoch_seconds)
         awakenings = 0
         for start, end in _segments(wake_between):
-            if end - start >= 1:
+            if (end - start) * epoch_seconds > AWAKENING_MIN_SECONDS:
                 awakenings += 1
     else:
         latency = None
@@ -296,8 +315,104 @@ def derive(
         confidence=confidence,
         artifacts=artifacts,
     )
+    sleep_quality = _sleep_quality(
+        counts=counts,
+        supported=supported,
+        epoch_seconds=epoch_seconds,
+        sleep_duration=sleep_duration,
+        efficiency=efficiency,
+        latency=latency,
+        waso=waso,
+        awakenings=awakenings,
+    )
 
-    return Derived(metrics=metrics, support=support, quality=quality)
+    return Derived(
+        metrics=metrics,
+        support=support,
+        quality=quality,
+        sleep_quality=sleep_quality,
+    )
+
+
+def _sleep_score_value(value: float, zero_at: float) -> float:
+    """Scale a lower-is-better figure to 0..1, reaching 0 at ``zero_at``."""
+
+    if zero_at <= 0:
+        return 0.0
+    return round(float(min(1.0, max(0.0, 1.0 - value / zero_at))), 4)
+
+
+def _sleep_quality(
+    *,
+    counts: Mapping[Stage, int],
+    supported: set[Stage],
+    epoch_seconds: int,
+    sleep_duration: float,
+    efficiency: float | None,
+    latency: float | None,
+    waso: float | None,
+    awakenings: int | None,
+) -> dict[str, Any]:
+    sleep_hours = sleep_duration / 3600.0
+    restorative_seconds: float | None = None
+    if "deep" in supported and "rem" in supported and sleep_duration > 0:
+        restorative_seconds = float((counts["deep"] + counts["rem"]) * epoch_seconds)
+
+    values: dict[str, float | None] = {
+        "sleep_efficiency": None if efficiency is None else round(float(efficiency), 4),
+        "waso": None if waso is None else _sleep_score_value(waso, WASO_ZERO_SCORE_SECONDS),
+        "awakenings_per_hour": (
+            None
+            if awakenings is None or sleep_hours <= 0
+            else _sleep_score_value(awakenings / sleep_hours, AWAKENINGS_PER_HOUR_ZERO_SCORE)
+        ),
+        "sleep_latency": (
+            None
+            if latency is None
+            else _sleep_score_value(latency, SLEEP_LATENCY_ZERO_SCORE_SECONDS)
+        ),
+        "restorative_sleep_share": (
+            None
+            if restorative_seconds is None
+            else round(
+                min(1.0, restorative_seconds / sleep_duration / RESTORATIVE_SHARE_FULL_SCORE),
+                4,
+            )
+        ),
+    }
+
+    components: dict[str, Any] = {}
+    notes: list[str] = []
+    for name, value in values.items():
+        weight = SLEEP_SCORE_WEIGHTS[name]
+        if value is None:
+            components[name] = {"value": None, "weight": weight, "available": False}
+            notes.append(f"{name} unavailable; its weight was renormalized")
+        else:
+            components[name] = {
+                "value": round(float(min(1.0, max(0.0, value))), 4),
+                "weight": weight,
+                "available": True,
+            }
+
+    available_weight = sum(
+        component["weight"] for component in components.values() if component["available"]
+    )
+    if available_weight <= 0:
+        score = None
+    else:
+        score = 100.0 * sum(
+            component["value"] * component["weight"]
+            for component in components.values()
+            if component["available"]
+        ) / available_weight
+
+    return {
+        "score": None if score is None else round(score, 1),
+        "components_version": SLEEP_SCORE_VERSION,
+        "components": components,
+        "notes": notes,
+    }
 
 
 def _quality(
@@ -395,4 +510,12 @@ def _quality(
     }
 
 
-__all__ = ["Derived", "derive", "QUALITY_WEIGHTS", "QUALITY_WEIGHTS_VERSION"]
+__all__ = [
+    "Derived",
+    "derive",
+    "QUALITY_WEIGHTS",
+    "QUALITY_WEIGHTS_VERSION",
+    "AWAKENING_MIN_SECONDS",
+    "SLEEP_SCORE_WEIGHTS",
+    "SLEEP_SCORE_VERSION",
+]

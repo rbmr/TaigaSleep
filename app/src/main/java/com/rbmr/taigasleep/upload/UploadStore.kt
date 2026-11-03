@@ -52,7 +52,7 @@ data class UploadRecord(
     /** Enough of the result to draw the History row without a network call. */
     val epochSeconds: Int = 30,
     val segments: List<StageSegmentDto> = emptyList(),
-    val qualityScore: Double? = null,
+    val sleepScore: Double? = null,
     val model: String? = null,
     val modelVersion: String? = null,
     /** True only when the full analysis payload is in the local result cache. */
@@ -146,7 +146,7 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
       modelVersion: String?,
       epochSeconds: Int,
       segments: List<StageSegmentDto>,
-      qualityScore: Double?,
+      sleepScore: Double?,
       resultDownloaded: Boolean,
   ) {
     update(id) {
@@ -164,7 +164,7 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
           modelVersion = modelVersion,
           epochSeconds = epochSeconds,
           segments = segments,
-          qualityScore = qualityScore,
+          sleepScore = sleepScore,
           resultDownloaded = resultDownloaded,
       )
     }

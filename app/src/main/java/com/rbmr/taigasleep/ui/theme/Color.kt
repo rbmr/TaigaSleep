@@ -38,6 +38,8 @@ class TaigaColors(
     val stageRem: Color,
     val stageLight: Color,
     val stageDeep: Color,
+    // Heart-rate curve; deliberately outside the sleep-stage palette.
+    val chartHr: Color,
 )
 
 val LightTaigaColors =
@@ -67,6 +69,7 @@ val LightTaigaColors =
         stageRem = Color(0xFF8E6AD8),
         stageLight = Color(0xFF5BA8E0),
         stageDeep = Color(0xFF4B59B8),
+        chartHr = Color(0xFFB23A48),
     )
 
 val DarkTaigaColors =
@@ -96,6 +99,7 @@ val DarkTaigaColors =
         stageRem = Color(0xFFA57BE8),
         stageLight = Color(0xFF6FB7F2),
         stageDeep = Color(0xFF7B8CFF),
+        chartHr = Color(0xFFFF9AA8),
     )
 
 // Night sky of the launcher icon, also used as the dark app background.

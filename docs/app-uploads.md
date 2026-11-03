@@ -13,7 +13,8 @@ night that exists on the phone. Uploading is an extra step attached to that
 local record; it never moves or rewrites the recording.
 
 There is no local sleep analysis. The phone records and talks to the backend;
-stages, metrics, quality and HRV come from the server.
+sleep stages, the sleep score, heart-rate statistics, data quality and HRV come
+from the server.
 
 ## Automatic upload
 
@@ -41,9 +42,9 @@ History shows one of these states per recording:
   while the app is in the background.
 - **Waiting for analysis** — the upload completed and the analysis job is queued
   or running on a worker.
-- **Quality score / done** — a result is available. The row also shows whether
-  the full result has been downloaded; the app fetches missing results as soon as
-  it can.
+- **Sleep score / done** — a result is available. The row also shows whether the
+  full result has been downloaded; the app fetches missing results as soon as it
+  can.
 - **Failed** — login, network, server or analysis failure. The error is shown and
   Retry is available.
 
@@ -58,13 +59,41 @@ closed, backs off exponentially while the queue is empty, and stops when the
 analysis is done, failed or the user logs out. History also proactively downloads
 any finished result that is not in the local cache yet.
 
+## Night detail
+
+A finished night reads as three sections, in this order:
+
+- **Sleep** — the sleep-stages chart and the stage distribution with time and
+  percentage per stage, followed by recording length, sleep efficiency, total
+  sleep, time to fall asleep, awakenings and WASO. An awakening is a wake
+  period longer than two minutes.
+- **Heart rate** — average, lowest and highest heart rate and HRV RMSSD and
+  SDNN, plus a heart-rate chart built from the cached epoch series. Gaps in the
+  series stay gaps and are never interpolated.
+- **Data quality** — the data-quality score and its breakdown, with scored and
+  unscored time.
+
+The sleep score is the prominent score in History and in the night header. The
+data-quality score is separate and explicitly labelled: it describes the
+recording and the analysis, not how well the night was slept. A movement block
+follows for results that contain accelerometer figures.
+
+Both time charts draw an hourly grid with `HH:mm` labels, keep the plot above
+the grid, and support touch scrubbing: pressing a chart shows the time and the
+value at that point in a tooltip away from the finger. The expand button opens
+the chart in landscape full screen; close returns to the night.
+
+A result cached before these fields existed still loads. The heart-rate chart is
+hidden, and the sleep score shows as unavailable instead of reusing the
+data-quality value.
+
 ## Stager selection
 
-The app owns a hardcoded best-to-worst preference list
-(`wav2sleep`, `sleepecg`, `baseline`). It fetches the installed algorithms and
-their stream requirements from the backend, filters out those the recording
-cannot feed, and requests the best compatible id and version. `baseline` is the
-safe fallback. The backend still requires an explicit model and version.
+The app owns a hardcoded best-to-worst preference list (`wav2sleep`, `baseline`).
+It fetches the installed algorithms and their stream requirements from the
+backend, filters out those the recording cannot feed, and requests the best
+compatible id and version. wav2sleep is the default sleep-stage classifier;
+`baseline` is the safe fallback. The backend still requires an explicit model and version.
 User-configurable stager preferences are tracked in #32.
 
 ## Recording states

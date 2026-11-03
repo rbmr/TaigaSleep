@@ -35,8 +35,8 @@ data class MetricSpec(
 )
 
 /**
- * The grid is deliberately fixed: every metric is always rendered. A device or algorithm that
- * cannot produce one leaves it blank with an explanation instead of hiding it.
+ * The catalog is deliberately fixed: every metric can be explained. The night detail offers only
+ * the metrics that belong to its section, so the same figure is never shown twice.
  */
 val MetricCatalog: List<MetricSpec> =
     listOf(
@@ -59,6 +59,45 @@ val MetricCatalog: List<MetricSpec> =
         MetricSpec("unscored_s", R.string.metric_unscored, R.string.metric_unscored_explanation, MetricValueKind.DURATION),
         MetricSpec("total_duration_s", R.string.metric_total_duration, R.string.metric_total_duration_explanation, MetricValueKind.DURATION),
     )
+
+/** The sleep figures of the night-detail sleep block. */
+val SleepMetricKeys =
+    listOf(
+        "total_duration_s",
+        "sleep_efficiency",
+        "total_sleep_s",
+        "sleep_latency_s",
+        "awakenings",
+        "waso_s",
+    )
+
+/** The heart-rate figures. HRV sample count is a supporting detail, not a headline figure. */
+val HeartRateMetricKeys =
+    listOf("hr_mean_bpm", "hr_min_bpm", "hr_max_bpm", "hrv_rmssd_ms", "hrv_sdnn_ms")
+
+/** Data-quality figures. Coverage stays part of the data-quality score. */
+val DataQualityMetricKeys = listOf("scored_duration_s", "unscored_s")
+
+/** The movement figures that belong to none of the three sections. */
+val MovementMetricKeys = listOf("movement_index", "movement_mean_g", "movement_epochs")
+
+fun metricSpec(key: String): MetricSpec? = MetricCatalog.firstOrNull { it.key == key }
+
+data class MetricExplanation(val body: String, val source: String?)
+
+/** Split a metric explanation into its main text and its trailing Source note. */
+fun splitMetricExplanation(text: String): MetricExplanation {
+  val index = text.indexOf("Source:")
+  if (index < 0) return MetricExplanation(text.trim(), null)
+  return MetricExplanation(
+      body = text.substring(0, index).trimEnd(),
+      source = text.substring(index).trim(),
+  )
+}
+
+/** The raw numeric value of one metric, or null when it is absent or not a number. */
+fun metricNumber(metrics: kotlinx.serialization.json.JsonObject?, key: String): Double? =
+    metrics?.get(key).numberOrNull()
 
 fun supportState(
     key: String,

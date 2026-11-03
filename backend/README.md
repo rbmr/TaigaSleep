@@ -113,7 +113,7 @@ and reports the result. The supervisor never reads the database or recording
 files directly.
 
 The analysis library lives in `taiga_worker/analysis/`: the stager contract,
-recording decoder, shared metrics/quality and the built-in `baseline` stager.
+recording decoder, shared metrics, data quality, the sleep score and the built-in `baseline` stager.
 See [`docs/analysis-contract.md`](../docs/analysis-contract.md) for the plugin
 interface, canonical stages, result shape and a minimal third-party example.
 
@@ -132,7 +132,7 @@ export TAIGA_WAV2SLEEP_CHECKPOINT=/srv/taiga/models/wav2sleep
 
 The checkpoint is pinned by revision and SHA-256 and is never downloaded during
 a job. When the extra and checkpoint are present the worker advertises
-`wav2sleep`; the app prefers it over the baseline when the recording has ECG.
+`wav2sleep`; the app prefers wav2sleep and uses baseline only when it is unavailable or incompatible.
 The adapter gates on Polar HR contact and ECG signal quality, so a detached
 strap becomes `unknown` instead of wake, and smooths stage probabilities to
 remove per-epoch flicker. Set `TAIGA_JOB_MEMORY_MB=2048` (the default 1024 is
@@ -365,8 +365,11 @@ POST /api/taiga/jobs/{id}/retry                   requeue a failed analysis
   `sort` accepts `started_at`, `created`, `updated`, `duration_s` and a leading
   `-` for descending. Model/analysis-status filtering is left to the app.
 - The full result contains `contract_version`, `model`, `model_version`,
-  `params`, `params_hash`, compact `stages`, `metrics`, `metric_support`,
-  `quality`, `capabilities`, `provenance`, `extras` and `warnings`.
+  `params`, `params_hash`, compact `stages`, the epoch-aligned `hr` series,
+  `metrics`, `metric_support`, `quality`, `sleep_quality`, `capabilities`,
+  `provenance`, `extras` and `warnings`. `quality` is the data-quality score;
+  `sleep_quality` is the separate sleep score. Both are optional in results
+  stored before they existed.
 - Worker-only download routes are scoped to the job the worker currently holds:
   `GET /api/taiga/worker/sessions/{id}/manifest?job=...&worker=...` and
   `GET /api/taiga/worker/sessions/{id}/files/{file}?job=...&worker=...`.
@@ -389,8 +392,9 @@ POST /api/taiga/jobs/{id}/retry                   requeue a failed analysis
   `created` and `updated`. Owner-only rules.
 - `analyses` — one row per `(session, model, model_version, params_hash)`:
   `session`, `model`, `model_version`, `params`, `params_hash`, `status`,
-  `contract_version`, `stages`, `metrics`, `metric_support`, `quality`,
-  `capabilities`, `provenance`, `extras`, `warnings`, `error`, plus timestamps.
+  `contract_version`, `stages`, `hr`, `metrics`, `metric_support`, `quality`,
+  `sleep_quality`, `capabilities`, `provenance`, `extras`, `warnings`, `error`,
+  plus timestamps.
   Users can list/view their own rows; create/update/delete are server-only.
 - `jobs` — durable queue: `session`, `analysis`, `kind`, `model`,
   `model_version`, `params_hash`, `status`, `attempts`, `available_at`,
@@ -740,7 +744,8 @@ public API, but the job payload shape is expected to stay in sync.
 
 ## Out of scope
 
-Accuracy claims without ground-truth labels, optional compressed uploads (#24),
-OpenAPI generation (#28), the app-side upload and result UI (#11), and a sleep
-score. The score is a product policy over stages and metrics, not a stager.
+Accuracy claims without ground-truth labels, optional compressed uploads (#24)
+and the app-side upload and result UI (#11). The data-quality score and the
+sleep score are product policies over stages and metrics, implemented in the
+shared derive layer rather than in a stager.
 

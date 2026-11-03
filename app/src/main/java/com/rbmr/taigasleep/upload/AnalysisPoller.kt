@@ -65,7 +65,7 @@ class AnalysisPoller(
             modelVersion = analysis.model_version,
             epochSeconds = analysis.stages?.epoch_seconds ?: 30,
             segments = analysis.stages?.segments.orEmpty(),
-            qualityScore = analysis.quality?.score,
+            sleepScore = analysis.sleep_quality?.score,
             resultDownloaded = saved,
         )
         PollResult.Done(analysis)

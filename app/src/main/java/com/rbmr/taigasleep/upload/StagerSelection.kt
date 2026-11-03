@@ -5,8 +5,11 @@ import com.rbmr.taigasleep.remote.AlgorithmListDto
 import com.rbmr.taigasleep.remote.TaigaClient
 import com.rbmr.taigasleep.storage.SessionConfig
 
-/** Best-to-worst order used when more than one stager is available. */
-val StagerPreference = listOf("wav2sleep", "sleep-ecg", "baseline")
+/**
+ * Best-to-worst order used when more than one stager is available. wav2sleep is the default
+ * classifier; baseline remains the last-resort fallback when no worker has reported yet.
+ */
+val StagerPreference = listOf("wav2sleep", "baseline")
 
 data class StagerChoice(val id: String, val version: String)
 

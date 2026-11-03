@@ -38,6 +38,17 @@ class StagerSelectionTest {
   }
 
   @Test
+  fun wav2sleepIsPreferredOverSleepEcg() {
+    val choice =
+        selectStager(
+            fullConfig,
+            listOf(wav2sleep(version = "9.9.9"), sleepEcg(version = "1.0.0")),
+        )
+
+    assertEquals(StagerChoice("wav2sleep", "9.9.9"), choice)
+  }
+
+  @Test
   fun anIncompatibleStagerIsSkipped() {
     val noEcg = fullConfig.copy(ecg = false)
     val choice =
@@ -50,7 +61,7 @@ class StagerSelectionTest {
             ),
         )
 
-    assertEquals(StagerChoice("sleep-ecg", "1.2.0"), choice)
+    assertEquals(StagerChoice("baseline", "1.0.0"), choice)
   }
 
   @Test
