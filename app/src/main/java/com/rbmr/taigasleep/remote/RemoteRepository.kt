@@ -18,6 +18,9 @@ import kotlinx.coroutines.withContext
  * [check] does both checks for the Remote screen. All of them report failures through the same pair
  * of shared paths: a transport failure means the server is unreachable and keeps the token, while a
  * rejected token means a login is needed and drops it.
+ *
+ * [phase] is the step the setup flow has to show. It is derived here, never in the UI, so a screen
+ * that reopens or resumes always lands on the step the saved state requires.
  */
 class RemoteRepository internal constructor(
     private val store: RemoteStore,
@@ -28,6 +31,20 @@ class RemoteRepository internal constructor(
 
   private val _status = MutableStateFlow(store.status())
   val status: StateFlow<RemoteStatus> = _status.asStateFlow()
+
+  /**
+   * The address the last check ran against, normalized. It is in memory only: an address that has
+   * not been saved is not a fact about the account, but it is what the flow has to work on, so a
+   * server that answers and has no token for it is "remote, not logged in" rather than "no remote".
+   */
+  private var addressInPlay: String? = null
+
+  /** The address a login would use: the one last checked, or the saved one. Null when there is none. */
+  private val _address = MutableStateFlow(addressInPlay ?: savedBaseUrl())
+  val address: StateFlow<String?> = _address.asStateFlow()
+
+  private val _state = MutableStateFlow(computeState())
+  val state: StateFlow<RemoteState> = _state.asStateFlow()
 
   private val _checking = MutableStateFlow(false)
   val checking: StateFlow<Boolean> = _checking.asStateFlow()
@@ -59,8 +76,8 @@ class RemoteRepository internal constructor(
   /**
    * Pings the address typed in the URL field. This is step one, before any login: it validates the
    * address and calls the unauthenticated health endpoint. It never changes the saved session, but
-   * its result is the shared connection state, so the field, the status card and the login button
-   * all agree.
+   * its result is the shared connection state, so the flow, the address field and the login all
+   * agree.
    */
   suspend fun checkAddress(rawUrl: String): AddressCheck =
       withContext(Dispatchers.IO) {
@@ -71,6 +88,7 @@ class RemoteRepository internal constructor(
                 RemoteUrl.parse(rawUrl).getOrElse { e ->
                   return@withLock failedAddress(parseError(e), "address")
                 }
+            addressInPlay = address.baseUrl
             val error = health(address.baseUrl, "address")
             if (error != null) return@withLock AddressCheck.Failure(error)
             AddressCheck.Reachable(address.baseUrl, address.insecure)
@@ -81,27 +99,22 @@ class RemoteRepository internal constructor(
       }
 
   /**
-   * The full check the Remote screen runs when it opens and when it resumes: health first, then
-   * the saved token, but only for the saved address and only when health passed. A server that is
-   * down never costs the user the token.
+   * Re-determines the status of the address in play: health first, then the saved token when the
+   * address is the one it belongs to. This is what the Status page's "Check connection" runs, so a
+   * server that is down never costs the user the token and a recovered one restores the session.
+   * Returns null when there is no address to check.
    */
-  suspend fun check(rawUrl: String): AddressCheck =
+  suspend fun checkStatus(): CheckResult? =
       withContext(Dispatchers.IO) {
         mutex.withLock {
           _checking.value = true
           try {
-            val address =
-                RemoteUrl.parse(rawUrl).getOrElse { e ->
-                  return@withLock failedAddress(parseError(e), "open")
-                }
-            val error = health(address.baseUrl, "open")
-            if (error != null) return@withLock AddressCheck.Failure(error)
-
+            val baseUrl = addressInPlay ?: savedBaseUrl() ?: return@withLock null
+            val error = health(baseUrl, "status")
+            if (error != null) return@withLock CheckResult.Failure(RemoteStep.REACHABLE, error)
             val token = store.token
-            if (token != null && address.baseUrl == savedBaseUrl()) {
-              tokenCheck(address.baseUrl, token, "open")
-            }
-            AddressCheck.Reachable(address.baseUrl, address.insecure)
+            if (token == null || baseUrl != savedBaseUrl()) return@withLock null
+            tokenCheck(baseUrl, token, "status")
           } finally {
             _checking.value = false
           }
@@ -130,6 +143,7 @@ class RemoteRepository internal constructor(
               return@withLock CheckResult.Failure(RemoteStep.LOGIN, RemoteError.MissingCredentials)
             }
 
+            addressInPlay = address.baseUrl
             val session =
                 try {
                   api.login(address.baseUrl, email.trim(), password)
@@ -173,6 +187,7 @@ class RemoteRepository internal constructor(
                   return@withLock CheckResult.Failure(RemoteStep.REACHABLE, error)
                 }
             val token = store.token
+            addressInPlay = address.baseUrl
             val error = health(address.baseUrl, "resume")
             if (error != null) return@withLock CheckResult.Failure(RemoteStep.REACHABLE, error)
             if (token == null) {
@@ -270,6 +285,21 @@ class RemoteRepository internal constructor(
 
   private fun publish() {
     _status.value = store.status()
+    _address.value = addressInPlay ?: savedBaseUrl()
+    _state.value = computeState()
+  }
+
+  /**
+   * The status the Status page shows. A server that cannot be reached is reported as such; a
+   * reachable one is connected only when the token that proved itself belongs to it.
+   */
+  private fun computeState(): RemoteState {
+    val inPlay = addressInPlay ?: savedBaseUrl() ?: return RemoteState.NO_REMOTE
+    return when {
+      _status.value is RemoteStatus.Unreachable -> RemoteState.UNREACHABLE
+      _status.value is RemoteStatus.Connected && inPlay == savedBaseUrl() -> RemoteState.CONNECTED
+      else -> RemoteState.NOT_LOGGED_IN
+    }
   }
 
   private fun savedBaseUrl(): String? =
@@ -290,6 +320,7 @@ class RemoteRepository internal constructor(
           put("source", source)
           put("ok", ok)
           put("state", stateLabel())
+          put("remote", _state.value.name.lowercase())
           if (step != null) put("step", step.name.lowercase())
           if (error != null) put("error", error.label)
         }

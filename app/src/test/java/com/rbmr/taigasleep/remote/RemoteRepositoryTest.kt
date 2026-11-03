@@ -216,16 +216,17 @@ class RemoteRepositoryTest {
   }
 
   @Test
-  fun `opening the remote reports unreachable and keeps the token`() {
+  fun `the status check reports unreachable and keeps the token`() {
     val repo = repository()
     login(repo)
     now += 5 * 60_000
     api.healthError = RemoteError.Unreachable
 
-    val checked = runBlocking { repo.check("http://localhost:8090") }
+    val checked = runBlocking { repo.checkStatus() }
 
-    assertEquals(AddressCheck.Failure(RemoteError.Unreachable), checked)
+    assertEquals(CheckResult.Failure(RemoteStep.REACHABLE, RemoteError.Unreachable), checked)
     assertEquals(RemoteStatus.Unreachable(RemoteError.Unreachable, now), repo.status.value)
+    assertEquals(RemoteState.UNREACHABLE, repo.state.value)
     assertEquals("token-1", store().token)
   }
 
@@ -234,14 +235,15 @@ class RemoteRepositoryTest {
     val repo = repository()
     login(repo)
     api.healthError = RemoteError.Unreachable
-    runBlocking { repo.check("http://localhost:8090") }
+    runBlocking { repo.checkStatus() }
 
     api.healthError = null
     now += 60_000
-    val checked = runBlocking { repo.check("http://localhost:8090") }
+    val checked = runBlocking { repo.checkStatus() }
 
-    assertEquals(AddressCheck.Reachable("http://localhost:8090", insecure = true), checked)
+    assertEquals(CheckResult.Success("me@example.com", now), checked)
     assertEquals(RemoteStatus.Connected("me@example.com", now), repo.status.value)
+    assertEquals(RemoteState.CONNECTED, repo.state.value)
     assertEquals("token-2", store().token)
     assertEquals("auth-check:token-2", api.calls.last())
   }
@@ -252,7 +254,7 @@ class RemoteRepositoryTest {
     login(repo)
     api.calls.clear()
 
-    runBlocking { repo.check("http://other.local:8090") }
+    runBlocking { repo.checkAddress("http://other.local:8090") }
 
     // The saved token belongs to the saved address, so it is not sent anywhere else.
     assertEquals(listOf("health"), api.calls)
@@ -318,6 +320,119 @@ class RemoteRepositoryTest {
     assertEquals("http://localhost:8090", store().url)
     assertTrue(repo.status.value is RemoteStatus.LoginNeeded)
     assertNull((repo.status.value as RemoteStatus.LoginNeeded).reason)
+  }
+
+  @Test
+  fun `an unconfigured remote has no remote`() {
+    val repo = repository()
+
+    assertEquals(RemoteState.NO_REMOTE, repo.state.value)
+    assertNull(repo.address.value)
+  }
+
+  @Test
+  fun `a server that answers without a saved session is not logged in`() {
+    val repo = repository()
+
+    runBlocking { repo.checkAddress("localhost:8090") }
+
+    // The address is not saved yet, so this is not "connected"; the server simply answers.
+    assertNull(store().url)
+    assertEquals("http://localhost:8090", repo.address.value)
+    assertEquals(RemoteState.NOT_LOGGED_IN, repo.state.value)
+  }
+
+  @Test
+  fun `a server that cannot be reached is unreachable`() {
+    val repo = repository()
+    login(repo)
+    api.healthError = RemoteError.Unreachable
+
+    runBlocking { repo.checkStatus() }
+
+    assertEquals(RemoteState.UNREACHABLE, repo.state.value)
+  }
+
+  @Test
+  fun `a passing login is connected`() {
+    val repo = repository()
+
+    login(repo)
+
+    assertEquals(RemoteState.CONNECTED, repo.state.value)
+  }
+
+  @Test
+  fun `a rejected token is not logged in but keeps the remote`() {
+    val repo = repository()
+    login(repo)
+    api.refreshError = RemoteError.SessionExpired
+
+    runBlocking { repo.verify() }
+
+    assertEquals(RemoteState.NOT_LOGGED_IN, repo.state.value)
+    assertEquals("http://localhost:8090", repo.address.value)
+  }
+
+  @Test
+  fun `logging out keeps the remote and drops the session`() {
+    val repo = repository()
+    login(repo)
+
+    repo.logout()
+
+    assertEquals(RemoteState.NOT_LOGGED_IN, repo.state.value)
+    assertEquals("http://localhost:8090", repo.address.value)
+  }
+
+  @Test
+  fun `another address is reachable but not connected`() {
+    val repo = repository()
+    login(repo)
+
+    runBlocking { repo.checkAddress("http://other.local:8090") }
+
+    // The stored token belongs to the saved address, so the other server only got the health check.
+    assertEquals("http://other.local:8090", repo.address.value)
+    assertEquals(RemoteState.NOT_LOGGED_IN, repo.state.value)
+  }
+
+  @Test
+  fun `a restart resumes connected`() {
+    login(repository())
+
+    assertEquals(RemoteState.CONNECTED, RemoteRepository(store(), api) { now }.state.value)
+  }
+
+  @Test
+  fun `the status check without a token only asks for health`() {
+    store().url = "http://localhost:8090"
+    val repo = repository()
+
+    val result = runBlocking { repo.checkStatus() }
+
+    assertNull(result)
+    assertEquals(listOf("health"), api.calls)
+    assertEquals(RemoteState.NOT_LOGGED_IN, repo.state.value)
+  }
+
+  @Test
+  fun `the status check does nothing without an address`() {
+    val repo = repository()
+
+    assertNull(runBlocking { repo.checkStatus() })
+    assertTrue(api.calls.isEmpty())
+    assertEquals(RemoteState.NO_REMOTE, repo.state.value)
+  }
+
+  @Test
+  fun `the address a login would use follows the last check`() {
+    val repo = repository()
+    assertNull(repo.address.value)
+
+    runBlocking { repo.checkAddress("localhost:8090") }
+
+    assertEquals("http://localhost:8090", repo.address.value)
   }
 }
 

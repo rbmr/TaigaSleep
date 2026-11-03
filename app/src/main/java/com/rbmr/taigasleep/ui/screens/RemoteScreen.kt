@@ -4,16 +4,21 @@ import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -28,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -35,7 +41,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,7 +48,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,15 +61,14 @@ import com.rbmr.taigasleep.remote.AddressCheck
 import com.rbmr.taigasleep.remote.CheckResult
 import com.rbmr.taigasleep.remote.RemoteError
 import com.rbmr.taigasleep.remote.RemoteRepository
+import com.rbmr.taigasleep.remote.RemoteState
 import com.rbmr.taigasleep.remote.RemoteStatus
-import com.rbmr.taigasleep.remote.RemoteStep
 import com.rbmr.taigasleep.remote.RemoteUrl
-import com.rbmr.taigasleep.remote.RemoteUrlException
 import com.rbmr.taigasleep.ui.components.ButtonSize
 import com.rbmr.taigasleep.ui.components.PrimaryButton
+import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SecondaryButton
-import com.rbmr.taigasleep.ui.components.SectionLabel
-import com.rbmr.taigasleep.ui.components.StatusBanner
+import com.rbmr.taigasleep.ui.components.SegmentedProgress
 import com.rbmr.taigasleep.ui.components.StatusChip
 import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaCard
@@ -73,22 +76,20 @@ import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** The server ping of the address field, separate from the login that follows it. */
-private sealed interface AddressPing {
-  data object Idle : AddressPing
-
-  data object Checking : AddressPing
-
-  data class Reachable(val baseUrl: String) : AddressPing
-
-  data class Failed(val error: RemoteError) : AddressPing
+/** The three pages of the flow. Which one is shown is the user's choice, not the state's. */
+private enum class RemotePage(val titleRes: Int) {
+  SERVER(R.string.remote_page_server),
+  ACCOUNT(R.string.remote_page_account),
+  STATUS(R.string.remote_page_status),
 }
 
 /**
- * Settings → Remote. Connecting to the server and logging in are two separate steps: opening the
- * screen (and resuming it) checks health and then the stored token, and the address field pings the
- * backend when it loses focus. The status card, the field and the login button read that one shared
- * state, so they never disagree. Nothing here blocks recording.
+ * Settings → Remote, as three self-contained pages: the server, the account and the status.
+ *
+ * Each page shows only its own field and its own action, and nothing about the other pages.
+ * Swiping sideways or the Previous/Next buttons switch pages even when a page cannot act yet; in
+ * that case its action is simply disabled. The connection state lives in [RemoteRepository], so no
+ * page keeps a copy of it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,6 +97,8 @@ fun RemoteScreen(onBack: () -> Unit) {
   val context = LocalContext.current
   val repository = remember { RemoteRepository.of(context) }
   val status by repository.status.collectAsStateWithLifecycle()
+  val state by repository.state.collectAsStateWithLifecycle()
+  val address by repository.address.collectAsStateWithLifecycle()
   val checking by repository.checking.collectAsStateWithLifecycle()
 
   var url by rememberSaveable { mutableStateOf(repository.savedUrl) }
@@ -103,282 +106,153 @@ fun RemoteScreen(onBack: () -> Unit) {
   var password by rememberSaveable { mutableStateOf("") }
   var passwordVisible by rememberSaveable { mutableStateOf(false) }
   var showLogout by rememberSaveable { mutableStateOf(false) }
-  var result by remember { mutableStateOf<CheckResult.Failure?>(null) }
-  var ping by remember { mutableStateOf<AddressPing>(AddressPing.Idle) }
-  var pingGeneration by remember { mutableIntStateOf(0) }
-  var urlWasFocused by remember { mutableStateOf(false) }
+  // Opens where the saved state is most useful, then the user pages through by swipe or by button.
+  val pagerState =
+      rememberPagerState(initialPage = initialPage(repository.state.value).ordinal) {
+        RemotePage.entries.size
+      }
+  val current = RemotePage.entries[pagerState.currentPage]
   val scope = rememberCoroutineScope()
 
-  // Pings the server of the address field; invalid addresses are reported without a request.
-  fun pingServer() {
-    val raw = url
-    if (raw.isBlank()) {
-      ping = AddressPing.Idle
-      return
-    }
-    val parsed = RemoteUrl.parse(raw)
-    val address = parsed.getOrNull()
-    if (address == null) {
-      ping =
-          AddressPing.Failed(
-              (parsed.exceptionOrNull() as? RemoteUrlException)?.error ?: RemoteError.InvalidUrl
-          )
-      return
-    }
-    val current = ping
-    if (current is AddressPing.Reachable && current.baseUrl == address.baseUrl) return
-
-    val generation = ++pingGeneration
-    ping = AddressPing.Checking
-    scope.launch {
-      val checked = repository.checkAddress(raw)
-      if (generation != pingGeneration) return@launch
-      ping =
-          when (checked) {
-            is AddressCheck.Reachable -> AddressPing.Reachable(checked.baseUrl)
-            is AddressCheck.Failure -> AddressPing.Failed(checked.error)
-          }
-    }
-  }
-
-  // Both checks on open and on resume: health, then the saved token when health passed. The
-  // shared state never depends on when this screen was last composed.
-  fun checkRemote() {
-    val raw = url
-    if (raw.isBlank()) {
-      ping = AddressPing.Idle
-      return
-    }
-    val generation = ++pingGeneration
-    ping = AddressPing.Checking
-    scope.launch {
-      val checked = repository.check(raw)
-      if (generation != pingGeneration) return@launch
-      ping =
-          when (checked) {
-            is AddressCheck.Reachable -> AddressPing.Reachable(checked.baseUrl)
-            is AddressCheck.Failure -> AddressPing.Failed(checked.error)
-          }
-    }
-  }
-
+  // The saved session is re-checked on every resume; the server and account pages are untouched.
   LifecycleResumeEffect(Unit) {
-    checkRemote()
+    scope.launch { repository.verify() }
     onPauseOrDispose {}
   }
 
-  val parsedBase = RemoteUrl.parse(url).getOrNull()?.baseUrl
-  val reachableBase = (ping as? AddressPing.Reachable)?.baseUrl
-  val addressOk = reachableBase != null && reachableBase == parsedBase
-  val passwordless =
-      addressOk &&
-          password.isEmpty() &&
-          repository.hasSession &&
-          parsedBase == repository.savedUrl &&
-          email.trim().equals(repository.savedEmail, ignoreCase = true)
-  val canLogin =
-      !checking && addressOk && email.isNotBlank() && (password.isNotEmpty() || passwordless)
-  val passwordHint =
-      when {
-        password.isNotEmpty() -> null
-        passwordless -> R.string.remote_password_keep
-        addressOk -> R.string.remote_password_required
-        else -> null
-      }
+  fun goTo(target: RemotePage) {
+    scope.launch { pagerState.animateScrollToPage(target.ordinal) }
+  }
 
+  // Server page: the address is the only thing it sets, and a reachable one hands the user on.
+  fun checkServer() {
+    scope.launch {
+      val checked = repository.checkAddress(url)
+      if (checked is AddressCheck.Reachable) {
+        val connected = repository.state.value == RemoteState.CONNECTED
+        goTo(if (connected) RemotePage.STATUS else RemotePage.ACCOUNT)
+      }
+    }
+  }
+
+  // Account page: only a stored session can move the user on.
+  fun logIn() {
+    val target = address ?: return
+    scope.launch {
+      if (repository.login(target, email, password) is CheckResult.Success) {
+        password = ""
+        goTo(RemotePage.STATUS)
+      }
+    }
+  }
+
+  // Back leaves the screen; the page arrows at the bottom do the paging.
   BackHandler(onBack = onBack)
 
   Scaffold(
       containerColor = MaterialTheme.colorScheme.background,
       topBar = {
-        TopAppBar(
-            title = { Text(stringResource(R.string.remote_title)) },
-            colors =
-                TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                ),
-            navigationIcon = {
-              IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = stringResource(R.string.remote_back),
-                )
-              }
-            },
-        )
-      },
-  ) { padding ->
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-    ) {
-      item(key = "header") {
-        Column(Modifier.padding(horizontal = 4.dp)) {
-          Text(
-              text = stringResource(R.string.remote_kicker),
-              style = MaterialTheme.typography.labelMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column {
+          TopAppBar(
+              title = { Text(stringResource(R.string.remote_title)) },
+              colors =
+                  TopAppBarDefaults.topAppBarColors(
+                      containerColor = MaterialTheme.colorScheme.background
+                  ),
+              navigationIcon = {
+                IconButton(onClick = onBack) {
+                  Icon(
+                      imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                      contentDescription = stringResource(R.string.remote_back),
+                  )
+                }
+              },
           )
-          Spacer(Modifier.height(4.dp))
-          Text(
-              text = stringResource(R.string.remote_title),
-              style = MaterialTheme.typography.displayLarge,
-          )
-          Spacer(Modifier.height(8.dp))
-          Text(
-              text = stringResource(R.string.remote_intro),
-              style = MaterialTheme.typography.bodyLarge,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          SegmentedProgress(
+              steps = RemotePage.entries.size,
+              current = pagerState.currentPage + 1,
+              description =
+                  stringResource(
+                      R.string.remote_progress,
+                      pagerState.currentPage + 1,
+                      RemotePage.entries.size,
+                      stringResource(current.titleRes),
+                  ),
+              modifier = Modifier.padding(horizontal = 20.dp),
           )
         }
-      }
-
-      item(key = "status") { StatusCard(status) }
-
-      item(key = "address") {
-        Column {
-          SectionLabel(
-              stringResource(R.string.remote_group_address),
-              Modifier.padding(bottom = 8.dp),
-          )
-          TaigaCard {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-              val fieldError = (ping as? AddressPing.Failed)?.error
-              OutlinedTextField(
-                  value = url,
-                  onValueChange = {
-                    url = it
-                    // A new address invalidates the previous ping and disables the login button.
-                    pingGeneration++
-                    ping = AddressPing.Idle
-                  },
-                  modifier =
-                      Modifier.fillMaxWidth().onFocusChanged { focus ->
-                        if (urlWasFocused && !focus.isFocused) pingServer()
-                        urlWasFocused = focus.isFocused
-                      },
-                  label = { Text(stringResource(R.string.remote_url_label)) },
-                  placeholder = { Text(stringResource(R.string.remote_url_placeholder)) },
-                  singleLine = true,
-                  isError = fieldError != null,
-                  shape = RoundedCornerShape(16.dp),
-                  keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                  trailingIcon = {
-                    when (val state = ping) {
-                      AddressPing.Checking ->
-                          CircularProgressIndicator(
-                              modifier = Modifier.size(20.dp),
-                              strokeWidth = 2.dp,
-                          )
-                      is AddressPing.Reachable ->
-                          Icon(
-                              imageVector = Icons.Outlined.CheckCircle,
-                              contentDescription = stringResource(R.string.remote_address_ok),
-                              tint = MaterialTheme.taiga.ok,
-                          )
-                      is AddressPing.Failed ->
-                          Icon(
-                              imageVector = Icons.Outlined.ErrorOutline,
-                              contentDescription = stringResource(R.string.remote_address_failed),
-                              tint = MaterialTheme.taiga.bad,
-                          )
-                      AddressPing.Idle -> Unit
-                    }
-                  },
-                  supportingText = fieldError?.let { error -> { Text(errorMessage(error)) } },
-              )
-              OutlinedTextField(
-                  value = email,
-                  onValueChange = { email = it },
-                  modifier = Modifier.fillMaxWidth(),
-                  label = { Text(stringResource(R.string.remote_email_label)) },
-                  singleLine = true,
-                  shape = RoundedCornerShape(16.dp),
-                  keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-              )
-              OutlinedTextField(
-                  value = password,
-                  onValueChange = { password = it },
-                  modifier = Modifier.fillMaxWidth(),
-                  label = { Text(stringResource(R.string.remote_password_label)) },
-                  singleLine = true,
-                  shape = RoundedCornerShape(16.dp),
-                  visualTransformation =
-                      if (passwordVisible) VisualTransformation.None
-                      else PasswordVisualTransformation(),
-                  keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                  trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                      Icon(
-                          imageVector =
-                              if (passwordVisible) Icons.Outlined.VisibilityOff
-                              else Icons.Outlined.Visibility,
-                          contentDescription =
-                              stringResource(
-                                  if (passwordVisible) R.string.remote_hide_password
-                                  else R.string.remote_show_password
-                              ),
-                      )
-                    }
-                  },
-                  supportingText = passwordHint?.let { hint -> { Text(stringResource(hint)) } },
-              )
-            }
+      },
+      bottomBar = {
+        Surface(color = MaterialTheme.colorScheme.background) {
+          Row(
+              modifier =
+                  Modifier.fillMaxWidth()
+                      .navigationBarsPadding()
+                      .imePadding()
+                      .padding(horizontal = 20.dp, vertical = 12.dp),
+              horizontalArrangement = Arrangement.spacedBy(12.dp),
+          ) {
+            SecondaryButton(
+                text = stringResource(R.string.remote_previous_page),
+                onClick = { goTo(RemotePage.entries[pagerState.currentPage - 1]) },
+                modifier = Modifier.weight(1f),
+                enabled = current != RemotePage.SERVER,
+            )
+            SecondaryButton(
+                text = stringResource(R.string.remote_next_page),
+                onClick = { goTo(RemotePage.entries[pagerState.currentPage + 1]) },
+                modifier = Modifier.weight(1f),
+                enabled = current != RemotePage.STATUS,
+            )
           }
         }
-      }
-
-      // Below the fields so that it never moves them while the address is being typed.
-      item(key = "login-action") {
-        // Step two only: the address has already been pinged above.
-        PrimaryButton(
-            text =
-                stringResource(
-                    when {
-                      checking -> R.string.remote_checking
-                      passwordless -> R.string.remote_check_login
-                      else -> R.string.remote_login
-                    }
-                ),
-            onClick = {
-              scope.launch {
-                val outcome =
-                    if (passwordless) {
-                      // No password means "check the stored token", like the automatic check.
-                      repository.verify()
-                          ?: CheckResult.Failure(RemoteStep.LOGIN, RemoteError.MissingCredentials)
-                    } else {
-                      repository.login(url, email, password)
-                    }
-                result = outcome as? CheckResult.Failure
-                if (outcome is CheckResult.Success) {
-                  password = ""
-                } else if (outcome is CheckResult.Failure &&
-                    repository.status.value is RemoteStatus.Unreachable) {
-                  // The server stopped answering between the check and the login.
-                  pingGeneration++
-                  ping = AddressPing.Failed(outcome.error)
-                }
-              }
-            },
-            enabled = canLogin,
-            size = ButtonSize.Large,
-        )
-      }
-
-      result?.let { checked ->
-        item(key = "result") { CheckResultBanner(checked) }
-      }
-
-      if (status is RemoteStatus.Connected || repository.hasSession) {
-        item(key = "logout") {
-          SecondaryButton(
-              text = stringResource(R.string.remote_logout),
-              onClick = { showLogout = true },
-              modifier = Modifier.fillMaxWidth(),
-              size = ButtonSize.Large,
-          )
+      },
+  ) { padding ->
+    HorizontalPager(
+        state = pagerState,
+        modifier = Modifier.fillMaxSize().padding(padding),
+    ) { index ->
+      val shown = RemotePage.entries[index]
+      Column(
+          modifier =
+              Modifier.fillMaxSize()
+                  .verticalScroll(rememberScrollState())
+                  .padding(horizontal = 20.dp, vertical = 24.dp),
+          verticalArrangement = Arrangement.spacedBy(18.dp),
+      ) {
+        when (shown) {
+          RemotePage.SERVER ->
+              ServerPage(
+                  url = url,
+                  onUrlChange = { url = it },
+                  address = address,
+                  status = status,
+                  checking = checking,
+                  onCheck = { checkServer() },
+              )
+          RemotePage.ACCOUNT ->
+              AccountPage(
+                  hasRemote = address != null,
+                  email = email,
+                  onEmailChange = { email = it },
+                  password = password,
+                  onPasswordChange = { password = it },
+                  passwordVisible = passwordVisible,
+                  onTogglePassword = { passwordVisible = !passwordVisible },
+                  failure = (status as? RemoteStatus.LoginNeeded)?.reason,
+                  checking = checking,
+                  onLogin = { logIn() },
+              )
+          RemotePage.STATUS ->
+              StatusPage(
+                  state = state,
+                  status = status,
+                  checking = checking,
+                  hasRemote = address != null,
+                  hasSession = repository.hasSession,
+                  onCheck = { scope.launch { repository.checkStatus() } },
+                  onLogout = { showLogout = true },
+              )
         }
       }
     }
@@ -394,7 +268,6 @@ fun RemoteScreen(onBack: () -> Unit) {
               onClick = {
                 showLogout = false
                 password = ""
-                result = null
                 repository.logout()
               }
           ) {
@@ -413,58 +286,292 @@ fun RemoteScreen(onBack: () -> Unit) {
   }
 }
 
+/** Server: the address, the check that proves it answers, and nothing else. */
 @Composable
-private fun StatusCard(status: RemoteStatus) {
-  val chipKind =
-      when (status) {
-        RemoteStatus.NotConfigured -> StatusKind.Warn
-        is RemoteStatus.Connected -> StatusKind.Ok
-        is RemoteStatus.LoginNeeded -> StatusKind.Warn
-        is RemoteStatus.Unreachable -> StatusKind.Bad
-      }
-  val chipLabel =
-      when (status) {
-        RemoteStatus.NotConfigured -> stringResource(R.string.remote_state_not_configured)
-        is RemoteStatus.Connected -> stringResource(R.string.remote_state_connected_short)
-        is RemoteStatus.LoginNeeded -> stringResource(R.string.remote_state_login_needed_short)
-        is RemoteStatus.Unreachable -> stringResource(R.string.remote_state_unreachable_short)
-      }
-  val checkedAt =
-      when (status) {
-        RemoteStatus.NotConfigured -> null
-        is RemoteStatus.Connected -> status.checkedAtMs
-        is RemoteStatus.LoginNeeded -> status.checkedAtMs
-        is RemoteStatus.Unreachable -> status.checkedAtMs
-      }
-  // Keep the relative time honest while the screen is open; checks refresh it too.
+private fun ServerPage(
+    url: String,
+    onUrlChange: (String) -> Unit,
+    address: String?,
+    status: RemoteStatus,
+    checking: Boolean,
+    onCheck: () -> Unit,
+) {
+  // A check result only describes the address it ran against, so a typed address that has not been
+  // checked yet shows neither the old error nor the old success.
+  val normalized = remember(url) { RemoteUrl.parse(url).getOrNull()?.baseUrl }
+  val checked = address != null && normalized == address
+  val failure = (status as? RemoteStatus.Unreachable)?.reason?.takeIf { checked }
+  val reachable = checked && status !is RemoteStatus.Unreachable
+
+  ScreenHeader(
+      kicker = stringResource(R.string.remote_kicker),
+      title = stringResource(R.string.remote_page_server),
+      subtitle = stringResource(R.string.remote_page_server_body),
+  )
+  TaigaCard {
+    OutlinedTextField(
+        value = url,
+        onValueChange = onUrlChange,
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text(stringResource(R.string.remote_url_label)) },
+        placeholder = { Text(stringResource(R.string.remote_url_placeholder)) },
+        singleLine = true,
+        isError = failure != null,
+        shape = RoundedCornerShape(16.dp),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+        trailingIcon = {
+          when {
+            checking ->
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                )
+            reachable ->
+                Icon(
+                    imageVector = Icons.Outlined.CheckCircle,
+                    contentDescription = stringResource(R.string.remote_address_ok),
+                    tint = MaterialTheme.taiga.ok,
+                )
+            failure != null ->
+                Icon(
+                    imageVector = Icons.Outlined.ErrorOutline,
+                    contentDescription = stringResource(R.string.remote_address_failed),
+                    tint = MaterialTheme.taiga.bad,
+                )
+          }
+        },
+    )
+  }
+  if (failure != null) {
+    Text(
+        text = errorMessage(failure),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.taiga.bad,
+    )
+  }
+  PrimaryButton(
+      text =
+          stringResource(
+              when {
+                checking -> R.string.remote_checking
+                failure != null -> R.string.remote_retry
+                else -> R.string.remote_check_server
+              }
+          ),
+      onClick = onCheck,
+      enabled = !checking && url.isNotBlank(),
+      size = ButtonSize.Large,
+  )
+}
+
+/** Account: the email, the password, the login that stores a token, and nothing else. */
+@Composable
+private fun AccountPage(
+    hasRemote: Boolean,
+    email: String,
+    onEmailChange: (String) -> Unit,
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    passwordVisible: Boolean,
+    onTogglePassword: () -> Unit,
+    failure: RemoteError?,
+    checking: Boolean,
+    onLogin: () -> Unit,
+) {
+  ScreenHeader(
+      kicker = stringResource(R.string.remote_kicker),
+      title = stringResource(R.string.remote_page_account),
+      subtitle = stringResource(R.string.remote_page_account_body),
+  )
+  TaigaCard {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      OutlinedTextField(
+          value = email,
+          onValueChange = onEmailChange,
+          modifier = Modifier.fillMaxWidth(),
+          label = { Text(stringResource(R.string.remote_email_label)) },
+          singleLine = true,
+          shape = RoundedCornerShape(16.dp),
+          keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+      )
+      OutlinedTextField(
+          value = password,
+          onValueChange = onPasswordChange,
+          modifier = Modifier.fillMaxWidth(),
+          label = { Text(stringResource(R.string.remote_password_label)) },
+          singleLine = true,
+          shape = RoundedCornerShape(16.dp),
+          visualTransformation =
+              if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+          keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+          trailingIcon = {
+            IconButton(onClick = onTogglePassword) {
+              Icon(
+                  imageVector =
+                      if (passwordVisible) Icons.Outlined.VisibilityOff
+                      else Icons.Outlined.Visibility,
+                  contentDescription =
+                      stringResource(
+                          if (passwordVisible) R.string.remote_hide_password
+                          else R.string.remote_show_password
+                      ),
+              )
+            }
+          },
+      )
+    }
+  }
+  if (failure != null) {
+    Text(
+        text = errorMessage(failure),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.taiga.bad,
+    )
+  }
+  PrimaryButton(
+      text = stringResource(if (checking) R.string.remote_checking else R.string.remote_login),
+      onClick = onLogin,
+      enabled = !checking && hasRemote && email.isNotBlank() && password.isNotEmpty(),
+      size = ButtonSize.Large,
+  )
+}
+
+/** Status: what the connection is right now, the check that re-decides it, and logging out. */
+@Composable
+private fun StatusPage(
+    state: RemoteState,
+    status: RemoteStatus,
+    checking: Boolean,
+    hasRemote: Boolean,
+    hasSession: Boolean,
+    onCheck: () -> Unit,
+    onLogout: () -> Unit,
+) {
+  ScreenHeader(
+      kicker = stringResource(R.string.remote_kicker),
+      title = stringResource(R.string.remote_page_status),
+      subtitle = stringResource(R.string.remote_page_status_body),
+  )
+  TaigaCard {
+    StatusChip(kind = state.kind, label = stringResource(state.labelRes))
+    Spacer(Modifier.height(10.dp))
+    Text(
+        text = stringResource(state.explanationRes),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    state.extra(status)?.let { extra ->
+      Spacer(Modifier.height(4.dp))
+      Text(
+          text = extra,
+          style = MaterialTheme.typography.bodyMedium,
+          color =
+              if (state == RemoteState.UNREACHABLE) MaterialTheme.taiga.bad
+              else MaterialTheme.colorScheme.onSurface,
+      )
+    }
+    val checkedAt = status.checkedAt()
+    if (checkedAt != null) {
+      Spacer(Modifier.height(6.dp))
+      LastCheck(checkedAt)
+    }
+  }
+  PrimaryButton(
+      text =
+          stringResource(
+              if (checking) R.string.remote_checking else R.string.remote_check_connection
+          ),
+      onClick = onCheck,
+      enabled = !checking && hasRemote,
+      size = ButtonSize.Large,
+  )
+  SecondaryButton(
+      text = stringResource(R.string.remote_logout),
+      onClick = onLogout,
+      modifier = Modifier.fillMaxWidth(),
+      enabled = !checking && hasSession,
+  )
+}
+
+/** The last check, kept honest while the page is open. */
+@Composable
+private fun LastCheck(checkedAtMs: Long) {
   var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-  LaunchedEffect(checkedAt) {
-    if (checkedAt == null) return@LaunchedEffect
+  LaunchedEffect(checkedAtMs) {
     nowMs = System.currentTimeMillis()
     while (true) {
       delay(1_000)
       nowMs = System.currentTimeMillis()
     }
   }
-  TaigaCard {
-    StatusChip(kind = chipKind, label = chipLabel)
-    Spacer(Modifier.height(8.dp))
-    Text(
-        text = lastCheck(checkedAt, nowMs),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-  }
-}
-
-@Composable
-private fun CheckResultBanner(failure: CheckResult.Failure) {
-  StatusBanner(
-      kind = StatusKind.Bad,
-      title = stringResource(R.string.remote_login_failed_title),
-      body = errorMessage(failure.error),
+  val relative =
+      DateUtils.getRelativeTimeSpanString(
+              checkedAtMs,
+              nowMs,
+              DateUtils.SECOND_IN_MILLIS,
+              DateUtils.FORMAT_ABBREV_RELATIVE,
+          )
+          .toString()
+  Text(
+      text = stringResource(R.string.remote_last_check, relative),
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
   )
 }
+
+private fun initialPage(state: RemoteState): RemotePage =
+    when (state) {
+      RemoteState.CONNECTED -> RemotePage.STATUS
+      RemoteState.NOT_LOGGED_IN -> RemotePage.ACCOUNT
+      RemoteState.NO_REMOTE, RemoteState.UNREACHABLE -> RemotePage.SERVER
+    }
+
+private val RemoteState.labelRes: Int
+  get() =
+      when (this) {
+        RemoteState.NO_REMOTE -> R.string.remote_status_none
+        RemoteState.UNREACHABLE -> R.string.remote_status_unreachable
+        RemoteState.NOT_LOGGED_IN -> R.string.remote_status_not_logged_in
+        RemoteState.CONNECTED -> R.string.remote_status_connected
+      }
+
+private val RemoteState.kind: StatusKind
+  get() =
+      when (this) {
+        RemoteState.NO_REMOTE -> StatusKind.Warn
+        RemoteState.UNREACHABLE -> StatusKind.Bad
+        RemoteState.NOT_LOGGED_IN -> StatusKind.Warn
+        RemoteState.CONNECTED -> StatusKind.Ok
+      }
+
+/** The fixed explanation of each status; it never changes with the details of a check. */
+private val RemoteState.explanationRes: Int
+  get() =
+      when (this) {
+        RemoteState.NO_REMOTE -> R.string.remote_status_none_body
+        RemoteState.UNREACHABLE -> R.string.remote_status_unreachable_body
+        RemoteState.NOT_LOGGED_IN -> R.string.remote_status_not_logged_in_body
+        RemoteState.CONNECTED -> R.string.remote_status_connected_body
+      }
+
+/** What the status can add to its explanation: the account, or why the check failed. */
+@Composable
+private fun RemoteState.extra(status: RemoteStatus): String? =
+    when (this) {
+      RemoteState.UNREACHABLE ->
+          (status as? RemoteStatus.Unreachable)?.reason?.let { errorMessage(it) }
+      RemoteState.CONNECTED ->
+          (status as? RemoteStatus.Connected)?.email?.takeIf { it.isNotBlank() }
+      RemoteState.NO_REMOTE, RemoteState.NOT_LOGGED_IN -> null
+    }
+
+private fun RemoteStatus.checkedAt(): Long? =
+    when (this) {
+      RemoteStatus.NotConfigured -> null
+      is RemoteStatus.Connected -> checkedAtMs
+      is RemoteStatus.LoginNeeded -> checkedAtMs
+      is RemoteStatus.Unreachable -> checkedAtMs
+    }
 
 @Composable
 private fun errorMessage(error: RemoteError): String =
@@ -480,16 +587,3 @@ private fun errorMessage(error: RemoteError): String =
       is RemoteError.Http -> stringResource(R.string.remote_error_http, error.status)
       RemoteError.MalformedResponse -> stringResource(R.string.remote_error_malformed)
     }
-
-@Composable
-private fun lastCheck(checkedAt: Long?, nowMs: Long): String {
-  if (checkedAt == null) return stringResource(R.string.remote_last_check_never)
-  val relative =
-      DateUtils.getRelativeTimeSpanString(
-          checkedAt,
-          nowMs,
-          DateUtils.SECOND_IN_MILLIS,
-          DateUtils.FORMAT_ABBREV_RELATIVE,
-      )
-  return stringResource(R.string.remote_last_check, relative.toString())
-}

@@ -105,6 +105,22 @@ sealed interface RemoteStatus {
   data class Unreachable(val reason: RemoteError, val checkedAtMs: Long?) : RemoteStatus
 }
 
+/**
+ * The one status the Status page reports. It is derived from [RemoteStatus] and the address the
+ * last check ran against, so it never claims a connection that no check confirmed:
+ *
+ * - [NO_REMOTE]: no address has been checked or saved.
+ * - [UNREACHABLE]: the last check could not reach the address. The token, if any, is kept.
+ * - [NOT_LOGGED_IN]: the server answers but no valid token is stored for it.
+ * - [CONNECTED]: the server answers and the token passed the authenticated check.
+ */
+enum class RemoteState {
+  NO_REMOTE,
+  UNREACHABLE,
+  NOT_LOGGED_IN,
+  CONNECTED,
+}
+
 /** A logged-in session as returned by the backend. */
 data class AuthSession(val token: String, val email: String)
 
