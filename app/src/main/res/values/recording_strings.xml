@@ -46,17 +46,12 @@
   <string name="rec_config_acc">Movement (50 Hz)</string>
 
   <string name="rec_ready_title">Ready for tonight</string>
-  <string name="rec_ready_body">Background settings look good.</string>
-  <string name="rec_blocked_title">Background settings need fixing</string>
-  <string name="rec_blocked_body">Without these the phone can stop the recording during the night.</string>
-  <string name="rec_blocked_battery">Allow Taiga to run in the background.</string>
-  <string name="rec_blocked_bucket">Battery use is limited. Set it to \"Allow background activity\" or \"Unrestricted\" in the app settings.</string>
-  <string name="rec_blocked_restricted">Background use is restricted. Remove the restriction in the app settings.</string>
-  <string name="rec_fix_battery">Allow background</string>
-  <string name="rec_fix_settings">Open app settings</string>
+  <string name="rec_ready_body">Preventing shutdown is set up. Tap to review the steps.</string>
+  <string name="rec_not_ready_title">Not ready for tonight</string>
+  <string name="rec_not_ready_body">The phone can stop the recording overnight. Tap to follow the Preventing shutdown steps.</string>
 
   <string name="rec_start_need_sensor">Connect a sensor to start.</string>
-  <string name="rec_start_need_ready">Fix background settings to start</string>
+  <string name="rec_start_need_ready">Set up preventing shutdown to start</string>
 
   <string name="rec_active_title">Recording</string>
   <string name="rec_active_stopping">Stopping…</string>

@@ -18,7 +18,9 @@ import com.rbmr.taigasleep.sensor.SleepSensor
  * nothing, so none of this ships in the release APK. docs/debug-build.md lists every difference.
  */
 object DebugTools {
-  /** Long-pressing the guidance row in Settings picks which device's guidance to preview. */
+  /**
+   * Long-pressing the preventing-shutdown card on Home picks which device's guidance to preview.
+   */
   const val GUIDANCE_PREVIEW = true
 
   /** Listed next to real straps while scanning, so recording can be tried without hardware. */

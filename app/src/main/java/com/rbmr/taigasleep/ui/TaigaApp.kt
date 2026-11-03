@@ -172,7 +172,7 @@ fun TaigaApp(
                       },
                       onLoginClick = { showRemote = true },
                   )
-              1 -> HomeScreen()
+              1 -> HomeScreen(onGuidanceClick = { showGuidance = true })
               2 ->
                   SettingsScreen(
                       themeMode = themeMode,

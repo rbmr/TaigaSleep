@@ -27,16 +27,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.BuildConfig
-import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.ThemeMode
-import com.rbmr.taigasleep.debug.DebugTools
-import com.rbmr.taigasleep.debug.GuidancePreviewPicker
-import com.rbmr.taigasleep.guidance.GuidanceFlows
-import com.rbmr.taigasleep.guidance.Progress
 import com.rbmr.taigasleep.remote.RemoteRepository
 import com.rbmr.taigasleep.remote.RemoteStatus
 import com.rbmr.taigasleep.ui.components.ScreenHeader
@@ -63,18 +57,6 @@ fun SettingsScreen(
   val autoUpload by uploadSettings.autoUpload.collectAsStateWithLifecycle()
   val compressUploads by uploadSettings.compressUploads.collectAsStateWithLifecycle()
   var showAppearance by remember { mutableStateOf(false) }
-  var showPreviewPicker by remember { mutableStateOf(false) }
-  val guidanceStore = remember { GuidanceStore(context) }
-  fun guidanceReady(): Boolean {
-    val match = GuidanceFlows.currentMatch(GuidanceFlows.previewOf(guidanceStore))
-    return Progress.isReady(context, guidanceStore, GuidanceFlows.selected(match, guidanceStore))
-  }
-  var ready by remember { mutableStateOf(guidanceReady()) }
-  // Settings may have changed while we were away, so check again on every resume.
-  LifecycleResumeEffect(Unit) {
-    ready = guidanceReady()
-    onPauseOrDispose {}
-  }
   val appearanceSubtitle =
       stringResource(
           when (themeMode) {
@@ -177,17 +159,11 @@ fun SettingsScreen(
     }
     item {
       SettingsGroup(stringResource(R.string.settings_group_app)) {
+        // A second way into the flow, always available. The state stays on Home's card only.
         SettingsRow(
             title = stringResource(R.string.settings_prevent_title),
-            subtitle =
-                "● " +
-                    stringResource(
-                        if (ready) R.string.g_settings_ready else R.string.g_settings_needs_attention
-                    ),
-            subtitleColor = if (ready) MaterialTheme.taiga.ok else MaterialTheme.taiga.warn,
+            subtitle = stringResource(R.string.settings_prevent_body),
             onClick = onGuidanceClick,
-            // Debug builds only: pick which device's guidance to preview.
-            onLongClick = if (DebugTools.GUIDANCE_PREVIEW) ({ showPreviewPicker = true }) else null,
         )
         SettingsDivider()
         SettingsRow(
@@ -248,16 +224,6 @@ fun SettingsScreen(
           TextButton(onClick = { showAppearance = false }) {
             Text(stringResource(R.string.appearance_done))
           }
-        },
-    )
-  }
-
-  if (showPreviewPicker) {
-    GuidancePreviewPicker(
-        store = guidanceStore,
-        onDismiss = {
-          showPreviewPicker = false
-          ready = guidanceReady()
         },
     )
   }

@@ -24,7 +24,7 @@ import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.guidance.PreviewDevice
 
-/** Picks which device's guidance to preview; opened by long-pressing the guidance row. */
+/** Picks which device's guidance to preview; opened by long-pressing Home's readiness card. */
 @Composable
 fun GuidancePreviewPicker(store: GuidanceStore, onDismiss: () -> Unit) {
   var selected by remember { mutableStateOf(store.previewDevice) }

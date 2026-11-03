@@ -1,6 +1,5 @@
 package com.rbmr.taigasleep.guidance
 
-import android.content.Context
 import androidx.annotation.StringRes
 
 enum class StepKind {
@@ -28,10 +27,10 @@ data class Step(
     val id: String,
     @StringRes val titleRes: Int,
     @StringRes val descriptionRes: Int,
-    // The bulleted steps, shortest useful list.
-    val guideRes: List<Int>,
+    // The bulleted steps, shortest useful list. Empty when the helper is the whole instruction.
+    val guideRes: List<Int> = emptyList(),
     val helper: Helper? = null,
-    val check: ((Context) -> Boolean)? = null,
+    val check: ((Readiness) -> Boolean)? = null,
 )
 
 data class Flow(
