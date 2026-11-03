@@ -82,8 +82,4 @@
   <!-- Settings row status -->
   <string name="g_settings_ready">Ready to record</string>
   <string name="g_settings_needs_attention">Needs attention</string>
-
-  <!-- Debug preview -->
-  <string name="g_preview_title">Preview device guidance</string>
-  <string name="g_preview_real">This phone (real)</string>
 </resources>

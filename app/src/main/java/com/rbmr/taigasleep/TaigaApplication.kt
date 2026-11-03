@@ -2,14 +2,8 @@ package com.rbmr.taigasleep
 
 import android.app.Activity
 import android.app.Application
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import androidx.core.content.ContextCompat
+import com.rbmr.taigasleep.debug.DebugTools
 import com.rbmr.taigasleep.diagnostics.Diagnostics
 
 class TaigaApplication : Application() {
@@ -19,7 +13,7 @@ class TaigaApplication : Application() {
     super.onCreate()
     Diagnostics.init(this)
     registerActivityLifecycleCallbacks(lifecycleLogger)
-    if (BuildConfig.DEBUG) registerDebugTriggers()
+    DebugTools.install(this)
   }
 
   override fun onTrimMemory(level: Int) {
@@ -79,27 +73,5 @@ class TaigaApplication : Application() {
             "changing_config" to activity.isChangingConfigurations,
         ),
     )
-  }
-
-  /** Debug builds only: `adb shell am broadcast -a com.rbmr.taigasleep.DEBUG_CRASH`. */
-  private fun registerDebugTriggers() {
-    ContextCompat.registerReceiver(
-        this,
-        DebugCrashReceiver(),
-        IntentFilter(ACTION_DEBUG_CRASH),
-        ContextCompat.RECEIVER_EXPORTED,
-    )
-  }
-
-  private class DebugCrashReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-      Handler(Looper.getMainLooper()).post {
-        throw RuntimeException("Debug crash requested by broadcast")
-      }
-    }
-  }
-
-  private companion object {
-    const val ACTION_DEBUG_CRASH = "com.rbmr.taigasleep.DEBUG_CRASH"
   }
 }

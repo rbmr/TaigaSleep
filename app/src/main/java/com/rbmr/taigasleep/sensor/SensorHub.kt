@@ -3,7 +3,7 @@ package com.rbmr.taigasleep.sensor
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import com.rbmr.taigasleep.BuildConfig
+import com.rbmr.taigasleep.debug.DebugTools
 import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.SavedSensor
 import io.reactivex.rxjava3.disposables.Disposable
@@ -39,7 +39,7 @@ object SensorHub {
     stopScan()
     // Debug builds list the simulated sensor next to the real ones, so what is selected is always
     // what the Home screen says.
-    _found.value = if (BuildConfig.DEBUG) listOf(SIMULATED_FOUND) else emptyList()
+    _found.value = listOfNotNull(DebugTools.simulatedSensor)
     _scanning.value = true
     scan =
         try {
@@ -81,7 +81,7 @@ object SensorHub {
     val saved = prefs.lastSensor ?: return
     if (saved.kind == SensorKind.SIMULATED) {
       // The simulated sensor only exists in debug builds and needs no permissions to connect.
-      if (BuildConfig.DEBUG) obtain(context, saved.kind, saved.id, saved.name)
+      if (DebugTools.simulatedSensor != null) obtain(context, saved.kind, saved.id, saved.name)
       return
     }
     if (!canConnect) return
@@ -95,10 +95,10 @@ object SensorHub {
     val sensor =
         when (kind) {
           SensorKind.POLAR_H10 -> PolarH10Sensor(context, id, name)
-          SensorKind.SIMULATED -> {
-            check(BuildConfig.DEBUG) { "simulated sensor is a debug-build feature" }
-            SimulatedSensor()
-          }
+          SensorKind.SIMULATED ->
+              checkNotNull(DebugTools.createSimulatedSensor()) {
+                "simulated sensor is a debug-build feature"
+              }
         }
     _sensor.value = sensor
     sensor.connect()
@@ -116,5 +116,4 @@ object SensorHub {
   private fun <T> MutableStateFlow<T>.getAndSet(v: T): T = value.also { value = v }
 
   private const val SCAN_MS = 15_000L
-  private val SIMULATED_FOUND = FoundSensor(SensorKind.SIMULATED, "SIM00001", "Simulated sensor", 0)
 }

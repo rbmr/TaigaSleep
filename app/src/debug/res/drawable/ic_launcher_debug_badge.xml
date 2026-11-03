@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: an amber code tag by the bear's right ear, clear of the ear itself. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+  <path
+      android:fillColor="#FFF2B35E"
+      android:pathData="M63.5 35a8.5 8.5 0 1 0 17 0a8.5 8.5 0 1 0 -17 0Z" />
+  <path
+      android:pathData="M68.85 32.3L66.15 35L68.85 37.7M75.15 32.3L77.85 35L75.15 37.7M73.08 31.58L70.92 38.42"
+      android:strokeColor="#FF2A1D07"
+      android:strokeLineCap="round"
+      android:strokeLineJoin="round"
+      android:strokeWidth="1.45" />
+</vector>

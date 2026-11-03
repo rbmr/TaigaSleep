@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon bear with the debug badge, so the debug build stays recognisable when tinted. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+  <item android:drawable="@drawable/ic_launcher_monochrome" />
+  <item android:drawable="@drawable/ic_launcher_debug_badge_monochrome" />
+</layer-list>
