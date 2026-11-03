@@ -177,3 +177,22 @@ The upload can optionally compress the stream and event files with one gzip
 member per chunk; the server then stores `hr.log.gz` and similar names. The
 local recording format described in this document never changes. See
 [`upload-compression.md`](upload-compression.md) for the protocol.
+
+## Importing PolarRecorder sessions
+
+Recordings from PolarRecorder (`com.wboelens.polarrecorder`, JSONL batches per
+stream) can be converted into this layout with
+[`tools/import_polarrecorder.py`](../tools/import_polarrecorder.py):
+
+```bash
+python3 tools/import_polarrecorder.py /sdcard/polar/PolarRecorder \
+  --out "$HOME/taiga-imported" --min-hours 3
+```
+
+It writes one session directory per recording (named after the source's
+`PolarRecording_*` timestamp), validates every frame it wrote, and never
+overwrites an existing session. Empty sessions are skipped automatically and
+`--min-hours` also skips short test recordings. The sensor id and name come
+from the source's device directory; the phone and app fields stay generic
+because PolarRecorder does not record them reliably. Copy the result into the
+app's `recordings` directory (or upload it) to get the nights into the history.

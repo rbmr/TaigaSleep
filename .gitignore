@@ -25,3 +25,7 @@ recordings/
 *.token
 secrets.properties
 keystore.properties
+
+# Python caches (tools/)
+__pycache__/
+*.py[cod]
