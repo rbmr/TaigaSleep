@@ -48,7 +48,7 @@ import com.rbmr.taigasleep.ui.NightItem
 import com.rbmr.taigasleep.ui.buildNightItems
 import com.rbmr.taigasleep.ui.formatDuration
 import com.rbmr.taigasleep.ui.formatNightDateAndTime
-import com.rbmr.taigasleep.ui.components.QualityBadge
+import com.rbmr.taigasleep.ui.components.ScoreBadge
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SectionLabel
 import com.rbmr.taigasleep.ui.components.StageBar
@@ -350,7 +350,11 @@ private fun NightRow(
         )
       }
       if (item.phase == UploadPhase.DONE) {
-        QualityBadge(item.qualityScore)
+        ScoreBadge(
+            score = item.sleepScore,
+            label = stringResource(R.string.history_sleep_score_label),
+            emptyLabel = stringResource(R.string.history_no_sleep_score),
+        )
       } else {
         Text(
             text = rowStatus(item),

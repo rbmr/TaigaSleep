@@ -293,9 +293,24 @@ class Backend:
                 "artifacts": [False],
                 "probabilities": None,
             },
+            "hr": {
+                "epoch_seconds": 30,
+                "start_unix_ms": 0,
+                "count": 1,
+                "mean_bpm": [60.0],
+                "sample_count": [30],
+            },
             "metrics": {"total_duration_s": 30.0},
             "metric_support": {},
             "quality": {"score": 100.0, "components": {}, "notes": []},
+            "sleep_quality": {
+                "score": 78.0,
+                "components_version": 1,
+                "components": {
+                    "sleep_efficiency": {"value": 0.8, "weight": 0.3, "available": True}
+                },
+                "notes": [],
+            },
             "capabilities": {"stages": True},
             "provenance": {"runtime_s": 0.1, "peak_rss_mb": 10.0},
             "extras": {},
@@ -1045,6 +1060,16 @@ def test_14_algorithms_analysis_request_and_views(api: Backend) -> None:
     )
     assert analysis["status"] == "done"
     assert analysis["model_version"] == "1.0.0"
+    assert analysis["hr"]["count"] == 1
+    assert analysis["hr"]["mean_bpm"] == [60.0]
+    assert analysis["sleep_quality"]["score"] == 78.0
+    _, sessions = api.request(
+        "GET", "/api/taiga/sessions?upload_status=uploaded&perPage=50", token=api.token_a
+    )
+    summary = next(
+        item for item in sessions["items"] if item["session"]["id"] == session_id
+    )
+    assert summary["analyses"][0]["sleep_quality"]["score"] == 78.0
 
     _, stopped = api.request(
         "GET", "/api/taiga/sessions?state=stopped&perPage=50", token=api.token_a
@@ -1130,7 +1155,16 @@ def test_16_worker_result_validation_and_retry(api: Backend) -> None:
 
     claimed = api.claim_job()
     assert claimed["id"] == job["id"]
-    api.finish_job(claimed, "failed", error="cleanup", retryable=False)
+    legacy = Backend.analysis_result("baseline", "1.0.0")
+    legacy.pop("hr")
+    legacy.pop("sleep_quality")
+    api.finish_job(claimed, "done", result={"analysis": legacy})
+    _, analysis = api.request(
+        "GET", f"/api/taiga/analyses/{analysis_id}", token=api.token_a
+    )
+    assert analysis["status"] == "done"
+    assert analysis["hr"] is None
+    assert analysis["sleep_quality"] is None
 
 
 def test_17_openapi_document_is_served(api: Backend) -> None:

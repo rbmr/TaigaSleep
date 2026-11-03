@@ -27,6 +27,32 @@ type StageTimeline struct {
 	Probabilities json.RawMessage `json:"probabilities"`
 }
 
+// HrSeries is the compact, epoch-aligned heart-rate curve of a recording. A
+// null mean marks an epoch without valid samples; it is not a gap to fill in.
+type HrSeries struct {
+	EpochSeconds int        `json:"epoch_seconds"`
+	StartUnixMs  int64      `json:"start_unix_ms"`
+	Count        int        `json:"count"`
+	MeanBPM      []*float64 `json:"mean_bpm"`
+	SampleCount  []int      `json:"sample_count,omitempty"`
+}
+
+// SleepScoreComponent is one normalized contribution to the sleep score.
+type SleepScoreComponent struct {
+	Value     *float64 `json:"value"`
+	Weight    float64  `json:"weight"`
+	Available bool     `json:"available"`
+}
+
+// SleepQuality is the sleep score: a transparent product policy over the sleep
+// figures, separate from the recording's data-quality score.
+type SleepQuality struct {
+	Score             *float64                       `json:"score"`
+	ComponentsVersion int                            `json:"components_version"`
+	Components        map[string]SleepScoreComponent `json:"components"`
+	Notes             []string                       `json:"notes"`
+}
+
 type AnalysisResultWire struct {
 	ContractVersion int            `json:"contract_version"`
 	Model           string         `json:"model"`
@@ -34,9 +60,11 @@ type AnalysisResultWire struct {
 	Params          map[string]any `json:"params"`
 	ParamsHash      string         `json:"params_hash"`
 	Stages          StageTimeline  `json:"stages"`
+	Hr              *HrSeries      `json:"hr,omitempty"`
 	Metrics         map[string]any `json:"metrics"`
 	MetricSupport   map[string]any `json:"metric_support"`
 	Quality         map[string]any `json:"quality"`
+	SleepQuality    *SleepQuality  `json:"sleep_quality,omitempty"`
 	Capabilities    map[string]any `json:"capabilities"`
 	Provenance      map[string]any `json:"provenance"`
 	Extras          map[string]any `json:"extras"`
@@ -66,9 +94,11 @@ type AnalysisView struct {
 	Status          string         `json:"status"`
 	ContractVersion int            `json:"contract_version"`
 	Stages          any            `json:"stages"`
+	Hr              *HrSeries      `json:"hr"`
 	Metrics         any            `json:"metrics"`
 	MetricSupport   any            `json:"metric_support"`
 	Quality         any            `json:"quality"`
+	SleepQuality    *SleepQuality  `json:"sleep_quality"`
 	Capabilities    any            `json:"capabilities"`
 	Provenance      any            `json:"provenance"`
 	Extras          any            `json:"extras"`
@@ -88,6 +118,7 @@ type AnalysisSummaryView struct {
 	Error        string        `json:"error"`
 	Metrics      any           `json:"metrics"`
 	Quality      any           `json:"quality"`
+	SleepQuality *SleepQuality `json:"sleep_quality"`
 	Stages       *StageSummary `json:"stages"`
 	Created      string        `json:"created"`
 	Updated      string        `json:"updated"`
@@ -122,6 +153,25 @@ func readStages(record *core.Record) *StageTimeline {
 	return &stages
 }
 
+func readHrSeries(record *core.Record) *HrSeries {
+	var series HrSeries
+	if err := record.UnmarshalJSONField("hr", &series); err != nil || series.Count == 0 {
+		return nil
+	}
+	return &series
+}
+
+func readSleepQuality(record *core.Record) *SleepQuality {
+	if readAny(record, "sleep_quality") == nil {
+		return nil
+	}
+	var quality SleepQuality
+	if err := record.UnmarshalJSONField("sleep_quality", &quality); err != nil {
+		return nil
+	}
+	return &quality
+}
+
 func serializeAnalysis(record *core.Record) AnalysisView {
 	var params map[string]any
 	readJSONField(record, "params", &params)
@@ -140,9 +190,11 @@ func serializeAnalysis(record *core.Record) AnalysisView {
 		Status:          record.GetString("status"),
 		ContractVersion: record.GetInt("contract_version"),
 		Stages:          readAny(record, "stages"),
+		Hr:              readHrSeries(record),
 		Metrics:         readAny(record, "metrics"),
 		MetricSupport:   readAny(record, "metric_support"),
 		Quality:         readAny(record, "quality"),
+		SleepQuality:    readSleepQuality(record),
 		Capabilities:    readAny(record, "capabilities"),
 		Provenance:      readAny(record, "provenance"),
 		Extras:          readAny(record, "extras"),
@@ -173,6 +225,7 @@ func serializeAnalysisSummary(record *core.Record) AnalysisSummaryView {
 		Error:        record.GetString("error"),
 		Metrics:      readAny(record, "metrics"),
 		Quality:      readAny(record, "quality"),
+		SleepQuality: readSleepQuality(record),
 		Stages:       stages,
 		Created:      record.GetString("created"),
 		Updated:      record.GetString("updated"),
@@ -355,6 +408,22 @@ func validateAnalysisResult(result *AnalysisResultWire) error {
 	if covered != result.Stages.Count {
 		return fmt.Errorf("stage segments do not cover every epoch")
 	}
+	if result.Hr != nil {
+		if result.Hr.EpochSeconds <= 0 || result.Hr.Count < 1 {
+			return fmt.Errorf("analysis result has an invalid heart-rate series")
+		}
+		if len(result.Hr.MeanBPM) != result.Hr.Count {
+			return fmt.Errorf("heart-rate means do not cover every epoch")
+		}
+		if result.Hr.SampleCount != nil && len(result.Hr.SampleCount) != result.Hr.Count {
+			return fmt.Errorf("heart-rate sample counts do not cover every epoch")
+		}
+	}
+	if result.SleepQuality != nil && result.SleepQuality.Score != nil {
+		if *result.SleepQuality.Score < 0 || *result.SleepQuality.Score > 100 {
+			return fmt.Errorf("sleep score must be between 0 and 100")
+		}
+	}
 	if result.Metrics == nil || result.Quality == nil || result.Capabilities == nil || result.Provenance == nil {
 		return fmt.Errorf("analysis result is missing metrics, quality, capabilities or provenance")
 	}
@@ -386,9 +455,15 @@ func completeAnalysis(txApp core.App, job *core.Record, result *AnalysisResultWi
 	analysis.Set("error", "")
 	analysis.Set("contract_version", result.ContractVersion)
 	analysis.Set("stages", result.Stages)
+	if result.Hr != nil {
+		analysis.Set("hr", result.Hr)
+	}
 	analysis.Set("metrics", result.Metrics)
 	analysis.Set("metric_support", result.MetricSupport)
 	analysis.Set("quality", result.Quality)
+	if result.SleepQuality != nil {
+		analysis.Set("sleep_quality", result.SleepQuality)
+	}
 	analysis.Set("capabilities", result.Capabilities)
 	analysis.Set("provenance", result.Provenance)
 	analysis.Set("extras", result.Extras)

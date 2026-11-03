@@ -14,16 +14,20 @@ versioned by `CONTRACT_VERSION` in
 recording bytes -> decode/normalize -> Recording -> [stager] -> StagingResult
                                                    -> shared derive -> metrics,
                                                                       quality,
+                                                                      sleep score,
                                                                       support map
+                                                   -> serialization -> stages,
+                                                                      HR series
 ```
 
 - **Decode/normalize** is shared and not pluggable. It handles CRC, µV→mV,
   mG→g, Polar/phone/strap clocks, contact, ECG saturation, gaps and coverage.
 - **Stager** is the plugin. It is a pure function over `Recording`.
-- **Derive** is shared. It computes metrics, quality and explicit unsupported
-  states. A stager cannot override the standard metrics.
+- **Derive** is shared. It computes metrics, data quality, the sleep score and
+  explicit unsupported states. A stager cannot override the standard metrics.
 - **Orchestration** is shared. It loads the recording, validates required
-  streams, calls the stager, validates the result and stores it.
+  streams, calls the stager, validates the result, serializes the epoch-aligned
+  result blocks and stores them.
 
 ## Canonical stages and epochs
 
@@ -141,17 +145,20 @@ StagingResult(
 - A stager must not read files, call the API, write results or depend on the
   host environment.
 
-## Metrics and quality are shared
+## Metrics, quality and scores are shared
 
 The shared layer derives:
 
 - total duration, scored/unscored duration, total sleep, efficiency, sleep
-  latency, WASO, awakenings, final awakening, time per stage;
+  latency, WASO, awakenings (wake periods longer than two minutes), final
+  awakening, time per stage;
 - HR mean/min/max, HRV RMSSD/SDNN, movement index/mean/epochs;
+- an epoch-aligned heart-rate series, serialized by the pipeline as the separate `hr` block;
 - explicit support per metric: `supported`, `unsupported_device`,
   `insufficient_data`, or `unsupported_algorithm`, with a reason.
 
-Quality uses the tunable formula from issue #10:
+Data quality uses the tunable formula from issue #10 and is returned as
+`quality`:
 
 ```text
 100 * (0.35 * usable epoch coverage
@@ -161,7 +168,69 @@ Quality uses the tunable formula from issue #10:
 ```
 
 Unavailable components are removed and the remaining weights are renormalized.
-The breakdown is returned so the app can explain the score.
+The breakdown is returned so the app can explain the score. `quality` describes
+the recording and the analysis; it is not a sleep-quality score.
+
+### Sleep score
+
+The sleep score is returned as the separate `sleep_quality` block. It is a
+transparent, versioned product policy over the sleep figures:
+
+```text
+100 * (0.30 * sleep efficiency
+     + 0.20 * (1 - WASO / 2 hours)
+     + 0.20 * (1 - awakenings per hour of sleep / 6)
+     + 0.15 * (1 - sleep latency / 60 minutes)
+     + 0.15 * min(1, (deep + REM share of total sleep) / 0.5))
+```
+
+Every term is clamped to 0..1, so a lower WASO, awakening rate or latency scores
+higher. A component is unavailable when the data or algorithm cannot produce it,
+for example when an algorithm cannot split deep and REM. Unavailable components
+are removed and the remaining weights are renormalized. `components_version`
+versions the policy. The score deliberately has no target sleep duration:
+duration is reported as its own figure.
+
+```json
+{
+  "sleep_quality": {
+    "score": 82.4,
+    "components_version": 1,
+    "components": {
+      "sleep_efficiency": {"value": 0.91, "weight": 0.3, "available": true},
+      "waso": {"value": 0.88, "weight": 0.2, "available": true}
+    },
+    "notes": ["restorative_sleep_share unavailable; its weight was renormalized"]
+  }
+}
+```
+
+A result stored before `sleep_quality` existed has no block and the app shows no
+sleep score rather than reusing the data-quality value.
+
+### Heart-rate series
+
+The worker serializes the per-epoch heart rate it already computes in
+`EpochGrid` as the `hr` block. It uses the same epoch grid as `stages`, so a
+night stays compact (about 960 numbers for 8 hours instead of hundreds of
+thousands of raw samples):
+
+```json
+{
+  "hr": {
+    "epoch_seconds": 30,
+    "start_unix_ms": 1790000000000,
+    "count": 960,
+    "mean_bpm": [61.2, 60.8, null, 59.9],
+    "sample_count": [29, 30, 0, 28]
+  }
+}
+```
+
+`mean_bpm` is `null` for an epoch without valid samples, and `sample_count` is
+the number of valid samples behind each mean. Gaps stay gaps: clients must not
+interpolate across a null. The block is optional, so results stored before it
+existed still load and simply have no chart.
 
 ## Discovery and versioning
 

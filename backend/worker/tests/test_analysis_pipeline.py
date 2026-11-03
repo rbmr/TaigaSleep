@@ -26,9 +26,15 @@ def test_full_result_is_json_serializable_and_model_agnostic(tmp_path: Path) -> 
     assert sum(item["count"] for item in payload["stages"]["segments"]) == 4
     assert len(payload["stages"]["confidence"]) == 4
     assert len(payload["stages"]["artifacts"]) == 4
+    assert payload["hr"]["epoch_seconds"] == 30
+    assert payload["hr"]["count"] == 4
+    assert len(payload["hr"]["mean_bpm"]) == 4
+    assert payload["hr"]["mean_bpm"][0] == pytest.approx(60.0, abs=0.2)
+    assert len(payload["hr"]["sample_count"]) == 4
     assert "metrics" in payload
     assert "metric_support" in payload
     assert "quality" in payload
+    assert payload["sleep_quality"]["score"] is not None
     assert "capabilities" in payload
     assert "provenance" in payload
     assert payload["capabilities"]["stages"]
