@@ -29,6 +29,7 @@ def analyze(job: Mapping[str, Any]) -> dict[str, Any]:
         allowlist=job.get("algorithms"),
         worker=job.get("worker"),
         params_hash_override=job.get("params_hash"),
+        source=job.get("source"),
     )
     return output.to_dict()
 

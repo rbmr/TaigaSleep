@@ -172,3 +172,8 @@ create/resume/complete flow.
 For manual export the app can zip the session directory on demand (never stored
 permanently). The backend stores the same files under
 `<pb_data>/recordings/<session id>/`.
+
+The upload can optionally compress the stream and event files with one gzip
+member per chunk; the server then stores `hr.log.gz` and similar names. The
+local recording format described in this document never changes. See
+[`upload-compression.md`](upload-compression.md) for the protocol.

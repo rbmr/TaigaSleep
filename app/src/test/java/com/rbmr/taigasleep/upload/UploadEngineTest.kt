@@ -16,6 +16,7 @@ import com.rbmr.taigasleep.remote.UploadLimitsDto
 import com.rbmr.taigasleep.remote.UploadManifestDto
 import java.io.File
 import java.nio.file.Files
+import java.util.zip.GZIPInputStream
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -94,12 +95,84 @@ class UploadEngineTest {
     }
   }
 
+  @Test
+  fun compressedUploadSendsOneMemberPerChunkAndResumes() = runBlocking {
+    val data = ByteArray(3 * 1024 * 1024 + 123) { ((it * 31) % 251).toByte() }
+    File(dir, "hr.log").writeBytes(data)
+    val cache = Files.createTempDirectory("taiga-cache").toFile()
+
+    // The first attempt loses the network after the first chunk was accepted.
+    val first =
+        FakeClient(
+            accepted = listOf("identity", "gzip"),
+            failAfterAppends = 1,
+        )
+    try {
+      UploadEngine(first, dir, compress = true, cacheDir = cache).run()
+      throw AssertionError("expected TaigaNetworkException")
+    } catch (_: com.rbmr.taigasleep.remote.TaigaNetworkException) {
+      // expected
+    }
+    assertEquals(1, first.appends.size)
+    assertTrue(first.encodings.all { it == "gzip" })
+    val accepted = first.appends.single().third
+
+    // The next attempt starts at the server's compressed offset.
+    val second =
+        FakeClient(
+            lengths = mutableMapOf("hr.log" to accepted.size.toLong()),
+            encoding = "gzip",
+            accepted = listOf("identity", "gzip"),
+        )
+    UploadEngine(second, dir, compress = true, cacheDir = cache).run()
+
+    assertEquals(1, second.appends.size)
+    assertEquals(accepted.size.toLong(), second.appends.single().second)
+    assertEquals("gzip", second.encodings.single())
+    val combined = accepted + second.appends.single().third
+    assertArrayEquals(data, gunzip(combined))
+    assertTrue(!cache.exists())
+  }
+
+  @Test
+  fun aCompressedCacheThatCannotExplainTheServerFailsClearly() = runBlocking {
+    File(dir, "hr.log").writeBytes(ByteArray(5000))
+    val cache = Files.createTempDirectory("taiga-cache").toFile()
+    val client = FakeClient(lengths = mutableMapOf("hr.log" to 77L), encoding = "gzip")
+
+    try {
+      UploadEngine(client, dir, compress = true, cacheDir = cache).run()
+      throw AssertionError("expected UploadException")
+    } catch (expected: UploadException) {
+      assertTrue(expected.message.orEmpty().contains("cache"))
+    }
+  }
+
+  @Test
+  fun gzipMembersAreDeterministicAndValid() {
+    val data = ByteArray(10_000) { (it % 97).toByte() }
+    val first = gzipMember(data)
+    val second = gzipMember(data)
+
+    assertArrayEquals(first, second)
+    assertEquals(0x1f, first[0].toInt() and 0xff)
+    assertEquals(0x8b, first[1].toInt() and 0xff)
+    assertArrayEquals(data, gunzip(first))
+  }
+
+  private fun gunzip(bytes: ByteArray): ByteArray =
+      GZIPInputStream(bytes.inputStream()).use { it.readBytes() }
+
   private class FakeClient(
       val lengths: MutableMap<String, Long> = mutableMapOf(),
       var completed: Boolean = false,
+      var encoding: String = "",
+      val accepted: List<String> = emptyList(),
+      var failAfterAppends: Int = -1,
   ) : TaigaClient {
     val appends = mutableListOf<Triple<String, Long, ByteArray>>()
     val appendAttempts = mutableListOf<Long>()
+    val encodings = mutableListOf<String?>()
     var conflictOnce = false
     var analysisRequested = false
     var requestedModel = ""
@@ -116,8 +189,10 @@ class UploadEngineTest {
         file: String,
         offset: Long,
         bytes: ByteArray,
+        encoding: String?,
     ): AppendResponse {
       appendAttempts += offset
+      encodings += encoding
       if (conflictOnce) {
         conflictOnce = false
         lengths[file] = 1L
@@ -125,6 +200,12 @@ class UploadEngineTest {
       }
       val current = lengths[file] ?: 0L
       check(offset == current) { "offset mismatch in fake: $offset vs $current" }
+      if (encoding == "gzip") this.encoding = "gzip"
+      if (failAfterAppends == 0) {
+        failAfterAppends = -1
+        throw com.rbmr.taigasleep.remote.TaigaNetworkException(java.io.IOException("offline"))
+      }
+      if (failAfterAppends > 0) failAfterAppends--
       lengths[file] = current + bytes.size
       appends += Triple(file, offset, bytes)
       return AppendResponse(
@@ -134,6 +215,7 @@ class UploadEngineTest {
           length = lengths[file]!!,
           validated_length = lengths[file]!!,
           state = "ok",
+          encoding = encoding.orEmpty(),
       )
     }
 
@@ -182,7 +264,12 @@ class UploadEngineTest {
     private fun manifest() =
         UploadManifestDto(
             completed = completed,
-            limits = UploadLimitsDto(max_chunk_bytes = 1024),
+            encoding = encoding,
+            accepted_encodings = accepted,
+            limits = UploadLimitsDto(
+                max_chunk_bytes = 4L * 1024 * 1024,
+                max_uncompressed_chunk_bytes = 4L * 1024 * 1024,
+            ),
             files = lengths.mapValues { UploadFileDto(length = it.value) },
         )
   }

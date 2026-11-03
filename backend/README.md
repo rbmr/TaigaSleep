@@ -289,7 +289,7 @@ retried create returns the existing session instead of duplicating it.
 POST /api/taiga/sessions                          create or resume from { "meta": {...} }
 GET  /api/taiga/sessions/{id}/upload              current lengths and validation state
 PUT  /api/taiga/sessions/{id}/upload/meta         replace meta.json
-PUT  /api/taiga/sessions/{id}/upload/file/{file}?offset=N   append raw bytes
+PUT  /api/taiga/sessions/{id}/upload/file/{file}?offset=N[&encoding=gzip]   append a chunk
 POST /api/taiga/sessions/{id}/upload/complete     validate and mark uploaded
 ```
 
@@ -306,18 +306,28 @@ POST /api/taiga/sessions/{id}/upload/complete     validate and mark uploaded
   and cut at completion (`truncated: true`, warning in `upload_error`). A bad
   frame truncates the file to the last valid frame and is reported; the valid
   prefix can still be completed and analysed.
+- `encoding=gzip` switches the session's stream files to compressed storage.
+  Each request body must then be exactly one complete gzip member, `offset` is
+  the compressed byte offset, and the API validates member framing and declared
+  sizes without inflating. Frame validation moves to the worker. The encoding is
+  chosen by the first chunk and cannot be mixed later. See
+  [`docs/upload-compression.md`](../docs/upload-compression.md) for the protocol,
+  storage layout and limits.
 - `complete` requires a valid `meta.json`, a non-`recording` state, and at least
-  one valid frame. The session's `state`, `started_at`, `ended_at`,
-  `duration_s` and `device` are derived from `meta.json`.
+  one valid frame (identity mode) or at least one compressed stream file (gzip
+  mode). The session's `state`, `started_at`, `ended_at`, `duration_s` and
+  `device` are derived from `meta.json`.
 - Recordings live in `<pb_data>/recordings/<session id>/`, so PocketBase backups
   include them. Delete a session with the standard collection route
   (`DELETE /api/collections/sessions/records/{id}`); the delete hook removes the
   recording directory and cascades its analyses and jobs.
 
 Limits are configurable through `TAIGA_MAX_RECORDING_MB` (256),
-`TAIGA_MAX_RECORDING_FILE_MB` (64), `TAIGA_MAX_UPLOAD_CHUNK_MB` (8) and
-`TAIGA_MAX_META_KB` (64). The events file has a fixed 8 MB cap. The effective
-limits are returned in the upload manifest.
+`TAIGA_MAX_RECORDING_FILE_MB` (64), `TAIGA_MAX_RECORDING_UNCOMPRESSED_MB` (512),
+`TAIGA_MAX_RECORDING_UNCOMPRESSED_FILE_MB` (128), `TAIGA_MAX_UPLOAD_CHUNK_MB`
+(8), `TAIGA_MAX_UPLOAD_UNCOMPRESSED_CHUNK_MB` (16), `TAIGA_MAX_UPLOAD_MEMBERS`
+(10000) and `TAIGA_MAX_META_KB` (64). The events file has a fixed 8 MB cap. The
+effective limits are returned in the upload manifest.
 
 Example flow:
 
@@ -752,8 +762,10 @@ public API, but the job payload shape is expected to stay in sync.
 
 ## Out of scope
 
-Accuracy claims without ground-truth labels, optional compressed uploads (#24)
-and the app-side upload and result UI (#11). The data-quality score and the
-sleep score are product policies over stages and metrics, implemented in the
-shared derive layer rather than in a stager.
+Accuracy claims without ground-truth labels and the app-side upload and result
+UI (#11). The data-quality score and the sleep score are product policies over
+stages and metrics, implemented in the shared derive layer rather than in a
+stager. Optional compressed uploads (#24) are implemented and documented in
+[`docs/upload-compression.md`](../docs/upload-compression.md); they are the
+app's default and can be turned off.
 

@@ -14,50 +14,79 @@ import (
 )
 
 const (
-	defaultMaxRecordingMB     = 256
-	defaultMaxRecordingFileMB = 64
-	defaultMaxUploadChunkMB   = 8
-	defaultMaxMetaKB          = 64
-	maxEventsBytes            = 8 * 1024 * 1024
+	defaultMaxRecordingMB               = 256
+	defaultMaxRecordingFileMB           = 64
+	defaultMaxUncompressedMB            = 512
+	defaultMaxUncompressedFileMB        = 128
+	defaultMaxUploadChunkMB             = 8
+	defaultMaxUploadUncompressedChunkMB = 16
+	defaultMaxMetaKB                    = 64
+	maxEventsBytes                      = 8 * 1024 * 1024
+	maxUploadMembers                    = 10000
+	maxExpansionRatio                   = 200.0
+	encodingIdentity                    = "identity"
+	encodingGzip                        = "gzip"
 )
 
 type UploadFile struct {
-	Length          int64  `json:"length"`
-	ValidatedLength int64  `json:"validated_length"`
-	Frames          int    `json:"frames"`
-	Lines           int    `json:"lines"`
-	State           string `json:"state"`
-	Error           string `json:"error"`
-	Truncated       bool   `json:"truncated"`
-	CorruptAt       int64  `json:"corrupt_at,omitempty"`
-	PendingBytes    int64  `json:"pending_bytes,omitempty"`
-	Updated         string `json:"updated"`
+	Length             int64  `json:"length"`
+	ValidatedLength    int64  `json:"validated_length"`
+	UncompressedLength int64  `json:"uncompressed_length"`
+	Members            int    `json:"members,omitempty"`
+	Frames             int    `json:"frames"`
+	Lines              int    `json:"lines"`
+	State              string `json:"state"`
+	Error              string `json:"error"`
+	Truncated          bool   `json:"truncated"`
+	CorruptAt          int64  `json:"corrupt_at,omitempty"`
+	PendingBytes       int64  `json:"pending_bytes,omitempty"`
+	Encoding           string `json:"encoding,omitempty"`
+	StoredName         string `json:"stored_name,omitempty"`
+	Compressed         bool   `json:"compressed,omitempty"`
+	Updated            string `json:"updated"`
 }
 
 type Upload struct {
 	Version     int                    `json:"version"`
+	Encoding    string                 `json:"encoding,omitempty"`
 	Files       map[string]*UploadFile `json:"files"`
 	Completed   bool                   `json:"completed"`
 	CompletedAt string                 `json:"completed_at"`
 }
 
 type UploadLimits struct {
-	MaxTotalBytes int64 `json:"max_total_bytes"`
-	MaxFileBytes  int64 `json:"max_file_bytes"`
-	MaxChunkBytes int64 `json:"max_chunk_bytes"`
+	MaxTotalBytes             int64   `json:"max_total_bytes"`
+	MaxFileBytes              int64   `json:"max_file_bytes"`
+	MaxUncompressedTotalBytes int64   `json:"max_uncompressed_total_bytes"`
+	MaxUncompressedFileBytes  int64   `json:"max_uncompressed_file_bytes"`
+	MaxChunkBytes             int64   `json:"max_chunk_bytes"`
+	MaxUncompressedChunkBytes int64   `json:"max_uncompressed_chunk_bytes"`
+	MaxExpansionRatio         float64 `json:"max_expansion_ratio"`
+	MaxMembers                int     `json:"max_members"`
+}
+
+type CompressionInfo struct {
+	Codec          string `json:"codec"`
+	Version        int    `json:"version"`
+	MemberPerChunk bool   `json:"member_per_chunk"`
+	Deterministic  bool   `json:"deterministic"`
 }
 
 type Manifest struct {
-	Session      string                 `json:"session"`
-	UploadStatus string                 `json:"upload_status"`
-	UploadedAt   string                 `json:"uploaded_at"`
-	UploadError  string                 `json:"upload_error"`
-	Completed    bool                   `json:"completed"`
-	CompletedAt  string                 `json:"completed_at"`
-	TotalBytes   int64                  `json:"total_bytes"`
-	Limits       UploadLimits           `json:"limits"`
-	Meta         *RecordingMeta         `json:"meta"`
-	Files        map[string]*UploadFile `json:"files"`
+	Session           string                 `json:"session"`
+	UploadStatus      string                 `json:"upload_status"`
+	UploadedAt        string                 `json:"uploaded_at"`
+	UploadError       string                 `json:"upload_error"`
+	Completed         bool                   `json:"completed"`
+	CompletedAt       string                 `json:"completed_at"`
+	Encoding          string                 `json:"encoding"`
+	AcceptedEncodings []string               `json:"accepted_encodings"`
+	Compression       CompressionInfo        `json:"compression"`
+	TotalBytes        int64                  `json:"total_bytes"`
+	UncompressedBytes int64                  `json:"uncompressed_bytes"`
+	Limits            UploadLimits           `json:"limits"`
+	Meta              *RecordingMeta         `json:"meta"`
+	Files             map[string]*UploadFile `json:"files"`
 }
 
 type SessionView struct {
@@ -94,10 +123,46 @@ func maxTotalBytes() int64 {
 func maxFileBytes() int64 {
 	return envInt("TAIGA_MAX_RECORDING_FILE_MB", defaultMaxRecordingFileMB) * 1024 * 1024
 }
+func maxUncompressedBytes() int64 {
+	return envInt("TAIGA_MAX_RECORDING_UNCOMPRESSED_MB", defaultMaxUncompressedMB) * 1024 * 1024
+}
+func maxUncompressedFileBytes() int64 {
+	return envInt("TAIGA_MAX_RECORDING_UNCOMPRESSED_FILE_MB", defaultMaxUncompressedFileMB) * 1024 * 1024
+}
 func maxChunkBytes() int64 {
 	return envInt("TAIGA_MAX_UPLOAD_CHUNK_MB", defaultMaxUploadChunkMB) * 1024 * 1024
 }
+func maxUncompressedChunkBytes() int64 {
+	return envInt("TAIGA_MAX_UPLOAD_UNCOMPRESSED_CHUNK_MB", defaultMaxUploadUncompressedChunkMB) * 1024 * 1024
+}
 func maxMetaBytes() int64 { return envInt("TAIGA_MAX_META_KB", defaultMaxMetaKB) * 1024 }
+func maxMembers() int     { return int(envInt("TAIGA_MAX_UPLOAD_MEMBERS", maxUploadMembers)) }
+
+func acceptedEncodings() []string {
+	return []string{encodingIdentity, encodingGzip}
+}
+
+// uploadEncoding is the encoding chosen for a session's stream files. Earlier
+// uploads did not store it, and they are all uncompressed.
+func uploadEncoding(upload Upload) string {
+	if upload.Encoding == "" {
+		return encodingIdentity
+	}
+	return upload.Encoding
+}
+
+func validEncoding(value string) bool {
+	return value == encodingIdentity || value == encodingGzip
+}
+
+// storedName is the file name under the session directory. meta.json is always
+// stored as plain JSON; only the data streams and events can be compressed.
+func storedName(name, encoding string) string {
+	if encoding == encodingGzip && name != metaFileName {
+		return name + ".gz"
+	}
+	return name
+}
 
 func nowString() string {
 	return types.NowDateTime().String()
@@ -126,7 +191,7 @@ func recordingDir(app core.App, sessionID string) (string, error) {
 	return dir, nil
 }
 
-func recordingFile(app core.App, sessionID, name string) (string, error) {
+func recordingStoredFile(app core.App, sessionID, name, encoding string) (string, error) {
 	if !contains(allFiles, name) {
 		return "", apis.NewBadRequestError("unknown recording file", nil)
 	}
@@ -134,7 +199,7 @@ func recordingFile(app core.App, sessionID, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, name), nil
+	return filepath.Join(dir, storedName(name, encoding)), nil
 }
 
 func removeRecordingDir(app core.App, sessionID string) {
@@ -152,10 +217,10 @@ func fileSize(path string) int64 {
 	return info.Size()
 }
 
-func totalRecordingBytes(app core.App, sessionID string) int64 {
+func totalRecordingBytes(app core.App, sessionID string, encoding string) int64 {
 	var total int64
 	for _, name := range allFiles {
-		path, err := recordingFile(app, sessionID, name)
+		path, err := recordingStoredFile(app, sessionID, name, encoding)
 		if err != nil {
 			continue
 		}
@@ -248,17 +313,32 @@ func manifest(app core.App, record *core.Record) (Manifest, error) {
 		return Manifest{}, err
 	}
 	upload := readUpload(record)
+	encoding := uploadEncoding(upload)
 	files := map[string]*UploadFile{}
 	var total int64
+	var uncompressed int64
 
 	for _, name := range allFiles {
-		size := fileSize(filepath.Join(dir, name))
+		fileEncoding := encodingIdentity
+		if encoding == encodingGzip && name != metaFileName {
+			fileEncoding = encodingGzip
+		}
+		size := fileSize(filepath.Join(dir, storedName(name, fileEncoding)))
 		existing := upload.Files[name]
 		if size == 0 && existing == nil {
 			continue
 		}
 		entry := uploadEntry(&upload, name)
+		entry.Encoding = fileEncoding
+		entry.StoredName = storedName(name, fileEncoding)
+		entry.Compressed = fileEncoding == encodingGzip
 		entry.Length = size
+		if entry.Compressed {
+			uncompressed += entry.UncompressedLength
+		} else {
+			entry.UncompressedLength = size
+			uncompressed += size
+		}
 		if entry.ValidatedLength > size {
 			entry.ValidatedLength = 0
 			entry.State = "unvalidated"
@@ -274,17 +354,31 @@ func manifest(app core.App, record *core.Record) (Manifest, error) {
 	}
 
 	return Manifest{
-		Session:      record.Id,
-		UploadStatus: record.GetString("upload_status"),
-		UploadedAt:   record.GetString("uploaded_at"),
-		UploadError:  record.GetString("upload_error"),
-		Completed:    upload.Completed,
-		CompletedAt:  upload.CompletedAt,
-		TotalBytes:   total,
+		Session:           record.Id,
+		UploadStatus:      record.GetString("upload_status"),
+		UploadedAt:        record.GetString("uploaded_at"),
+		UploadError:       record.GetString("upload_error"),
+		Completed:         upload.Completed,
+		CompletedAt:       upload.CompletedAt,
+		Encoding:          encoding,
+		AcceptedEncodings: acceptedEncodings(),
+		Compression: CompressionInfo{
+			Codec:          encodingGzip,
+			Version:        1,
+			MemberPerChunk: true,
+			Deterministic:  true,
+		},
+		TotalBytes:        total,
+		UncompressedBytes: uncompressed,
 		Limits: UploadLimits{
-			MaxTotalBytes: maxTotalBytes(),
-			MaxFileBytes:  maxFileBytes(),
-			MaxChunkBytes: maxChunkBytes(),
+			MaxTotalBytes:             maxTotalBytes(),
+			MaxFileBytes:              maxFileBytes(),
+			MaxUncompressedTotalBytes: maxUncompressedBytes(),
+			MaxUncompressedFileBytes:  maxUncompressedFileBytes(),
+			MaxChunkBytes:             maxChunkBytes(),
+			MaxUncompressedChunkBytes: maxUncompressedChunkBytes(),
+			MaxExpansionRatio:         maxExpansionRatio,
+			MaxMembers:                maxMembers(),
 		},
 		Meta:  meta,
 		Files: files,
@@ -338,6 +432,20 @@ func getSession(app core.App, sessionID, owner string) (*core.Record, error) {
 func contains(items []string, value string) bool {
 	for _, item := range items {
 		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+// isStoredRecordingName accepts both the plain names used by an identity upload
+// and the `.gz` names used by a compressed upload. meta.json is never compressed.
+func isStoredRecordingName(name string) bool {
+	if contains(allFiles, name) {
+		return true
+	}
+	for _, candidate := range allFiles {
+		if candidate != metaFileName && name == candidate+".gz" {
 			return true
 		}
 	}

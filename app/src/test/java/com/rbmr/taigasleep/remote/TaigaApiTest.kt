@@ -77,6 +77,27 @@ class TaigaApiTest {
   }
 
   @Test
+  fun compressedAppendSendsTheEncodingQuery() = runBlocking {
+    server.enqueue(
+        json(
+            """
+            {"file":"hr.log","offset":0,"written":20,"length":20,
+             "validated_length":20,"uncompressed_length":60,"members":1,
+             "encoding":"gzip","state":"ok"}
+            """
+        )
+    )
+
+    val response = api.appendFile("s1", "hr.log", 0, byteArrayOf(1, 2, 3), "gzip")
+
+    assertEquals("gzip", response.encoding)
+    assertEquals(60L, response.uncompressed_length)
+    assertEquals(1, response.members)
+    val request = server.takeRequest()
+    assertEquals("/api/taiga/sessions/s1/upload/file/hr.log?offset=0&encoding=gzip", request.path)
+  }
+
+  @Test
   fun aConflictIsReportedAsAResumableConflict() {
     server.enqueue(
         MockResponse()

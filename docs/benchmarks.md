@@ -72,6 +72,23 @@ two real H10 nights, contact gating/smoothing and the address-space limits.
 See [`sleepecg.md`](sleepecg.md) for the HR/RR path, classifiers, licences and
 benchmarks.
 
+## Upload compression
+
+Compressed uploads are measured separately from staging. The script compresses
+a local recording with one gzip member per chunk, decompresses it with the
+worker's own limits and verifies the frames:
+
+```bash
+cd backend
+uv run --project worker --frozen python scripts/benchmark_compression.py \
+  /path/to/recording --levels 1,6,9
+```
+
+It reports raw and stored bytes, ratio, member count, compression,
+decompression and verification time, and peak RSS. The reference run, the
+level comparison and the decision to keep uncompressed as the default are in
+[`upload-compression.md`](upload-compression.md#benchmark).
+
 ## Real H10 nights
 
 Record a night with the app, copy the session directory to the laptop (or use

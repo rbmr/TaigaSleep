@@ -61,6 +61,7 @@ fun SettingsScreen(
   val remoteStatus by remoteRepository.status.collectAsStateWithLifecycle()
   val uploadSettings = remember { UploadSettings.get(context) }
   val autoUpload by uploadSettings.autoUpload.collectAsStateWithLifecycle()
+  val compressUploads by uploadSettings.compressUploads.collectAsStateWithLifecycle()
   var showAppearance by remember { mutableStateOf(false) }
   var showPreviewPicker by remember { mutableStateOf(false) }
   val guidanceStore = remember { GuidanceStore(context) }
@@ -152,6 +153,13 @@ fun SettingsScreen(
               },
           )
         }
+        SettingsDivider()
+        SettingsCheckboxRow(
+            title = stringResource(R.string.settings_upload_compress_title),
+            subtitle = stringResource(R.string.settings_upload_compress_body),
+            checked = compressUploads,
+            onCheckedChange = { uploadSettings.setCompressUploads(it) },
+        )
         SettingsDivider()
         Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
           Text(
