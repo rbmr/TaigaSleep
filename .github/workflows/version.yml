@@ -1,9 +1,10 @@
 name: version
 
 # Every pull request into main must bump the version of each component it
-# changes, because merging publishes exactly those components. See
-# docs/versioning.md for the rules; the check itself lives in
-# tools/check_version_bump.py so it can also run locally.
+# changes, because merging publishes exactly those components. It must also pass
+# the release plan, so a green pull request is a merge that will publish cleanly
+# instead of failing on main. See docs/versioning.md; both checks live in tools/
+# so they can also run locally.
 
 on:
   pull_request:
@@ -28,3 +29,25 @@ jobs:
 
       - name: Check the changed components have a new version
         run: python3 tools/check_version_bump.py
+
+  plan:
+    name: release plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags and full history are what the plan decides on.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Self-test the plan rules
+        run: python3 tools/release_plan.py --self-test
+
+      - name: Check that merging would publish cleanly
+        env:
+          BASE_REF: origin/main
+        run: python3 tools/release_plan.py

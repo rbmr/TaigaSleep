@@ -85,12 +85,35 @@ Merging to `main` publishes one release per component whose version changed:
   always serves the newest APK.
 - Backend images are pushed as `:v0.1.0` and `:latest`. Pin the version tag for a
   reproducible deployment.
-- A backend-only merge does not rebuild the APK, and an app-only merge does not
-  republish images.
-- If the tag for a version already exists on another commit, the workflow fails
-  instead of overwriting it. A rerun on the same commit skips it.
+- What gets published is decided by `tools/release_plan.py` from the version
+  files and the tags, not from the diff. A missing tag is published, a tag for
+  the current version is skipped, and a version that is already released on
+  another commit fails the merge instead of overwriting it. So a backend-only
+  merge does not rebuild the APK, an app-only merge does not republish the
+  images, and a version that was bumped but never released is published by the
+  next merge.
+- A rerun of the same commit skips both components, because their tags point at
+  that commit.
 
 Docs, CI and tooling changes need no version bump and publish nothing.
+
+### The plan runs before the merge
+
+The same plan is the `release plan` check on every pull request, so the checks on
+the pull request are the only place to look: green means the merge publishes
+cleanly, red means it would fail on `main`. `version bump` and `release plan` are
+both required checks on `main`.
+
+That matters because the two rules are easy to confuse. Bumping only the app is
+correct for an app-only change, and the backend keeps a version that was released
+by an earlier merge. Reading that as "the backend tag already exists" is exactly
+the mistake the check now catches before the merge instead of after it. Running
+it locally works too:
+
+```bash
+python3 tools/release_plan.py --self-test   # the decision table
+python3 tools/release_plan.py               # the plan for this branch
+```
 
 ## What the version appears in
 

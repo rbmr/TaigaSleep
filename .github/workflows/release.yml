@@ -2,7 +2,10 @@ name: release
 
 # One release per component whose version changed: app-v<version> carries the
 # signed APK, backend-v<version> marks the images built from the same commit. A
-# backend-only merge never rebuilds the APK. See docs/versioning.md.
+# backend-only merge never rebuilds the APK, and an app-only merge never
+# republishes the images. tools/release_plan.py makes that decision; the same
+# script runs on every pull request so a broken merge fails its checks instead of
+# main. See docs/versioning.md.
 #
 # Run this workflow manually on a branch to exercise both builds without
 # publishing anything: the images are built but not pushed, and no tag or release
@@ -38,39 +41,22 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Read the version files
+      # The same decision runs as a check on every pull request, so a green pull
+      # request is a merge whose release will succeed. A missing tag publishes,
+      # an unchanged component is skipped, and a reused version fails the run.
+      - name: Plan the release
         id: versions
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          app=$(sed -n 's/^version=//p' app/version.properties)
-          backend=$(sed -n 's/^version=//p' backend/version.properties)
-          if [ -z "$app" ] || [ -z "$backend" ]; then
-            echo "::error::cannot read the version files"
-            exit 1
+          if [ "$EVENT" = workflow_dispatch ]; then
+            # A manual run builds both tracks and publishes nothing.
+            python3 tools/release_plan.py --force-both --github-output "$GITHUB_OUTPUT"
+          else
+            python3 tools/release_plan.py --base "$BEFORE" --github-output "$GITHUB_OUTPUT"
           fi
-          echo "app_version=$app" >> "$GITHUB_OUTPUT"
-          echo "backend_version=$backend" >> "$GITHUB_OUTPUT"
-
-          for kind in app backend; do
-            if [ "$kind" = app ]; then version="$app"; else version="$backend"; fi
-            tag="$kind-v$version"
-            # A manual run builds both tracks and publishes nothing, so it may
-            # reuse an already released version.
-            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-              echo "${kind}_release=true" >> "$GITHUB_OUTPUT"
-              continue
-            fi
-            existing=$(git rev-list -n 1 "refs/tags/$tag" 2>/dev/null || true)
-            if [ -z "$existing" ]; then
-              echo "${kind}_release=true" >> "$GITHUB_OUTPUT"
-            elif [ "$existing" = "$GITHUB_SHA" ]; then
-              echo "${kind}_release=false" >> "$GITHUB_OUTPUT"
-              echo "$tag is already published for this commit; skipping it"
-            else
-              echo "::error::$tag already exists on another commit; bump the version instead of reusing it"
-              exit 1
-            fi
-          done
 
   app:
     name: App release
