@@ -3,39 +3,53 @@
   <string name="remote_title">Remote</string>
   <string name="remote_back">Back</string>
   <string name="remote_kicker">ANALYSIS SERVER</string>
-  <string name="remote_intro">Taiga uploads recordings to your own server and shows the results here. Recording and history on this phone work without it.</string>
 
-  <string name="remote_state_not_configured">Not configured</string>
-  <string name="remote_state_connected_short">Connected</string>
-  <string name="remote_state_login_needed_short">Login needed</string>
-  <string name="remote_state_unreachable_short">Server unreachable</string>
-  <string name="remote_state_connected">Connected as %1$s</string>
-  <string name="remote_last_check">Last check: %1$s</string>
-  <string name="remote_last_check_never">Last check: never</string>
+  <string name="remote_page_server">Server</string>
+  <string name="remote_page_account">Account</string>
+  <string name="remote_page_status">Status</string>
+  <string name="remote_page_server_body">The address Taiga uploads recordings to.</string>
+  <string name="remote_page_account_body">The email and password Taiga logs in with.</string>
+  <string name="remote_page_status_body">Whether Taiga can reach the server and is logged in.</string>
+  <string name="remote_progress">Page %1$d of %2$d: %3$s</string>
+  <string name="remote_previous_page">Previous</string>
+  <string name="remote_next_page">Next</string>
 
-  <string name="remote_group_address">Address</string>
   <string name="remote_url_label">Server URL</string>
   <string name="remote_url_placeholder">https://sleep.example.com</string>
-  <string name="remote_email_label">Email</string>
-  <string name="remote_password_label">Password</string>
-  <string name="remote_password_keep">Leave empty to use the current login.</string>
-  <string name="remote_password_required">Enter your password to log in.</string>
-  <string name="remote_show_password">Show password</string>
-  <string name="remote_hide_password">Hide password</string>
-
+  <string name="remote_check_server">Check server</string>
+  <string name="remote_retry">Retry</string>
+  <string name="remote_checking">Checking…</string>
   <string name="remote_address_ok">Server reachable</string>
   <string name="remote_address_failed">Server not reachable</string>
 
+  <string name="remote_email_label">Email</string>
+  <string name="remote_password_label">Password</string>
+  <string name="remote_show_password">Show password</string>
+  <string name="remote_hide_password">Hide password</string>
   <string name="remote_login">Log in</string>
-  <string name="remote_check_login">Check login</string>
-  <string name="remote_checking">Checking…</string>
-  <string name="remote_login_failed_title">Login failed</string>
+
+  <string name="remote_status_none">No remote</string>
+  <string name="remote_status_unreachable">Unreachable</string>
+  <string name="remote_status_not_logged_in">No login</string>
+  <string name="remote_status_connected">Connected</string>
+  <string name="remote_status_none_body">You did not configure a remote or the remote is unavailable.</string>
+  <string name="remote_status_unreachable_body">The remote did not answer the last check.</string>
+  <string name="remote_status_not_logged_in_body">You have not logged in, or your login was unsuccessful.</string>
+  <string name="remote_status_connected_body">The remote is available, and you are logged in successfully.</string>
+  <string name="remote_last_check">Last check: %1$s</string>
+  <string name="remote_check_connection">Check connection</string>
 
   <string name="remote_logout">Log out</string>
   <string name="remote_logout_title">Log out of the remote?</string>
   <string name="remote_logout_body">Taiga forgets the saved token on this phone only; it is not revoked on the server. Recordings stay on the phone and finish normally.</string>
   <string name="remote_logout_confirm">Log out</string>
   <string name="remote_cancel">Cancel</string>
+
+  <!-- The settings row summary; the Status page has its own wording. -->
+  <string name="remote_state_not_configured">Not configured</string>
+  <string name="remote_state_connected">Connected as %1$s</string>
+  <string name="remote_state_login_needed_short">Login needed</string>
+  <string name="remote_state_unreachable_short">Server unreachable</string>
 
   <string name="remote_error_invalid_url">This server URL is not a valid URL. Use the full address, for example https://sleep.example.com.</string>
   <string name="remote_error_unknown_host">The server address could not be found. Check the URL for spelling mistakes.</string>
