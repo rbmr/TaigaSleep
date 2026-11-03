@@ -33,6 +33,36 @@ def test_analyze_returns_a_model_agnostic_result(tmp_path: Path) -> None:
     assert result["provenance"]["worker"] == "test-worker"
 
 
+def test_provenance_records_the_upload_source(tmp_path: Path) -> None:
+    fx.write_recording(tmp_path, duration_s=60)
+    source = {
+        "encoding": "gzip",
+        "stored_bytes": 1000,
+        "uncompressed_bytes": 2000,
+        "compression_ratio": 2.0,
+        "warnings": ["hr.log: truncated frame at byte 12"],
+        "files": {"hr.log": {"encoding": "gzip", "members": 1}},
+    }
+
+    result = analyze(
+        {
+            "id": "job1",
+            "recording_dir": str(tmp_path),
+            "model": "baseline",
+            "model_version": "1.1.0",
+            "params": {},
+            "worker": "test-worker",
+            "source": source,
+        }
+    )
+
+    provenance = result["provenance"]["recording"]["source"]
+    assert provenance["encoding"] == "gzip"
+    assert provenance["compression_ratio"] == 2.0
+    assert provenance["files"]["hr.log"]["members"] == 1
+    assert "hr.log: truncated frame at byte 12" in result["warnings"]
+
+
 def test_missing_recording_dir_is_a_clear_error() -> None:
     with pytest.raises(AnalysisError) as context:
         analyze({"id": "job1", "model": "baseline"})

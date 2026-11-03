@@ -25,11 +25,37 @@ Automatic upload is a master checkbox with two optional restrictions:
 | Upload automatically | Off means no automatic uploads; manual upload still works. |
 | Only on Wi-Fi | Required unmetered network. Off allows any connected network. |
 | Only while charging | Requires the phone to be charging. |
+| Compress uploads | Send stream and event files as gzip. On by default; manual uploads use it too. |
 
-The default is **enabled, Wi-Fi only, not requiring charging**. Results are
-downloaded whenever the server is reachable, independently of these upload
-restrictions. A night can contain hundreds of megabytes of ECG and
-accelerometer data, so the default avoids cellular data.
+The default is **enabled, Wi-Fi only, not requiring charging**, with compression
+**on**. Results are downloaded whenever the server is reachable, independently
+of these upload restrictions. A night can contain hundreds of megabytes of ECG
+and accelerometer data, so the default avoids cellular data.
+
+Compression is on by default because it roughly halves the bytes sent and kept
+on the server, and on most home or mobile uplinks that is faster than sending
+the raw stream. On a very fast local server it costs a few seconds of phone CPU
+for no network gain; that trade-off is the reason the setting exists.
+
+## Compressed uploads
+
+Compression applies to the upload and the server-side copy only. The recording
+under `recordings/<session id>/` stays append-only and uncompressed, and the
+analysis input is byte-for-byte the same after decompression.
+
+The uploader sends one complete gzip member per 2 MiB chunk, appends the members
+to `<file>.gz` on the server, and keeps a small boundary index under
+`<files>/upload-cache/<local session id>/` so the server's compressed offset can
+be mapped back to the local file after a kill. The cache is deleted when the
+upload completes. A night whose upload already started compressed continues in
+gzip even if the setting is later turned off; a night that started plain stays
+plain, because a session's encoding cannot change.
+
+Frame validation moves to the worker in this mode: the API only checks gzip
+framing, the worker inflates with size/member/ratio limits, validates frame
+headers and CRCs, keeps the valid prefix and records the compression ratio in
+the analysis provenance. Full details and the measured trade-off are in
+[`upload-compression.md`](upload-compression.md).
 
 ## Upload lifecycle
 

@@ -260,8 +260,10 @@ func Routes() []openAPIRoute {
 			Path:        "/api/taiga/sessions/{id}/upload/file/{file}",
 			OperationID: "putUploadFile",
 			Summary:     "Append a chunk to a recording file",
-			Description: "Appends raw bytes at the given offset and validates the newly written frames or events. A mismatch between " +
-				"`offset` and the stored length returns 409 with the expected offset in the message.",
+			Description: "Appends a chunk at the given offset. Identity chunks are validated frame by frame; a corrupt tail is cut " +
+				"back to its valid prefix and reported. `encoding=gzip` requires one complete gzip member per chunk and only validates " +
+				"the member framing; the worker validates the frames after decompression. A mismatch between `offset` and the stored " +
+				"length returns 409 with the expected offset in the message.",
 			Tag:      tagUploads,
 			Security: securityUser,
 			Params: []routeParam{
@@ -277,13 +279,15 @@ func Routes() []openAPIRoute {
 					Name:        "offset",
 					In:          "query",
 					Required:    true,
-					Description: "Byte offset the chunk starts at; it must equal the current file length.",
+					Description: "Byte offset the chunk starts at; it must equal the current stored length.",
 					Schema:      map[string]any{"type": "integer", "minimum": 0},
 				},
+				queryEnum("encoding", "Chunk encoding, default `identity`. The chosen encoding applies to the whole session and cannot change.", []string{encodingIdentity, encodingGzip}),
 			},
 			Body: &routeBody{
 				ContentType: "application/octet-stream",
-				Description: "The raw chunk. Chunk size is limited by the `max_chunk_bytes` value in the upload manifest.",
+				Description: "The chunk. Chunk size is limited by `max_chunk_bytes`; a gzip chunk must be one complete member and is " +
+					"limited by `max_uncompressed_chunk_bytes` and `max_expansion_ratio` in the upload manifest.",
 				Schema: func(*schemaReflector) map[string]any {
 					return map[string]any{"type": "string", "format": "binary"}
 				},
@@ -299,7 +303,8 @@ func Routes() []openAPIRoute {
 			OperationID: "completeUpload",
 			Summary:     "Finish an upload",
 			Description: "Validates every file, keeps the valid prefix of a corrupt tail, and marks the session uploaded. Warnings are " +
-				"reported in `upload_error`.",
+				"reported in `upload_error`. A compressed upload is marked ready without inflating it; the worker validates the frames " +
+				"after download.",
 			Tag:      tagUploads,
 			Security: securityUser,
 			Params:   []routeParam{pathParam("id", "Session record id.")},

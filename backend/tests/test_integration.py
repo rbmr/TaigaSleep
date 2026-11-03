@@ -7,6 +7,7 @@ directory, applies the migrations, and exercises the HTTP API.
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import shutil
@@ -271,6 +272,33 @@ class Backend:
             )
             offset += len(chunk)
         return last
+
+    def upload_gzip(
+        self,
+        session_id: str,
+        name: str,
+        data: bytes,
+        chunk_size: int = 4096,
+    ) -> dict[str, Any]:
+        offset = 0
+        last: dict[str, Any] = {}
+        for chunk in fx.chunks(data, chunk_size):
+            member = gzip.compress(chunk, mtime=0)
+            _, last = self.request_raw(
+                "PUT",
+                f"/api/taiga/sessions/{session_id}/upload/file/{name}"
+                f"?offset={offset}&encoding=gzip",
+                member,
+                token=self.token_a,
+            )
+            offset += len(member)
+        return last
+
+    def upload_gzip_recording(self, session_id: str, files: dict[str, object]) -> None:
+        for name in ("hr.log", "ecg.log", "acc.log", "events.jsonl"):
+            data = files.get(name)
+            if isinstance(data, bytes) and data:
+                self.upload_gzip(session_id, name, data)
 
     def upload_recording(self, session_id: str, files: dict[str, object]) -> None:
         for name in ("hr.log", "ecg.log", "acc.log", "events.jsonl"):
@@ -1221,3 +1249,240 @@ def test_18_docs_page_and_assets_are_served(api: Backend) -> None:
     assert b"SwaggerUIBundle" in bundle
 
     api.request("GET", "/api/taiga/docs/not-an-asset", expected=404)
+
+
+def worker_env(api: Backend) -> dict[str, str]:
+    env = os.environ.copy()
+    env.update(
+        {
+            "TAIGA_API_URL": api.base_url,
+            "TAIGA_WORKER_EMAIL": WORKER_EMAIL,
+            "TAIGA_WORKER_PASSWORD": WORKER_PASSWORD,
+            "TAIGA_WORKER_ID": "integration-worker",
+            "TAIGA_JOB_MEMORY_MB": "512",
+            "TAIGA_JOB_TIMEOUT_S": "120",
+            "TAIGA_LOG_LEVEL": "INFO",
+            "TAIGA_ALGORITHMS": "baseline",
+        }
+    )
+    return env
+
+
+def run_worker_once(api: Backend) -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "taiga_worker", "--once"],
+        cwd=WORKER_DIR,
+        env=worker_env(api),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        api.dump_log()
+        pytest.fail(f"worker exited with {result.returncode}\n{result.stderr}")
+
+
+def test_19_compressed_upload_resumes_and_analyses(api: Backend) -> None:
+    files = fx.recording("20261025_190000", hr_frames=120)
+    session_id, created = api.create_upload_session("20261025_190000")
+    assert created["upload"]["encoding"] == "identity"
+    assert "gzip" in created["upload"]["accepted_encodings"]
+    assert created["upload"]["compression"]["codec"] == "gzip"
+    assert created["upload"]["compression"]["member_per_chunk"] is True
+
+    hr = files["hr.log"]
+    chunks = fx.chunks(hr, 512)
+    members = [gzip.compress(chunk, mtime=0) for chunk in chunks]
+    _, first = api.request_raw(
+        "PUT",
+        f"/api/taiga/sessions/{session_id}/upload/file/hr.log?offset=0&encoding=gzip",
+        members[0],
+        token=api.token_a,
+    )
+    assert first["encoding"] == "gzip"
+    assert first["members"] == 1
+    assert first["length"] == len(members[0])
+    assert first["uncompressed_length"] == len(chunks[0])
+
+    # A new attempt asks the server for the compressed offset and continues
+    # there, without re-sending the first member.
+    _, manifest = api.request(
+        "GET", f"/api/taiga/sessions/{session_id}/upload", token=api.token_a
+    )
+    entry = manifest["upload"]["files"]["hr.log"]
+    assert manifest["upload"]["encoding"] == "gzip"
+    assert entry["stored_name"] == "hr.log.gz"
+    assert entry["compressed"] is True
+    assert entry["length"] == len(members[0])
+    offset = entry["length"]
+    for member in members[1:]:
+        _, last = api.request_raw(
+            "PUT",
+            f"/api/taiga/sessions/{session_id}/upload/file/hr.log"
+            f"?offset={offset}&encoding=gzip",
+            member,
+            token=api.token_a,
+        )
+        offset += len(member)
+    assert last["uncompressed_length"] == len(hr)
+
+    api.request_raw(
+        "PUT",
+        f"/api/taiga/sessions/{session_id}/upload/file/hr.log?offset=1&encoding=gzip",
+        members[0],
+        token=api.token_a,
+        expected=409,
+    )
+    api.request_raw(
+        "PUT",
+        f"/api/taiga/sessions/{session_id}/upload/file/ecg.log?offset=0",
+        b"plain",
+        token=api.token_a,
+        expected=409,
+    )
+
+    for name in ("ecg.log", "acc.log", "events.jsonl"):
+        api.upload_gzip(session_id, name, files[name])
+
+    _, done = api.request(
+        "POST",
+        f"/api/taiga/sessions/{session_id}/upload/complete",
+        {},
+        token=api.token_a,
+    )
+    assert done["session"]["upload_status"] == "uploaded"
+    assert done["upload"]["completed"]
+    assert "worker" in done["upload"]["upload_error"]
+    assert done["upload"]["total_bytes"] < done["upload"]["uncompressed_bytes"]
+
+    _, requested = api.request(
+        "POST",
+        f"/api/taiga/sessions/{session_id}/analysis",
+        {"models": [{"model": "baseline", "version": "1.1.0", "params": {}}]},
+        token=api.token_a,
+    )
+    analysis_id = requested["analyses"][0]["id"]
+
+    # The same recording through the uncompressed path must produce the same
+    # result. Only the upload provenance may differ.
+    plain_files = fx.recording("20261025_190001", hr_frames=120)
+    plain_id, _ = api.create_upload_session("20261025_190001")
+    api.upload_recording(plain_id, plain_files)
+    api.request(
+        "POST",
+        f"/api/taiga/sessions/{plain_id}/upload/complete",
+        {},
+        token=api.token_a,
+    )
+    _, plain_requested = api.request(
+        "POST",
+        f"/api/taiga/sessions/{plain_id}/analysis",
+        {"models": [{"model": "baseline", "version": "1.1.0", "params": {}}]},
+        token=api.token_a,
+    )
+    plain_analysis_id = plain_requested["analyses"][0]["id"]
+
+    run_worker_once(api)
+    run_worker_once(api)
+
+    _, analysis = api.request(
+        "GET", f"/api/taiga/analyses/{analysis_id}", token=api.token_a
+    )
+    _, plain = api.request(
+        "GET", f"/api/taiga/analyses/{plain_analysis_id}", token=api.token_a
+    )
+    assert analysis["status"] == "done"
+    assert plain["status"] == "done"
+    assert analysis["stages"] == plain["stages"]
+    assert analysis["metrics"] == plain["metrics"]
+    assert analysis["quality"] == plain["quality"]
+    source = analysis["provenance"]["recording"]["source"]
+    assert source["encoding"] == "gzip"
+    assert source["files"]["hr.log"]["frames"] == 120
+    assert source["files"]["hr.log"]["members"] == len(members)
+    assert source["compression_ratio"] > 1
+    assert source["files"]["meta.json"]["encoding"] == "identity"
+    assert plain["provenance"]["recording"]["source"]["encoding"] == "identity"
+
+
+def test_20_compressed_upload_rejects_invalid_chunks(api: Backend) -> None:
+    session_id, _ = api.create_upload_session("20261025_200001")
+
+    api.request_raw(
+        "PUT",
+        f"/api/taiga/sessions/{session_id}/upload/file/hr.log?offset=0&encoding=gzip",
+        b"not a gzip member",
+        token=api.token_a,
+        expected=400,
+    )
+
+    named = bytearray(gzip.compress(b"payload", mtime=0))
+    named[3] = 0x08  # FNAME, which the app never writes
+    api.request_raw(
+        "PUT",
+        f"/api/taiga/sessions/{session_id}/upload/file/hr.log?offset=0&encoding=gzip",
+        bytes(named),
+        token=api.token_a,
+        expected=400,
+    )
+
+    # 1 MiB of zeros compresses far past the expansion-ratio limit.
+    bomb = gzip.compress(b"\x00" * (1024 * 1024), mtime=0)
+    api.request_raw(
+        "PUT",
+        f"/api/taiga/sessions/{session_id}/upload/file/hr.log?offset=0&encoding=gzip",
+        bomb,
+        token=api.token_a,
+        expected=400,
+    )
+
+    api.request_raw(
+        "PUT",
+        f"/api/taiga/sessions/{session_id}/upload/file/hr.log?offset=0&encoding=zstd",
+        gzip.compress(b"payload", mtime=0),
+        token=api.token_a,
+        expected=400,
+    )
+
+    # A compressed session that only carries events has no stream to analyse.
+    api.upload_gzip(session_id, "events.jsonl", fx.event_line(1, 0, "start", "x"))
+    api.request(
+        "POST",
+        f"/api/taiga/sessions/{session_id}/upload/complete",
+        {},
+        token=api.token_a,
+        expected=422,
+    )
+
+
+def test_21_worker_reports_a_corrupt_tail_of_a_compressed_stream(
+    api: Backend,
+) -> None:
+    files = fx.recording("20261025_210000", hr_frames=20)
+    session_id, _ = api.create_upload_session("20261025_210000")
+    api.upload_gzip(session_id, "hr.log", files["hr.log"], chunk_size=4096)
+    api.request(
+        "POST",
+        f"/api/taiga/sessions/{session_id}/upload/complete",
+        {},
+        token=api.token_a,
+    )
+    _, requested = api.request(
+        "POST",
+        f"/api/taiga/sessions/{session_id}/analysis",
+        {"models": [{"model": "baseline", "version": "1.1.0", "params": {}}]},
+        token=api.token_a,
+    )
+    job = requested["jobs"][0]
+
+    stored = Path(api.tmpdir) / "pb_data" / "recordings" / session_id / "hr.log.gz"
+    data = stored.read_bytes()
+    stored.write_bytes(data[:-4])
+
+    run_worker_once(api)
+
+    _, job_payload = api.request(
+        "GET", f"/api/collections/jobs/records/{job['id']}", token=api.token_a
+    )
+    assert job_payload["status"] == "failed"
+    assert "truncated gzip member" in job_payload["error"]

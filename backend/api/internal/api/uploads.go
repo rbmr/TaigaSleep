@@ -22,16 +22,19 @@ type metaRequest struct {
 
 // AppendResult reports the state of one appended chunk.
 type AppendResult struct {
-	File            string `json:"file"`
-	Offset          int64  `json:"offset"`
-	Written         int    `json:"written"`
-	Length          int64  `json:"length"`
-	ValidatedLength int64  `json:"validated_length"`
-	Frames          int    `json:"frames"`
-	Lines           int    `json:"lines"`
-	State           string `json:"state"`
-	Error           string `json:"error"`
-	Truncated       bool   `json:"truncated"`
+	File               string `json:"file"`
+	Offset             int64  `json:"offset"`
+	Written            int    `json:"written"`
+	Length             int64  `json:"length"`
+	ValidatedLength    int64  `json:"validated_length"`
+	UncompressedLength int64  `json:"uncompressed_length"`
+	Members            int    `json:"members"`
+	Encoding           string `json:"encoding"`
+	Frames             int    `json:"frames"`
+	Lines              int    `json:"lines"`
+	State              string `json:"state"`
+	Error              string `json:"error"`
+	Truncated          bool   `json:"truncated"`
 }
 
 func CreateSession(e *core.RequestEvent) error {
@@ -213,6 +216,13 @@ func PutFile(e *core.RequestEvent) error {
 	if err != nil || offset < 0 {
 		return e.BadRequestError("offset must be a non-negative integer", nil)
 	}
+	encoding := strings.TrimSpace(e.Request.URL.Query().Get("encoding"))
+	if encoding == "" {
+		encoding = encodingIdentity
+	}
+	if !validEncoding(encoding) {
+		return e.BadRequestError("unsupported encoding", nil)
+	}
 	data, err := io.ReadAll(io.LimitReader(e.Request.Body, maxChunkBytes()+1))
 	if err != nil {
 		return e.BadRequestError("cannot read request body", err)
@@ -222,6 +232,13 @@ func PutFile(e *core.RequestEvent) error {
 	}
 	if int64(len(data)) > maxChunkBytes() {
 		return e.Error(http.StatusRequestEntityTooLarge, "chunk is too large", nil)
+	}
+	var member gzipChunk
+	if encoding == encodingGzip {
+		member, err = validateGzipChunk(data, maxUncompressedChunkBytes(), maxExpansionRatio)
+		if err != nil {
+			return e.BadRequestError(err.Error(), nil)
+		}
 	}
 
 	sessionID := e.Request.PathValue("id")
@@ -234,7 +251,14 @@ func PutFile(e *core.RequestEvent) error {
 		if record.GetString("upload_status") == "uploaded" {
 			return apis.NewApiError(409, "session is already uploaded", nil)
 		}
-		path, err := recordingFile(txApp, record.Id, name)
+		upload := readUpload(record)
+		if upload.Encoding != "" && upload.Encoding != encoding {
+			return apis.NewApiError(409, fmt.Sprintf("upload encoding is already %s", upload.Encoding), nil)
+		}
+		if err := rejectMixedEncoding(txApp, record.Id, name, encoding); err != nil {
+			return err
+		}
+		path, err := recordingStoredFile(txApp, record.Id, name, encoding)
 		if err != nil {
 			return err
 		}
@@ -245,19 +269,47 @@ func PutFile(e *core.RequestEvent) error {
 		if current+int64(len(data)) > maxFileBytes() {
 			return apis.NewApiError(http.StatusRequestEntityTooLarge, fmt.Sprintf("recording file is too large (max %d bytes)", maxFileBytes()), nil)
 		}
-		if totalRecordingBytes(txApp, record.Id)+int64(len(data)) > maxTotalBytes() {
+		if totalRecordingBytes(txApp, record.Id, encoding)+int64(len(data)) > maxTotalBytes() {
 			return apis.NewApiError(http.StatusRequestEntityTooLarge, fmt.Sprintf("recording is too large (max %d bytes)", maxTotalBytes()), nil)
+		}
+		if encoding == encodingGzip {
+			entry := uploadEntry(&upload, name)
+			if entry.Members+1 > maxMembers() {
+				return apis.NewApiError(http.StatusRequestEntityTooLarge, fmt.Sprintf("recording file has too many compressed members (max %d)", maxMembers()), nil)
+			}
+			if entry.UncompressedLength+member.Uncompressed > maxUncompressedFileBytes() {
+				return apis.NewApiError(http.StatusRequestEntityTooLarge, fmt.Sprintf("recording file expands beyond the limit (max %d bytes)", maxUncompressedFileBytes()), nil)
+			}
+			if totalUncompressedBytes(upload)+member.Uncompressed > maxUncompressedBytes() {
+				return apis.NewApiError(http.StatusRequestEntityTooLarge, fmt.Sprintf("recording expands beyond the limit (max %d bytes)", maxUncompressedBytes()), nil)
+			}
 		}
 		if err := appendFile(path, data); err != nil {
 			return err
 		}
 
-		upload := readUpload(record)
 		entry := uploadEntry(&upload, name)
-		if name == eventsFileName {
+		if encoding == encodingGzip {
+			// Frame validation is the worker's job in this mode, so the API only
+			// tracks the gzip framing and the declared uncompressed size.
+			entry.Encoding = encodingGzip
+			entry.StoredName = storedName(name, encodingGzip)
+			entry.Compressed = true
+			entry.Members++
+			entry.UncompressedLength += member.Uncompressed
+			entry.Length = current + int64(len(data))
+			entry.ValidatedLength = entry.Length
+			entry.State = "ok"
+			entry.Error = ""
+			entry.Truncated = false
+			entry.CorruptAt = -1
+			entry.PendingBytes = 0
+			entry.Updated = nowString()
+		} else if name == eventsFileName {
 			if result := validateEventsNow(path, entry); result != nil {
 				return result
 			}
+			entry.UncompressedLength = entry.Length
 		} else {
 			stream := streamByFile[name]
 			frameResult, err := validateLog(path, stream, entry.ValidatedLength)
@@ -281,9 +333,11 @@ func PutFile(e *core.RequestEvent) error {
 				entry.Error = ""
 				entry.CorruptAt = -1
 			}
+			entry.UncompressedLength = entry.Length
 			entry.Updated = nowString()
 		}
 
+		upload.Encoding = encoding
 		upload.Files[name] = entry
 		record.Set("upload", upload)
 		if record.GetString("upload_status") == "" || record.GetString("upload_status") == "none" {
@@ -293,16 +347,19 @@ func PutFile(e *core.RequestEvent) error {
 			return err
 		}
 		result = AppendResult{
-			File:            name,
-			Offset:          offset,
-			Written:         len(data),
-			Length:          entry.Length,
-			ValidatedLength: entry.ValidatedLength,
-			Frames:          entry.Frames,
-			Lines:           entry.Lines,
-			State:           entry.State,
-			Error:           entry.Error,
-			Truncated:       entry.Truncated,
+			File:               name,
+			Offset:             offset,
+			Written:            len(data),
+			Length:             entry.Length,
+			ValidatedLength:    entry.ValidatedLength,
+			UncompressedLength: entry.UncompressedLength,
+			Members:            entry.Members,
+			Encoding:           encoding,
+			Frames:             entry.Frames,
+			Lines:              entry.Lines,
+			State:              entry.State,
+			Error:              entry.Error,
+			Truncated:          entry.Truncated,
 		}
 		return nil
 	})
@@ -310,6 +367,44 @@ func PutFile(e *core.RequestEvent) error {
 		return err
 	}
 	return e.JSON(http.StatusOK, result)
+}
+
+// rejectMixedEncoding refuses to append compressed bytes to a session that
+// already holds plain bytes, or the other way around. The session encoding is
+// chosen by the first stream chunk and never changes after that.
+func rejectMixedEncoding(app core.App, sessionID, name, encoding string) error {
+	other := encodingGzip
+	if encoding == encodingGzip {
+		other = encodingIdentity
+	}
+	for _, candidate := range allFiles {
+		if candidate == metaFileName {
+			continue
+		}
+		path, err := recordingStoredFile(app, sessionID, candidate, other)
+		if err != nil {
+			return err
+		}
+		if fileSize(path) > 0 {
+			return apis.NewApiError(409, fmt.Sprintf("upload encoding is already %s", other), nil)
+		}
+	}
+	return nil
+}
+
+func totalUncompressedBytes(upload Upload) int64 {
+	var total int64
+	for _, entry := range upload.Files {
+		if entry == nil {
+			continue
+		}
+		if entry.Compressed {
+			total += entry.UncompressedLength
+		} else {
+			total += entry.Length
+		}
+	}
+	return total
 }
 
 func validateEventsNow(path string, entry *UploadFile) error {
@@ -367,36 +462,77 @@ func CompleteUpload(e *core.RequestEvent) error {
 		}
 
 		upload := readUpload(record)
+		encoding := uploadEncoding(upload)
 		validFrames := 0
-		for _, name := range allFiles {
-			if name == metaFileName {
-				continue
-			}
-			path, err := recordingFile(txApp, record.Id, name)
-			if err != nil {
-				return err
-			}
-			if fileSize(path) == 0 {
-				continue
-			}
-			entry := uploadEntry(&upload, name)
-			if name == eventsFileName {
-				if err := finalizeEvents(path, entry); err != nil {
+		if encoding == encodingGzip {
+			var streamBytes int64
+			for _, name := range allFiles {
+				if name == metaFileName {
+					continue
+				}
+				entry := upload.Files[name]
+				if entry == nil {
+					continue
+				}
+				path, err := recordingStoredFile(txApp, record.Id, name, encodingGzip)
+				if err != nil {
 					return err
 				}
-			} else {
-				if err := finalizeLog(path, streamByFile[name], entry); err != nil {
+				size := fileSize(path)
+				if size == 0 {
+					continue
+				}
+				entry.Encoding = encodingGzip
+				entry.StoredName = storedName(name, encodingGzip)
+				entry.Compressed = true
+				entry.Length = size
+				entry.ValidatedLength = size
+				entry.State = "ok"
+				entry.Error = ""
+				entry.Truncated = false
+				entry.CorruptAt = -1
+				entry.Updated = nowString()
+				if name != eventsFileName {
+					streamBytes += size
+				}
+			}
+			if streamBytes == 0 {
+				return apis.NewApiError(422, "recording has no stream files", nil)
+			}
+			warnings = append(warnings, "compressed upload: frames are validated by the worker")
+		} else {
+			for _, name := range allFiles {
+				if name == metaFileName {
+					continue
+				}
+				path, err := recordingStoredFile(txApp, record.Id, name, encodingIdentity)
+				if err != nil {
 					return err
 				}
-				validFrames += entry.Frames
+				if fileSize(path) == 0 {
+					continue
+				}
+				entry := uploadEntry(&upload, name)
+				if name == eventsFileName {
+					if err := finalizeEvents(path, entry); err != nil {
+						return err
+					}
+				} else {
+					if err := finalizeLog(path, streamByFile[name], entry); err != nil {
+						return err
+					}
+					validFrames += entry.Frames
+				}
+				entry.UncompressedLength = entry.Length
+				if entry.Truncated {
+					warnings = append(warnings, name+": kept the valid prefix and truncated the bad tail")
+				}
 			}
-			if entry.Truncated {
-				warnings = append(warnings, name+": kept the valid prefix and truncated the bad tail")
+			if validFrames == 0 {
+				return apis.NewApiError(422, "recording has no valid frames", nil)
 			}
 		}
-		if validFrames == 0 {
-			return apis.NewApiError(422, "recording has no valid frames", nil)
-		}
+		upload.Encoding = encoding
 		markMetaEntry(&upload, dir)
 		upload.Completed = true
 		upload.CompletedAt = nowString()

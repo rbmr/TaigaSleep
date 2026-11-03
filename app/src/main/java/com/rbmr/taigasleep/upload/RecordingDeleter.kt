@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.upload
 import android.content.Context
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.storage.SessionStore
+import java.io.File
 
 /**
  * Deletes one recording everywhere. The local copy and cached results go immediately; the remote
@@ -20,6 +21,7 @@ object RecordingDeleter {
       SessionStore.of(context).delete(localId)
       ResultCache.of(context).delete(localId)
       UploadStore.of(context).clear(localId)
+      File(context.filesDir, "upload-cache/$localId").deleteRecursively()
     }
     if (remoteId != null) {
       ResultCache.of(context).delete("remote-$remoteId")

@@ -4,6 +4,8 @@
   <string name="settings_auto_upload_body">Automatically upload recordings to the remote.</string>
   <string name="settings_auto_upload_wifi">Only on Wi-Fi</string>
   <string name="settings_auto_upload_charging">Only while charging</string>
+  <string name="settings_upload_compress_title">Compress uploads</string>
+  <string name="settings_upload_compress_body">Send less data over the network. The recording on this phone stays uncompressed.</string>
   <string name="settings_upload_retention_title">Local recordings</string>
   <string name="settings_upload_retention_body">Kept on this phone after upload. Automatic raw cleanup is not enabled yet.</string>
 

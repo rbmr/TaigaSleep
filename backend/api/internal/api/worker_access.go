@@ -67,7 +67,7 @@ func WorkerFile(e *core.RequestEvent) error {
 	}
 	sessionID := e.Request.PathValue("id")
 	name := e.Request.PathValue("file")
-	if !contains(allFiles, name) {
+	if !isStoredRecordingName(name) {
 		return e.BadRequestError("unknown recording file", nil)
 	}
 	jobID := strings.TrimSpace(e.Request.URL.Query().Get("job"))

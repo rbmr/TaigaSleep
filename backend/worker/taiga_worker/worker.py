@@ -10,8 +10,18 @@ from . import __version__
 from .api import ApiClient, ApiError
 from .config import Config
 from .runner import JobRunner, Outcome
+from .upload import (
+    RECORDING_FILES,
+    UploadError,
+    decompress_gzip,
+    verify_recording_file,
+)
 
-RECORDING_FILES = {"meta.json", "events.jsonl", "hr.log", "ecg.log", "acc.log"}
+# Defaults match the API when an older manifest does not carry the limits.
+DEFAULT_MAX_UNCOMPRESSED_FILE = 128 * 1024 * 1024
+DEFAULT_MAX_UNCOMPRESSED_TOTAL = 512 * 1024 * 1024
+DEFAULT_MAX_MEMBERS = 10000
+DEFAULT_MAX_EXPANSION_RATIO = 200.0
 
 
 class Worker:
@@ -175,12 +185,51 @@ class Worker:
             return Outcome(ok=False, error="recording has no files", retryable=False)
 
         with tempfile.TemporaryDirectory(prefix="taiga-recording-") as workdir:
-            for name in files:
-                if name not in RECORDING_FILES:
-                    continue
-                destination = Path(workdir) / name
+            root = Path(workdir)
+            stored_dir = root / "stored"
+            stored_dir.mkdir()
+            limits = upload.get("limits") if isinstance(upload, dict) else None
+            limits = limits if isinstance(limits, dict) else {}
+            max_file = int(
+                limits.get("max_uncompressed_file_bytes")
+                or DEFAULT_MAX_UNCOMPRESSED_FILE
+            )
+            max_total = int(
+                limits.get("max_uncompressed_total_bytes")
+                or DEFAULT_MAX_UNCOMPRESSED_TOTAL
+            )
+            max_members = int(limits.get("max_members") or DEFAULT_MAX_MEMBERS)
+            max_ratio = float(
+                limits.get("max_expansion_ratio") or DEFAULT_MAX_EXPANSION_RATIO
+            )
 
-                def download(name: str = name, destination: Path = destination) -> None:
+            source: dict[str, Any] = {
+                "encoding": str(upload.get("encoding") or "identity"),
+                "files": {},
+                "warnings": [],
+                "stored_bytes": 0,
+                "uncompressed_bytes": 0,
+            }
+            frames = 0
+            uncompressed_total = 0
+            for name, entry in files.items():
+                if name not in RECORDING_FILES or not isinstance(entry, dict):
+                    continue
+                stored_name = str(entry.get("stored_name") or name)
+                if "/" in stored_name or stored_name not in (
+                    name,
+                    name + ".gz",
+                ):
+                    return Outcome(
+                        ok=False,
+                        error=f"manifest names an unexpected file {stored_name}",
+                        retryable=False,
+                    )
+                encoding = str(entry.get("encoding") or source["encoding"])
+                stored_path = stored_dir / stored_name
+                destination = root / name
+
+                def download(name: str = stored_name, destination: Path = stored_path) -> None:
                     self.api.download_file(
                         session,
                         name,
@@ -194,9 +243,74 @@ class Worker:
                 except ApiError as exc:
                     return Outcome(
                         ok=False,
-                        error=f"cannot download {name}: {exc}",
+                        error=f"cannot download {stored_name}: {exc}",
                         retryable=True,
                     )
+
+                stored_bytes = stored_path.stat().st_size
+                member_count = 0
+                if encoding == "gzip":
+                    if name == "meta.json":
+                        return Outcome(
+                            ok=False,
+                            error="meta.json must not be compressed",
+                            retryable=False,
+                        )
+                    try:
+                        stats = decompress_gzip(
+                            stored_path,
+                            destination,
+                            max_bytes=min(
+                                max_file, max(0, max_total - uncompressed_total)
+                            ),
+                            max_members=max_members,
+                            max_ratio=max_ratio,
+                        )
+                    except UploadError as exc:
+                        return Outcome(
+                            ok=False,
+                            error=f"{name}: {exc}",
+                            retryable=False,
+                        )
+                    member_count = stats.members
+                    uncompressed_bytes = stats.uncompressed_bytes
+                    check = verify_recording_file(destination, name)
+                    if check.truncated and check.error:
+                        source["warnings"].append(f"{name}: {check.error}")
+                    if name in ("hr.log", "ecg.log", "acc.log"):
+                        frames += check.frames
+                else:
+                    if destination != stored_path:
+                        stored_path.replace(destination)
+                    uncompressed_bytes = stored_bytes
+                    check = None
+                uncompressed_total += uncompressed_bytes
+                source["stored_bytes"] += stored_bytes
+                source["uncompressed_bytes"] += uncompressed_bytes
+                source["files"][name] = {
+                    "encoding": encoding,
+                    "stored_name": stored_name,
+                    "stored_bytes": stored_bytes,
+                    "uncompressed_bytes": uncompressed_bytes,
+                    "members": member_count,
+                    "frames": check.frames if check else int(entry.get("frames") or 0),
+                    "valid_bytes": check.valid_bytes if check else uncompressed_bytes,
+                    "truncated_tail": bool(check.truncated if check else entry.get("truncated")),
+                    "error": check.error if check else (entry.get("error") or None),
+                }
+
+            if source["stored_bytes"] > 0:
+                source["compression_ratio"] = round(
+                    source["uncompressed_bytes"] / source["stored_bytes"], 3
+                )
+            else:
+                source["compression_ratio"] = None
+            if source["encoding"] == "gzip" and frames == 0:
+                return Outcome(
+                    ok=False,
+                    error="recording has no valid frames",
+                    retryable=False,
+                )
 
             run_job = dict(job)
             run_job["recording_dir"] = workdir
@@ -205,6 +319,7 @@ class Worker:
             run_job["model_version"] = job.get("model_version")
             run_job["algorithms"] = self._algorithm_ids
             run_job["worker"] = self.config.worker_id
+            run_job["source"] = source
             return self.runner.run(run_job)
 
     def _report(self, job: Mapping[str, Any], outcome: Outcome) -> None:

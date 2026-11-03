@@ -222,6 +222,7 @@ def run_analysis(
     allowlist: Iterable[str] | None = None,
     worker: str | None = None,
     params_hash_override: str | None = None,
+    source: Mapping[str, Any] | None = None,
 ) -> AnalysisOutput:
     """Run one stager over one recording directory."""
 
@@ -283,7 +284,9 @@ def run_analysis(
         "needs": [need.name for need in info.needs],
     }
     warnings = list(dict.fromkeys(
-        list(recording.quality.warnings) + list(result.warnings)
+        list(recording.quality.warnings)
+        + list(result.warnings)
+        + list((source or {}).get("warnings") or [])
     ))
     algorithm_provenance = {
         "id": info.id,
@@ -309,6 +312,7 @@ def run_analysis(
             "start_unix_ms": recording.meta.start_utc_ms,
             "end_unix_ms": recording.end_unix_ns // 1_000_000,
             "duration_s": round(recording.duration_s, 3),
+            **({"source": _jsonable(dict(source))} if source else {}),
             "streams": {
                 name: {
                     "samples": report.samples,

@@ -27,7 +27,13 @@ interface TaigaClient {
 
   suspend fun getUpload(sessionId: String): SessionUploadResponse
 
-  suspend fun appendFile(sessionId: String, file: String, offset: Long, bytes: ByteArray): AppendResponse
+  suspend fun appendFile(
+      sessionId: String,
+      file: String,
+      offset: Long,
+      bytes: ByteArray,
+      encoding: String? = null,
+  ): AppendResponse
 
   suspend fun completeUpload(sessionId: String): SessionUploadResponse
 
@@ -91,10 +97,15 @@ class OkHttpTaigaApi(
       file: String,
       offset: Long,
       bytes: ByteArray,
+      encoding: String?,
   ): AppendResponse {
+    val query = buildString {
+      append("offset=$offset")
+      if (!encoding.isNullOrBlank()) append("&encoding=$encoding")
+    }
     val request =
         Request.Builder()
-            .url(url("/api/taiga/sessions/${path(sessionId)}/upload/file/${path(file)}?offset=$offset"))
+            .url(url("/api/taiga/sessions/${path(sessionId)}/upload/file/${path(file)}?$query"))
             .put(bytes.toRequestBody(OCTET))
             .header("Accept", JSON)
             .header("Authorization", token)
@@ -261,6 +272,8 @@ data class SessionDto(
 data class UploadFileDto(
     val length: Long = 0,
     val validated_length: Long = 0,
+    val uncompressed_length: Long = 0,
+    val members: Int = 0,
     val frames: Int = 0,
     val lines: Int = 0,
     val state: String = "",
@@ -268,6 +281,9 @@ data class UploadFileDto(
     val truncated: Boolean = false,
     val corrupt_at: Long? = null,
     val pending_bytes: Long? = null,
+    val encoding: String = "",
+    val stored_name: String = "",
+    val compressed: Boolean = false,
     val updated: String = "",
 )
 
@@ -275,7 +291,20 @@ data class UploadFileDto(
 data class UploadLimitsDto(
     val max_total_bytes: Long = 0,
     val max_file_bytes: Long = 0,
+    val max_uncompressed_total_bytes: Long = 0,
+    val max_uncompressed_file_bytes: Long = 0,
     val max_chunk_bytes: Long = 0,
+    val max_uncompressed_chunk_bytes: Long = 0,
+    val max_expansion_ratio: Double = 0.0,
+    val max_members: Int = 0,
+)
+
+@Serializable
+data class CompressionInfoDto(
+    val codec: String = "",
+    val version: Int = 0,
+    val member_per_chunk: Boolean = false,
+    val deterministic: Boolean = false,
 )
 
 @Serializable
@@ -286,7 +315,11 @@ data class UploadManifestDto(
     val upload_error: String = "",
     val completed: Boolean = false,
     val completed_at: String = "",
+    val encoding: String = "",
+    val accepted_encodings: List<String> = emptyList(),
+    val compression: CompressionInfoDto = CompressionInfoDto(),
     val total_bytes: Long = 0,
+    val uncompressed_bytes: Long = 0,
     val limits: UploadLimitsDto = UploadLimitsDto(),
     val files: Map<String, UploadFileDto> = emptyMap(),
 )
@@ -304,6 +337,9 @@ data class AppendResponse(
     val written: Int = 0,
     val length: Long = 0,
     val validated_length: Long = 0,
+    val uncompressed_length: Long = 0,
+    val members: Int = 0,
+    val encoding: String = "",
     val frames: Int = 0,
     val lines: Int = 0,
     val state: String = "",

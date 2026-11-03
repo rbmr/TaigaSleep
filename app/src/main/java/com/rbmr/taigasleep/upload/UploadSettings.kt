@@ -19,6 +19,9 @@ data class AutoUploadSettings(
  * Upload preferences. Results are always downloaded when possible; these flags only decide when
  * the app may start an upload by itself.
  *
+ * Compression is a separate setting and is on by default: it halves the bytes sent and stored.
+ * Users can turn it off for a very fast server or to keep the server-side files directly readable.
+ *
  * Local recordings are kept after upload. Retention is intentionally not destructive yet.
  */
 class UploadSettings private constructor(context: Context) {
@@ -27,6 +30,9 @@ class UploadSettings private constructor(context: Context) {
 
   private val _autoUpload = MutableStateFlow(load())
   val autoUpload: StateFlow<AutoUploadSettings> = _autoUpload.asStateFlow()
+
+  private val _compressUploads = MutableStateFlow(prefs.getBoolean(KEY_COMPRESS, true))
+  val compressUploads: StateFlow<Boolean> = _compressUploads.asStateFlow()
 
   fun setEnabled(enabled: Boolean) {
     update(_autoUpload.value.copy(enabled = enabled))
@@ -42,6 +48,11 @@ class UploadSettings private constructor(context: Context) {
 
   fun setAutoUpload(settings: AutoUploadSettings) {
     update(settings)
+  }
+
+  fun setCompressUploads(compress: Boolean) {
+    prefs.edit().putBoolean(KEY_COMPRESS, compress).apply()
+    _compressUploads.value = compress
   }
 
   private fun update(settings: AutoUploadSettings) {
@@ -89,6 +100,7 @@ class UploadSettings private constructor(context: Context) {
     private const val KEY_ENABLED = "auto_upload_enabled"
     private const val KEY_WIFI_ONLY = "auto_upload_wifi_only"
     private const val KEY_CHARGING_ONLY = "auto_upload_charging_only"
+    private const val KEY_COMPRESS = "upload_compress"
     private const val LEGACY_KEY = "auto_transfer"
 
     @Volatile private var instance: UploadSettings? = null

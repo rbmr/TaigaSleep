@@ -14,6 +14,7 @@ import com.rbmr.taigasleep.remote.label
 import com.rbmr.taigasleep.storage.SessionMeta
 import com.rbmr.taigasleep.storage.SessionState
 import com.rbmr.taigasleep.storage.SessionStore
+import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 
@@ -102,6 +103,8 @@ class UploadWorker(
                   dir = dir,
                   onProgress = { store.markUploading(localId, it) },
                   onRemoteSession = { store.markRemote(localId, it) },
+                  compress = UploadSettings.get(context).compressUploads.value,
+                  cacheDir = File(context.filesDir, "upload-cache/$localId"),
               )
               .run()
       store.markProcessing(
