@@ -124,11 +124,16 @@ recordings with ECG; SleepECG is the best HR-only option; `baseline` is the safe
 fallback when no worker has reported. The backend still requires an explicit
 model and version.
 
-Automatic analysis is on by default. Turning it off stores the night on the
-server without requesting a result; a manual request can then ask for one or
-several compatible algorithms. The backend removes duplicates by model, version
-and parameter hash, so asking twice does not create a second row. The settings
-screen for the automatic flag, the order and the analysis sheet is #32.
+**Settings → Analysis** controls the automatic flag and the preferred order.
+Both are app-wide, not per account. Automatic analysis is on by default; turning
+it off stores the night on the server without requesting a result. The order
+dialog lists the algorithms the server reports and lets the user move one up or
+down. When a preferred algorithm is not installed or cannot use the recording,
+the next compatible one is used; if none is reported, the built-in baseline is
+the fallback. A failed run is not replaced automatically: the analysis sheet
+offers another algorithm or the existing retry. A manual request can ask for any
+compatible algorithm and ignores the automatic flag and order. The backend
+removes duplicates by model, version and parameter hash.
 
 ## Choosing an analysis
 
@@ -138,8 +143,7 @@ status, and the installed algorithms this recording can feed with their name,
 description and supported stages. Selecting a finished run changes the shown
 result; the choice is kept for this night. **Run** requests one manual
 analysis, marked as manual so a finished manual run wins the default selection.
-The automatic flag and the ordered preference list have their settings UI in
-#32.
+The automatic flag and the ordered preference list live in Settings → Analysis.
 
 ## Recording states
 

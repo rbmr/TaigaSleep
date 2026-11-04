@@ -66,15 +66,18 @@ object AnalysisService {
     return choices.map { request(client, sessionId, it) }
   }
 
-  private suspend fun installed(client: TaigaClient): List<AlgorithmDto> =
+  /** The algorithms the server reports, or the failure to read them. */
+  suspend fun installedAlgorithms(client: TaigaClient): Result<List<AlgorithmDto>> =
       try {
-        client.getAlgorithms().algorithms
+        Result.success(client.getAlgorithms().algorithms)
       } catch (e: CancellationException) {
         throw e
-      } catch (_: Exception) {
-        // An unreachable algorithm endpoint must not block the request: selectStager falls back.
-        emptyList()
+      } catch (e: Exception) {
+        Result.failure(e)
       }
+
+  private suspend fun installed(client: TaigaClient): List<AlgorithmDto> =
+      installedAlgorithms(client).getOrDefault(emptyList())
 
   private suspend fun request(
       client: TaigaClient,

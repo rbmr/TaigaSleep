@@ -24,6 +24,22 @@ fun parsePreferenceOrder(raw: String?): List<String> =
         ?.takeIf { it.isNotEmpty() }
         ?: StagerPreference
 
+/**
+ * The order shown and used with the installed algorithms: the saved order first, then any
+ * installed algorithm the saved order does not mention yet.
+ */
+fun effectiveOrder(stored: List<String>, installed: Collection<String>): List<String> =
+    stored.filter { it in installed } + installed.filter { it !in stored }
+
+/** Move one algorithm one step up or down, keeping the list stable at the ends. */
+fun movePreference(order: List<String>, id: String, delta: Int): List<String> {
+  val index = order.indexOf(id)
+  if (index < 0) return order
+  val target = (index + delta).coerceIn(0, order.lastIndex)
+  if (target == index) return order
+  return order.toMutableList().also { it.add(target, it.removeAt(index)) }
+}
+
 class AnalysisSettingsStore private constructor(context: Context) {
   private val prefs =
       context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
