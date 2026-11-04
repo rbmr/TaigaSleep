@@ -160,16 +160,19 @@ History opens, when an upload completes and when the setting changes, so a night
 whose retention time has already passed is cleaned up at the next of those
 moments. Changing the setting therefore applies immediately to old nights.
 
-The backend keeps its raw copy until the whole recording is deleted. Two
-per-night exceptions live in the night-detail three-dot menu:
+The backend keeps its raw copy until the whole recording is deleted. The
+retention setting decides when old raw files may leave the phone. The **Night
+details** sheet can also remove the local raw streams immediately; it offers
+**Delete local raw data** only when the night also has a remote copy, so the
+recording is never left without a copy. Deleting the whole night removes both
+copies.
 
-- **Delete raw data from this phone** removes the local raw files of one uploaded
-  night immediately. Metadata, results and the server copy stay.
-- **Download raw data** fetches the raw files of one night back from the server
-  through `GET /api/taiga/sessions/{id}/files/{file}`. The backend inflates its
-  compressed copy on the fly, so the restored files are the original streams. A
-  restored night is then protected from automatic cleanup until its raw data is
-  deleted explicitly.
+The **Night details** sheet shows the recording facts and where the copies are.
+Export prepares the raw files first: if they are only on the server, it fetches
+them through `GET /api/taiga/sessions/{id}/files/{file}` with progress and then
+opens the share sheet. The backend inflates its compressed copy on the fly, so the
+restored files are the original streams. A restored night is protected from
+automatic cleanup until its raw data is deleted explicitly.
 
 The metadata, upload state and analysis results are the enduring parts of a
 recording. A finished analysis is cached in the app's private `files/analysis/`
@@ -180,12 +183,9 @@ Raw data that was never uploaded exists only on this phone. Deleting the app or
 its data loses it, and no other copy exists. Once the upload is confirmed, the
 server copy is what makes the night recoverable after local cleanup.
 
-Export in the night-detail and History menus is disabled once the raw files are
-gone; download them again first if a copy is needed.
-
 ## Deleting a recording
 
-Holding a History row opens **Export recording** and **Delete recording**; the same options are in the night-detail three-dot menu.
+Holding a History row opens **Export recording** and **Delete recording**; the same actions are in the **Night details** sheet.
 Delete removes the local recording, its cached analysis and the remote session.
 If the server is unreachable, the remote deletion is queued and retried; a `404`
 is treated as success because the session is already gone. The local copy is
