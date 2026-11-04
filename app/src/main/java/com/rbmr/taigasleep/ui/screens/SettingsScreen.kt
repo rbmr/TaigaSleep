@@ -12,12 +12,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +38,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.ThemeMode
+import com.rbmr.taigasleep.analysis.AnalysisService
+import com.rbmr.taigasleep.analysis.AnalysisSettingsStore
+import com.rbmr.taigasleep.analysis.compareVersions
+import com.rbmr.taigasleep.analysis.effectiveOrder
+import com.rbmr.taigasleep.analysis.movePreference
+import com.rbmr.taigasleep.remote.AlgorithmDto
 import com.rbmr.taigasleep.remote.RemoteRepository
 import com.rbmr.taigasleep.remote.RemoteStatus
 import com.rbmr.taigasleep.ui.components.ScreenHeader
@@ -72,6 +84,46 @@ fun SettingsScreen(
             ThemeMode.DARK -> R.string.settings_appearance_body_dark
           }
       )
+  val analysisSettingsStore = remember { AnalysisSettingsStore.of(context) }
+  val analysisSettings by analysisSettingsStore.settings.collectAsStateWithLifecycle()
+  var installedAlgorithms by remember { mutableStateOf<List<AlgorithmDto>>(emptyList()) }
+  var installedLoading by remember { mutableStateOf(false) }
+  var installedError by remember { mutableStateOf<String?>(null) }
+  var showOrder by remember { mutableStateOf(false) }
+  var orderDraft by remember { mutableStateOf<List<String>>(emptyList()) }
+
+  LaunchedEffect(remoteStatus) {
+    val api = remoteRepository.api()
+    if (api == null) {
+      installedAlgorithms = emptyList()
+      installedError = null
+      return@LaunchedEffect
+    }
+    installedLoading = true
+    installedError = null
+    AnalysisService.installedAlgorithms(api)
+        .onSuccess { installedAlgorithms = it }
+        .onFailure { installedError = it.message }
+    installedLoading = false
+  }
+
+  val installedById =
+      remember(installedAlgorithms) {
+        installedAlgorithms
+            .groupBy { it.id }
+            .mapValues { (_, versions) ->
+              versions.maxWithOrNull { a, b -> compareVersions(a.version, b.version) }!!
+            }
+      }
+  val orderIds =
+      remember(analysisSettings.preferenceOrder, installedById) {
+        if (installedById.isEmpty()) {
+          analysisSettings.preferenceOrder
+        } else {
+          effectiveOrder(analysisSettings.preferenceOrder, installedById.keys)
+        }
+      }
+  val orderLabel = orderIds.joinToString(" → ") { installedById[it]?.name ?: it }
 
   LazyColumn(
       modifier = Modifier.fillMaxSize().statusBarsPadding(),
@@ -109,6 +161,32 @@ fun SettingsScreen(
                 },
             onClick = onRemoteClick,
         )
+      }
+    }
+    if (remoteStatus !is RemoteStatus.NotConfigured) {
+      item {
+        SettingsGroup(stringResource(R.string.settings_group_analysis)) {
+          SettingsCheckboxRow(
+              title = stringResource(R.string.settings_analysis_auto_title),
+              subtitle = stringResource(R.string.settings_analysis_auto_body),
+              checked = analysisSettings.auto,
+              onCheckedChange = { analysisSettingsStore.setAuto(it) },
+          )
+          SettingsDivider()
+          SettingsRow(
+              title = stringResource(R.string.settings_analysis_order_title),
+              subtitle =
+                  if (orderLabel.isBlank()) {
+                    stringResource(R.string.settings_analysis_order_empty)
+                  } else {
+                    orderLabel
+                  },
+              onClick = {
+                orderDraft = orderIds
+                showOrder = true
+              },
+          )
+        }
       }
     }
     item {
@@ -262,6 +340,102 @@ fun SettingsScreen(
         confirmButton = {
           TextButton(onClick = { showAppearance = false }) {
             Text(stringResource(R.string.appearance_done))
+          }
+        },
+    )
+  }
+
+  if (showOrder) {
+    AlertDialog(
+        onDismissRequest = { showOrder = false },
+        title = { Text(stringResource(R.string.settings_analysis_order_title)) },
+        text = {
+          Column {
+            Text(
+                text = stringResource(R.string.settings_analysis_order_dialog_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            if (installedLoading) {
+              Text(
+                  text = stringResource(R.string.settings_analysis_order_loading),
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  modifier = Modifier.padding(bottom = 8.dp),
+              )
+            } else if (installedError != null) {
+              Text(
+                  text = stringResource(R.string.settings_analysis_order_error),
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.error,
+                  modifier = Modifier.padding(bottom = 8.dp),
+              )
+            }
+            if (orderDraft.isEmpty()) {
+              Text(
+                  text = stringResource(R.string.settings_analysis_order_empty),
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            orderDraft.forEachIndexed { index, id ->
+              val algorithm = installedById[id]
+              Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Column(Modifier.weight(1f)) {
+                  Text(
+                      text = algorithm?.name?.ifBlank { id } ?: id,
+                      style = MaterialTheme.typography.titleSmall,
+                  )
+                  if (algorithm != null) {
+                    Text(
+                        text = "v${algorithm.version}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                  }
+                }
+                IconButton(
+                    onClick = { orderDraft = movePreference(orderDraft, id, -1) },
+                    enabled = index > 0,
+                ) {
+                  Icon(
+                      imageVector = Icons.Outlined.KeyboardArrowUp,
+                      contentDescription = stringResource(R.string.settings_analysis_order_up),
+                  )
+                }
+                IconButton(
+                    onClick = { orderDraft = movePreference(orderDraft, id, 1) },
+                    enabled = index < orderDraft.lastIndex,
+                ) {
+                  Icon(
+                      imageVector = Icons.Outlined.KeyboardArrowDown,
+                      contentDescription = stringResource(R.string.settings_analysis_order_down),
+                  )
+                }
+              }
+            }
+          }
+        },
+        confirmButton = {
+          TextButton(
+              onClick = {
+                analysisSettingsStore.setPreferenceOrder(
+                    orderDraft +
+                        analysisSettings.preferenceOrder.filter { it !in orderDraft }
+                )
+                showOrder = false
+              }
+          ) {
+            Text(stringResource(R.string.settings_analysis_order_save))
+          }
+        },
+        dismissButton = {
+          TextButton(onClick = { showOrder = false }) {
+            Text(stringResource(R.string.settings_analysis_order_cancel))
           }
         },
     )

@@ -84,6 +84,28 @@ class AnalysisSettingsTest {
     )
   }
 
+  @Test
+  fun theEffectiveOrderAppendsInstalledAlgorithmsThatAreNotInTheSavedOrder() {
+    assertEquals(
+        listOf("wav2sleep", "baseline", "sleep-ecg"),
+        effectiveOrder(
+            stored = listOf("wav2sleep", "baseline"),
+            installed = listOf("baseline", "sleep-ecg", "wav2sleep"),
+        ),
+    )
+  }
+
+  @Test
+  fun movingAnAlgorithmStopsAtTheEndsAndIgnoresUnknownIds() {
+    val order = listOf("wav2sleep", "sleep-ecg", "baseline")
+
+    assertEquals(listOf("sleep-ecg", "wav2sleep", "baseline"), movePreference(order, "sleep-ecg", -1))
+    assertEquals(listOf("wav2sleep", "baseline", "sleep-ecg"), movePreference(order, "sleep-ecg", 1))
+    assertEquals(order, movePreference(order, "wav2sleep", -1))
+    assertEquals(order, movePreference(order, "baseline", 1))
+    assertEquals(order, movePreference(order, "missing", 1))
+  }
+
   private fun baseline(version: String) =
       AlgorithmDto(
           id = "baseline",
