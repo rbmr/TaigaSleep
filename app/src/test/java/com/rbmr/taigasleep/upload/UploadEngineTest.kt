@@ -49,14 +49,10 @@ class UploadEngineTest {
         UploadEngine(client, dir, onProgress = { progress = it }).run()
 
     assertEquals("remote", outcome.remoteId)
-    assertEquals("analysis", outcome.analysisId)
-    assertEquals("job", outcome.jobId)
     assertEquals(listOf(4L to 6), client.appends.map { it.second to it.third.size })
     assertArrayEquals(ByteArray(6) { (it + 4).toByte() }, client.appends.single().third)
     assertEquals(1f, progress)
     assertTrue(client.completed)
-    assertEquals("baseline", client.requestedModel)
-    assertEquals("1.1.0", client.requestedVersion)
   }
 
   @Test
@@ -74,14 +70,14 @@ class UploadEngineTest {
   }
 
   @Test
-  fun anAlreadyCompletedUploadOnlyRequestsTheAnalysis() = runBlocking {
+  fun anAlreadyCompletedUploadOnlyCompletesWithoutRequestingAnAnalysis() = runBlocking {
     File(dir, "hr.log").writeBytes(ByteArray(10))
     val client = FakeClient(lengths = mutableMapOf("hr.log" to 10L), completed = true)
 
     UploadEngine(client, dir).run()
 
     assertTrue(client.appends.isEmpty())
-    assertTrue(client.analysisRequested)
+    assertTrue(!client.analysisRequested)
   }
 
   @Test

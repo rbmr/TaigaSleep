@@ -1,6 +1,8 @@
 package com.rbmr.taigasleep.upload
 
 import android.content.Context
+import com.rbmr.taigasleep.analysis.AnalysisService
+import com.rbmr.taigasleep.analysis.AnalysisSettingsStore
 import com.rbmr.taigasleep.remote.CheckResult
 import com.rbmr.taigasleep.remote.RemoteRepository
 import com.rbmr.taigasleep.remote.TaigaHttpException
@@ -19,7 +21,7 @@ object UploadCoordinator {
 
   /**
    * Configuration of the local recording behind [key]. A remote-only recording has no local
-   * metadata, so the safe answer is an HR-only recording, which selects the built-in baseline.
+   * metadata, so the safe answer is an HR-only recording, which selects the HR-based stager.
    */
   private fun localConfig(context: Context, key: String): SessionConfig {
     val localId = key.takeUnless { it.startsWith("remote-") } ?: return HR_ONLY
@@ -80,10 +82,11 @@ object UploadCoordinator {
             targetAnalysis = retried.analysis?.id ?: targetAnalysis
             targetJob = retried.job.id.ifBlank { failedJob.id }
           } else if (targetAnalysis == null) {
-            val choice = selectInstalledStager(api, localConfig(context, key))
-            val requested = api.requestAnalysis(remoteId, choice.id, choice.version)
-            targetAnalysis = requested.analyses.firstOrNull()?.id
-            targetJob = requested.jobs.firstOrNull()?.id
+            val settings = AnalysisSettingsStore.of(context).settings.value
+            val started =
+                AnalysisService.startPreferred(api, remoteId, localConfig(context, key), settings)
+            targetAnalysis = started.analysisId
+            targetJob = started.jobId
           }
 
           store.markProcessing(key, remoteId, targetAnalysis, targetJob)

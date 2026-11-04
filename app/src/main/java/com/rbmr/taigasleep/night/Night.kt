@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.night
 
+import com.rbmr.taigasleep.analysis.StagerPreference
 import com.rbmr.taigasleep.remote.AnalysisDto
 import com.rbmr.taigasleep.remote.AnalysisSummaryDto
 import com.rbmr.taigasleep.remote.SessionDto
@@ -348,12 +349,31 @@ private fun mergeRuns(base: List<AnalysisRun>, fresh: List<AnalysisRun>): List<A
   if (fresh.isEmpty()) return base.sortedBy { it.createdAtMs }
   val byId = LinkedHashMap<String, AnalysisRun>()
   base.forEach { byId[it.id] = it }
-  fresh.forEach { byId[it.id] = it }
+  fresh.forEach { incoming ->
+    val existing = byId[incoming.id]
+    byId[incoming.id] =
+        if (existing == null) {
+          incoming
+        } else {
+          // The server owns the status and the result summary. The local record owns facts the
+          // server does not know: the job id, why the run exists, and whether its payload is cached.
+          incoming.copy(
+              origin = existing.origin,
+              jobId = incoming.jobId ?: existing.jobId,
+              resultDownloaded = incoming.resultDownloaded || existing.resultDownloaded,
+              createdAtMs =
+                  if (incoming.createdAtMs > 0) incoming.createdAtMs else existing.createdAtMs,
+              updatedAtMs = maxOf(incoming.updatedAtMs, existing.updatedAtMs),
+              error = incoming.error ?: existing.error,
+              segments = if (incoming.segments.isNotEmpty()) incoming.segments else existing.segments,
+              sleepScore = incoming.sleepScore ?: existing.sleepScore,
+              epochSeconds =
+                  if (incoming.segments.isNotEmpty()) incoming.epochSeconds else existing.epochSeconds,
+          )
+        }
+  }
   return byId.values.sortedBy { it.createdAtMs }
 }
-
-/** Best-to-worst order used when no run was selected explicitly. */
-private val DisplayOrder = listOf("wav2sleep", "sleep-ecg", "baseline")
 
 private fun defaultRun(runs: List<AnalysisRun>): AnalysisRun? {
   if (runs.isEmpty()) return null
@@ -362,7 +382,7 @@ private fun defaultRun(runs: List<AnalysisRun>): AnalysisRun? {
     return done.sortedWith(
             compareBy<AnalysisRun> { if (it.origin == AnalysisOrigin.MANUAL) 0 else 1 }
                 .thenBy { run ->
-                  DisplayOrder.indexOf(run.algorithm).let { if (it < 0) DisplayOrder.size else it }
+                  StagerPreference.indexOf(run.algorithm).let { if (it < 0) StagerPreference.size else it }
                 }
                 .thenByDescending { it.updatedAtMs }
         )

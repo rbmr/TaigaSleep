@@ -3,8 +3,6 @@ package com.rbmr.taigasleep.upload
 import com.rbmr.taigasleep.remote.TaigaClient
 import com.rbmr.taigasleep.remote.TaigaConflictException
 import com.rbmr.taigasleep.remote.UploadManifestDto
-import com.rbmr.taigasleep.storage.SessionConfig
-import com.rbmr.taigasleep.storage.SessionMeta
 import java.io.File
 import java.io.RandomAccessFile
 import kotlin.math.min
@@ -13,10 +11,7 @@ class UploadException(message: String, cause: Throwable? = null) : Exception(mes
 
 data class UploadOutcome(
     val remoteId: String,
-    val analysisId: String?,
-    val jobId: String?,
     val warning: String?,
-    val analysisStatus: String?,
 )
 
 /**
@@ -41,7 +36,6 @@ class UploadEngine(
   suspend fun run(): UploadOutcome {
     val meta = File(dir, META).takeIf { it.isFile }?.readText()
     if (meta.isNullOrBlank()) throw UploadException("meta.json is missing")
-    val metaRecord = SessionMeta.read(dir)
 
     val created = client.createSession(meta)
     val remoteId = created.session.id
@@ -87,19 +81,9 @@ class UploadEngine(
     if (cache != null) cache.discard()
     onProgress(1f)
 
-    val choice =
-        selectInstalledStager(
-            client,
-            metaRecord?.config ?: SessionConfig(hr = true, ecg = false, acc = false),
-        )
-    val requested = client.requestAnalysis(remoteId, choice.id, choice.version)
-    val analysis = requested.analyses.firstOrNull()
     return UploadOutcome(
         remoteId = remoteId,
-        analysisId = analysis?.id,
-        jobId = requested.jobs.firstOrNull()?.id,
         warning = complete.upload.upload_error.takeIf { it.isNotBlank() },
-        analysisStatus = analysis?.status,
     )
   }
 

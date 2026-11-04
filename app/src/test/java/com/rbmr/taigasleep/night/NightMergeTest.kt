@@ -406,6 +406,64 @@ class NightMergeTest {
   }
 
   @Test
+  fun aCachedResultStaysDownloadedWhenTheServerSummaryArrives() {
+    val record =
+        NightRecord(
+            id = "local",
+            remoteId = "s1",
+            backup = BackupState(phase = BackupPhase.BACKED_UP, progress = 1f),
+            analyses =
+                listOf(
+                    AnalysisRun(
+                        id = "a1",
+                        algorithm = "baseline",
+                        version = "1.1.0",
+                        status = AnalysisStatus.DONE,
+                        origin = AnalysisOrigin.MANUAL,
+                        jobId = "j1",
+                        resultDownloaded = true,
+                    )
+                ),
+            selectedAnalysisId = "a1",
+        )
+    val remote =
+        SessionListDto(
+            items =
+                listOf(
+                    SessionSummaryDto(
+                        session =
+                            SessionDto(
+                                id = "s1",
+                                client_session_id = "local",
+                                upload_status = "uploaded",
+                            ),
+                        analyses =
+                            listOf(
+                                AnalysisSummaryDto(
+                                    id = "a1",
+                                    model = "baseline",
+                                    model_version = "1.1.0",
+                                    status = "done",
+                                    stages =
+                                        StageSummaryDto(
+                                            epoch_seconds = 30,
+                                            count = 1,
+                                            segments = listOf(StageSegmentDto("light", 1)),
+                                        ),
+                                )
+                            ),
+                    )
+                )
+        )
+
+    val night = buildNights(listOf(local), mapOf("local" to record), remote).single()
+
+    assertTrue(night.resultDownloaded)
+    assertEquals("j1", night.jobId)
+    assertEquals(AnalysisOrigin.MANUAL, night.selectedAnalysis?.origin)
+  }
+
+  @Test
   fun pocketBaseDatesAreParsedAsUtc() {
     val ms = parsePocketBaseDate("2026-10-25 14:00:00.000Z")
 
