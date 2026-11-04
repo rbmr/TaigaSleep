@@ -1,16 +1,22 @@
 package com.rbmr.taigasleep.night
 
 import android.content.Context
+import com.rbmr.taigasleep.analysis.AnalysisService
+import com.rbmr.taigasleep.analysis.compatible
 import com.rbmr.taigasleep.recording.RecordingRepository
+import com.rbmr.taigasleep.remote.AlgorithmDto
 import com.rbmr.taigasleep.remote.AnalysisDto
 import com.rbmr.taigasleep.remote.RemoteRepository
 import com.rbmr.taigasleep.remote.SessionListDto
 import com.rbmr.taigasleep.remote.TaigaUnauthorizedException
+import com.rbmr.taigasleep.storage.SessionConfig
+import com.rbmr.taigasleep.storage.SessionMeta
 import com.rbmr.taigasleep.upload.RemoteHistoryCache
 import com.rbmr.taigasleep.upload.ResultCache
 import com.rbmr.taigasleep.upload.UploadFailure
 import com.rbmr.taigasleep.upload.UploadPhase
 import com.rbmr.taigasleep.upload.UploadRecord
+import com.rbmr.taigasleep.upload.UploadScheduler
 import com.rbmr.taigasleep.upload.UploadStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -109,6 +115,75 @@ class NightRepository private constructor(context: Context) {
         }
       }
 
+  /** The stream configuration behind a local night; a remote-only night is treated as HR-only. */
+  fun configFor(night: Night): SessionConfig {
+    val local = night.local ?: return HR_ONLY
+    return SessionMeta.read(local.dir)?.config ?: HR_ONLY
+  }
+
+  /** Installed algorithms the server reports that this recording can actually feed. */
+  suspend fun compatibleAlgorithms(night: Night): Result<List<AlgorithmDto>> =
+      withContext(Dispatchers.IO) {
+        val api =
+            remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
+        try {
+          val config = configFor(night)
+          Result.success(api.getAlgorithms().algorithms.filter { compatible(it, config) })
+        } catch (e: TaigaUnauthorizedException) {
+          remote.logout()
+          Result.failure(e)
+        } catch (e: CancellationException) {
+          throw e
+        } catch (e: Exception) {
+          Result.failure(e)
+        }
+      }
+
+  /** Request one explicit analysis, remember that it was manual, and start polling it. */
+  suspend fun requestManual(night: Night, algorithmId: String): Result<Unit> =
+      withContext(Dispatchers.IO) {
+        val server = night.remoteId
+            ?: return@withContext Result.failure(IllegalStateException("this night is not uploaded"))
+        val api =
+            remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
+        try {
+          val started = AnalysisService.startManual(api, server, configFor(night), listOf(algorithmId))
+          val runs = started.filter { it.analysisId != null }
+          if (runs.isEmpty()) {
+            return@withContext Result.failure(
+                IllegalStateException("no compatible algorithm is installed")
+            )
+          }
+          for (run in runs) {
+            val analysisId = run.analysisId ?: continue
+            uploads.markManualAnalysis(night.key, analysisId)
+            uploads.markProcessing(night.key, server, analysisId, run.jobId)
+            UploadScheduler.enqueuePoll(
+                context,
+                night.localId ?: night.key,
+                server,
+                analysisId,
+                run.jobId,
+                replace = true,
+            )
+          }
+          refreshNight(night.key, server, runs.first().analysisId)
+          Result.success(Unit)
+        } catch (e: TaigaUnauthorizedException) {
+          remote.logout()
+          Result.failure(e)
+        } catch (e: CancellationException) {
+          throw e
+        } catch (e: Exception) {
+          Result.failure(e)
+        }
+      }
+
+  /** Remember which finished run the user wants to see. */
+  fun selectAnalysis(night: Night, analysisId: String) {
+    uploads.markSelectedAnalysis(night.key, analysisId)
+  }
+
   /**
    * Refresh one night's session and its selected analysis. The fetched detail replaces the cached
    * run summaries for this process, so several analyses are visible immediately.
@@ -176,6 +251,8 @@ class NightRepository private constructor(context: Context) {
       }
 
   companion object {
+    private val HR_ONLY = SessionConfig(hr = true, ecg = false, acc = false)
+
     @Volatile private var instance: NightRepository? = null
 
     fun of(context: Context): NightRepository =
@@ -266,6 +343,7 @@ internal fun UploadRecord.toNightRecord(): NightRecord {
       analyses = runs,
       selectedAnalysisId = analysisId,
       keepRawOnPhone = keepRawOnPhone,
+      manualAnalysisIds = manualAnalysisIds,
       updatedAtMs = updatedAtMs,
   )
 }

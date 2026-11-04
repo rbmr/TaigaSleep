@@ -75,6 +75,9 @@ import com.rbmr.taigasleep.analysis.metricNumber
 import com.rbmr.taigasleep.analysis.splitMetricExplanation
 import com.rbmr.taigasleep.analysis.metricSpec
 import com.rbmr.taigasleep.analysis.supportState
+import com.rbmr.taigasleep.night.AnalysisOrigin
+import com.rbmr.taigasleep.night.AnalysisRun
+import com.rbmr.taigasleep.night.AnalysisStatus
 import com.rbmr.taigasleep.night.Night
 import com.rbmr.taigasleep.night.NightRepository
 import com.rbmr.taigasleep.night.NightStatus
@@ -82,6 +85,7 @@ import com.rbmr.taigasleep.night.formatDuration
 import com.rbmr.taigasleep.night.formatNightDate
 import com.rbmr.taigasleep.night.formatNightDateAndTime
 import com.rbmr.taigasleep.night.parsePocketBaseDate
+import com.rbmr.taigasleep.remote.AlgorithmDto
 import com.rbmr.taigasleep.remote.AnalysisDto
 import com.rbmr.taigasleep.remote.QualityComponentDto
 import com.rbmr.taigasleep.remote.RemoteStatus
@@ -133,6 +137,7 @@ private data class NightDetailState(
     val remoteCreatedAtMs: Long? = null,
     val segments: List<StageSegmentDto> = emptyList(),
     val epochSeconds: Int = 30,
+    val analyses: List<AnalysisRun> = emptyList(),
     val failure: UploadFailure? = null,
     val errorDetail: String? = null,
     val warning: String? = null,
@@ -171,6 +176,7 @@ private fun Night.toDetailState(
                 ?: backup.uploadedAtMs,
         segments = segments,
         epochSeconds = epochSeconds,
+        analyses = analyses,
         failure = if (loginExpired) UploadFailure.LOGIN else failure,
         errorDetail = if (loginExpired) loginError else errorDetail,
         warning = warning,
@@ -212,6 +218,11 @@ fun NightDetailScreen(
   var showDetails by remember { mutableStateOf(false) }
   var showDelete by remember { mutableStateOf(false) }
   var showRawDelete by remember { mutableStateOf(false) }
+  var showAnalysis by remember { mutableStateOf(false) }
+  var analysisBusy by remember { mutableStateOf(false) }
+  var algorithms by remember { mutableStateOf<List<AlgorithmDto>>(emptyList()) }
+  var algorithmsLoading by remember { mutableStateOf(false) }
+  var algorithmsError by remember { mutableStateOf<String?>(null) }
   var exportBusy by remember { mutableStateOf(false) }
   val exportPhase = remember { mutableStateOf<ExportPhase?>(null) }
   val exportProgress = remember { mutableStateOf<Float?>(null) }
@@ -268,6 +279,18 @@ fun NightDetailScreen(
     } else if (result?.id != selected) {
       result = null
     }
+  }
+
+  LaunchedEffect(showAnalysis, night?.key, remoteStatus) {
+    if (!showAnalysis) return@LaunchedEffect
+    val current = night ?: return@LaunchedEffect
+    algorithmsLoading = true
+    algorithmsError = null
+    repository
+        .compatibleAlgorithms(current)
+        .onSuccess { algorithms = it }
+        .onFailure { algorithmsError = it.message }
+    algorithmsLoading = false
   }
 
   val state =
@@ -452,6 +475,27 @@ fun NightDetailScreen(
             processed = processed,
             onScoreClick = { if (state.analysis != null) showSleepScore = true },
         )
+      }
+      if (state.remoteId != null) {
+        item {
+          val model = state.analysis?.model.orEmpty()
+          val version = state.analysis?.model_version.orEmpty()
+          val label =
+              if (model.isNotBlank()) {
+                stringResource(R.string.night_analyzed_with, model, version) +
+                    " · " +
+                    stringResource(R.string.night_analysis_change)
+              } else {
+                stringResource(R.string.night_analysis_choose)
+              }
+          Text(
+              text = label,
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.primary,
+              modifier =
+                  Modifier.padding(horizontal = 4.dp).clickable { showAnalysis = true },
+          )
+        }
       }
 
       state.error?.takeIf { !state.offlineSaved }?.let { message ->
@@ -743,6 +787,32 @@ fun NightDetailScreen(
     selectedMetricSpec?.let { spec ->
       MetricSheet(spec = spec, onDismiss = { metric = null })
     }
+    if (showAnalysis && night != null) {
+      AnalysisSheet(
+          runs = state.analyses,
+          selectedId = state.analysisId,
+          algorithms = algorithms,
+          loading = algorithmsLoading,
+          error = algorithmsError,
+          busy = analysisBusy,
+          onSelect = { id ->
+            repository.selectAnalysis(night, id)
+            showAnalysis = false
+            refreshKey++
+          },
+          onRun = { id ->
+            analysisBusy = true
+            scope.launch {
+              repository
+                  .requestManual(night, id)
+                  .onSuccess { refreshKey++ }
+                  .onFailure { algorithmsError = it.message }
+              analysisBusy = false
+            }
+          },
+          onDismiss = { showAnalysis = false },
+      )
+    }
     if (showDetails) {
       NightDetailsSheet(
           state = state,
@@ -1002,6 +1072,188 @@ private fun NightDetailsSheet(
     }
   }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AnalysisSheet(
+    runs: List<AnalysisRun>,
+    selectedId: String?,
+    algorithms: List<AlgorithmDto>,
+    loading: Boolean,
+    error: String?,
+    busy: Boolean,
+    onSelect: (String) -> Unit,
+    onRun: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+  ModalBottomSheet(onDismissRequest = onDismiss) {
+    Column(
+        modifier =
+            Modifier.fillMaxWidth()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      Text(
+          text = stringResource(R.string.night_analysis),
+          style = MaterialTheme.typography.headlineSmall,
+      )
+      if (runs.isNotEmpty()) {
+        Text(
+            text = stringResource(R.string.night_analysis_this_night),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        runs.forEach { run ->
+          AnalysisRunRow(run = run, selectedId = selectedId, busy = busy, onSelect = onSelect)
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+      }
+      Text(
+          text = stringResource(R.string.night_analysis_add),
+          style = MaterialTheme.typography.titleMedium,
+      )
+      when {
+        loading -> {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(modifier = Modifier.height(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = stringResource(R.string.night_analysis_loading),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+        }
+        error != null -> {
+          Text(
+              text = error,
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.error,
+          )
+        }
+        else -> {
+          val existing = runs.map { it.algorithm to it.version }.toSet()
+          val available = algorithms.filter { (it.id to it.version) !in existing }
+          if (available.isEmpty()) {
+            Text(
+                text = stringResource(R.string.night_analysis_empty),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          } else {
+            available.forEach { algorithm ->
+              AlgorithmRow(algorithm = algorithm, busy = busy, onRun = onRun)
+            }
+          }
+        }
+      }
+      TextButton(onClick = onDismiss) {
+        Text(stringResource(R.string.night_sheet_close))
+      }
+    }
+  }
+}
+
+@Composable
+private fun AnalysisRunRow(
+    run: AnalysisRun,
+    selectedId: String?,
+    busy: Boolean,
+    onSelect: (String) -> Unit,
+) {
+  Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.weight(1f)) {
+      Text(
+          text =
+              buildString {
+                append(run.algorithm.ifBlank { run.id })
+                if (run.version.isNotBlank()) {
+                  append(" ")
+                  append(run.version)
+                }
+                if (run.origin == AnalysisOrigin.MANUAL) append(" · Manual")
+              },
+          style = MaterialTheme.typography.titleSmall,
+      )
+      Text(
+          text = analysisStatus(run.status),
+          style = MaterialTheme.typography.bodySmall,
+          color =
+              when (run.status) {
+                AnalysisStatus.DONE -> MaterialTheme.taiga.ok
+                AnalysisStatus.FAILED -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+              },
+      )
+    }
+    if (run.status == AnalysisStatus.DONE) {
+      if (run.id == selectedId) {
+        Text(
+            text = stringResource(R.string.night_analysis_shown),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.taiga.ok,
+        )
+      } else {
+        TextButton(onClick = { onSelect(run.id) }, enabled = !busy) {
+          Text(stringResource(R.string.night_analysis_show))
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun AlgorithmRow(algorithm: AlgorithmDto, busy: Boolean, onRun: (String) -> Unit) {
+  Column(modifier = Modifier.fillMaxWidth()) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f)) {
+        Text(
+            text = algorithm.name.ifBlank { algorithm.id },
+            style = MaterialTheme.typography.titleSmall,
+        )
+        Text(
+            text = "v${algorithm.version}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      TextButton(onClick = { onRun(algorithm.id) }, enabled = !busy) {
+        Text(stringResource(R.string.night_analysis_run))
+      }
+    }
+    if (algorithm.description.isNotBlank()) {
+      Text(
+          text = algorithm.description,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+    if (algorithm.supported_stages.isNotEmpty()) {
+      Text(
+          text =
+              stringResource(
+                  R.string.night_analysis_stages,
+                  algorithm.supported_stages.joinToString(", "),
+              ),
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+  }
+}
+
+@Composable
+private fun analysisStatus(status: AnalysisStatus): String =
+    stringResource(
+        when (status) {
+          AnalysisStatus.QUEUED -> R.string.night_analysis_status_queued
+          AnalysisStatus.RUNNING -> R.string.night_analysis_status_running
+          AnalysisStatus.DONE -> R.string.night_analysis_status_done
+          AnalysisStatus.FAILED -> R.string.night_analysis_status_failed
+        }
+    )
 
 @Composable
 private fun NightHeaderCard(

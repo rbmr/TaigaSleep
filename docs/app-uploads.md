@@ -130,6 +130,17 @@ several compatible algorithms. The backend removes duplicates by model, version
 and parameter hash, so asking twice does not create a second row. The settings
 screen for the automatic flag, the order and the analysis sheet is #32.
 
+## Choosing an analysis
+
+The night screen names the algorithm that produced the shown result. Tapping
+that line opens the analysis sheet. It lists the night's runs with their
+status, and the installed algorithms this recording can feed with their name,
+description and supported stages. Selecting a finished run changes the shown
+result; the choice is kept for this night. **Run** requests one manual
+analysis, marked as manual so a finished manual run wins the default selection.
+The automatic flag and the ordered preference list have their settings UI in
+#32.
+
 ## Recording states
 
 - **Stopped** and **force-stopped** recordings upload immediately.
