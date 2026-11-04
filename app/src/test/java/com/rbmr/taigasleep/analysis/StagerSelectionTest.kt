@@ -1,4 +1,4 @@
-package com.rbmr.taigasleep.upload
+package com.rbmr.taigasleep.analysis
 
 import com.rbmr.taigasleep.remote.AlgorithmDto
 import com.rbmr.taigasleep.remote.AlgorithmNeedDto
@@ -49,7 +49,7 @@ class StagerSelectionTest {
   }
 
   @Test
-  fun anIncompatibleStagerIsSkipped() {
+  fun anHrOnlyRecordingUsesSleepEcgInsteadOfTheBaselineFallback() {
     val noEcg = fullConfig.copy(ecg = false)
     val choice =
         selectStager(
@@ -61,7 +61,50 @@ class StagerSelectionTest {
             ),
         )
 
+    assertEquals(StagerChoice("sleep-ecg", "1.2.0"), choice)
+  }
+
+  @Test
+  fun aCustomPreferenceOrderWins() {
+    val choice =
+        selectStager(
+            fullConfig,
+            listOf(baseline(version = "1.0.0"), sleepEcg(version = "1.2.0")),
+            preference = listOf("baseline", "wav2sleep"),
+        )
+
     assertEquals(StagerChoice("baseline", "1.0.0"), choice)
+  }
+
+  @Test
+  fun manualSelectionKeepsOrderAndSkipsIncompatibleIds() {
+    val choices =
+        selectStagers(
+            fullConfig.copy(ecg = false),
+            listOf(
+                baseline(version = "1.0.0"),
+                sleepEcg(version = "1.2.0"),
+                wav2sleep(version = "2.0.0"),
+            ),
+            ids = listOf("wav2sleep", "sleep-ecg", "baseline", "missing"),
+        )
+
+    assertEquals(
+        listOf(StagerChoice("sleep-ecg", "1.2.0"), StagerChoice("baseline", "1.0.0")),
+        choices,
+    )
+  }
+
+  @Test
+  fun manualSelectionUsesTheLatestVersion() {
+    val choices =
+        selectStagers(
+            fullConfig,
+            listOf(sleepEcg(version = "1.0.0"), sleepEcg(version = "1.10.0")),
+            ids = listOf("sleep-ecg"),
+        )
+
+    assertEquals(listOf(StagerChoice("sleep-ecg", "1.10.0")), choices)
   }
 
   @Test

@@ -115,12 +115,19 @@ data-quality value.
 
 ## Stager selection
 
-The app owns a hardcoded best-to-worst preference list (`wav2sleep`, `baseline`).
-It fetches the installed algorithms and their stream requirements from the
-backend, filters out those the recording cannot feed, and requests the best
-compatible id and version. wav2sleep is the default sleep-stage classifier;
-`baseline` is the safe fallback. The backend still requires an explicit model and version.
-User-configurable stager preferences are tracked in #32.
+The app owns an ordered preference list (`wav2sleep`, `sleep-ecg`, `baseline`).
+After an upload it fetches the installed algorithms and their stream
+requirements from the backend, filters out those the recording cannot feed, and
+requests the first compatible id and version. wav2sleep is the default for
+recordings with ECG; SleepECG is the best HR-only option; `baseline` is the safe
+fallback when no worker has reported. The backend still requires an explicit
+model and version.
+
+Automatic analysis is on by default. Turning it off stores the night on the
+server without requesting a result; a manual request can then ask for one or
+several compatible algorithms. The backend removes duplicates by model, version
+and parameter hash, so asking twice does not create a second row. The settings
+screen for the automatic flag, the order and the analysis sheet is #32.
 
 ## Recording states
 

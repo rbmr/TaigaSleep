@@ -1,6 +1,8 @@
 package com.rbmr.taigasleep.upload
 
 import android.content.Context
+import com.rbmr.taigasleep.analysis.AnalysisService
+import com.rbmr.taigasleep.analysis.AnalysisSettingsStore
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.rbmr.taigasleep.recording.RecordingService
@@ -107,19 +109,26 @@ class UploadWorker(
                   cacheDir = File(context.filesDir, "upload-cache/$localId"),
               )
               .run()
+      val settings = AnalysisSettingsStore.of(context).settings.value
+      val started =
+          AnalysisService.startAuto(api, outcome.remoteId, meta.config, settings)
       store.markProcessing(
           localId,
           outcome.remoteId,
-          outcome.analysisId,
-          outcome.jobId,
+          started?.analysisId,
+          started?.jobId,
           outcome.warning,
       )
       // The server has the bytes now, so an immediate or overdue cleanup may run.
       RawRetention.enforce(context)
+      if (started == null) {
+        // Automatic analysis is off. The night is safely stored; it can be analysed manually.
+        return Result.success()
+      }
 
       val poller = AnalysisPoller(api, store, ResultCache.of(context), localId)
       try {
-        when (val polled = poller.poll(outcome.remoteId, outcome.analysisId, outcome.jobId)) {
+        when (val polled = poller.poll(outcome.remoteId, started.analysisId, started.jobId)) {
           is PollResult.Done,
           is PollResult.Failed -> Result.success()
           is PollResult.Pending -> {
@@ -140,8 +149,8 @@ class UploadWorker(
             context,
             localId,
             outcome.remoteId,
-            outcome.analysisId,
-            outcome.jobId,
+            started.analysisId,
+            started.jobId,
             delayMs = 15_000,
         )
         Result.success()
@@ -152,8 +161,8 @@ class UploadWorker(
               context,
               localId,
               outcome.remoteId,
-              outcome.analysisId,
-              outcome.jobId,
+              started.analysisId,
+              started.jobId,
               delayMs = 30_000,
           )
           Result.success()
