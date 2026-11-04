@@ -69,18 +69,19 @@ import com.rbmr.taigasleep.analysis.metricNumber
 import com.rbmr.taigasleep.analysis.splitMetricExplanation
 import com.rbmr.taigasleep.analysis.metricSpec
 import com.rbmr.taigasleep.analysis.supportState
+import com.rbmr.taigasleep.night.Night
+import com.rbmr.taigasleep.night.NightRepository
+import com.rbmr.taigasleep.night.NightStatus
+import com.rbmr.taigasleep.night.formatNightDate
 import com.rbmr.taigasleep.remote.AnalysisDto
 import com.rbmr.taigasleep.remote.QualityComponentDto
 import com.rbmr.taigasleep.remote.RemoteStatus
-import com.rbmr.taigasleep.remote.RemoteRepository
 import com.rbmr.taigasleep.remote.SessionDto
 import com.rbmr.taigasleep.remote.StageSegmentDto
 import com.rbmr.taigasleep.recording.Exporter
+import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.remote.TaigaUnauthorizedException
 import com.rbmr.taigasleep.storage.SessionInfo
-import com.rbmr.taigasleep.storage.SessionStore
-import com.rbmr.taigasleep.ui.formatNightDate
-import com.rbmr.taigasleep.ui.parsePocketBaseDate
 import com.rbmr.taigasleep.ui.components.ButtonSize
 import com.rbmr.taigasleep.ui.components.ChartExpandButton
 import com.rbmr.taigasleep.ui.components.ChartFullscreenDialog
@@ -99,27 +100,24 @@ import com.rbmr.taigasleep.ui.theme.taiga
 import com.rbmr.taigasleep.upload.RawActionResult
 import com.rbmr.taigasleep.upload.RawRetention
 import com.rbmr.taigasleep.upload.RecordingDeleter
-import com.rbmr.taigasleep.upload.ResultCache
 import com.rbmr.taigasleep.upload.UploadCoordinator
 import com.rbmr.taigasleep.upload.UploadFailure
-import com.rbmr.taigasleep.upload.UploadPhase
-import com.rbmr.taigasleep.upload.UploadRecord
 import com.rbmr.taigasleep.upload.UploadScheduler
-import com.rbmr.taigasleep.upload.UploadStore
 import kotlin.math.roundToInt
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 private data class NightDetailState(
     val local: SessionInfo? = null,
     val remote: SessionDto? = null,
     val analysis: AnalysisDto? = null,
-    val record: UploadRecord? = null,
     val remoteId: String? = null,
     val analysisId: String? = null,
     val jobId: String? = null,
-    val phase: UploadPhase = UploadPhase.LOCAL,
+    val status: NightStatus = NightStatus.LOCAL_ONLY,
+    val progress: Float = 0f,
+    val startUtcMs: Long = 0,
+    val segments: List<StageSegmentDto> = emptyList(),
+    val epochSeconds: Int = 30,
     val failure: UploadFailure? = null,
     val errorDetail: String? = null,
     val warning: String? = null,
@@ -127,6 +125,34 @@ private data class NightDetailState(
     val offlineSaved: Boolean = false,
     val error: String? = null,
 )
+
+private fun Night.toDetailState(
+    result: AnalysisDto?,
+    loading: Boolean,
+    offlineSaved: Boolean,
+    error: String?,
+    loginExpired: Boolean,
+    loginError: String,
+): NightDetailState =
+    NightDetailState(
+        local = local,
+        remote = remote,
+        analysis = result,
+        remoteId = remoteId,
+        analysisId = analysisId,
+        jobId = jobId,
+        status = status,
+        progress = progress,
+        startUtcMs = startUtcMs,
+        segments = segments,
+        epochSeconds = epochSeconds,
+        failure = if (loginExpired) UploadFailure.LOGIN else failure,
+        errorDetail = if (loginExpired) loginError else errorDetail,
+        warning = warning,
+        loading = loading,
+        offlineSaved = offlineSaved,
+        error = error,
+    )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -139,15 +165,19 @@ fun NightDetailScreen(
 ) {
   BackHandler(onBack = onBack)
   val context = LocalContext.current
-  val remote = remember { RemoteRepository.of(context) }
-  val store = remember { UploadStore.of(context) }
-  val cache = remember { ResultCache.of(context) }
-  val uploads by store.records.collectAsStateWithLifecycle()
-  val remoteStatus by remote.status.collectAsStateWithLifecycle()
-  val record = localId?.let { uploads[it] } ?: remoteId?.let { uploads["remote-$it"] }
+  val repository = remember { NightRepository.of(context) }
+  val remoteStatus by repository.remoteStatus.collectAsStateWithLifecycle()
+  val nights by repository.nights.collectAsStateWithLifecycle()
+  val key = localId ?: remoteId?.let { "remote-$it" } ?: analysisId ?: "night"
   val scope = rememberCoroutineScope()
 
-  var state by remember { mutableStateOf(NightDetailState()) }
+  var result by remember(key) {
+    mutableStateOf(repository.night(key)?.let { repository.cachedResult(key, it.analysisId) })
+  }
+  var loading by remember(key) { mutableStateOf(result == null) }
+  var offlineSaved by remember(key) { mutableStateOf(false) }
+  var error by remember(key) { mutableStateOf<String?>(null) }
+  var loginExpired by remember(key) { mutableStateOf(false) }
   var refreshKey by remember { mutableIntStateOf(0) }
   var showQuality by rememberSaveable { mutableStateOf(false) }
   var showSleepScore by rememberSaveable { mutableStateOf(false) }
@@ -164,140 +194,58 @@ fun NightDetailScreen(
   val rawDeleteFailed = stringResource(R.string.night_raw_delete_failed)
   val rawNotUploaded = stringResource(R.string.night_raw_not_uploaded)
 
-  LaunchedEffect(
-      localId,
-      remoteId,
-      analysisId,
-      refreshKey,
-      record?.phase,
-      record?.remoteId,
-      record?.analysisId,
-      remoteStatus,
-  ) {
-    state = state.copy(loading = true)
-    val local = localId?.let { id -> SessionStore.of(context).info(SessionStore.of(context).dir(id)) }
-    val resolvedRemote = remoteId ?: record?.remoteId
-    val resolvedAnalysis = analysisId ?: record?.analysisId
-    val key = localId ?: resolvedRemote?.let { "remote-$it" } ?: analysisId ?: "night"
-    val cached = cache.load(key)
-    var next =
-        state.copy(
-            local = local,
-            record = record,
-            remoteId = resolvedRemote,
-            analysisId = resolvedAnalysis,
-            jobId = record?.jobId ?: state.jobId,
-            failure = record?.failure,
-            errorDetail = record?.errorDetail,
-            warning = record?.warning,
-            phase = record?.phase ?: UploadPhase.LOCAL,
-            analysis = cached,
-            loading = false,
-            offlineSaved = false,
-            error = null,
-        )
-    if (resolvedRemote == null) {
-      state = next
+  val night =
+      nights.firstOrNull { it.key == key }
+          ?: localId?.let { id -> nights.firstOrNull { it.localId == id } }
+
+  LaunchedEffect(key, refreshKey, remoteStatus, night?.analysisId) {
+    RecordingRepository.refreshSessions(context)
+    repository.reload()
+    val current = repository.night(key)
+    result = repository.cachedResult(key, current?.analysisId) ?: result
+    loading = false
+    val server = current?.remoteId ?: remoteId
+    if (server == null) {
+      offlineSaved = false
+      error = null
       return@LaunchedEffect
     }
-
-    val connected = remoteStatus is RemoteStatus.Connected
-    val api = if (connected) remote.api() else null
-    if (api == null) {
-      state =
-          next.copy(
-              phase = if (cached?.status == "done") UploadPhase.DONE else next.phase,
-              loading = false,
-              offlineSaved = cached != null,
-              error = if (local != null) null else loadFailed,
-          )
+    if (remoteStatus !is RemoteStatus.Connected) {
+      offlineSaved = result != null
+      error = if (current?.local != null) null else loadFailed
       return@LaunchedEffect
     }
-
-    val result =
-        runCatching {
-          withContext(Dispatchers.IO) {
-            val detail = api.getSession(resolvedRemote)
-            val target =
-                resolvedAnalysis
-                    ?: detail.analyses.filter { it.status == "done" }.maxByOrNull { it.updated }?.id
-                    ?: detail.analyses.maxByOrNull { it.created }?.id
-            val analysis = target?.let { api.getAnalysis(it) }
-            Triple(detail, analysis, target)
-          }
+    repository
+        .refreshNight(key, server, night?.analysisId ?: analysisId)
+        .onSuccess { fresh ->
+          if (fresh != null && (fresh.status == "done" || result == null)) result = fresh
+          loginExpired = false
+          offlineSaved = false
+          error = null
         }
-    result
-        .onSuccess { (detail, analysis, target) ->
-          val resolvedJob =
-              detail.jobs.firstOrNull { it.analysis == (target ?: next.analysisId) }?.id
-                  ?: next.jobId
-          if (analysis?.status == "done") {
-            val downloaded = cache.save(key, analysis)
-            store.markDone(
-                id = key,
-                remoteId = detail.session.id,
-                analysisId = target,
-                jobId = resolvedJob,
-                model = analysis.model,
-                modelVersion = analysis.model_version,
-                epochSeconds = analysis.stages?.epoch_seconds ?: 30,
-                segments = analysis.stages?.segments.orEmpty(),
-                sleepScore = analysis.sleep_quality?.score,
-                resultDownloaded = downloaded,
-            )
-          }
-          val saved = if (analysis?.status == "done") analysis else cached ?: analysis
-          next =
-              next.copy(
-                  remote = detail.session,
-                  analysis = saved,
-                  remoteId = detail.session.id,
-                  analysisId = target ?: next.analysisId,
-                  jobId = resolvedJob,
-                  phase =
-                      when {
-                        analysis?.status == "done" -> UploadPhase.DONE
-                        analysis?.status == "failed" -> UploadPhase.FAILED
-                        detail.session.upload_status == "uploaded" -> UploadPhase.PROCESSING
-                        detail.session.upload_status == "failed" -> UploadPhase.FAILED
-                        else -> UploadPhase.UPLOADING
-                      },
-                  failure =
-                      when {
-                        analysis?.status == "failed" -> UploadFailure.ANALYSIS
-                        detail.session.upload_status == "failed" -> UploadFailure.SERVER
-                        else -> next.failure
-                      },
-                  errorDetail =
-                      analysis?.error?.takeIf { it.isNotBlank() }
-                          ?: detail.session.upload_error.takeIf { it.isNotBlank() }
-                          ?: next.errorDetail,
-                  loading = false,
-                  offlineSaved = false,
-              )
-          state = next
-        }
-        .onFailure { error ->
-          val unauthorized = error is TaigaUnauthorizedException
-          if (unauthorized) remote.logout()
-          val hasSaved = cached?.status == "done"
-          state =
-              next.copy(
-                  analysis = cached,
-                  phase =
-                      when {
-                        hasSaved -> UploadPhase.DONE
-                        unauthorized -> UploadPhase.FAILED
-                        else -> next.phase
-                      },
-                  failure = if (unauthorized) UploadFailure.LOGIN else next.failure,
-                  errorDetail = if (unauthorized) loginError else next.errorDetail,
-                  loading = false,
-                  offlineSaved = hasSaved,
-                  error = error.message,
-              )
+        .onFailure { failure ->
+          loginExpired = failure is TaigaUnauthorizedException
+          offlineSaved = result != null
+          error = failure.message
         }
   }
+
+  // The night can arrive after the first composition (the stores are read on a flow). Load its
+  // cached result as soon as the selected analysis is known, without waiting for the network.
+  LaunchedEffect(key, night?.analysisId) {
+    val selected = night?.analysisId
+    if (selected == null) return@LaunchedEffect
+    val cached = repository.cachedResult(key, selected)
+    if (cached != null) {
+      result = cached
+    } else if (result?.id != selected) {
+      result = null
+    }
+  }
+
+  val state =
+      night?.toDetailState(result, loading, offlineSaved, error, loginExpired, loginError)
+          ?: NightDetailState(loading = loading, error = error)
 
   fun upload() {
     val id = state.local?.id ?: localId ?: return
@@ -603,7 +551,7 @@ fun NightDetailScreen(
             }
           }
         }
-        state.phase == UploadPhase.PROCESSING -> {
+        state.status == NightStatus.PROCESSING -> {
           item {
             TaigaCard {
               Text(
@@ -626,7 +574,7 @@ fun NightDetailScreen(
             }
           }
         }
-        state.phase == UploadPhase.QUEUED || state.phase == UploadPhase.UPLOADING -> {
+        state.status == NightStatus.QUEUED || state.status == NightStatus.UPLOADING -> {
           item {
             TaigaCard {
               Text(
@@ -636,10 +584,10 @@ fun NightDetailScreen(
               Spacer(Modifier.height(6.dp))
               Text(
                   text =
-                      if (state.phase == UploadPhase.UPLOADING) {
+                      if (state.status == NightStatus.UPLOADING) {
                         stringResource(
                             R.string.night_uploading_progress,
-                            ((record?.progress ?: state.record?.progress ?: 0f) * 100)
+                            ((state.progress) * 100)
                                 .toInt()
                                 .coerceIn(0, 100),
                         ) + " · " + stringResource(R.string.night_uploading_body)
@@ -650,9 +598,9 @@ fun NightDetailScreen(
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
               )
               Spacer(Modifier.height(12.dp))
-              if (state.phase == UploadPhase.UPLOADING) {
+              if (state.status == NightStatus.UPLOADING) {
                 LinearProgressIndicator(
-                    progress = { record?.progress ?: state.record?.progress ?: 0f },
+                    progress = { state.progress },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(12.dp))
@@ -668,7 +616,7 @@ fun NightDetailScreen(
             }
           }
         }
-        state.phase == UploadPhase.FAILED -> {
+        state.status == NightStatus.FAILED -> {
           item {
             StatusBanner(
                 kind = StatusKind.Bad,
@@ -1349,13 +1297,12 @@ private fun sleepComponentLabel(key: String): Int =
     }
 
 private fun startOf(state: NightDetailState): Long =
-    state.local?.startUtcMs
-        ?: parsePocketBaseDate(state.remote?.started_at.orEmpty()).takeIf { it > 0 }
+    state.startUtcMs.takeIf { it > 0 }
         ?: state.analysis?.stages?.start_unix_ms
         ?: 0L
 
 private fun segmentsOf(state: NightDetailState): List<StageSegmentDto> =
-    state.analysis?.stages?.segments ?: state.record?.segments.orEmpty()
+    state.analysis?.stages?.segments ?: state.segments
 
 private fun epochSecondsOf(state: NightDetailState): Int =
-    state.analysis?.stages?.epoch_seconds ?: state.record?.epochSeconds ?: 30
+    state.analysis?.stages?.epoch_seconds ?: state.epochSeconds
