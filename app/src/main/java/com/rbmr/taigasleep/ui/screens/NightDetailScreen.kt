@@ -1,5 +1,9 @@
 package com.rbmr.taigasleep.ui.screens
 
+import android.content.Context
+import android.text.format.Formatter
+import com.rbmr.taigasleep.storage.SessionStore
+import java.io.File
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -10,6 +14,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,8 +32,6 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -43,6 +47,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -72,17 +78,23 @@ import com.rbmr.taigasleep.analysis.supportState
 import com.rbmr.taigasleep.night.Night
 import com.rbmr.taigasleep.night.NightRepository
 import com.rbmr.taigasleep.night.NightStatus
+import com.rbmr.taigasleep.night.formatDuration
 import com.rbmr.taigasleep.night.formatNightDate
+import com.rbmr.taigasleep.night.formatNightDateAndTime
+import com.rbmr.taigasleep.night.parsePocketBaseDate
 import com.rbmr.taigasleep.remote.AnalysisDto
 import com.rbmr.taigasleep.remote.QualityComponentDto
 import com.rbmr.taigasleep.remote.RemoteStatus
 import com.rbmr.taigasleep.remote.SessionDto
 import com.rbmr.taigasleep.remote.StageSegmentDto
+import com.rbmr.taigasleep.recording.ExportSource
 import com.rbmr.taigasleep.recording.Exporter
+import com.rbmr.taigasleep.recording.exportSource
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.remote.TaigaUnauthorizedException
 import com.rbmr.taigasleep.storage.SessionInfo
 import com.rbmr.taigasleep.ui.components.ButtonSize
+import com.rbmr.taigasleep.ui.components.DestructiveButton
 import com.rbmr.taigasleep.ui.components.ChartExpandButton
 import com.rbmr.taigasleep.ui.components.ChartFullscreenDialog
 import com.rbmr.taigasleep.ui.components.HeartRateChart
@@ -116,6 +128,9 @@ private data class NightDetailState(
     val status: NightStatus = NightStatus.LOCAL_ONLY,
     val progress: Float = 0f,
     val startUtcMs: Long = 0,
+    val endUtcMs: Long? = null,
+    val durationMs: Long = 0,
+    val remoteCreatedAtMs: Long? = null,
     val segments: List<StageSegmentDto> = emptyList(),
     val epochSeconds: Int = 30,
     val failure: UploadFailure? = null,
@@ -125,6 +140,11 @@ private data class NightDetailState(
     val offlineSaved: Boolean = false,
     val error: String? = null,
 )
+
+private enum class ExportPhase {
+  DOWNLOADING,
+  ZIPPING,
+}
 
 private fun Night.toDetailState(
     result: AnalysisDto?,
@@ -144,6 +164,11 @@ private fun Night.toDetailState(
         status = status,
         progress = progress,
         startUtcMs = startUtcMs,
+        endUtcMs = endUtcMs,
+        durationMs = durationMs,
+        remoteCreatedAtMs =
+            parsePocketBaseDate(remote?.created.orEmpty()).takeIf { it > 0 }
+                ?: backup.uploadedAtMs,
         segments = segments,
         epochSeconds = epochSeconds,
         failure = if (loginExpired) UploadFailure.LOGIN else failure,
@@ -184,10 +209,12 @@ fun NightDetailScreen(
   var fullscreenChart by rememberSaveable { mutableStateOf<String?>(null) }
   var metric by rememberSaveable { mutableStateOf<String?>(null) }
   var actionError by remember { mutableStateOf<String?>(null) }
-  var showMenu by remember { mutableStateOf(false) }
+  var showDetails by remember { mutableStateOf(false) }
   var showDelete by remember { mutableStateOf(false) }
   var showRawDelete by remember { mutableStateOf(false) }
-  var rawBusy by remember { mutableStateOf(false) }
+  var exportBusy by remember { mutableStateOf(false) }
+  val exportPhase = remember { mutableStateOf<ExportPhase?>(null) }
+  val exportProgress = remember { mutableStateOf<Float?>(null) }
   val loadFailed = stringResource(R.string.night_load_failed)
   val loginError = stringResource(R.string.upload_error_login)
   val rawRestoreFailed = stringResource(R.string.night_raw_restore_failed)
@@ -291,22 +318,63 @@ fun NightDetailScreen(
     }
   }
 
+  fun exportNight() {
+    val id = state.local?.id ?: localId ?: return
+    if (exportBusy) return
+    actionError = null
+    exportBusy = true
+    exportPhase.value = null
+    exportProgress.value = null
+    scope.launch {
+      val result =
+          prepareAndShare(
+              context = context,
+              id = id,
+              hasRaw = state.local?.hasRaw == true,
+              remoteId = state.remoteId,
+              phase = exportPhase,
+              progress = exportProgress,
+          )
+      exportBusy = false
+      exportPhase.value = null
+      exportProgress.value = null
+      if (result.isFailure) {
+        showDetails = false
+        actionError =
+            listOfNotNull(
+                    rawRestoreFailed,
+                    result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() },
+                )
+                .joinToString(": ")
+      } else {
+        showDetails = false
+        refreshKey++
+      }
+    }
+  }
+
   fun downloadRaw() {
     val id = state.local?.id ?: localId ?: return
     val server = state.remoteId ?: return
-    if (rawBusy) return
+    if (exportBusy) return
     actionError = null
-    rawBusy = true
+    exportBusy = true
     scope.launch {
-      val result = RawRetention.restore(context, id, server)
-      rawBusy = false
-      result
-          .onSuccess { refreshKey++ }
-          .onFailure {
-            actionError =
-                listOfNotNull(rawRestoreFailed, it.message?.takeIf { message -> message.isNotBlank() })
-                    .joinToString(": ")
-          }
+      val result = downloadOnly(context, id, server, exportPhase, exportProgress)
+      exportBusy = false
+      exportPhase.value = null
+      exportProgress.value = null
+      if (result.isFailure) {
+        showDetails = false
+        actionError =
+            listOfNotNull(
+                    rawRestoreFailed,
+                    result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() },
+                )
+                .joinToString(": ")
+      } else {
+        refreshKey++
+      }
     }
   }
 
@@ -318,8 +386,14 @@ fun NightDetailScreen(
         RawActionResult.Done,
         RawActionResult.NothingToDelete -> refreshKey++
         RawActionResult.NotUploaded,
-        RawActionResult.Recording -> actionError = rawNotUploaded
-        is RawActionResult.Failed -> actionError = rawDeleteFailed
+        RawActionResult.Recording -> {
+          showDetails = false
+          actionError = rawNotUploaded
+        }
+        is RawActionResult.Failed -> {
+          showDetails = false
+          actionError = rawDeleteFailed
+        }
       }
     }
   }
@@ -342,60 +416,10 @@ fun NightDetailScreen(
               }
             },
             actions = {
-              IconButton(onClick = { showMenu = true }) {
+              IconButton(onClick = { showDetails = true }) {
                 Icon(
                     imageVector = Icons.Outlined.MoreVert,
-                    contentDescription = stringResource(R.string.night_more),
-                )
-              }
-              DropdownMenu(
-                  expanded = showMenu,
-                  onDismissRequest = { showMenu = false },
-              ) {
-                val rawId = state.local?.id ?: localId
-                val rawOnPhone = state.local?.hasRaw == true
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.night_export)) },
-                    enabled = rawId != null && rawOnPhone,
-                    onClick = {
-                      showMenu = false
-                      if (rawId != null) {
-                        scope.launch { Exporter.share(context, rawId) }
-                      }
-                    },
-                )
-                if (rawId != null && !rawOnPhone && state.remoteId != null) {
-                  DropdownMenuItem(
-                      text = {
-                        Text(
-                            stringResource(
-                                if (rawBusy) R.string.night_raw_downloading
-                                else R.string.night_raw_download
-                            )
-                        )
-                      },
-                      enabled = !rawBusy,
-                      onClick = {
-                        showMenu = false
-                        downloadRaw()
-                      },
-                  )
-                }
-                if (rawId != null && rawOnPhone) {
-                  DropdownMenuItem(
-                      text = { Text(stringResource(R.string.night_raw_delete)) },
-                      onClick = {
-                        showMenu = false
-                        showRawDelete = true
-                      },
-                  )
-                }
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.night_delete)) },
-                    onClick = {
-                      showMenu = false
-                      showDelete = true
-                    },
+                    contentDescription = stringResource(R.string.night_details),
                 )
               }
             },
@@ -428,17 +452,6 @@ fun NightDetailScreen(
             processed = processed,
             onScoreClick = { if (state.analysis != null) showSleepScore = true },
         )
-      }
-
-      state.local?.takeIf { !it.hasRaw && state.remoteId != null }?.let {
-        item {
-          Text(
-              text = stringResource(R.string.night_raw_gone),
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.padding(horizontal = 4.dp),
-          )
-        }
       }
 
       state.error?.takeIf { !state.offlineSaved }?.let { message ->
@@ -730,6 +743,22 @@ fun NightDetailScreen(
     selectedMetricSpec?.let { spec ->
       MetricSheet(spec = spec, onDismiss = { metric = null })
     }
+    if (showDetails) {
+      NightDetailsSheet(
+          state = state,
+          exportBusy = exportBusy,
+          exportPhase = exportPhase.value,
+          exportProgress = exportProgress.value,
+          onDismiss = { showDetails = false },
+          onExport = ::exportNight,
+          onDownloadRaw = ::downloadRaw,
+          onDeleteRaw = { showRawDelete = true },
+          onDelete = {
+            showDetails = false
+            showDelete = true
+          },
+      )
+    }
     if (showRawDelete) {
       AlertDialog(
           onDismissRequest = { showRawDelete = false },
@@ -782,6 +811,198 @@ fun NightDetailScreen(
   }
 }
 
+/** Downloads the raw streams for a night without building an export. */
+private suspend fun downloadOnly(
+    context: Context,
+    id: String,
+    remoteId: String,
+    phase: MutableState<ExportPhase?>,
+    progress: MutableState<Float?>,
+): Result<Unit> {
+  phase.value = ExportPhase.DOWNLOADING
+  progress.value = 0f
+  return RawRetention.restore(context, id, remoteId) { progress.value = it }
+}
+
+/**
+ * Prepares one night's export and opens the share sheet. Server-only raw data is restored first,
+ * with progress, so there is no separate download step in the UI.
+ */
+private suspend fun prepareAndShare(
+    context: Context,
+    id: String,
+    hasRaw: Boolean,
+    remoteId: String?,
+    phase: MutableState<ExportPhase?>,
+    progress: MutableState<Float?>,
+): Result<Unit> {
+  when (exportSource(hasRaw, remoteId != null)) {
+    ExportSource.LOCAL -> Unit
+    ExportSource.UNAVAILABLE ->
+        return Result.failure(IllegalStateException("no copy of this night is available"))
+    ExportSource.RESTORE -> {
+      val server =
+          remoteId ?: return Result.failure(IllegalStateException("no server copy is available"))
+      phase.value = ExportPhase.DOWNLOADING
+      progress.value = 0f
+      val restored = RawRetention.restore(context, id, server) { progress.value = it }
+      if (restored.isFailure) return restored
+    }
+  }
+  phase.value = ExportPhase.ZIPPING
+  progress.value = 0f
+  Exporter.share(context, id) { progress.value = it }
+  progress.value = 1f
+  return Result.success(Unit)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NightDetailsSheet(
+    state: NightDetailState,
+    exportBusy: Boolean,
+    exportPhase: ExportPhase?,
+    exportProgress: Float?,
+    onDismiss: () -> Unit,
+    onExport: () -> Unit,
+    onDownloadRaw: () -> Unit,
+    onDeleteRaw: () -> Unit,
+    onDelete: () -> Unit,
+) {
+  val context = LocalContext.current
+  val local = state.local
+  val device =
+      local?.sensorName?.takeIf { it.isNotBlank() }
+          ?: state.remote?.device?.takeIf { it.isNotBlank() }
+          ?: ""
+  ModalBottomSheet(
+      onDismissRequest = onDismiss,
+      contentWindowInsets = { WindowInsets.navigationBars },
+  ) {
+    Column(
+        modifier =
+            Modifier.fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+      Text(
+          text = stringResource(R.string.night_details_title),
+          style = MaterialTheme.typography.headlineSmall,
+      )
+      DetailRow(
+          label = stringResource(R.string.night_details_started),
+          value = formatNightDateAndTime(state.startUtcMs),
+      )
+      DetailRow(
+          label = stringResource(R.string.night_details_stopped),
+          value =
+              state.endUtcMs?.takeIf { it > 0 }?.let { formatNightDateAndTime(it) }
+                  ?: "—",
+      )
+      DetailRow(
+          label = stringResource(R.string.night_details_device),
+          value = device.ifBlank { stringResource(R.string.night_device_unknown) },
+      )
+      DetailRow(
+          label = stringResource(R.string.night_details_duration),
+          value = formatDuration(state.durationMs),
+      )
+      DetailRow(
+          label = stringResource(R.string.night_details_phone),
+          value =
+              when {
+                local?.hasRaw == true ->
+                    stringResource(
+                        R.string.night_details_raw_on_phone,
+                        Formatter.formatShortFileSize(
+                            context,
+                            SessionStore.RAW_FILES.sumOf { File(local.dir, it).length() },
+                        ),
+                    )
+                else -> stringResource(R.string.night_details_not_on_phone)
+              },
+      )
+      when {
+        local?.hasRaw == true ->
+            TextButton(
+                onClick = onDeleteRaw,
+                enabled = !exportBusy,
+                modifier = Modifier.align(Alignment.End).height(36.dp),
+                contentPadding = PaddingValues(0.dp),
+            ) {
+              Text(
+                  text = stringResource(R.string.night_details_delete_raw),
+                  color = MaterialTheme.taiga.bad,
+              )
+            }
+        local != null && state.remoteId != null ->
+            TextButton(
+                onClick = onDownloadRaw,
+                enabled = !exportBusy,
+                modifier = Modifier.align(Alignment.End).height(36.dp),
+                contentPadding = PaddingValues(0.dp),
+            ) {
+              Text(text = stringResource(R.string.night_details_download_raw))
+            }
+      }
+      if (exportBusy) {
+        val percent = ((exportProgress ?: 0f) * 100).toInt().coerceIn(0, 100)
+        if (exportProgress != null) {
+          LinearProgressIndicator(
+              progress = { exportProgress.coerceIn(0f, 1f) },
+              modifier = Modifier.fillMaxWidth(),
+          )
+        } else {
+          LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        Text(
+            text =
+                when (exportPhase) {
+                  ExportPhase.DOWNLOADING ->
+                      stringResource(R.string.night_details_downloading, percent)
+                  ExportPhase.ZIPPING -> stringResource(R.string.night_details_zipping, percent)
+                  null -> stringResource(R.string.night_details_preparing)
+                },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      DetailRow(
+          label = stringResource(R.string.night_details_server),
+          value =
+              when {
+                state.remoteId == null -> stringResource(R.string.night_details_not_uploaded)
+                state.remoteCreatedAtMs != null && state.remoteCreatedAtMs > 0 ->
+                    formatNightDateAndTime(state.remoteCreatedAtMs)
+                else -> "—"
+              },
+      )
+      Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        PrimaryButton(
+            text = stringResource(R.string.night_export_action),
+            onClick = onExport,
+            enabled =
+                local != null &&
+                    exportSource(local.hasRaw, state.remoteId != null) !=
+                        ExportSource.UNAVAILABLE &&
+                    !exportBusy,
+            modifier = Modifier.weight(1f),
+        )
+        DestructiveButton(
+            text = stringResource(R.string.night_delete_action),
+            onClick = onDelete,
+            enabled = !exportBusy,
+            modifier = Modifier.weight(1f),
+        )
+      }
+    }
+  }
+}
+
 @Composable
 private fun NightHeaderCard(
     sleepScore: Double?,
@@ -799,7 +1020,8 @@ private fun NightHeaderCard(
                 else stringResource(R.string.night_not_processed),
             style = MaterialTheme.typography.labelLarge,
             color =
-                if (processed) MaterialTheme.taiga.ok else MaterialTheme.colorScheme.onSurfaceVariant,
+                if (processed) MaterialTheme.taiga.ok
+                else MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             text =
@@ -816,6 +1038,24 @@ private fun NightHeaderCard(
         )
       }
     }
+  }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+  Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.weight(1f),
+    )
+    Text(
+        text = value,
+        style = MaterialTheme.typography.bodyMedium,
+        textAlign = TextAlign.End,
+        modifier = Modifier.weight(1.4f),
+    )
   }
 }
 

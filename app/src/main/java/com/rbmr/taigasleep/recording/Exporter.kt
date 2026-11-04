@@ -8,15 +8,38 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** Where the bytes for an export come from. */
+enum class ExportSource {
+  /** The raw files are already on the phone. */
+  LOCAL,
+  /** The metadata and raw files must be fetched back from the server first. */
+  RESTORE,
+  /** Neither copy can produce an export. */
+  UNAVAILABLE,
+}
+
+fun exportSource(hasRaw: Boolean, onServer: Boolean): ExportSource =
+    when {
+      hasRaw -> ExportSource.LOCAL
+      onServer -> ExportSource.RESTORE
+      else -> ExportSource.UNAVAILABLE
+    }
+
 /** Zips a session into the cache directory on demand and offers it to the share sheet. */
 object Exporter {
-  suspend fun share(context: Context, sessionId: String) {
+  suspend fun share(
+      context: Context,
+      sessionId: String,
+      onProgress: (Float) -> Unit = {},
+  ) {
     val zip =
         withContext(Dispatchers.IO) {
           val dir = File(context.cacheDir, "export")
           dir.deleteRecursively()
           dir.mkdirs()
-          File(dir, "taiga-$sessionId.zip").also { SessionStore.of(context).zip(sessionId, it) }
+          File(dir, "taiga-$sessionId.zip").also {
+            SessionStore.of(context).zip(sessionId, it, onProgress)
+          }
         }
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", zip)
     val send =

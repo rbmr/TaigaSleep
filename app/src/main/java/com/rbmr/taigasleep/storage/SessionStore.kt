@@ -100,16 +100,32 @@ class SessionStore(val root: File) {
   fun delete(id: String): Boolean = File(root, id).takeIf { it.isDirectory }?.deleteRecursively() ?: false
 
   /** Zips the session directory to [out]; the archive is never kept beyond the share. */
-  fun zip(id: String, out: File) {
+  fun zip(id: String, out: File, onProgress: (Float) -> Unit = {}) {
     val dir = File(root, id)
+    val files =
+        dir.listFiles()?.filter { it.isFile && !it.name.endsWith(".tmp") }?.sortedBy { it.name }
+            ?: emptyList()
+    val total = files.sumOf { it.length() }
+    var written = 0L
     ZipOutputStream(out.outputStream().buffered()).use { zip ->
-      for (f in dir.listFiles()?.sortedBy { it.name } ?: emptyList()) {
-        if (!f.isFile || f.name.endsWith(".tmp")) continue
+      for (f in files) {
         zip.putNextEntry(ZipEntry("$id/${f.name}"))
-        f.inputStream().use { it.copyTo(zip) }
+        f.inputStream().use { input ->
+          val buffer = ByteArray(64 * 1024)
+          while (true) {
+            val read = input.read(buffer)
+            if (read <= 0) break
+            zip.write(buffer, 0, read)
+            written += read
+            if (total > 0) {
+              onProgress((written.toDouble() / total.toDouble()).toFloat().coerceIn(0f, 1f))
+            }
+          }
+        }
         zip.closeEntry()
       }
     }
+    onProgress(1f)
   }
 
   companion object {
