@@ -464,6 +464,75 @@ class NightMergeTest {
   }
 
   @Test
+  fun aManualRunIsMarkedAsManual() {
+    val record =
+        NightRecord(
+            id = "local",
+            backup = BackupState(phase = BackupPhase.BACKED_UP, progress = 1f),
+            analyses =
+                listOf(
+                    AnalysisRun(
+                        id = "a1",
+                        algorithm = "sleep-ecg",
+                        version = "1.0.0",
+                        status = AnalysisStatus.DONE,
+                    )
+                ),
+            selectedAnalysisId = "a1",
+            manualAnalysisIds = listOf("a1"),
+        )
+
+    val night = buildNights(listOf(local), mapOf("local" to record), null).single()
+
+    assertEquals(AnalysisOrigin.MANUAL, night.selectedAnalysis?.origin)
+  }
+
+  @Test
+  fun aManualIdMarksTheSameRemoteRunAsManual() {
+    val record =
+        NightRecord(
+            id = "local",
+            remoteId = "s1",
+            backup = BackupState(phase = BackupPhase.BACKED_UP, progress = 1f),
+            manualAnalysisIds = listOf("a1"),
+        )
+    val remote =
+        SessionListDto(
+            items =
+                listOf(
+                    SessionSummaryDto(
+                        session =
+                            SessionDto(
+                                id = "s1",
+                                client_session_id = "local",
+                                upload_status = "uploaded",
+                            ),
+                        analyses =
+                            listOf(
+                                AnalysisSummaryDto(
+                                    id = "a1",
+                                    model = "sleep-ecg",
+                                    model_version = "1.0.0",
+                                    status = "done",
+                                    stages =
+                                        StageSummaryDto(
+                                            epoch_seconds = 30,
+                                            count = 1,
+                                            segments = listOf(StageSegmentDto("nrem", 1)),
+                                        ),
+                                )
+                            ),
+                    )
+                )
+        )
+
+    val night = buildNights(listOf(local), mapOf("local" to record), remote).single()
+
+    assertEquals("a1", night.analysisId)
+    assertEquals(AnalysisOrigin.MANUAL, night.selectedAnalysis?.origin)
+  }
+
+  @Test
   fun pocketBaseDatesAreParsedAsUtc() {
     val ms = parsePocketBaseDate("2026-10-25 14:00:00.000Z")
 

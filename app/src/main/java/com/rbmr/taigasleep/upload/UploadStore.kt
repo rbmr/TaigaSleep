@@ -69,6 +69,8 @@ data class UploadRecord(
      * leaves it alone until the user deletes the raw files explicitly.
      */
     val keepRawOnPhone: Boolean = false,
+    /** Analyses the user requested explicitly. A finished manual run wins the default selection. */
+    val manualAnalysisIds: List<String> = emptyList(),
 ) {
   val isPending: Boolean
     get() =
@@ -225,6 +227,21 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
           updatedAtMs = now(),
       )
     }
+  }
+
+  /** Remember that the user asked for this analysis themselves. */
+  fun markManualAnalysis(id: String, analysisId: String) {
+    update(id) {
+      it.copy(
+          manualAnalysisIds = (it.manualAnalysisIds + analysisId).distinct(),
+          updatedAtMs = now(),
+      )
+    }
+  }
+
+  /** Remember which finished run the user wants to see for this night. */
+  fun markSelectedAnalysis(id: String, analysisId: String) {
+    update(id) { it.copy(analysisId = analysisId, updatedAtMs = now()) }
   }
 
   /** The user downloaded this night's raw files again; keep them out of automatic cleanup. */

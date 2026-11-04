@@ -95,6 +95,7 @@ data class NightRecord(
     val analyses: List<AnalysisRun> = emptyList(),
     val selectedAnalysisId: String? = null,
     val keepRawOnPhone: Boolean = false,
+    val manualAnalysisIds: List<String> = emptyList(),
     val updatedAtMs: Long = 0,
 )
 
@@ -239,7 +240,14 @@ private fun buildNight(
   val remoteRuns =
       override?.runs
           ?: summary?.analyses?.map { it.toRun() }.orEmpty()
-  val runs = mergeRuns(record?.analyses.orEmpty(), remoteRuns)
+  val runs =
+      mergeRuns(record?.analyses.orEmpty(), remoteRuns).map { run ->
+        if (record?.manualAnalysisIds?.contains(run.id) == true) {
+          run.copy(origin = AnalysisOrigin.MANUAL)
+        } else {
+          run
+        }
+      }
   // A finished result on the server proves the upload succeeded, even if the local record is stale.
   val backup =
       if (runs.any { it.status == AnalysisStatus.DONE } && remoteSession != null) {
