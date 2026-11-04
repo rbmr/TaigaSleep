@@ -170,7 +170,6 @@ fun TaigaApp(
                         detailRemote = server
                         detailAnalysis = analysis
                       },
-                      onLoginClick = { showRemote = true },
                   )
               1 -> HomeScreen(onGuidanceClick = { showGuidance = true })
               2 ->
