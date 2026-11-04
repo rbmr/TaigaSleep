@@ -27,20 +27,18 @@
   <string name="upload_error_generic">Upload failed.</string>
   <string name="upload_error_version">The app and the server speak different API versions. Update whichever is older.</string>
 
-  <string name="history_status_all_title">Everything is processed</string>
   <string name="history_nights_label">Nights</string>
   <string name="history_local_only">Only on this phone</string>
-  <string name="history_recording">Recording in progress</string>
-  <string name="history_login_to_upload">Log in to upload</string>
+  <string name="history_recording">Recording</string>
   <string name="history_queued">Waiting to upload</string>
   <string name="history_uploading">Uploading %1$d%%</string>
-  <string name="history_processing">Waiting for analysis</string>
-  <string name="history_action_upload">Upload</string>
-  <string name="history_action_retry">Retry</string>
-  <string name="history_action_check">Check now</string>
-  <string name="history_action_download">Download</string>
+  <string name="history_processing">Analysing</string>
+  <string name="history_status_ready">Ready</string>
+  <string name="history_status_upload_failed">Upload failed</string>
+  <string name="history_status_analysis_failed">Analysis failed</string>
+  <string name="history_status_login">Login needed</string>
+  <string name="history_status_update">Update needed</string>
   <string name="history_action_login">Log in</string>
-  <string name="history_result_not_downloaded">Result ready; full details not downloaded</string>
   <string name="history_refresh">Refresh</string>
   <string name="history_score_badge">%1$s %2$d</string>
   <string name="history_sleep_score_label">Score</string>

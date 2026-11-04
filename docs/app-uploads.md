@@ -59,20 +59,21 @@ the analysis provenance. Full details and the measured trade-off are in
 
 ## Upload lifecycle
 
-History shows one of these states per recording:
+History shows one status per recording:
 
 - **Only on this phone** — no upload has been requested.
 - **Waiting to upload** — queued in WorkManager, or waiting for its network and
   charging constraints.
 - **Uploading N%** — bytes are moving. The notification keeps the transfer alive
   while the app is in the background.
-- **Waiting for analysis** — the upload completed and the analysis job is queued
-  or running on a worker.
-- **Sleep score / done** — a result is available. The row also shows whether the
-  full result has been downloaded; the app fetches missing results as soon as it
-  can.
-- **Failed** — login, network, server or analysis failure. The error is shown and
-  Retry is available.
+- **Analysing** — the upload completed and the analysis job is queued or running.
+- **Ready** — the row shows the sleep score and the stage bar. Missing full results
+  are fetched in the background; opening the night uses the cached copy.
+- **Failed** — the row says Upload failed, Analysis failed, Login needed or Update
+  needed. Opening the night shows the error and the retry action.
+
+Opening a night is the only action in the list. Retry, upload, export and delete
+live in the night screen and its Night details sheet.
 
 WorkManager uses one unique work item per local session. An upload is resumable:
 before sending bytes the worker asks the server for the current length of each
@@ -185,7 +186,7 @@ server copy is what makes the night recoverable after local cleanup.
 
 ## Deleting a recording
 
-Holding a History row opens **Export recording** and **Delete recording**; the same actions are in the **Night details** sheet.
+Open a night and use its **Night details** sheet to export or delete it.
 Delete removes the local recording, its cached analysis and the remote session.
 If the server is unreachable, the remote deletion is queued and retried; a `404`
 is treated as success because the session is already gone. The local copy is
@@ -194,8 +195,8 @@ still pending. Pending remote deletes are shown in History and survive a restart
 
 ## Failures
 
-- **Login required** — the token expired or no server is configured. The History
-  card links to Settings → Remote.
+- **Login required** — the token expired or no server is configured. The night
+  screen links to Settings → Remote.
 - **Network** — the server or network is unavailable. WorkManager retries with
   exponential backoff; after several failed attempts the night is marked failed
   and can be retried manually.
