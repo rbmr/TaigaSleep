@@ -39,15 +39,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.night.Night
+import com.rbmr.taigasleep.night.NightRepository
+import com.rbmr.taigasleep.night.NightStatus
+import com.rbmr.taigasleep.night.formatDuration
+import com.rbmr.taigasleep.night.formatNightDateAndTime
 import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.remote.RemoteStatus
-import com.rbmr.taigasleep.remote.RemoteRepository
-import com.rbmr.taigasleep.remote.SessionListDto
-import com.rbmr.taigasleep.ui.NightItem
-import com.rbmr.taigasleep.ui.buildNightItems
-import com.rbmr.taigasleep.ui.formatDuration
-import com.rbmr.taigasleep.ui.formatNightDateAndTime
 import com.rbmr.taigasleep.ui.components.ScoreBadge
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SectionLabel
@@ -57,15 +56,10 @@ import com.rbmr.taigasleep.ui.components.TertiaryButton
 import com.rbmr.taigasleep.upload.PendingDeleteStore
 import com.rbmr.taigasleep.upload.RawRetention
 import com.rbmr.taigasleep.upload.RecordingDeleter
-import com.rbmr.taigasleep.upload.RemoteHistoryCache
 import com.rbmr.taigasleep.upload.UploadCoordinator
 import com.rbmr.taigasleep.upload.UploadFailure
-import com.rbmr.taigasleep.upload.UploadPhase
 import com.rbmr.taigasleep.upload.UploadScheduler
-import com.rbmr.taigasleep.upload.UploadStore
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun HistoryScreen(
@@ -73,91 +67,60 @@ fun HistoryScreen(
     onLoginClick: () -> Unit,
 ) {
   val context = LocalContext.current
-  val remote = remember { RemoteRepository.of(context) }
-  val uploadStore = remember { UploadStore.of(context) }
-  val remoteCache = remember { RemoteHistoryCache.of(context) }
+  val repository = remember { NightRepository.of(context) }
   val pendingDeleteStore = remember { PendingDeleteStore.of(context) }
   val pendingDeletes by pendingDeleteStore.pending.collectAsStateWithLifecycle()
-  val remoteStatus by remote.status.collectAsStateWithLifecycle()
-  val localSessions by RecordingRepository.sessions.collectAsStateWithLifecycle()
-  val uploads by uploadStore.records.collectAsStateWithLifecycle()
+  val remoteStatus by repository.remoteStatus.collectAsStateWithLifecycle()
+  val nights by repository.nights.collectAsStateWithLifecycle()
   val scope = rememberCoroutineScope()
 
-  var remoteList by remember { mutableStateOf<SessionListDto?>(null) }
   var refreshKey by remember { mutableIntStateOf(0) }
   var actionError by remember { mutableStateOf<String?>(null) }
-  var deleteCandidate by remember { mutableStateOf<NightItem?>(null) }
+  var deleteCandidate by remember { mutableStateOf<Night?>(null) }
 
   LaunchedEffect(Unit) {
     RecordingRepository.refreshSessions(context)
     UploadScheduler.resumePendingDeletes(context)
     UploadScheduler.reconcile(context)
     RawRetention.enforce(context)
+    repository.reload()
   }
   LifecycleResumeEffect(Unit) {
     RecordingRepository.refreshSessions(context)
+    repository.reload()
     refreshKey++
     onPauseOrDispose {}
   }
-  LaunchedEffect(remote.accountKey, remoteStatus) {
-    if (!remote.hasSession) {
-      remoteList = null
-      return@LaunchedEffect
-    }
-    if (remoteList == null) {
-      remoteList = remoteCache.load(remote.accountKey)
-    }
-  }
+  LaunchedEffect(remoteStatus) { repository.reload() }
   LaunchedEffect(remoteStatus, refreshKey) {
     if (remoteStatus !is RemoteStatus.Connected) {
       return@LaunchedEffect
     }
-    val api = remote.api()
-    if (api == null) {
-      return@LaunchedEffect
-    }
-    val result = runCatching { withContext(Dispatchers.IO) { api.listSessions() } }
-    result
-        .onSuccess {
-          remoteList = it
-          remoteCache.save(remote.accountKey, it)
-        }
-        .onFailure {
-          // A list read can race a token refresh from the app-resume check. Leave the session
-          // alone here; the remote check owns login state and will clear a genuinely dead token.
-        }
+    repository.refreshList()
   }
   // Results are small. Fetch any finished result whose full payload is not on this phone yet.
-  LaunchedEffect(remoteList, remoteStatus, uploads, localSessions) {
+  LaunchedEffect(nights, remoteStatus) {
     if (remoteStatus !is RemoteStatus.Connected) return@LaunchedEffect
-    val list = remoteList ?: return@LaunchedEffect
-    val localByClient = localSessions.associateBy { it.id }
-    for (summary in list.items) {
-      val done =
-          summary.analyses
-              .filter { it.status == "done" }
-              .maxByOrNull { it.updated }
-              ?: continue
-      val localId = localByClient[summary.session.client_session_id]?.id
-      val key = localId ?: "remote-${summary.session.id}"
-      if (uploads[key]?.resultDownloaded == true) continue
+    for (night in nights) {
+      val server = night.remoteId ?: continue
+      if (!night.isDone || night.resultDownloaded) continue
       UploadScheduler.enqueuePoll(
           context,
-          key,
-          summary.session.id,
-          done.id,
-          jobId = null,
+          night.localId ?: night.key,
+          server,
+          night.analysisId,
+          night.jobId,
       )
     }
   }
 
-  val items = remember(localSessions, uploads, remoteList, pendingDeletes) {
-    buildNightItems(localSessions, uploads, remoteList)
-        .filterNot { it.localId == null && it.remoteId in pendingDeletes }
-  }
+  val items =
+      remember(nights, pendingDeletes) {
+        nights.filterNot { it.localId == null && it.remoteId in pendingDeletes }
+      }
   val connected = remoteStatus is RemoteStatus.Connected
 
-  fun upload(item: NightItem) {
+  fun upload(item: Night) {
     if (item.isRecording) return
     val localId = item.localId ?: return
     if (!connected) {
@@ -168,12 +131,12 @@ fun HistoryScreen(
     UploadScheduler.enqueueManual(context, localId)
   }
 
-  fun export(item: NightItem) {
+  fun export(item: Night) {
     val localId = item.localId ?: return
     scope.launch { Exporter.share(context, localId) }
   }
 
-  fun retry(item: NightItem) {
+  fun retry(item: Night) {
     if (item.isRecording) return
     if (!connected) {
       onLoginClick()
@@ -182,7 +145,7 @@ fun HistoryScreen(
     actionError = null
     val localId = item.localId
     val remoteId = item.remoteId
-    if (item.phase == UploadPhase.PROCESSING) {
+    if (item.status == NightStatus.PROCESSING) {
       if (remoteId != null) {
         UploadScheduler.enqueuePoll(
             context,
@@ -197,7 +160,7 @@ fun HistoryScreen(
       }
       return
     }
-    if (item.phase == UploadPhase.FAILED &&
+    if (item.status == NightStatus.FAILED &&
         remoteId != null &&
         (item.analysisId != null || item.failure == UploadFailure.ANALYSIS)) {
       scope.launch {
@@ -278,10 +241,11 @@ fun HistoryScreen(
             },
             onAction = {
               when {
-                item.phase == UploadPhase.LOCAL -> upload(item)
-                item.phase == UploadPhase.PROCESSING -> retry(item)
-                item.phase == UploadPhase.FAILED -> retry(item)
-                item.phase == UploadPhase.QUEUED || item.phase == UploadPhase.UPLOADING -> retry(item)
+                item.status == NightStatus.LOCAL_ONLY -> upload(item)
+                item.status == NightStatus.PROCESSING -> retry(item)
+                item.status == NightStatus.FAILED -> retry(item)
+                item.status == NightStatus.QUEUED || item.status == NightStatus.UPLOADING ->
+                    retry(item)
                 else -> Unit
               }
             },
@@ -319,7 +283,7 @@ fun HistoryScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NightRow(
-    item: NightItem,
+    item: Night,
     connected: Boolean,
     onOpen: () -> Unit,
     onDownload: () -> Unit,
@@ -351,7 +315,7 @@ private fun NightRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
-      if (item.phase == UploadPhase.DONE) {
+      if (item.status == NightStatus.READY) {
         ScoreBadge(
             score = item.sleepScore,
             label = stringResource(R.string.history_sleep_score_label),
@@ -362,13 +326,13 @@ private fun NightRow(
             text = rowStatus(item),
             style = MaterialTheme.typography.labelMedium,
             color =
-                if (item.phase == UploadPhase.FAILED) MaterialTheme.colorScheme.error
+                if (item.status == NightStatus.FAILED) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
     }
 
-    if (item.phase == UploadPhase.DONE) {
+    if (item.status == NightStatus.READY) {
       Spacer(Modifier.height(12.dp))
       StageBar(item.segments)
       if (!item.resultDownloaded && item.remoteId != null) {
@@ -396,18 +360,18 @@ private fun NightRow(
         )
         return@TaigaCard
       }
-      if (item.phase == UploadPhase.UPLOADING) {
+      if (item.status == NightStatus.UPLOADING) {
         Spacer(Modifier.height(10.dp))
         LinearProgressIndicator(
             progress = { item.progress },
             modifier = Modifier.fillMaxWidth().height(5.dp),
         )
-      } else if (item.phase == UploadPhase.QUEUED || item.phase == UploadPhase.PROCESSING) {
+      } else if (item.status == NightStatus.QUEUED || item.status == NightStatus.PROCESSING) {
         Spacer(Modifier.height(10.dp))
         LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(5.dp))
       }
       item.errorDetail
-          ?.takeIf { item.phase == UploadPhase.FAILED || item.phase == UploadPhase.PROCESSING }
+          ?.takeIf { item.status == NightStatus.FAILED || item.status == NightStatus.PROCESSING }
           ?.let {
         Spacer(Modifier.height(6.dp))
         Text(
@@ -423,9 +387,9 @@ private fun NightRow(
         Text(
             text =
                 when {
-                  item.phase == UploadPhase.LOCAL && !connected ->
+                  item.status == NightStatus.LOCAL_ONLY && !connected ->
                       stringResource(R.string.history_login_to_upload)
-                  item.phase == UploadPhase.LOCAL -> stringResource(R.string.history_local_only)
+                  item.status == NightStatus.LOCAL_ONLY -> stringResource(R.string.history_local_only)
                   else -> pendingStatus(item)
                 },
             style = MaterialTheme.typography.bodySmall,
@@ -436,9 +400,9 @@ private fun NightRow(
             text =
                 stringResource(
                     when {
-                      item.phase == UploadPhase.LOCAL && !connected -> R.string.history_action_login
-                      item.phase == UploadPhase.LOCAL -> R.string.history_action_upload
-                      item.phase == UploadPhase.PROCESSING -> R.string.history_action_check
+                      item.status == NightStatus.LOCAL_ONLY && !connected -> R.string.history_action_login
+                      item.status == NightStatus.LOCAL_ONLY -> R.string.history_action_upload
+                      item.status == NightStatus.PROCESSING -> R.string.history_action_check
                       else -> R.string.history_action_retry
                     }
                 ),
@@ -471,38 +435,40 @@ private fun NightRow(
 }
 
 @Composable
-private fun pendingStatus(item: NightItem): String =
+private fun pendingStatus(item: Night): String =
     if (item.isRecording) {
       stringResource(R.string.history_recording)
     } else {
-      when (item.phase) {
-        UploadPhase.LOCAL -> stringResource(R.string.history_local_only)
-        UploadPhase.QUEUED -> stringResource(R.string.history_queued)
-        UploadPhase.UPLOADING ->
+      when (item.status) {
+        NightStatus.RECORDING -> stringResource(R.string.history_recording)
+        NightStatus.LOCAL_ONLY -> stringResource(R.string.history_local_only)
+        NightStatus.QUEUED -> stringResource(R.string.history_queued)
+        NightStatus.UPLOADING ->
             stringResource(R.string.history_uploading, (item.progress * 100).toInt().coerceIn(0, 100))
-        UploadPhase.PROCESSING ->
+        NightStatus.PROCESSING ->
             if (item.failure != null) uploadFailureText(item.failure)
             else stringResource(R.string.history_processing)
-        UploadPhase.FAILED -> uploadFailureText(item.failure)
-        UploadPhase.DONE -> stringResource(R.string.history_status_all_title)
+        NightStatus.FAILED -> uploadFailureText(item.failure)
+        NightStatus.READY -> stringResource(R.string.history_status_all_title)
       }
     }
 
 @Composable
-private fun rowStatus(item: NightItem): String =
+private fun rowStatus(item: Night): String =
     if (item.isRecording) {
       stringResource(R.string.history_recording)
     } else {
-      when (item.phase) {
-        UploadPhase.LOCAL -> stringResource(R.string.history_local_only)
-        UploadPhase.QUEUED -> stringResource(R.string.history_queued)
-        UploadPhase.UPLOADING ->
+      when (item.status) {
+        NightStatus.RECORDING -> stringResource(R.string.history_recording)
+        NightStatus.LOCAL_ONLY -> stringResource(R.string.history_local_only)
+        NightStatus.QUEUED -> stringResource(R.string.history_queued)
+        NightStatus.UPLOADING ->
             stringResource(R.string.history_uploading, (item.progress * 100).toInt().coerceIn(0, 100))
-        UploadPhase.PROCESSING ->
+        NightStatus.PROCESSING ->
             if (item.failure != null) uploadFailureText(item.failure)
             else stringResource(R.string.history_processing)
-        UploadPhase.FAILED -> uploadFailureText(item.failure)
-        UploadPhase.DONE -> stringResource(R.string.history_status_all_title)
+        NightStatus.FAILED -> uploadFailureText(item.failure)
+        NightStatus.READY -> stringResource(R.string.history_status_all_title)
       }
     }
 

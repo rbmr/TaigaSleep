@@ -55,7 +55,7 @@ class AnalysisPoller(
 
     return when (analysis.status) {
       "done" -> {
-        val saved = cache.save(key, analysis)
+        val saved = cache.save(key, analysis.id, analysis)
         store.markDone(
             id = key,
             remoteId = remoteId,
