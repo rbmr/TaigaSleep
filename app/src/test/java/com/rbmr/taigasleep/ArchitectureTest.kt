@@ -233,6 +233,64 @@ class ArchitectureTest {
     )
   }
 
+  /**
+   * Outside `sync`, the package's surface is [SyncSurface.ALLOWED]: the service that owns the
+   * sequences, the state a screen shows, the settings, and the data the library composes. A new
+   * name is a decision about what the package exposes, so the test fails until it is written down.
+   */
+  @Test
+  fun `files outside sync use only the sync surface`() {
+    val violations = SyncSurface.violations(appSources().toMap())
+
+    assertTrue(
+        "A file outside `sync` reaches past its surface (${violations.size}):\n" +
+            violations.joinToString("\n") { "  $it" },
+        violations.isEmpty(),
+    )
+  }
+
+  @Test
+  fun `the sync surface checker reports a file that uses an internal piece`() {
+    val violations =
+        SyncSurface.violations(
+            mapOf(
+                "library/A.kt" to
+                    """
+                    package com.rbmr.taigasleep.library
+
+                    import com.rbmr.taigasleep.sync.SyncService
+                    import com.rbmr.taigasleep.sync.UploadScheduler
+                    import com.rbmr.taigasleep.sync.UploadPhase
+                    """
+                        .trimIndent(),
+                "sync/Inside.kt" to
+                    """
+                    package com.rbmr.taigasleep.sync
+
+                    import com.rbmr.taigasleep.sync.UploadScheduler
+                    """
+                        .trimIndent(),
+                "TaigaApplication.kt" to
+                    """
+                    package com.rbmr.taigasleep
+
+                    fun f() = com.rbmr.taigasleep.sync.UploadCoordinator
+                    """
+                        .trimIndent(),
+            )
+        )
+
+    assertEquals(
+        listOf(
+            "library/A.kt -> UploadScheduler: nothing outside `sync` may use it; add it to " +
+                "SyncSurface.ALLOWED on purpose",
+            "TaigaApplication.kt -> UploadCoordinator: nothing outside `sync` may use it; add it " +
+                "to SyncSurface.ALLOWED on purpose",
+        ),
+        violations,
+    )
+  }
+
   private fun uiBaseline(): File = File(moduleDir(), "src/test/resources/ui-import-baseline.txt")
 
   /** Every non-view-model Kotlin file under `ui/` in the main source set, keyed by its path in `ui/`. */
@@ -433,4 +491,82 @@ private object UiImports {
           else -> null
         }
       }
+}
+
+/**
+ * What a file outside `sync` may name. The six pieces that used to be called from the screens, the
+ * library, the application and the workers (`UploadScheduler`, `UploadCoordinator`,
+ * `AnalysisService`, `RecordingDeleter`, `RawRetention`, `UploadNotifications`) are not here:
+ * `SyncService` is the only way to reach them, so a call site that needs one is a call site that
+ * goes through the service.
+ */
+private object SyncSurface {
+  private const val PACKAGE_NAME = "com.rbmr.taigasleep.sync"
+
+  /** Every name the rest of the app may import from `sync`. Adding one is a decision. */
+  val ALLOWED =
+      setOf(
+          // The entry point: the whole outside surface of the package.
+          "SyncService",
+          // What a screen shows about a night that is moving, and why it failed.
+          "UploadPhase",
+          "UploadFailure",
+          // The settings the screens read and write.
+          "UploadSettings",
+          "AutoUploadSettings",
+          "RawRetentionMode",
+          // The data a screen or the library carries: one night's sync state, what an explicit raw
+          // action did, one queued server delete, one read of a night and its analyses.
+          "UploadRecord",
+          "RawActionResult",
+          "PendingDelete",
+          "RecordingSnapshot",
+          // Where that state is kept, and the live stream the library drives.
+          "UploadStore",
+          "ResultCache",
+          "RemoteHistoryCache",
+          "PendingDeleteStore",
+          "LiveSync",
+          "LiveSyncTarget",
+          // A night's key, and which installed algorithm a recording can feed.
+          "remoteKey",
+          "recordingIdOf",
+          "compatible",
+      )
+
+  private val PACKAGE = Regex("""^\s*package\s+([\w.]+)""", RegexOption.MULTILINE)
+  private val IMPORT = Regex("""^\s*import\s+com\.rbmr\.taigasleep\.sync\.(\w+|\*)""")
+  private val REFERENCE = Regex("""com\.rbmr\.taigasleep\.sync\.([A-Z]\w*)""")
+
+  /** One line per name a file outside `sync` uses without it being on the allowlist. */
+  fun violations(sources: Map<String, String>): List<String> =
+      sources
+          .flatMap { (path, source) ->
+            if (inside(source)) emptyList()
+            else names(source).filterNot { it in ALLOWED }.map { "$path -> $it: ${why(it)}" }
+          }
+          .distinct()
+
+  private fun inside(source: String): Boolean {
+    val declared = PACKAGE.find(source)?.groupValues?.get(1) ?: return false
+    return declared == PACKAGE_NAME || declared.startsWith("$PACKAGE_NAME.")
+  }
+
+  /** The sync names [source] imports or spells out in full. */
+  private fun names(source: String): List<String> =
+      source
+          .lineSequence()
+          .flatMap { line ->
+            val imported = IMPORT.find(line)?.groupValues?.get(1)
+            when {
+              line.trimStart().startsWith("package ") -> emptySequence()
+              imported != null -> sequenceOf(imported)
+              else -> REFERENCE.findAll(line).map { it.groupValues[1] }.asSequence()
+            }
+          }
+          .toList()
+
+  private fun why(name: String): String =
+      if (name == "*") "nothing outside `sync` may import the package as a whole"
+      else "nothing outside `sync` may use it; add it to SyncSurface.ALLOWED on purpose"
 }

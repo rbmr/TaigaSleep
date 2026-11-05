@@ -35,7 +35,7 @@ import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.guard.GuidanceFlows
 import com.rbmr.taigasleep.guard.GuidanceStore
-import com.rbmr.taigasleep.sync.UploadScheduler
+import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.ui.components.BottomBarItem
 import com.rbmr.taigasleep.ui.components.TaigaBottomBar
 import com.rbmr.taigasleep.ui.screens.AboutScreen
@@ -88,8 +88,7 @@ fun TaigaApp(
     scope.launch {
       remote.verify()
       if (remote.status.value is RemoteStatus.Connected) {
-        UploadScheduler.resumePendingDeletes(context)
-        UploadScheduler.reconcile(context)
+        SyncService.of(context).reconcileAll()
       }
     }
     onPauseOrDispose {}

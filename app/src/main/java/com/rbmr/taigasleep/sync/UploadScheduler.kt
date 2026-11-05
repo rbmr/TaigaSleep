@@ -22,21 +22,9 @@ import kotlinx.coroutines.withContext
  * replacing a queued worker never loses bytes. Manual uploads use the same worker with a connected-network constraint and no
  * charging requirement.
  */
-object UploadScheduler {
+internal object UploadScheduler {
   const val KEY_SESSION_ID = "session_id"
   const val KEY_RECORDING_ID = "recording_id"
-
-  fun onRecordingFinished(context: Context, localId: String) {
-    // A finished recording always has a durable sync state, even when nothing will upload it now.
-    val store = UploadStore.of(context)
-    if (store.record(localId) == null) store.markLocal(localId)
-    val settings = UploadSettings.get(context)
-    if (!settings.autoUpload.value.enabled) return
-    if (!RemoteRepository.of(context).hasSession) return
-    val dir = RecordingStore.of(context).dir(localId)
-    if (!dir.isDirectory) return
-    enqueueAuto(context, localId)
-  }
 
   fun enqueueManual(context: Context, localId: String) {
     val store = UploadStore.of(context)

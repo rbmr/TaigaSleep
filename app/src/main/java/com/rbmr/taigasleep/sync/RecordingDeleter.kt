@@ -11,15 +11,16 @@ import java.io.File
  * as success, because the only useful meaning is that the recording no longer exists for this
  * account. [remoteId] is the recording id on the server, which is the local id for a night that
  * was uploaded from this phone.
+ *
+ * The work queued for the recording is cancelled before this runs, which is [SyncService]'s step.
  */
-object RecordingDeleter {
+internal object RecordingDeleter {
   fun delete(context: Context, localId: String?, remoteId: String?) {
     if (localId == null && remoteId == null) return
     val pending = PendingDeleteStore.of(context)
     if (remoteId != null) pending.add(remoteId)
 
     if (localId != null) {
-      UploadScheduler.cancelRecordingWork(context, localId)
       RecordingStore.of(context).delete(localId)
       ResultCache.of(context).delete(localId)
       UploadStore.of(context).clear(localId)

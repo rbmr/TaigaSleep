@@ -10,7 +10,7 @@ import androidx.core.app.NotificationCompat
 import androidx.work.ForegroundInfo
 import com.rbmr.taigasleep.R
 
-object UploadNotifications {
+internal object UploadNotifications {
   /**
    * The app's launcher activity, which the manifest declares. It is named rather than imported
    * because the activity is app wiring, which no package may depend on.

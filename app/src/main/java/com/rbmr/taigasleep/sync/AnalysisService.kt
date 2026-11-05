@@ -31,7 +31,7 @@ fun manualChoices(
  * The one place that asks the server for analyses. Uploading and requesting are separate: a night
  * can be safely on the server with no analysis, and manual requests can add more later.
  */
-object AnalysisService {
+internal object AnalysisService {
   /** After an upload: request the preferred compatible stager, or nothing when auto is off. */
   suspend fun startAuto(
       client: TaigaClient,
