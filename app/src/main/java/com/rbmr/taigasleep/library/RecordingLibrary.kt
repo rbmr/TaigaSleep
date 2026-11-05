@@ -25,6 +25,7 @@ import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.UploadStore
 import com.rbmr.taigasleep.sync.compatible
 import com.rbmr.taigasleep.sync.remoteKey
+import com.rbmr.taigasleep.sync.withoutRecordings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -51,12 +53,23 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
   private val history = RemoteHistoryCache.of(this.context)
   private val results = ResultCache.of(this.context)
   private val sync = SyncService.of(this.context)
+  private val deletes = PendingDeleteStore.of(this.context)
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
   private val remoteSummaries = MutableStateFlow<RecordingSummaryListDto?>(null)
   private val overrides = MutableStateFlow<Map<String, RemoteOverride>>(emptyMap())
   private var loadedAccount: String? = null
+  private var loadedOnce = false
   private val historyLock = Any()
+
+  /**
+   * Recordings whose server copy must not be shown: a delete is queued for them, or it completed
+   * and the server no longer has them. The queue covers the first, the cache the second, and both
+   * are needed because the queue entry is gone exactly when the delete has finished.
+   */
+  private val hiddenRemotely: StateFlow<Set<String>> =
+      combine(deletes.pending, history.removed) { pending, removed -> pending.keys + removed }
+          .stateIn(scope, SharingStarted.Eagerly, deletes.remoteIds())
 
   /** The one connection state, shared with the screens so they do not touch the remote store. */
   override val remoteStatus = remote.status
@@ -67,17 +80,27 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
               sync.records,
               remoteSummaries,
               overrides,
-          ) { local, records, summary, fresh ->
+              hiddenRemotely,
+          ) { local, records, summary, fresh, hidden ->
             buildRecordings(
                 recordings = local,
                 records = records,
                 remote = summary,
                 overrides = fresh,
+                hiddenRemoteIds = hidden,
             )
           }
           .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
   init {
+    // A delete that completed dropped the recording from the cached list; the copy in memory goes too.
+    scope.launch {
+      history.removed.collect { removed ->
+        if (removed.isNotEmpty()) {
+          remoteSummaries.update { it?.withoutRecordings(removed) }
+        }
+      }
+    }
     reload()
   }
 
@@ -87,7 +110,11 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
     if (account != loadedAccount) {
       // A fresh recording list belongs to one account; never show it after switching accounts.
       overrides.value = emptyMap()
+      // A delete that completed before this process showed anything still applies to it. Only a
+      // switch of account drops the removals.
+      if (loadedOnce) history.resetRemoved()
     }
+    loadedOnce = true
     if (account.isBlank()) {
       loadedAccount = null
       remoteSummaries.value = null
@@ -110,8 +137,10 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
         val api =
             remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
         try {
-          val list = api.recordingSummaries()
+          val fetched = api.recordingSummaries()
           synchronized(historyLock) {
+            // Filtered here, after the fetch: a delete can finish while it is in flight.
+            val list = fetched.withoutRecordings(hiddenNow())
             history.save(remote.accountKey, list)
             remoteSummaries.value = list
           }
@@ -214,7 +243,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
     withContext(Dispatchers.IO) {
       reload()
       if (refreshList().isFailure) return@withContext
-      val pendingDeletes = PendingDeleteStore.of(context).remoteIds()
+      val hidden = hiddenNow()
       val records = sync.records.value
       // The nights as the screens see them now, with the list that was just fetched. The sessions
       // come from disk: the screens may not have loaded them yet when the app has just opened.
@@ -224,9 +253,10 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
               records = records,
               remote = remoteSummaries.value,
               overrides = overrides.value,
+              hiddenRemoteIds = hidden,
           )
       for (pending in pendingRecordings(current, records)) {
-        if (pending.recordingId in pendingDeletes) continue
+        if (pending.recordingId in hidden) continue
         refreshRecording(pending.key, pending.recordingId, pending.analysisId)
       }
     }
@@ -236,8 +266,20 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
   override suspend fun refreshRecording(recordingId: String) {
     withContext(Dispatchers.IO) {
       // A recording the user deleted is only waiting for the server to say so.
-      if (recordingId in PendingDeleteStore.of(context).remoteIds()) return@withContext
+      if (recordingId in hiddenNow()) return@withContext
       refreshRecording(keyFor(recordingId), recordingId, null)
+    }
+  }
+
+  /**
+   * The server says the recording no longer exists. Its row leaves History, without a read that
+   * would only answer 404, and the saved list drops it so a cold start shows it no more. A local
+   * copy stays, as the local night it is.
+   */
+  override suspend fun recordingDeleted(recordingId: String) {
+    withContext(Dispatchers.IO) {
+      overrides.update { it - keyFor(recordingId) - remoteKey(recordingId) }
+      dropRemote(recordingId)
     }
   }
 
@@ -252,6 +294,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
    * the recording per chunk) from rewriting the cache each time.
    */
   private fun rememberSummary(snapshot: RecordingSnapshot) {
+    if (snapshot.recording.id in hiddenNow()) return
     val fresh = RecordingSummaryDto(snapshot.recording, snapshot.analyses)
     var changed = false
     remoteSummaries.update { list ->
@@ -270,26 +313,38 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
   }
 
   /**
-   * The server says the recording does not exist (any more). Its fresh state is dropped, and a night
-   * that was waiting for its analysis is marked failed instead of processing for ever.
+   * The server says the recording does not exist (any more). It leaves the list, in memory and in
+   * the saved copy, so History cannot keep it with an error. A night that was waiting for its
+   * analysis is marked failed instead of processing for ever.
    */
   private fun forget(key: String, recordingId: String, cause: TaigaHttpException) {
     overrides.update { it - key }
-    remoteSummaries.update { list ->
-      list?.let { RecordingSummaryListDto(it.items.filterNot { s -> s.recording.id == recordingId }) }
-    }
-    saveSummaries()
+    dropRemote(recordingId)
     if (uploads.record(key)?.phase == UploadPhase.PROCESSING) {
       uploads.markFailed(key, UploadFailure.ANALYSIS, cause.message)
     }
   }
+
+  /**
+   * One recording is gone from the server: out of the list shown now and out of the saved one. A
+   * recording with no copy on the phone stays out of lists fetched later, so an older fetch cannot
+   * add it back; one that is still on the phone can be uploaded again, so it is only dropped now.
+   */
+  private fun dropRemote(recordingId: String) {
+    remoteSummaries.update { it?.withoutRecordings(setOf(recordingId)) }
+    val onPhone = RecordingStore.of(context).dir(recordingId).isDirectory
+    history.remove(remote.accountKey, recordingId, keepOut = !onPhone)
+  }
+
+  /** The recordings that are being deleted, or are already gone from the server. */
+  private fun hiddenNow(): Set<String> = deletes.remoteIds() + history.removed.value
 
   private fun saveSummaries() {
     synchronized(historyLock) {
       val list = remoteSummaries.value ?: return
       val account = remote.accountKey
       if (account.isBlank() || account != loadedAccount) return
-      history.save(account, list)
+      history.save(account, list.withoutRecordings(hiddenNow()))
     }
   }
 

@@ -23,6 +23,9 @@ interface LiveSyncTarget {
 
   /** One refresh of a single recording and its analyses. */
   suspend fun refreshRecording(recordingId: String)
+
+  /** The server says the recording is gone: drop it from what is shown, without reading it. */
+  suspend fun recordingDeleted(recordingId: String)
 }
 
 /**
@@ -39,7 +42,8 @@ interface LiveSyncTarget {
  *   done anyway, so opening the app always refreshes once.
  * - An `analysis` or `recording` event refreshes that recording only. Events for the same recording
  *   that arrive close together are one refresh: an upload changes its recording once per chunk, and
- *   a refresh per chunk would be a request storm.
+ *   a refresh per chunk would be a request storm. A `deleted` recording event is not read back: the
+ *   recording is already gone, so it is dropped from the list instead.
  */
 class LiveSync(
     private val gate: Flow<String?>,
@@ -74,7 +78,9 @@ class LiveSync(
                 queue.requestReconcile()
               }
               is RemoteEvent.AnalysisChanged -> queue.requestRefresh(event.recording)
-              is RemoteEvent.RecordingChanged -> queue.requestRefresh(event.id)
+              is RemoteEvent.RecordingChanged ->
+                  if (event.change == "deleted") queue.requestDeleted(event.id)
+                  else queue.requestRefresh(event.id)
             }
           }
         } finally {
@@ -100,7 +106,8 @@ class LiveSync(
  * The work an event asks for, folded together. A reconcile covers every single refresh asked for
  * before it starts; a recording asked for again while it waits is still one refresh; and a recording
  * is refreshed at most once per [intervalMs], the last request always being served after the pause.
- * One worker runs the refreshes one at a time, so the stream is never held up by them.
+ * A deleted recording is dropped once, however many events announce it. One worker runs the work one
+ * step at a time, so the stream is never held up by it.
  */
 internal class SyncQueue(
     private val target: LiveSyncTarget,
@@ -111,6 +118,7 @@ internal class SyncQueue(
   private val lock = Any()
   private var reconcile = false
   private val recordings = LinkedHashSet<String>()
+  private val deleted = LinkedHashSet<String>()
   private val lastRefresh = HashMap<String, Long>()
   private val wake = Channel<Unit>(Channel.CONFLATED)
 
@@ -121,6 +129,11 @@ internal class SyncQueue(
 
   fun requestRefresh(recordingId: String) {
     synchronized(lock) { recordings += recordingId }
+    wake.trySend(Unit)
+  }
+
+  fun requestDeleted(recordingId: String) {
+    synchronized(lock) { deleted += recordingId }
     wake.trySend(Unit)
   }
 
@@ -135,6 +148,8 @@ internal class SyncQueue(
 
     data class Refresh(val recordingId: String) : Step
 
+    data class Deleted(val recordingId: String) : Step
+
     data class Wait(val ms: Long) : Step
   }
 
@@ -144,6 +159,7 @@ internal class SyncQueue(
         Step.Idle -> return
         Step.Reconcile -> guarded { target.reconcile() }
         is Step.Refresh -> guarded { target.refreshRecording(step.recordingId) }
+        is Step.Deleted -> guarded { target.recordingDeleted(step.recordingId) }
         is Step.Wait -> sleep(step.ms)
       }
     }
@@ -159,6 +175,12 @@ internal class SyncQueue(
             recordings.clear()
             lastRefresh.clear()
             Step.Reconcile
+          }
+          deleted.isNotEmpty() -> {
+            val recordingId = deleted.first()
+            deleted.remove(recordingId)
+            recordings.remove(recordingId)
+            Step.Deleted(recordingId)
           }
           recordings.isEmpty() -> Step.Idle
           else -> {
