@@ -5,11 +5,10 @@ import com.rbmr.taigasleep.remote.TaigaClient
 import com.rbmr.taigasleep.storage.SessionConfig
 import kotlinx.coroutines.CancellationException
 
-/** The server's newly requested run, or null ids when the response carried no analysis. */
+/** The server's newly requested run. */
 data class StartedAnalysis(
-    val analysisId: String?,
-    val jobId: String?,
-    val status: String?,
+    val analysisId: String,
+    val status: String,
 )
 
 /** The automatic choice is null when automatic analysis is off. */
@@ -35,41 +34,41 @@ object AnalysisService {
   /** After an upload: request the preferred compatible stager, or nothing when auto is off. */
   suspend fun startAuto(
       client: TaigaClient,
-      sessionId: String,
+      recordingId: String,
       config: SessionConfig,
       settings: AnalysisSettings,
   ): StartedAnalysis? {
     if (!settings.auto) return null
     val choice = autoChoice(config, installed(client), settings) ?: return null
-    return request(client, sessionId, choice)
+    return request(client, recordingId, choice)
   }
 
   /** A manual retry of a night that has no analysis yet, regardless of the automatic setting. */
   suspend fun startPreferred(
       client: TaigaClient,
-      sessionId: String,
+      recordingId: String,
       config: SessionConfig,
       settings: AnalysisSettings,
   ): StartedAnalysis {
     val choice = selectStager(config, installed(client), settings.preferenceOrder)
-    return request(client, sessionId, choice)
+    return request(client, recordingId, choice)
   }
 
   /** Ask for one or more explicit stagers. Unknown or incompatible ids are skipped. */
   suspend fun startManual(
       client: TaigaClient,
-      sessionId: String,
+      recordingId: String,
       config: SessionConfig,
       ids: List<String>,
   ): List<StartedAnalysis> {
     val choices = manualChoices(config, installed(client), ids)
-    return choices.map { request(client, sessionId, it) }
+    return choices.map { request(client, recordingId, it) }
   }
 
   /** The algorithms the server reports, or the failure to read them. */
   suspend fun installedAlgorithms(client: TaigaClient): Result<List<AlgorithmDto>> =
       try {
-        Result.success(client.getAlgorithms().algorithms)
+        Result.success(client.getAlgorithms().items)
       } catch (e: CancellationException) {
         throw e
       } catch (e: Exception) {
@@ -79,16 +78,13 @@ object AnalysisService {
   private suspend fun installed(client: TaigaClient): List<AlgorithmDto> =
       installedAlgorithms(client).getOrDefault(emptyList())
 
+  /** One analysis per call; asking again for the same run returns the one that exists. */
   private suspend fun request(
       client: TaigaClient,
-      sessionId: String,
+      recordingId: String,
       choice: StagerChoice,
   ): StartedAnalysis {
-    val response = client.requestAnalysis(sessionId, choice.id, choice.version)
-    return StartedAnalysis(
-        analysisId = response.analyses.firstOrNull()?.id,
-        jobId = response.jobs.firstOrNull()?.id,
-        status = response.analyses.firstOrNull()?.status,
-    )
+    val analysis = client.requestAnalysis(recordingId, choice.id, choice.version)
+    return StartedAnalysis(analysisId = analysis.id, status = analysis.status)
   }
 }

@@ -6,9 +6,10 @@ import com.rbmr.taigasleep.analysis.compatible
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.remote.AlgorithmDto
 import com.rbmr.taigasleep.remote.AnalysisDto
+import com.rbmr.taigasleep.remote.RecordingSummaryListDto
 import com.rbmr.taigasleep.remote.RemoteRepository
-import com.rbmr.taigasleep.remote.SessionListDto
 import com.rbmr.taigasleep.remote.TaigaUnauthorizedException
+import com.rbmr.taigasleep.remote.recordingSummaries
 import com.rbmr.taigasleep.storage.SessionConfig
 import com.rbmr.taigasleep.storage.SessionMeta
 import com.rbmr.taigasleep.upload.RemoteHistoryCache
@@ -45,7 +46,7 @@ class NightRepository private constructor(context: Context) {
   private val results = ResultCache.of(this.context)
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-  private val remoteSummaries = MutableStateFlow<SessionListDto?>(null)
+  private val remoteSummaries = MutableStateFlow<RecordingSummaryListDto?>(null)
   private val overrides = MutableStateFlow<Map<String, NightRemoteOverride>>(emptyMap())
   private var loadedAccount: String? = null
 
@@ -76,7 +77,7 @@ class NightRepository private constructor(context: Context) {
   fun reload() {
     val account = remote.accountKey
     if (account != loadedAccount) {
-      // A session detail belongs to one account; never show it after switching accounts.
+      // A fresh recording list belongs to one account; never show it after switching accounts.
       overrides.value = emptyMap()
     }
     if (account.isBlank()) {
@@ -95,13 +96,13 @@ class NightRepository private constructor(context: Context) {
   fun cachedResult(key: String, analysisId: String?): AnalysisDto? =
       results.load(key, analysisId)
 
-  /** Fetch the server's session list and cache it. Does not touch local recordings. */
+  /** Fetch the server's recording list and cache it. Does not touch local recordings. */
   suspend fun refreshList(): Result<Unit> =
       withContext(Dispatchers.IO) {
         val api =
             remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
         try {
-          val list = api.listSessions()
+          val list = api.recordingSummaries()
           history.save(remote.accountKey, list)
           remoteSummaries.value = list
           Result.success(Unit)
@@ -128,7 +129,7 @@ class NightRepository private constructor(context: Context) {
             remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
         try {
           val config = configFor(night)
-          Result.success(api.getAlgorithms().algorithms.filter { compatible(it, config) })
+          Result.success(api.getAlgorithms().items.filter { compatible(it, config) })
         } catch (e: TaigaUnauthorizedException) {
           remote.logout()
           Result.failure(e)
@@ -148,26 +149,22 @@ class NightRepository private constructor(context: Context) {
             remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
         try {
           val started = AnalysisService.startManual(api, server, configFor(night), listOf(algorithmId))
-          val runs = started.filter { it.analysisId != null }
-          if (runs.isEmpty()) {
+          if (started.isEmpty()) {
             return@withContext Result.failure(
                 IllegalStateException("no compatible algorithm is installed")
             )
           }
-          for (run in runs) {
-            val analysisId = run.analysisId ?: continue
-            uploads.markManualAnalysis(night.key, analysisId)
-            uploads.markProcessing(night.key, server, analysisId, run.jobId)
+          for (run in started) {
+            uploads.markManualAnalysis(night.key, run.analysisId)
+            uploads.markProcessing(night.key, run.analysisId)
             UploadScheduler.enqueuePoll(
                 context,
                 night.localId ?: night.key,
-                server,
-                analysisId,
-                run.jobId,
+                run.analysisId,
                 replace = true,
             )
           }
-          refreshNight(night.key, server, runs.first().analysisId)
+          refreshNight(night.key, server, started.first().analysisId)
           Result.success(Unit)
         } catch (e: TaigaUnauthorizedException) {
           remote.logout()
@@ -185,8 +182,8 @@ class NightRepository private constructor(context: Context) {
   }
 
   /**
-   * Refresh one night's session and its selected analysis. The fetched detail replaces the cached
-   * run summaries for this process, so several analyses are visible immediately.
+   * Refresh one night's recording and its selected analysis. The fetched analysis list replaces the
+   * cached run summaries for this process, so several analyses are visible immediately.
    */
   suspend fun refreshNight(
       key: String,
@@ -195,49 +192,43 @@ class NightRepository private constructor(context: Context) {
   ): Result<AnalysisDto?> =
       withContext(Dispatchers.IO) {
         val record = uploads.record(key)
-        val server = remoteId ?: record?.remoteId ?: return@withContext Result.success(null)
+        val server = remoteId ?: return@withContext Result.success(null)
         val api =
             remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
         try {
-          val detail = api.getSession(server)
+          val recording = api.getRecording(server)
+          val analyses = api.listAnalyses(server).items
+          // A remembered analysis can be gone (deleted, or replaced by a retry), so only an id the
+          // server lists can be the target.
           val target =
-              analysisId
-                  ?: nights.value.firstOrNull { it.key == key }?.analysisId
-                  ?: record?.analysisId
-                  ?: detail.analyses.filter { it.status == "done" }.maxByOrNull { it.updated }?.id
-                  ?: detail.analyses.maxByOrNull { it.created }?.id
+              listOfNotNull(
+                      analysisId,
+                      nights.value.firstOrNull { it.key == key }?.analysisId,
+                      record?.analysisId,
+                  )
+                  .firstOrNull { id -> analyses.any { it.id == id } }
+                  ?: analyses.filter { it.isSucceeded }.maxByOrNull { it.updated }?.id
+                  ?: analyses.maxByOrNull { it.created }?.id
           val analysis = target?.let { api.getAnalysis(it) }
-          val jobId =
-              detail.jobs.firstOrNull { it.analysis == (target ?: record?.analysisId) }?.id
-          val runs =
-              detail.analyses.map { run ->
-                run.toRun(
-                    jobId = detail.jobs.firstOrNull { it.analysis == run.id }?.id,
-                    downloaded = results.has(key, run.id),
-                )
-              }
-          overrides.update { it + (key to NightRemoteOverride(detail.session, runs)) }
+          val runs = analyses.map { run -> run.toRun(downloaded = results.has(key, run.id)) }
+          overrides.update { it + (key to NightRemoteOverride(recording, runs)) }
 
-          if (analysis?.status == "done") {
+          if (analysis?.isSucceeded == true) {
             val downloaded = results.save(key, analysis.id, analysis)
             uploads.markDone(
                 id = key,
-                remoteId = detail.session.id,
                 analysisId = analysis.id,
-                jobId = jobId,
-                model = analysis.model,
-                modelVersion = analysis.model_version,
-                epochSeconds = analysis.stages?.epoch_seconds ?: 30,
-                segments = analysis.stages?.segments.orEmpty(),
-                sleepScore = analysis.sleep_quality?.score,
+                model = analysis.algorithm,
+                modelVersion = analysis.version,
+                epochSeconds = analysis.result?.stages?.epoch_seconds ?: 30,
+                segments = analysis.result?.stages?.segments.orEmpty(),
+                sleepScore = analysis.result?.sleep_quality?.score,
                 resultDownloaded = downloaded,
             )
-          } else if (analysis?.status == "failed") {
+          } else if (analysis?.isFailed == true) {
             uploads.markFailed(key, UploadFailure.ANALYSIS, analysis.error)
-          } else if (detail.session.upload_status == "uploaded") {
-            uploads.markProcessing(key, detail.session.id, target, jobId)
-          } else if (detail.session.upload_status == "failed") {
-            uploads.markFailed(key, UploadFailure.SERVER, detail.session.upload_error)
+          } else if (recording.complete) {
+            uploads.markProcessing(key, target)
           }
           Result.success(analysis)
         } catch (e: TaigaUnauthorizedException) {
@@ -293,7 +284,7 @@ internal fun UploadRecord.toNightRecord(): NightRecord {
                 uploadedAtMs = uploadedAtMs ?: updatedAtMs,
             )
         UploadPhase.FAILED ->
-            if (remoteId != null && failure == UploadFailure.ANALYSIS && analysisId != null) {
+            if (failure == UploadFailure.ANALYSIS && analysisId != null) {
               BackupState(
                   phase = BackupPhase.BACKED_UP,
                   progress = 1f,
@@ -325,7 +316,6 @@ internal fun UploadRecord.toNightRecord(): NightRecord {
                 version = modelVersion.orEmpty(),
                 status = runStatus,
                 error = errorDetail.takeIf { failure == UploadFailure.ANALYSIS },
-                jobId = jobId,
                 epochSeconds = epochSeconds,
                 segments = segments,
                 sleepScore = sleepScore,
@@ -338,7 +328,13 @@ internal fun UploadRecord.toNightRecord(): NightRecord {
       }
   return NightRecord(
       id = id,
-      remoteId = remoteId,
+      // Records written before the id was shared with the server have no flag, but a night that
+      // reached processing or has an analysis was uploaded.
+      onServer =
+          onServer ||
+              phase == UploadPhase.PROCESSING ||
+              phase == UploadPhase.DONE ||
+              analysisId != null,
       backup = backup,
       analyses = runs,
       selectedAnalysisId = analysisId,

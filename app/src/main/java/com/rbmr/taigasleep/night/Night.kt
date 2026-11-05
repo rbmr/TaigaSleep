@@ -2,18 +2,17 @@ package com.rbmr.taigasleep.night
 
 import com.rbmr.taigasleep.analysis.StagerPreference
 import com.rbmr.taigasleep.remote.AnalysisDto
-import com.rbmr.taigasleep.remote.AnalysisSummaryDto
-import com.rbmr.taigasleep.remote.SessionDto
-import com.rbmr.taigasleep.remote.SessionListDto
-import com.rbmr.taigasleep.remote.SessionSummaryDto
+import com.rbmr.taigasleep.remote.RecordingDto
+import com.rbmr.taigasleep.remote.RecordingSummaryDto
+import com.rbmr.taigasleep.remote.RecordingSummaryListDto
 import com.rbmr.taigasleep.remote.StageSegmentDto
 import com.rbmr.taigasleep.storage.SessionInfo
 import com.rbmr.taigasleep.storage.SessionState
 import com.rbmr.taigasleep.upload.UploadFailure
 import java.text.SimpleDateFormat
+import java.time.OffsetDateTime
 import java.util.Date
 import java.util.Locale
-import java.util.TimeZone
 
 /**
  * The one display state of a night. It is derived from the two independent layers below:
@@ -78,7 +77,6 @@ data class AnalysisRun(
     val status: AnalysisStatus,
     val origin: AnalysisOrigin = AnalysisOrigin.AUTO,
     val error: String? = null,
-    val jobId: String? = null,
     val epochSeconds: Int = 30,
     val segments: List<StageSegmentDto> = emptyList(),
     val sleepScore: Double? = null,
@@ -90,7 +88,8 @@ data class AnalysisRun(
 /** The durable part of a night that the app owns. Raw bytes live beside it as files. */
 data class NightRecord(
     val id: String,
-    val remoteId: String? = null,
+    /** The server has a copy of this recording, so it exists there under [id]. */
+    val onServer: Boolean = false,
     val backup: BackupState = BackupState(),
     val analyses: List<AnalysisRun> = emptyList(),
     val selectedAnalysisId: String? = null,
@@ -117,7 +116,7 @@ data class Night(
     val selectedAnalysisId: String?,
     val backup: BackupState,
     val local: SessionInfo?,
-    val remote: SessionDto?,
+    val remote: RecordingDto?,
     /** True only when the full payload of the selected analysis is cached on this phone. */
     val resultDownloaded: Boolean,
 ) {
@@ -126,9 +125,6 @@ data class Night(
 
   val analysisId: String?
     get() = selectedAnalysis?.id
-
-  val jobId: String?
-    get() = selectedAnalysis?.jobId
 
   val epochSeconds: Int
     get() = selectedAnalysis?.epochSeconds ?: 30
@@ -166,16 +162,19 @@ data class Night(
  * wins when it has a finished analysis; the local state wins while the night is still being moved
  * or when the server is unreachable.
  *
- * [overrides] carries a fresh session detail fetched by the night screen, so a night with several
- * analyses shows all of them before the next History refresh.
+ * [overrides] carries a fresh recording and analysis list fetched by the night screen, so a night
+ * with several analyses shows all of them before the next History refresh.
+ *
+ * The phone's recording id is the server's recording id, so a local night and its server copy are
+ * matched by id.
  */
 fun buildNights(
     localSessions: List<SessionInfo>,
     records: Map<String, NightRecord>,
-    remote: SessionListDto?,
+    remote: RecordingSummaryListDto?,
     overrides: Map<String, NightRemoteOverride> = emptyMap(),
 ): List<Night> {
-  val byClient = remote?.items?.associateBy { it.session.client_session_id }.orEmpty()
+  val byId = remote?.items?.associateBy { it.recording.id }.orEmpty()
   val localIds = localSessions.map { it.id }.toSet()
   val nights = mutableListOf<Night>()
   for (session in localSessions) {
@@ -183,15 +182,14 @@ fun buildNights(
         buildNight(
             key = session.id,
             local = session,
-            summary = byClient[session.id],
+            summary = byId[session.id],
             record = records[session.id],
             override = overrides[session.id],
         )
   }
   for (summary in remote?.items.orEmpty()) {
-    val client = summary.session.client_session_id
-    if (client in localIds) continue
-    val key = "remote-${summary.session.id}"
+    if (summary.recording.id in localIds) continue
+    val key = remoteKey(summary.recording.id)
     nights +=
         buildNight(
             key = key,
@@ -201,7 +199,7 @@ fun buildNights(
             override = overrides[key],
         )
   }
-  // A night opened directly by its remote id can be fresh before the next History refresh.
+  // A night opened directly by its recording id can be fresh before the next History refresh.
   for ((key, override) in overrides) {
     if (nights.none { it.key == key }) {
       nights += buildNight(key, null, null, records[key], override)
@@ -210,24 +208,32 @@ fun buildNights(
   return nights.sortedWith(compareByDescending<Night> { it.startUtcMs }.thenBy { it.device })
 }
 
-/** A fresh session detail from the server, kept only for the current process. */
+/** The History key of a night that exists only on the server. */
+fun remoteKey(recordingId: String): String = "$REMOTE_KEY_PREFIX$recordingId"
+
+/** The recording id behind a night key: the local id, or the id after the remote prefix. */
+fun recordingIdOf(key: String): String = key.removePrefix(REMOTE_KEY_PREFIX)
+
+private const val REMOTE_KEY_PREFIX = "remote-"
+
+/** A fresh recording and analysis list from the server, kept only for the current process. */
 data class NightRemoteOverride(
-    val session: SessionDto,
+    val recording: RecordingDto,
     val runs: List<AnalysisRun>,
 )
 
 private fun buildNight(
     key: String,
     local: SessionInfo?,
-    summary: SessionSummaryDto?,
+    summary: RecordingSummaryDto?,
     record: NightRecord?,
     override: NightRemoteOverride?,
 ): Night {
-  val remoteSession = override?.session ?: summary?.session
-  val start = local?.startUtcMs ?: parsePocketBaseDate(remoteSession?.started_at.orEmpty())
+  val remoteSession = override?.recording ?: summary?.recording
+  val start = local?.startUtcMs ?: parseApiDate(remoteSession?.started_at.orEmpty())
   val end =
       local?.endUtcMs
-          ?: parsePocketBaseDate(remoteSession?.ended_at.orEmpty()).takeIf { it > start }
+          ?: parseApiDate(remoteSession?.ended_at.orEmpty()).takeIf { it > start }
   val duration =
       local?.durationMs?.takeIf { it > 0 }
           ?: remoteSession?.duration_s?.times(1000.0)?.toLong()?.takeIf { it > 0 }
@@ -271,19 +277,14 @@ private fun buildNight(
   val failedRun = runs.firstOrNull { it.status == AnalysisStatus.FAILED }
   val hasDone = runs.any { it.status == AnalysisStatus.DONE }
   val failure =
-      backup.failure
-          ?: if (hasDone) null
-          else
-              failedRun?.let { UploadFailure.ANALYSIS }
-                  ?: if (remoteSession?.upload_status == "failed") UploadFailure.SERVER else null
-  val errorDetail =
-      backup.detail
-          ?: failedRun?.error?.takeIf { it.isNotBlank() }
-          ?: remoteSession?.upload_error?.takeIf { it.isNotBlank() }
+      backup.failure ?: if (hasDone) null else failedRun?.let { UploadFailure.ANALYSIS }
+  val errorDetail = backup.detail ?: failedRun?.error?.takeIf { it.isNotBlank() }
   return Night(
       key = key,
       localId = local?.id,
-      remoteId = remoteSession?.id?.takeIf { it.isNotBlank() } ?: record?.remoteId,
+      remoteId =
+          remoteSession?.id?.takeIf { it.isNotBlank() }
+              ?: recordingIdOf(key).takeIf { record?.onServer == true },
       startUtcMs = start,
       endUtcMs = end,
       durationMs = duration,
@@ -306,7 +307,7 @@ private fun deriveStatus(
     local: SessionInfo?,
     backup: BackupState,
     runs: List<AnalysisRun>,
-    remote: SessionDto?,
+    remote: RecordingDto?,
 ): NightStatus {
   if (local?.state == SessionState.RECORDING) return NightStatus.RECORDING
   return when (backup.phase) {
@@ -314,11 +315,11 @@ private fun deriveStatus(
     BackupPhase.UPLOADING -> NightStatus.UPLOADING
     BackupPhase.FAILED -> NightStatus.FAILED
     BackupPhase.NOT_BACKED_UP ->
-        when (remote?.upload_status) {
-          "uploaded" -> deriveFromRuns(runs)
-          "failed" -> NightStatus.FAILED
-          "pending" -> NightStatus.UPLOADING
-          else -> NightStatus.LOCAL_ONLY
+        when {
+          remote == null -> NightStatus.LOCAL_ONLY
+          remote.complete -> deriveFromRuns(runs)
+          // The recording exists on the server but is not sealed yet: its files are still moving.
+          else -> NightStatus.UPLOADING
         }
     BackupPhase.BACKED_UP -> deriveFromRuns(runs)
   }
@@ -334,22 +335,17 @@ private fun deriveFromRuns(runs: List<AnalysisRun>): NightStatus =
       else -> NightStatus.PROCESSING
     }
 
-private fun backupFromRemote(remote: SessionDto?): BackupState =
-    when (remote?.upload_status) {
-      "uploaded" ->
+private fun backupFromRemote(remote: RecordingDto?): BackupState =
+    when {
+      remote == null -> BackupState()
+      // Sealing is the last change a recording gets, so its update time is when the upload ended.
+      remote.complete ->
           BackupState(
               phase = BackupPhase.BACKED_UP,
               progress = 1f,
-              uploadedAtMs = parsePocketBaseDate(remote.uploaded_at),
+              uploadedAtMs = parseApiDate(remote.updated),
           )
-      "failed" ->
-          BackupState(
-              phase = BackupPhase.FAILED,
-              failure = UploadFailure.SERVER,
-              detail = remote.upload_error.takeIf { it.isNotBlank() },
-          )
-      "pending" -> BackupState(phase = BackupPhase.UPLOADING)
-      else -> BackupState()
+      else -> BackupState(phase = BackupPhase.UPLOADING)
     }
 
 private fun mergeRuns(base: List<AnalysisRun>, fresh: List<AnalysisRun>): List<AnalysisRun> {
@@ -364,10 +360,9 @@ private fun mergeRuns(base: List<AnalysisRun>, fresh: List<AnalysisRun>): List<A
           incoming
         } else {
           // The server owns the status and the result summary. The local record owns facts the
-          // server does not know: the job id, why the run exists, and whether its payload is cached.
+          // server does not know: why the run exists, and whether its payload is cached.
           incoming.copy(
               origin = existing.origin,
-              jobId = incoming.jobId ?: existing.jobId,
               resultDownloaded = incoming.resultDownloaded || existing.resultDownloaded,
               createdAtMs =
                   if (incoming.createdAtMs > 0) incoming.createdAtMs else existing.createdAtMs,
@@ -399,68 +394,41 @@ private fun defaultRun(runs: List<AnalysisRun>): AnalysisRun? {
   return runs.maxByOrNull { it.updatedAtMs }
 }
 
-private fun AnalysisSummaryDto.toRun(): AnalysisRun {
-  val stages = stages
+/**
+ * A run as the app shows it. The stage timeline and the sleep score come from the full result when
+ * it is present and from the summary a list carries otherwise; the server derives the second from
+ * the first.
+ */
+fun AnalysisDto.toRun(downloaded: Boolean = false): AnalysisRun {
+  val stages = result?.stages
+  val summarized = summary?.stages
   return AnalysisRun(
       id = id,
-      algorithm = model,
-      version = model_version,
+      algorithm = algorithm,
+      version = version,
       status = status.toAnalysisStatus(),
       error = error.takeIf { it.isNotBlank() },
-      epochSeconds = stages?.epoch_seconds ?: 30,
-      segments = stages?.segments.orEmpty(),
-      sleepScore = sleep_quality?.score,
-      createdAtMs = parsePocketBaseDate(created),
-      updatedAtMs = parsePocketBaseDate(updated),
+      epochSeconds = stages?.epoch_seconds ?: summarized?.epoch_seconds ?: 30,
+      segments = stages?.segments ?: summarized?.segments.orEmpty(),
+      sleepScore = result?.sleep_quality?.score ?: summary?.sleep_quality?.score,
+      createdAtMs = parseApiDate(created),
+      updatedAtMs = parseApiDate(updated),
+      resultDownloaded = downloaded,
   )
 }
 
-/** Used by the repository when it fetches the full session detail for one night. */
-fun AnalysisDto.toRun(jobId: String? = null, downloaded: Boolean = false): AnalysisRun =
-    AnalysisRun(
-        id = id,
-        algorithm = model,
-        version = model_version,
-        status = status.toAnalysisStatus(),
-        error = error.takeIf { it.isNotBlank() },
-        jobId = jobId,
-        epochSeconds = stages?.epoch_seconds ?: 30,
-        segments = stages?.segments.orEmpty(),
-        sleepScore = sleep_quality?.score,
-        createdAtMs = parsePocketBaseDate(created),
-        updatedAtMs = parsePocketBaseDate(updated),
-        resultDownloaded = downloaded,
-    )
-
 private fun String.toAnalysisStatus(): AnalysisStatus =
     when (this) {
-      "done" -> AnalysisStatus.DONE
+      "succeeded" -> AnalysisStatus.DONE
       "failed" -> AnalysisStatus.FAILED
       "running" -> AnalysisStatus.RUNNING
       else -> AnalysisStatus.QUEUED
     }
 
-/** PocketBase returns `yyyy-MM-dd HH:mm:ss.SSSZ` in UTC. */
-fun parsePocketBaseDate(value: String): Long {
+/** The API speaks RFC 3339 in UTC, for example `2026-10-24T05:50:01Z`. Unparseable is 0. */
+fun parseApiDate(value: String): Long {
   if (value.isBlank()) return 0
-  val formats =
-      listOf(
-          "yyyy-MM-dd HH:mm:ss.SSS'Z'",
-          "yyyy-MM-dd HH:mm:ss'Z'",
-          "yyyy-MM-dd HH:mm:ss.SSSXXX",
-          "yyyy-MM-dd HH:mm:ssXXX",
-      )
-  for (pattern in formats) {
-    val parsed =
-        runCatching {
-              SimpleDateFormat(pattern, Locale.US)
-                  .apply { timeZone = TimeZone.getTimeZone("UTC") }
-                  .parse(value)
-            }
-            .getOrNull()
-    if (parsed != null) return parsed.time
-  }
-  return 0
+  return runCatching { OffsetDateTime.parse(value).toInstant().toEpochMilli() }.getOrDefault(0)
 }
 
 fun formatNightDate(ms: Long): String =

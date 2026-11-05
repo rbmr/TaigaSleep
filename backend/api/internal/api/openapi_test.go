@@ -26,10 +26,8 @@ func TestOpenAPIDocumentIsValid(t *testing.T) {
 	}
 	components, _ := document["components"].(map[string]any)
 	schemes, _ := components["securitySchemes"].(map[string]any)
-	for _, name := range []string{securityUser, securityWorker} {
-		if _, ok := schemes[name]; !ok {
-			t.Fatalf("security scheme %q is missing", name)
-		}
+	if _, ok := schemes[securityBearer]; !ok {
+		t.Fatalf("security scheme %q is missing", securityBearer)
 	}
 
 	paths, ok := document["paths"].(map[string]any)
@@ -93,7 +91,7 @@ func TestOpenAPIDocumentIsValid(t *testing.T) {
 			}
 		}
 
-		if route.Security != "" {
+		if route.Access != accessPublic {
 			security, _ := operation["security"].([]any)
 			if len(security) == 0 {
 				t.Errorf("%s %s has no security requirement", route.Method, route.Path)
@@ -101,7 +99,16 @@ func TestOpenAPIDocumentIsValid(t *testing.T) {
 		}
 	}
 
-	health, _ := paths["/api/taiga/health"].(map[string]any)["get"].(map[string]any)
+	for _, route := range Routes() {
+		if !strings.HasPrefix(route.Path, apiPrefix+"/") {
+			t.Errorf("%s %s is outside %s", route.Method, route.Path, apiPrefix)
+		}
+		if route.Handler == nil {
+			t.Errorf("%s %s has no handler", route.Method, route.Path)
+		}
+	}
+
+	health, _ := paths["/v1/health"].(map[string]any)["get"].(map[string]any)
 	if _, ok := health["security"]; ok {
 		t.Errorf("health must stay public")
 	}

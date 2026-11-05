@@ -14,7 +14,8 @@ class DeleteWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
   override suspend fun doWork(): Result {
-    val remoteId = inputData.getString(UploadScheduler.KEY_REMOTE_ID) ?: return Result.failure()
+    val recordingId =
+        inputData.getString(UploadScheduler.KEY_RECORDING_ID) ?: return Result.failure()
     val remote = RemoteRepository.of(applicationContext)
     val verified =
         try {
@@ -28,13 +29,13 @@ class DeleteWorker(
     val api = remote.api() ?: return Result.retry()
 
     return try {
-      api.deleteSession(remoteId)
-      PendingDeleteStore.of(applicationContext).remove(remoteId)
+      api.deleteRecording(recordingId)
+      PendingDeleteStore.of(applicationContext).remove(recordingId)
       Result.success()
     } catch (e: TaigaHttpException) {
       if (e.status == 404) {
         // Already gone, or not visible to this account. Either way there is nothing left to do.
-        PendingDeleteStore.of(applicationContext).remove(remoteId)
+        PendingDeleteStore.of(applicationContext).remove(recordingId)
         Result.success()
       } else if (e.status == 401 || e.status == 403) {
         Result.retry()

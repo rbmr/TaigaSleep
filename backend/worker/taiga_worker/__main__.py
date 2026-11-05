@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
         if config.once:
             worker.login()
             processed = worker.run_once()
-            log.info("one-shot run finished (processed job: %s)", processed)
+            log.info("one-shot run finished (processed an analysis: %s)", processed)
             return 0
         worker.run_forever()
         return 0

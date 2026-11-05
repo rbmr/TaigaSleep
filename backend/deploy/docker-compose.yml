@@ -11,7 +11,7 @@ services:
     restart: unless-stopped
     ports:
       # Bind to loopback by default. Put Caddy/nginx in front to expose only
-      # /api/* and keep the dashboard private. Set TAIGA_BIND_ADDR=0.0.0.0 to
+      # /v1/* and keep the dashboard private. Set TAIGA_BIND_ADDR=0.0.0.0 to
       # expose PocketBase directly (including /_/).
       - "${TAIGA_BIND_ADDR:-127.0.0.1}:${TAIGA_PORT:-8090}:8090"
     volumes:
@@ -27,7 +27,7 @@ services:
       TAIGA_ADMIN_PASSWORD: "${TAIGA_ADMIN_PASSWORD:-}"
       TAIGA_ENCRYPTION_KEY: "${TAIGA_ENCRYPTION_KEY:-}"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8090/api/taiga/health"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8090/v1/health"]
       interval: 30s
       timeout: 3s
       retries: 3

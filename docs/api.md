@@ -82,7 +82,7 @@ characters, globally unique), so the phone's id for a recording is also the back
 }
 ```
 
-`meta` is the recording's `meta.json` verbatim; `state`, `device`, the times and the
+`meta` is the recording's `meta.json` verbatim (fields the backend does not know are kept); `state`, `device`, the times and the
 duration are derived from it. `complete` means all files have been uploaded and the
 recording is sealed.
 
@@ -105,8 +105,8 @@ sequence of complete gzip members, one per chunk, so appending stays valid.
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
 | `GET /v1/recordings/{id}/files` | user, worker with a lease | `{ "items": [{ "name", "size", "encoding", "uncompressed_size" }] }`. `size` is stored bytes. |
-| `HEAD /v1/recordings/{id}/files/{name}` | user | `Upload-Offset` is the stored size, i.e. where to resume. `Content-Encoding` is the file's encoding. `404` for a file that does not exist yet. |
-| `PATCH /v1/recordings/{id}/files/{name}` | user | Appends the body. `Upload-Offset` must equal the stored size, else `409 offset_mismatch` with the current `Upload-Offset` in the response. `Content-Encoding: gzip` for a gzip member, absent for plain bytes; a file's encoding is fixed by its first chunk. Offset 0 creates the file. `200` with `Upload-Offset` set to the new size. `409 recording_complete`, `413 chunk_too_large`. |
+| `HEAD /v1/recordings/{id}/files/{name}` | user, worker with a lease | `Upload-Offset` is the stored size, i.e. where to resume. `Content-Encoding` is the file's encoding. `404` for a file that does not exist yet. |
+| `PATCH /v1/recordings/{id}/files/{name}` | user | Appends the body. `Upload-Offset` must equal the stored size, else `409 offset_mismatch` with the current `Upload-Offset` in the response. `Content-Encoding: gzip` for a gzip member, absent for plain bytes; a file's encoding is fixed by its first chunk. Offset 0 creates the file. `204` with `Upload-Offset` set to the new size. `409 recording_complete`, `413 chunk_too_large`. |
 | `GET /v1/recordings/{id}/files/{name}` | user, worker with a lease | The file. A compressed file is inflated unless the request says `Accept-Encoding: gzip`, in which case it is sent as stored with `Content-Encoding: gzip`. |
 | `DELETE /v1/recordings/{id}/files/{name}` | user | Removes one file, e.g. to restart it. `409` once complete. |
 
@@ -147,7 +147,7 @@ present depends on the data and the algorithm.
 
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
-| `POST /v1/recordings/{id}/analyses` | user | Body `{ "algorithm", "version"?, "params"? }`. Creates a queued analysis (`201`) or returns the existing one for the same recording, algorithm, version and params (`200`). A failed existing one is replaced by a fresh queued one (`201`), which is how a retry is made. `409 recording_incomplete` before the recording is sealed, `422 unknown_algorithm` when no worker offers it. |
+| `POST /v1/recordings/{id}/analyses` | user | Body `{ "algorithm", "version"?, "params"? }`. The version defaults to the newest a worker offers, ignoring workers that stopped announcing themselves (`TAIGA_WORKER_TTL_S`, 900 s) unless none is left. Creates a queued analysis (`201`) or returns the existing one for the same recording, algorithm, version and params (`200`). A failed existing one is replaced by a fresh queued one (`201`), which is how a retry is made. `409 recording_incomplete` before the recording is sealed, `422 unknown_algorithm` when no worker offers it. |
 | `GET /v1/recordings/{id}/analyses` | user | Analyses of one recording. Without `result` unless `expand=result`. |
 | `GET /v1/analyses` | user, worker | Own analyses (user) or all (worker). Query: `recording`, `status`, `expand=result`, `sort` (`created`, `-created`). Without `result` unless expanded. |
 | `GET /v1/analyses/{id}` | user, worker | One analysis, with `summary` and `result`. |
@@ -157,7 +157,7 @@ present depends on the data and the algorithm.
 
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
-| `GET /v1/algorithms` | user | What workers that were seen recently can run: id, version, name, description, the streams it needs, the stages it can produce, parameter schema, citation and licence (the manifest of `analysis-contract.md`). |
+| `GET /v1/algorithms` | user | What registered workers can run: id, version, name, description, the streams it needs, the stages it can produce, parameter schema, citation and licence (the manifest of `analysis-contract.md`). |
 
 ## Worker
 
@@ -177,6 +177,8 @@ A lease that expires puts the analysis back in the queue; the backend does this 
 (on every claim and once a minute), so there is no requeue endpoint.
 
 ## Events
+
+> Planned: the stream is added by a later change; this revision has no `/v1/events`.
 
 `GET /v1/events` is a Server-Sent Events stream for the caller. A comment line (`:`) is
 sent every 20 seconds so intermediaries keep the connection open.

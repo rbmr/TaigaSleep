@@ -5,8 +5,8 @@ Self-hosted Go PocketBase API plus a Python analysis worker for Taiga Sleep.
 This directory contains everything the optional backend needs: the database
 schema, owner rules, health checks, the durable analysis queue, the analysis
 worker, deployment examples and backup guidance. It accepts append-only
-recordings through an owner-only upload API, runs staging algorithms in a
-separate worker process, and stores one result per session/algorithm/version/
+recordings through an owner-only API, runs staging algorithms in a
+separate worker process, and stores one result per recording/algorithm/version/
 parameter set. The optional wav2sleep ECG model and SleepECG HR/RR stager are
 available as worker extras.
 
@@ -224,227 +224,109 @@ environment or edit `uv.lock` by hand.
 
 ## API
 
-### Health and auth checks
-
-`GET /api/taiga/health` is unauthenticated. `GET /api/taiga/auth-check` requires
-a valid token and confirms which collection it belongs to.
+The whole HTTP contract is `/v1`. [`docs/api.md`](../docs/api.md) is the design (the
+conventions and what each resource means); the running backend serves the same thing as
+an OpenAPI 3.1 document at `GET /v1/openapi.json` and as Swagger UI at `GET /v1/docs`.
+Both are public, generated from the route manifest when the process starts, and work
+offline (Swagger UI 5.34.0 is vendored under `api/internal/api/swaggerui/`, Apache-2.0,
+see the `LICENSE` there). Nothing is checked in, so there is no generated artifact to
+keep in sync; every route is declared once in `api/internal/api/routes.go`, which both
+mounts the handler and documents it.
 
 ```bash
-curl -s http://127.0.0.1:8090/api/taiga/health
-# {"status":"ok","service":"taiga-sleep","version":"0.1.0","api":1,"time":"..."}
+curl -s http://127.0.0.1:8090/v1/health
+# {"status":"ok","time":"..."}
+curl -s http://127.0.0.1:8090/v1/version
+# {"service":"taiga-sleep","version":"0.3.0","api":2}
 
-curl -s http://127.0.0.1:8090/api/taiga/auth-check -H "Authorization: <token>"
-# {"ok":true,"id":"...","collection":"users"}
+TOKEN=$(curl -s -X POST http://127.0.0.1:8090/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"<password>"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+curl -s http://127.0.0.1:8090/v1/me -H "Authorization: Bearer $TOKEN"
+# {"id":"...","email":"you@example.com","role":"user"}
 ```
 
-These are the two checks the app's connection screen (#9) uses.
+To use the document elsewhere, point any of these at
+`http://127.0.0.1:8090/v1/openapi.json`: **Redoc**, **Postman / Insomnia**
+(`Import > Link`; the bearer scheme maps to the `Authorization` header) or the VS Code
+*OpenAPI (Swagger) Editor* extension.
 
-### OpenAPI document
+PocketBase's own record API is closed: every collection is superuser-only, and password
+login through PocketBase's endpoints is disabled. The API above is the only way in for
+users and workers. The PocketBase dashboard (`/_/`) is the operator's tool for creating
+accounts and inspecting data.
 
-Every custom route is declared once in `api/internal/api/openapi.go`. That
-manifest mounts the handler and generates the OpenAPI 3.1 document, so the
-router and the documentation cannot disagree.
+### Recordings and files
 
-The document is generated when the process starts and kept in memory. Nothing
-is checked in, so there is no generated artifact to regenerate or keep in sync:
+A recording is created by its owner with `PUT /v1/recordings/{id}`, where the body is the
+recording's `meta.json` and the id is the one the phone chose, so a retry is safe. Files
+(`hr.log`, `ecg.log`, `acc.log`, `events.jsonl`) are appended with
+`PATCH /v1/recordings/{id}/files/{name}` and an `Upload-Offset` header, resumed with
+`HEAD` on the same path, and downloaded with `GET`. Each file is stored as the sender
+chose: plain, or as a sequence of complete gzip members (one per chunk, with
+`Content-Encoding: gzip`); see [`docs/upload-compression.md`](../docs/upload-compression.md).
+`PATCH /v1/recordings/{id}` with `{"complete": true}` seals the recording, after which
+nothing in it changes.
 
-- `GET /api/taiga/docs` (public) is the interactive Swagger UI page for the
-  running build. It works offline: Swagger UI 5.34.0 is vendored under
-  `api/internal/api/swaggerui/` (Apache-2.0, see the `LICENSE` there) and
-  embedded in the binary, so there is no CDN, no extra container and no config.
-  The page is plain Swagger UI, unmodified, with no Taiga chrome added.
-- `GET /api/taiga/openapi.json` (public) serves the generated document for any
-  tool that wants to read or download it.
-
-Both routes are public, like FastAPI's `/docs`: the document describes shapes
-only and contains no recordings, health values or credentials. PocketBase's
-dashboard remains the only authenticated UI.
-
-To use the document elsewhere, point any of these at the URL of your deployment,
-for example `http://127.0.0.1:8090/api/taiga/openapi.json`:
-
-- **Redoc** — <https://redocly.github.io/redoc/> with the URL in the `url`
-  parameter, or the `redocly` CLI for a static build.
-- **Postman / Insomnia** — `Import > Link` with the same URL. The two security
-  schemes map to the `Authorization` header; paste the raw PocketBase token
-  without a `Bearer` prefix.
-- **VS Code** — the *OpenAPI (Swagger) Editor* extension can open the downloaded
-  `openapi.json`.
-
-PocketBase's built-in collection API is not part of this document; it has its
-own docs. Nothing in the document is derived from a recording or a health
-value, only from the Go types.
-
-### Recording uploads
-
-Uploading and analysing are separate steps. An upload only stores and validates
-the recording and marks it `uploaded`; it never queues analysis. Analysis
-requests, results and the worker download path are added by the rest of #10.
-
-All upload routes are owner-only (`users` token). A session is created or
-resumed from `meta.json` and identified by `(owner, client_session_id)`, so a
-retried create returns the existing session instead of duplicating it.
-
-```text
-POST /api/taiga/sessions                          create or resume from { "meta": {...} }
-GET  /api/taiga/sessions/{id}/upload              current lengths and validation state
-PUT  /api/taiga/sessions/{id}/upload/meta         replace meta.json
-PUT  /api/taiga/sessions/{id}/upload/file/{file}?offset=N[&encoding=gzip]   append a chunk
-POST /api/taiga/sessions/{id}/upload/complete     validate and mark uploaded
-```
-
-- `{file}` is one of `hr.log`, `ecg.log`, `acc.log`, `events.jsonl`. The stream
-  files are the frame logs from `docs/recording-format.md`; `meta.json` is
-  written through the meta route, not as raw bytes.
-- `offset` must equal the server's current length of that file. A wrong offset
-  returns `409` with the expected length in the message. Re-read
-  `GET /upload` to resume, or the response's `length`/`validated_length`.
-- Chunks are raw bytes (`application/octet-stream`, up to 8 MB). The response
-  reports `length`, `validated_length`, `frames`/`lines`, `state` and any error.
-- Validation is incremental. Complete frames are accepted until the first
-  truncated or bad-CRC frame. A truncated final frame is kept while uploading
-  and cut at completion (`truncated: true`, warning in `upload_error`). A bad
-  frame truncates the file to the last valid frame and is reported; the valid
-  prefix can still be completed and analysed.
-- `encoding=gzip` switches the session's stream files to compressed storage.
-  Each request body must then be exactly one complete gzip member, `offset` is
-  the compressed byte offset, and the API validates member framing and declared
-  sizes without inflating. Frame validation moves to the worker. The encoding is
-  chosen by the first chunk and cannot be mixed later. See
-  [`docs/upload-compression.md`](../docs/upload-compression.md) for the protocol,
-  storage layout and limits.
-- `complete` requires a valid `meta.json`, a non-`recording` state, and at least
-  one valid frame (identity mode) or at least one compressed stream file (gzip
-  mode). The session's `state`, `started_at`, `ended_at`, `duration_s` and
-  `device` are derived from `meta.json`.
-- Recordings live in `<pb_data>/recordings/<session id>/`, so PocketBase backups
-  include them. Delete a session with the standard collection route
-  (`DELETE /api/collections/sessions/records/{id}`); the delete hook removes the
-  recording directory and cascades its analyses and jobs.
+The backend stores the bytes and does not look inside them: the worker validates the frame
+logs (`docs/recording-format.md`) when it analyses, keeps the valid prefix, and says so in
+the analysis warnings. Recordings live in `<pb_data>/recordings/<id>/`, so PocketBase
+backups include them. Deleting a recording (`DELETE /v1/recordings/{id}`) removes its
+files and analyses.
 
 Limits are configurable through `TAIGA_MAX_RECORDING_MB` (256),
 `TAIGA_MAX_RECORDING_FILE_MB` (64), `TAIGA_MAX_RECORDING_UNCOMPRESSED_MB` (512),
-`TAIGA_MAX_RECORDING_UNCOMPRESSED_FILE_MB` (128), `TAIGA_MAX_UPLOAD_CHUNK_MB`
-(8), `TAIGA_MAX_UPLOAD_UNCOMPRESSED_CHUNK_MB` (16), `TAIGA_MAX_UPLOAD_MEMBERS`
-(10000) and `TAIGA_MAX_META_KB` (64). The events file has a fixed 8 MB cap. The
-effective limits are returned in the upload manifest.
+`TAIGA_MAX_RECORDING_UNCOMPRESSED_FILE_MB` (128), `TAIGA_MAX_UPLOAD_CHUNK_MB` (8),
+`TAIGA_MAX_UPLOAD_UNCOMPRESSED_CHUNK_MB` (16), `TAIGA_MAX_UPLOAD_MEMBERS` (10000) and
+`TAIGA_MAX_META_KB` (64). A request over a limit is answered with `413`.
 
-Example flow:
+### Analyses and the worker
 
-```bash
-# 1. Create/resume (the body is the meta.json object).
-curl -s -X POST http://127.0.0.1:8090/api/taiga/sessions \
-  -H "Authorization: <user-token>" -H "Content-Type: application/json" \
-  -d '{"meta": {"format":"taiga-recording", "version":1, "session_id":"20261023_223000", "state":"stopped", "start_utc_ms":1792798200000, "end_utc_ms":1792828200000, "timezone":"Europe/Amsterdam", "sensor":{"kind":"polar-h10"}, "config":{"hr":true,"ecg":true,"acc":true,"ecg_rate_hz":130,"acc_rate_hz":50,"acc_range_g":8}}}'
+An analysis is one algorithm applied to one recording. Nothing creates one by itself:
+a user asks with `POST /v1/recordings/{id}/analyses` (idempotent on recording, algorithm,
+version and params; asking again for a failed one is how a retry is made). The analysis
+row is the queue item, so there is no separate jobs resource:
 
-# 2. Append a chunk at the current length.
-curl -s -X PUT "http://127.0.0.1:8090/api/taiga/sessions/<id>/upload/file/hr.log?offset=0" \
-  -H "Authorization: <user-token>" -H "Content-Type: application/octet-stream" \
-  --data-binary @chunk.bin
+1. The analysis is `queued`.
+2. The worker announces its algorithms with `PUT /v1/workers/me`, then
+   `POST /v1/analyses/claim` takes the oldest queued analysis it can run. The update is
+   conditional inside a transaction, so exactly one caller gets it. The analysis is
+   `running` for a lease (`TAIGA_JOB_LEASE_S`, default 1800 s).
+3. While it holds the lease, the worker may read the recording and its files through the
+   normal read endpoints (there are no worker-only copies).
+4. `POST /v1/analyses/{id}/complete` stores the result; `POST /v1/analyses/{id}/fail`
+   reports a failure. A retryable failure is requeued with exponential backoff up to
+   `TAIGA_JOB_MAX_ATTEMPTS` (default 3); a permanent one stores the reason.
+5. Expired leases are put back in the queue (or failed when the attempts are used up) on
+   every claim and by the `taiga_requeue_expired_analyses` cron every minute.
 
-# 3. Finish.
-curl -s -X POST "http://127.0.0.1:8090/api/taiga/sessions/<id>/upload/complete" \
-  -H "Authorization: <user-token>" -H "Content-Type: application/json" -d '{}'
-```
-
-### Analysis and results
-
-Analysis is an explicit second step after upload. A session can have several
-analyses at once (one per algorithm/version/parameter set), and the app can
-switch between them without re-uploading the recording.
-
-```text
-GET  /api/taiga/algorithms                        algorithms reported by workers
-POST /api/taiga/sessions/{id}/analysis            request one or more models
-GET  /api/taiga/sessions                          paginated summary; filters: state, upload_status, from, to, sort
-GET  /api/taiga/sessions/{id}                     session, upload, analyses, jobs, summary
-GET  /api/taiga/analyses/{id}                     one full result
-POST /api/taiga/jobs/{id}/retry                   requeue a failed analysis
-```
-
-- `POST /analysis` takes `{ "models": [ { "model": "baseline", "version": "1.1.0", "params": {} } ] }`
-  (up to 8). `version` is required; read it from `GET /algorithms`. A single
-  `{model, version, params}` object is also accepted.
-- Requests are idempotent on `(session, model, version, params_hash)`. Asking
-  for the same analysis again returns the existing row and job. A failed
-  analysis stays failed until `POST /jobs/{id}/retry` is used.
-- A worker claims only jobs for algorithms it has installed. The claim response
-  includes the analysis `params`, `model_version` and `params_hash`.
-- `GET /sessions` uses PocketBase filters/sort and returns `hasMore` rather than
-  a total count. Supported filters: `state`, `upload_status`, `from`, `to`;
-  `sort` accepts `started_at`, `created`, `updated`, `duration_s` and a leading
-  `-` for descending. Model/analysis-status filtering is left to the app.
-- The full result contains `contract_version`, `model`, `model_version`,
-  `params`, `params_hash`, compact `stages`, the epoch-aligned `hr` series,
-  `metrics`, `metric_support`, `quality`, `sleep_quality`, `capabilities`,
-  `provenance`, `extras` and `warnings`. `quality` is the data-quality score;
-  `sleep_quality` is the separate sleep score. Both are optional in results
-  stored before they existed.
-- Worker-only download routes are scoped to the job the worker currently holds:
-  `GET /api/taiga/worker/sessions/{id}/manifest?job=...&worker=...` and
-  `GET /api/taiga/worker/sessions/{id}/files/{file}?job=...&worker=...`.
-- Workers report installed algorithms with
-  `POST /api/taiga/worker/capabilities`; the API stores the list and the
-  last-seen time. `GET /algorithms` returns the union of all workers, with
-  `worker_count`.
-- Failed results are retried up to `TAIGA_JOB_MAX_ATTEMPTS` (default 3) with
-  exponential backoff when the worker marks the failure retryable. Invalid
-  input, missing streams, unknown algorithms and malformed results fail
-  permanently with the reason stored on the analysis.
+The result is the worker's output as documented in
+[`docs/analysis-contract.md`](../docs/analysis-contract.md); the backend checks its
+envelope only and derives a small `summary` for lists.
 
 ### Collections
 
-- `users` — built-in auth. Registration is closed (`createRule` is null).
-  Users can only list/view/update/delete their own record.
-- `sessions` — one row per recording: `owner`, `client_session_id`, `device`,
-  `started_at`, `ended_at`, `duration_s`, `state`, `upload_status`, `upload`
-  (per-file lengths and validation state), `uploaded_at`, `upload_error`, plus
-  `created` and `updated`. Owner-only rules.
-- `analyses` — one row per `(session, model, model_version, params_hash)`:
-  `session`, `model`, `model_version`, `params`, `params_hash`, `status`,
-  `contract_version`, `stages`, `hr`, `metrics`, `metric_support`, `quality`,
-  `sleep_quality`, `capabilities`, `provenance`, `extras`, `warnings`, `error`,
-  plus timestamps.
-  Users can list/view their own rows; create/update/delete are server-only.
-- `jobs` — durable queue: `session`, `analysis`, `kind`, `model`,
-  `model_version`, `params_hash`, `status`, `attempts`, `available_at`,
-  `lease_until`, `worker`, `error`, `result`, plus timestamps. Users can
-  list/view and create their own jobs; direct creation is a tooling/test path.
-  Update/delete are server-only. The app uses the analysis request route.
+All collections are superuser-only through PocketBase's own API.
+
+- `users` — built-in auth for app accounts. Registration is closed.
 - `workers` — auth collection for worker service accounts: `name`, `version`,
-  `algorithms`, `last_seen`. Public create, list, update and delete are
-  disabled; workers cannot read sessions or jobs directly.
+  `algorithms`, `last_seen`.
+- `recordings` — one row per recording. The record id is the client's recording id.
+  `owner`, `state`, `device`, `started_at`, `ended_at`, `duration_s`, `complete`, `meta`
+  (the recording's meta.json), `files` (per-file encoding and uncompressed size), plus
+  `created` and `updated`.
+- `analyses` — one row per `(recording, algorithm, version, params_hash)`: `recording`,
+  `algorithm`, `version`, `params`, `params_hash`, `status`, `error`, `attempts`,
+  `worker`, `available_at`, `lease_until`, `finished_at`, `summary`, `result`, plus
+  timestamps.
 
-### Job flow
-
-1. Upload completion marks the session `uploaded` and does **not** create a
-   job.
-2. `POST /api/taiga/sessions/{id}/analysis` creates an `analyses` row and one
-   `jobs` row per requested model. Creation is idempotent on
-   `(session, model, model_version, params_hash)`; the unique index is the
-   race-safe backstop.
-3. A worker reports its installed algorithms, then calls
-   `POST /api/taiga/worker/jobs/claim` with its worker id and algorithm ids.
-   The hook selects the oldest eligible job it can run and updates it
-   conditionally inside a transaction, so exactly one caller gets it. The
-   analysis status becomes `running` and the response includes the params.
-4. The worker downloads the recording through the scoped worker routes, runs
-   the stager in a fresh subprocess, and reports `done` or `failed` through
-   `POST /api/taiga/worker/jobs/{id}/result`. Retried reports are harmless.
-5. A done result is written into the analysis row atomically with the job
-   status. A retryable failure is requeued with exponential backoff up to
-   `TAIGA_JOB_MAX_ATTEMPTS`; a permanent failure stores the reason on both rows.
-6. Every minute `taiga_requeue_expired_jobs` requeues `running` jobs whose lease
-   has expired and resets their analysis status to `queued`. `attempts` is
-   preserved for observability. `POST /api/taiga/worker/jobs/requeue` runs the
-   same operation on demand.
-
-All `/api/taiga/worker/*` routes require a `workers` token. A normal user token
-is rejected.
+Upgrading from API 1 (sessions, jobs): the migration `1760000000_api_v1` carries
+recordings and finished analyses over, renames the recording directories and drops the
+jobs. Recordings without their `meta.json` on disk are skipped.
 
 ## Tests
 
-Go unit tests cover frame/CRC validation, meta validation and params hashing:
+Go unit tests cover the OpenAPI document, meta validation, gzip framing, the migration and the HTTP behaviour of the routes:
 
 ```bash
 cd backend/api
@@ -464,9 +346,9 @@ uv run --frozen pytest
 
 The integration suite builds the Go API, starts it in a temporary directory,
 applies the migrations, and exercises the routes and a real worker subprocess.
-It covers upload/resume/validation, analysis requests, algorithm reporting,
-scoped worker downloads, the baseline end-to-end run, result storage, retries,
-the served OpenAPI document and docs page, and owner isolation. Set `POCKETBASE_BIN` to the
+It covers uploads and resuming, analysis requests, the worker queue and its leases,
+leased worker reads, the baseline end-to-end run, result storage, retries, the served
+OpenAPI document and docs page, and owner isolation. Set `POCKETBASE_BIN` to the
 built Go binary; the suite skips when it is not available:
 
 ```bash
@@ -545,7 +427,7 @@ data directory is a named volume. The worker has a configurable container limit
 ### Admin access
 
 Do not expose the PocketBase dashboard (`/_/`) to the internet. The included
-`Caddyfile` proxies only `/api/*` and returns 404 for everything else:
+`Caddyfile` proxies only `/v1/*` and returns 404 for everything else:
 
 ```bash
 TAIGA_DOMAIN=sleep.example.com caddy run --config backend/deploy/Caddyfile
@@ -594,7 +476,7 @@ part. Its limit is configurable via `TAIGA_JOB_MEMORY_MB`, and numeric libraries
 are single-threaded.
 
 The Go binary is about 38 MB on disk. Roughly 1.9 MB of that is the embedded
-Swagger UI for `/api/taiga/docs`; it is read-only data that the idle server
+Swagger UI for `/v1/docs`; it is read-only data that the idle server
 never touches, so it does not count towards the idle figures above.
 
 ## Benchmarks
@@ -704,7 +586,7 @@ To restore a downloaded archive on a stopped instance:
 2. Move the current data directory aside, keeping it until the restore is verified.
 3. Extract the archive into an empty data directory so that `data.db`,
    `auxiliary.db`, `storage/` and `recordings/` are at its top level.
-4. Fix ownership, start the API, then check `/api/taiga/health` and one session.
+4. Fix ownership, start the API, then check `/v1/health` and one recording.
 5. Remove the old directory once the restored instance looks right.
 
 ```bash
@@ -742,7 +624,7 @@ setup; an unverified backup is not a backup.
 2. Stop the API and worker.
 3. Rebuild the Go binary from the same commit; migrations are embedded.
 4. Start the API; new migrations apply automatically.
-5. Check `/api/taiga/health`, the cron list and one worker claim.
+5. Check `/v1/health`, the cron list and one worker claim.
 
 Keep the worker and API versions from the same commit. The worker only uses the
 public API, but the job payload shape is expected to stay in sync.

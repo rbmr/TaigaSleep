@@ -7,8 +7,10 @@ import java.io.File
 
 /**
  * Deletes one recording everywhere. The local copy and cached results go immediately; the remote
- * session is queued and retried until the server is reachable. A 404 from the server is treated as
- * success, because the only useful meaning is that the session no longer exists for this account.
+ * recording is queued and retried until the server is reachable. A 404 from the server is treated
+ * as success, because the only useful meaning is that the recording no longer exists for this
+ * account. [remoteId] is the recording id on the server, which is the local id for a night that
+ * was uploaded from this phone.
  */
 object RecordingDeleter {
   fun delete(context: Context, localId: String?, remoteId: String?) {

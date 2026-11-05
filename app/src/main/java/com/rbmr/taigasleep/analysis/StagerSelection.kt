@@ -14,7 +14,7 @@ data class StagerChoice(val id: String, val version: String)
 
 /**
  * Pick the best installed stager that the recording can actually feed. The backend still has the
- * final say: it requires an explicit model and version, and the job waits for a worker that has it.
+ * final say: it refuses an algorithm or version that no worker offers.
  */
 fun selectStager(
     config: SessionConfig,

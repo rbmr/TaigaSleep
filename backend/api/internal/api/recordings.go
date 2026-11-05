@@ -1,409 +1,91 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
-	"fmt"
+	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/pocketbase/pocketbase/apis"
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/types"
 )
 
-const (
-	defaultMaxRecordingMB               = 256
-	defaultMaxRecordingFileMB           = 64
-	defaultMaxUncompressedMB            = 512
-	defaultMaxUncompressedFileMB        = 128
-	defaultMaxUploadChunkMB             = 8
-	defaultMaxUploadUncompressedChunkMB = 16
-	defaultMaxMetaKB                    = 64
-	maxEventsBytes                      = 8 * 1024 * 1024
-	maxUploadMembers                    = 10000
-	maxExpansionRatio                   = 200.0
-	encodingIdentity                    = "identity"
-	encodingGzip                        = "gzip"
-)
-
-type UploadFile struct {
-	Length             int64  `json:"length"`
-	ValidatedLength    int64  `json:"validated_length"`
-	UncompressedLength int64  `json:"uncompressed_length"`
-	Members            int    `json:"members,omitempty"`
-	Frames             int    `json:"frames"`
-	Lines              int    `json:"lines"`
-	State              string `json:"state"`
-	Error              string `json:"error"`
-	Truncated          bool   `json:"truncated"`
-	CorruptAt          int64  `json:"corrupt_at,omitempty"`
-	PendingBytes       int64  `json:"pending_bytes,omitempty"`
-	Encoding           string `json:"encoding,omitempty"`
-	StoredName         string `json:"stored_name,omitempty"`
-	Compressed         bool   `json:"compressed,omitempty"`
-	Updated            string `json:"updated"`
+// RecordingView is a recording as the API shows it. Meta is the recording's
+// meta.json; the other fields are derived from it, so a list does not need to read
+// the files.
+type RecordingView struct {
+	ID        string          `json:"id"`
+	State     string          `json:"state"`
+	Device    string          `json:"device"`
+	StartedAt string          `json:"started_at"`
+	EndedAt   *string         `json:"ended_at"`
+	DurationS float64         `json:"duration_s"`
+	Complete  bool            `json:"complete"`
+	SizeBytes int64           `json:"size_bytes"`
+	Meta      json.RawMessage `json:"meta" schema:"RecordingMeta"`
+	Created   string          `json:"created"`
+	Updated   string          `json:"updated"`
 }
 
-type Upload struct {
-	Version     int                    `json:"version"`
-	Encoding    string                 `json:"encoding,omitempty"`
-	Files       map[string]*UploadFile `json:"files"`
-	Completed   bool                   `json:"completed"`
-	CompletedAt string                 `json:"completed_at"`
+type RecordingList struct {
+	Items  []RecordingView `json:"items"`
+	Limit  int             `json:"limit"`
+	Offset int             `json:"offset"`
+	Total  int64           `json:"total"`
 }
 
-type UploadLimits struct {
-	MaxTotalBytes             int64   `json:"max_total_bytes"`
-	MaxFileBytes              int64   `json:"max_file_bytes"`
-	MaxUncompressedTotalBytes int64   `json:"max_uncompressed_total_bytes"`
-	MaxUncompressedFileBytes  int64   `json:"max_uncompressed_file_bytes"`
-	MaxChunkBytes             int64   `json:"max_chunk_bytes"`
-	MaxUncompressedChunkBytes int64   `json:"max_uncompressed_chunk_bytes"`
-	MaxExpansionRatio         float64 `json:"max_expansion_ratio"`
-	MaxMembers                int     `json:"max_members"`
+// RecordingPatch is the only change a recording accepts after it is created.
+type RecordingPatch struct {
+	Complete *bool `json:"complete"`
 }
 
-type CompressionInfo struct {
-	Codec          string `json:"codec"`
-	Version        int    `json:"version"`
-	MemberPerChunk bool   `json:"member_per_chunk"`
-	Deterministic  bool   `json:"deterministic"`
+var recordingSorts = map[string]string{
+	"started_at": "started_at ASC", "-started_at": "started_at DESC",
+	"created": "created ASC", "-created": "created DESC",
+	"duration_s": "duration_s ASC", "-duration_s": "duration_s DESC",
 }
 
-type Manifest struct {
-	Session           string                 `json:"session"`
-	UploadStatus      string                 `json:"upload_status"`
-	UploadedAt        string                 `json:"uploaded_at"`
-	UploadError       string                 `json:"upload_error"`
-	Completed         bool                   `json:"completed"`
-	CompletedAt       string                 `json:"completed_at"`
-	Encoding          string                 `json:"encoding"`
-	AcceptedEncodings []string               `json:"accepted_encodings"`
-	Compression       CompressionInfo        `json:"compression"`
-	TotalBytes        int64                  `json:"total_bytes"`
-	UncompressedBytes int64                  `json:"uncompressed_bytes"`
-	Limits            UploadLimits           `json:"limits"`
-	Meta              *RecordingMeta         `json:"meta"`
-	Files             map[string]*UploadFile `json:"files"`
-}
-
-type SessionView struct {
-	ID              string  `json:"id"`
-	Owner           string  `json:"owner"`
-	ClientSessionID string  `json:"client_session_id"`
-	Device          string  `json:"device"`
-	StartedAt       string  `json:"started_at"`
-	EndedAt         string  `json:"ended_at"`
-	DurationS       float64 `json:"duration_s"`
-	State           string  `json:"state"`
-	UploadStatus    string  `json:"upload_status"`
-	UploadedAt      string  `json:"uploaded_at"`
-	UploadError     string  `json:"upload_error"`
-	Created         string  `json:"created"`
-	Updated         string  `json:"updated"`
-}
-
-func envInt(name string, fallback int64) int64 {
-	value := os.Getenv(name)
-	if value == "" {
-		return fallback
+func serializeRecording(app core.App, record *core.Record) RecordingView {
+	meta := json.RawMessage(record.GetString("meta"))
+	if len(meta) == 0 {
+		meta = json.RawMessage("null")
 	}
-	parsed, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || parsed <= 0 {
-		return fallback
+	started := rfc3339(record.GetString("started_at"))
+	view := RecordingView{
+		ID:        record.Id,
+		State:     record.GetString("state"),
+		Device:    record.GetString("device"),
+		EndedAt:   rfc3339(record.GetString("ended_at")),
+		DurationS: record.GetFloat("duration_s"),
+		Complete:  record.GetBool("complete"),
+		SizeBytes: recordingSize(app, record),
+		Meta:      meta,
+		Created:   derefString(rfc3339(record.GetString("created"))),
+		Updated:   derefString(rfc3339(record.GetString("updated"))),
 	}
-	return parsed
+	if started != nil {
+		view.StartedAt = *started
+	}
+	return view
 }
 
-func maxTotalBytes() int64 {
-	return envInt("TAIGA_MAX_RECORDING_MB", defaultMaxRecordingMB) * 1024 * 1024
-}
-func maxFileBytes() int64 {
-	return envInt("TAIGA_MAX_RECORDING_FILE_MB", defaultMaxRecordingFileMB) * 1024 * 1024
-}
-func maxUncompressedBytes() int64 {
-	return envInt("TAIGA_MAX_RECORDING_UNCOMPRESSED_MB", defaultMaxUncompressedMB) * 1024 * 1024
-}
-func maxUncompressedFileBytes() int64 {
-	return envInt("TAIGA_MAX_RECORDING_UNCOMPRESSED_FILE_MB", defaultMaxUncompressedFileMB) * 1024 * 1024
-}
-func maxChunkBytes() int64 {
-	return envInt("TAIGA_MAX_UPLOAD_CHUNK_MB", defaultMaxUploadChunkMB) * 1024 * 1024
-}
-func maxUncompressedChunkBytes() int64 {
-	return envInt("TAIGA_MAX_UPLOAD_UNCOMPRESSED_CHUNK_MB", defaultMaxUploadUncompressedChunkMB) * 1024 * 1024
-}
-func maxMetaBytes() int64 { return envInt("TAIGA_MAX_META_KB", defaultMaxMetaKB) * 1024 }
-func maxMembers() int     { return int(envInt("TAIGA_MAX_UPLOAD_MEMBERS", maxUploadMembers)) }
-
-func acceptedEncodings() []string {
-	return []string{encodingIdentity, encodingGzip}
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
-// uploadEncoding is the encoding chosen for a session's stream files. Earlier
-// uploads did not store it, and they are all uncompressed.
-func uploadEncoding(upload Upload) string {
-	if upload.Encoding == "" {
-		return encodingIdentity
-	}
-	return upload.Encoding
-}
-
-func validEncoding(value string) bool {
-	return value == encodingIdentity || value == encodingGzip
-}
-
-// storedName is the file name under the session directory. meta.json is always
-// stored as plain JSON; only the data streams and events can be compressed.
-func storedName(name, encoding string) string {
-	if encoding == encodingGzip && name != metaFileName {
-		return name + ".gz"
-	}
-	return name
-}
-
-func nowString() string {
-	return types.NowDateTime().String()
-}
-
-func pbDateMillis(ms int64) string {
-	return time.UnixMilli(ms).UTC().Format("2006-01-02 15:04:05.000Z")
-}
-
-func afterSeconds(seconds int) string {
-	return pbDateMillis(time.Now().Add(time.Duration(seconds) * time.Second).UnixMilli())
-}
-
-func recordingDir(app core.App, sessionID string) (string, error) {
-	if !sessionIDRE.MatchString(sessionID) {
-		return "", apis.NewBadRequestError("invalid session id", nil)
-	}
-	base := filepath.Join(app.DataDir(), "recordings")
-	if err := os.MkdirAll(base, 0o750); err != nil {
-		return "", err
-	}
-	dir := filepath.Join(base, sessionID)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return "", err
-	}
-	return dir, nil
-}
-
-func recordingStoredFile(app core.App, sessionID, name, encoding string) (string, error) {
-	if !contains(allFiles, name) {
-		return "", apis.NewBadRequestError("unknown recording file", nil)
-	}
-	dir, err := recordingDir(app, sessionID)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, storedName(name, encoding)), nil
-}
-
-func removeRecordingDir(app core.App, sessionID string) {
-	if !sessionIDRE.MatchString(sessionID) {
-		return
-	}
-	_ = os.RemoveAll(filepath.Join(app.DataDir(), "recordings", sessionID))
-}
-
-func fileSize(path string) int64 {
-	info, err := os.Stat(path)
-	if err != nil {
-		return 0
-	}
-	return info.Size()
-}
-
-func totalRecordingBytes(app core.App, sessionID string, encoding string) int64 {
-	var total int64
-	for _, name := range allFiles {
-		path, err := recordingStoredFile(app, sessionID, name, encoding)
-		if err != nil {
-			continue
-		}
-		total += fileSize(path)
-	}
-	return total
-}
-
-func readMeta(dir string) (RecordingMeta, []byte, error) {
-	path := filepath.Join(dir, metaFileName)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return RecordingMeta{}, nil, err
-	}
-	var meta RecordingMeta
-	if err := json.Unmarshal(raw, &meta); err != nil {
-		return RecordingMeta{}, raw, err
-	}
-	return meta, raw, nil
-}
-
-func writeMeta(dir string, raw []byte) error {
-	path := filepath.Join(dir, metaFileName)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o640); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
-}
-
-func appendFile(path string, data []byte) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o640)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	written, err := file.Write(data)
-	if err != nil {
-		return err
-	}
-	if written != len(data) {
-		return fmt.Errorf("short write: %d/%d", written, len(data))
-	}
-	return file.Sync()
-}
-
-func truncateFile(path string, size int64) error {
-	file, err := os.OpenFile(path, os.O_WRONLY, 0)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	if err := file.Truncate(size); err != nil {
-		return err
-	}
-	return file.Sync()
-}
-
-func readUpload(record *core.Record) Upload {
-	upload := Upload{Version: 1, Files: map[string]*UploadFile{}}
-	_ = record.UnmarshalJSONField("upload", &upload)
-	if upload.Version == 0 {
-		upload.Version = 1
-	}
-	if upload.Files == nil {
-		upload.Files = map[string]*UploadFile{}
-	}
-	return upload
-}
-
-func uploadEntry(upload *Upload, name string) *UploadFile {
-	entry := upload.Files[name]
-	if entry == nil {
-		entry = &UploadFile{State: "unvalidated"}
-		upload.Files[name] = entry
-	}
-	if entry.State == "" {
-		entry.State = "unvalidated"
-	}
-	return entry
-}
-
-func manifest(app core.App, record *core.Record) (Manifest, error) {
-	dir, err := recordingDir(app, record.Id)
-	if err != nil {
-		return Manifest{}, err
-	}
-	upload := readUpload(record)
-	encoding := uploadEncoding(upload)
-	files := map[string]*UploadFile{}
-	var total int64
-	var uncompressed int64
-
-	for _, name := range allFiles {
-		fileEncoding := encodingIdentity
-		if encoding == encodingGzip && name != metaFileName {
-			fileEncoding = encodingGzip
-		}
-		size := fileSize(filepath.Join(dir, storedName(name, fileEncoding)))
-		existing := upload.Files[name]
-		if size == 0 && existing == nil {
-			continue
-		}
-		entry := uploadEntry(&upload, name)
-		entry.Encoding = fileEncoding
-		entry.StoredName = storedName(name, fileEncoding)
-		entry.Compressed = fileEncoding == encodingGzip
-		entry.Length = size
-		if entry.Compressed {
-			uncompressed += entry.UncompressedLength
-		} else {
-			entry.UncompressedLength = size
-			uncompressed += size
-		}
-		if entry.ValidatedLength > size {
-			entry.ValidatedLength = 0
-			entry.State = "unvalidated"
-			entry.Error = ""
-		}
-		files[name] = entry
-		total += size
-	}
-
-	var meta *RecordingMeta
-	if parsed, _, err := readMeta(dir); err == nil {
-		meta = &parsed
-	}
-
-	return Manifest{
-		Session:           record.Id,
-		UploadStatus:      record.GetString("upload_status"),
-		UploadedAt:        record.GetString("uploaded_at"),
-		UploadError:       record.GetString("upload_error"),
-		Completed:         upload.Completed,
-		CompletedAt:       upload.CompletedAt,
-		Encoding:          encoding,
-		AcceptedEncodings: acceptedEncodings(),
-		Compression: CompressionInfo{
-			Codec:          encodingGzip,
-			Version:        1,
-			MemberPerChunk: true,
-			Deterministic:  true,
-		},
-		TotalBytes:        total,
-		UncompressedBytes: uncompressed,
-		Limits: UploadLimits{
-			MaxTotalBytes:             maxTotalBytes(),
-			MaxFileBytes:              maxFileBytes(),
-			MaxUncompressedTotalBytes: maxUncompressedBytes(),
-			MaxUncompressedFileBytes:  maxUncompressedFileBytes(),
-			MaxChunkBytes:             maxChunkBytes(),
-			MaxUncompressedChunkBytes: maxUncompressedChunkBytes(),
-			MaxExpansionRatio:         maxExpansionRatio,
-			MaxMembers:                maxMembers(),
-		},
-		Meta:  meta,
-		Files: files,
-	}, nil
-}
-
-func serializeSession(record *core.Record) SessionView {
-	return SessionView{
-		ID:              record.Id,
-		Owner:           record.GetString("owner"),
-		ClientSessionID: record.GetString("client_session_id"),
-		Device:          record.GetString("device"),
-		StartedAt:       record.GetString("started_at"),
-		EndedAt:         record.GetString("ended_at"),
-		DurationS:       record.GetFloat("duration_s"),
-		State:           record.GetString("state"),
-		UploadStatus:    record.GetString("upload_status"),
-		UploadedAt:      record.GetString("uploaded_at"),
-		UploadError:     record.GetString("upload_error"),
-		Created:         record.GetString("created"),
-		Updated:         record.GetString("updated"),
-	}
-}
-
-func applyMeta(record *core.Record, meta RecordingMeta) {
+// applyMeta copies what a recording's meta.json says into the derived columns.
+func applyMeta(record *core.Record, meta RecordingMeta, raw []byte) {
+	record.Set("state", meta.State)
 	record.Set("device", meta.Device())
 	record.Set("started_at", pbDateMillis(meta.StartUTC))
 	if meta.EndUTC == nil {
@@ -412,42 +94,275 @@ func applyMeta(record *core.Record, meta RecordingMeta) {
 		record.Set("ended_at", pbDateMillis(*meta.EndUTC))
 	}
 	record.Set("duration_s", float64(meta.DurationSeconds()))
-	record.Set("state", meta.State)
-	if record.GetString("client_session_id") == "" {
-		record.Set("client_session_id", meta.SessionID)
-	}
-	if record.GetString("upload_status") == "" || record.GetString("upload_status") == "none" {
-		record.Set("upload_status", "pending")
-	}
+	record.Set("meta", types.JSONRaw(raw))
 }
 
-func getSession(app core.App, sessionID, owner string) (*core.Record, error) {
-	record, err := app.FindRecordById("sessions", sessionID)
-	if err != nil || record.GetString("owner") != owner {
-		return nil, apis.NewNotFoundError("session not found", nil)
+// recordingFor finds a recording the caller may read: a user's own, or, for a
+// worker, one it holds the lease of a running analysis for. Anything else is 404 so
+// ids do not leak.
+func recordingFor(e *core.RequestEvent, id string) (*core.Record, error) {
+	record, err := e.App.FindRecordById("recordings", id)
+	if err != nil {
+		return nil, notFound("recording")
+	}
+	switch roleOf(e) {
+	case roleUser:
+		if record.GetString("owner") != e.Auth.Id {
+			return nil, notFound("recording")
+		}
+	case roleWorker:
+		if !holdsLease(e.App, e.Auth.Id, id) {
+			return nil, notFound("recording")
+		}
+	default:
+		return nil, notFound("recording")
 	}
 	return record, nil
 }
 
-func contains(items []string, value string) bool {
-	for _, item := range items {
-		if item == value {
-			return true
-		}
+// ownRecording is recordingFor for endpoints only a user may call.
+func ownRecording(app core.App, e *core.RequestEvent, id string) (*core.Record, error) {
+	record, err := app.FindRecordById("recordings", id)
+	if err != nil || record.GetString("owner") != e.Auth.Id {
+		return nil, notFound("recording")
 	}
-	return false
+	return record, nil
 }
 
-// isStoredRecordingName accepts both the plain names used by an identity upload
-// and the `.gz` names used by a compressed upload. meta.json is never compressed.
-func isStoredRecordingName(name string) bool {
-	if contains(allFiles, name) {
-		return true
+func holdsLease(app core.App, worker, recording string) bool {
+	_, err := app.FindFirstRecordByFilter(
+		"analyses",
+		"recording = {:recording} && status = 'running' && worker = {:worker} && lease_until > {:now}",
+		dbx.Params{"recording": recording, "worker": worker, "now": nowString()},
+	)
+	return err == nil
+}
+
+func ListRecordings(e *core.RequestEvent) error {
+	query := e.Request.URL.Query()
+	limit, offset, err := pageParams(query)
+	if err != nil {
+		return err
 	}
-	for _, candidate := range allFiles {
-		if candidate != metaFileName && name == candidate+".gz" {
-			return true
+	conditions := []dbx.Expression{dbx.HashExp{"owner": e.Auth.Id}}
+	if state := strings.TrimSpace(query.Get("state")); state != "" {
+		if !states[state] {
+			return badRequest("invalid_query", "state is not a recording state")
+		}
+		conditions = append(conditions, dbx.HashExp{"state": state})
+	}
+	switch strings.TrimSpace(query.Get("complete")) {
+	case "":
+	case "true":
+		conditions = append(conditions, dbx.HashExp{"complete": true})
+	case "false":
+		conditions = append(conditions, dbx.HashExp{"complete": false})
+	default:
+		return badRequest("invalid_query", "complete must be true or false")
+	}
+	if from := strings.TrimSpace(query.Get("from")); from != "" {
+		value, err := parseQueryDate(from)
+		if err != nil {
+			return badRequest("invalid_query", "from is not a date")
+		}
+		conditions = append(conditions, dbx.NewExp("started_at >= {:from}", dbx.Params{"from": value}))
+	}
+	if to := strings.TrimSpace(query.Get("to")); to != "" {
+		value, err := parseQueryDate(to)
+		if err != nil {
+			return badRequest("invalid_query", "to is not a date")
+		}
+		conditions = append(conditions, dbx.NewExp("started_at <= {:to}", dbx.Params{"to": value}))
+	}
+	sortKey := strings.TrimSpace(query.Get("sort"))
+	if sortKey == "" {
+		sortKey = "-started_at"
+	}
+	order, ok := recordingSorts[sortKey]
+	if !ok {
+		return badRequest("invalid_query", "unknown sort")
+	}
+
+	total, err := e.App.CountRecords("recordings", conditions...)
+	if err != nil {
+		return err
+	}
+	records := []*core.Record{}
+	q := e.App.RecordQuery("recordings").OrderBy(order, "id ASC").Limit(int64(limit)).Offset(int64(offset))
+	for _, condition := range conditions {
+		q = q.AndWhere(condition)
+	}
+	if err := q.All(&records); err != nil {
+		return err
+	}
+	items := make([]RecordingView, 0, len(records))
+	for _, record := range records {
+		items = append(items, serializeRecording(e.App, record))
+	}
+	return e.JSON(http.StatusOK, RecordingList{Items: items, Limit: limit, Offset: offset, Total: total})
+}
+
+func PutRecording(e *core.RequestEvent) error {
+	id := e.Request.PathValue("id")
+	if !recordingIDRE.MatchString(id) {
+		return badRequest("invalid_id", "a recording id is 1 to 40 letters, digits, '_' or '-'")
+	}
+	raw, err := io.ReadAll(io.LimitReader(e.Request.Body, maxMetaBytes()+1))
+	if err != nil {
+		return badRequest("unreadable_body", "cannot read the request body")
+	}
+	if int64(len(raw)) > maxMetaBytes() {
+		return tooLarge("meta_too_large", "meta.json is too large")
+	}
+	meta, err := ValidateMeta(raw)
+	if err != nil {
+		return unprocessable("invalid_meta", err.Error())
+	}
+	if meta.SessionID != id {
+		return unprocessable("invalid_meta", "meta.session_id must equal the recording id in the path")
+	}
+
+	created := false
+	var saved *core.Record
+	err = e.App.RunInTransaction(func(txApp core.App) error {
+		existing, findErr := txApp.FindRecordById("recordings", id)
+		switch {
+		case findErr == nil:
+			if existing.GetString("owner") != e.Auth.Id {
+				return conflict("id_taken", "this recording id belongs to another account")
+			}
+			if existing.GetBool("complete") {
+				return conflict("recording_complete", "the recording is complete and can no longer change")
+			}
+			applyMeta(existing, meta, raw)
+			saved = existing
+		case errors.Is(findErr, sql.ErrNoRows):
+			collection, err := txApp.FindCollectionByNameOrId("recordings")
+			if err != nil {
+				return err
+			}
+			record := core.NewRecord(collection)
+			record.Id = id
+			record.Set("owner", e.Auth.Id)
+			record.Set("complete", false)
+			record.Set("files", map[string]FileEntry{})
+			applyMeta(record, meta, raw)
+			saved = record
+			created = true
+		default:
+			return findErr
+		}
+		return txApp.Save(saved)
+	})
+	if err != nil {
+		return err
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+		e.Response.Header().Set("Location", "/v1/recordings/"+id)
+	}
+	return e.JSON(status, serializeRecording(e.App, saved))
+}
+
+func GetRecording(e *core.RequestEvent) error {
+	record, err := recordingFor(e, e.Request.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	return e.JSON(http.StatusOK, serializeRecording(e.App, record))
+}
+
+func PatchRecording(e *core.RequestEvent) error {
+	var body RecordingPatch
+	if err := json.NewDecoder(io.LimitReader(e.Request.Body, 4096)).Decode(&body); err != nil || body.Complete == nil {
+		return badRequest("invalid_body", `the body must be {"complete": true}`)
+	}
+	var saved *core.Record
+	err := e.App.RunInTransaction(func(txApp core.App) error {
+		record, err := ownRecording(txApp, e, e.Request.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		saved = record
+		complete := record.GetBool("complete")
+		if !*body.Complete {
+			if complete {
+				return conflict("recording_complete", "a complete recording cannot be reopened")
+			}
+			return nil
+		}
+		if complete {
+			return nil
+		}
+		if record.GetString("state") == "recording" {
+			return conflict("recording_in_progress", "the recording is still in progress")
+		}
+		if streamBytes(txApp, record) == 0 {
+			return unprocessable("no_data", "the recording has no stream data")
+		}
+		record.Set("complete", true)
+		return txApp.Save(record)
+	})
+	if err != nil {
+		return err
+	}
+	return e.JSON(http.StatusOK, serializeRecording(e.App, saved))
+}
+
+func DeleteRecording(e *core.RequestEvent) error {
+	err := e.App.RunInTransaction(func(txApp core.App) error {
+		record, err := ownRecording(txApp, e, e.Request.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		return txApp.Delete(record)
+	})
+	if err != nil {
+		return err
+	}
+	return e.NoContent(http.StatusNoContent)
+}
+
+func recordingsBase(app core.App) string { return filepath.Join(app.DataDir(), "recordings") }
+
+func removeRecordingDir(app core.App, id string) {
+	if !recordingIDRE.MatchString(id) {
+		return
+	}
+	_ = os.RemoveAll(filepath.Join(recordingsBase(app), id))
+}
+
+func pageParams(query map[string][]string) (limit, offset int, err error) {
+	limit, offset = 50, 0
+	if values := query["limit"]; len(values) > 0 && values[0] != "" {
+		limit = atoiOr(values[0], -1)
+		if limit < 1 || limit > 200 {
+			return 0, 0, badRequest("invalid_query", "limit must be between 1 and 200")
 		}
 	}
-	return false
+	if values := query["offset"]; len(values) > 0 && values[0] != "" {
+		offset = atoiOr(values[0], -1)
+		if offset < 0 {
+			return 0, 0, badRequest("invalid_query", "offset must be 0 or more")
+		}
+	}
+	return limit, offset, nil
+}
+
+func parseQueryDate(value string) (string, error) {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, pbDateLayout, "2006-01-02"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return pbDateMillis(parsed.UnixMilli()), nil
+		}
+	}
+	return "", &time.ParseError{Value: value, Layout: time.RFC3339}
+}
+
+func atoiOr(value string, fallback int) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }

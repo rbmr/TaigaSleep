@@ -4,18 +4,10 @@ import com.rbmr.taigasleep.remote.AlgorithmDto
 import com.rbmr.taigasleep.remote.AlgorithmListDto
 import com.rbmr.taigasleep.remote.AlgorithmNeedDto
 import com.rbmr.taigasleep.remote.AnalysisDto
-import com.rbmr.taigasleep.remote.AnalysisRequestResponse
-import com.rbmr.taigasleep.remote.AppendResponse
-import com.rbmr.taigasleep.remote.JobDto
-import com.rbmr.taigasleep.remote.RetryJobResponse
-import com.rbmr.taigasleep.remote.SessionDetailDto
-import com.rbmr.taigasleep.remote.SessionDto
-import com.rbmr.taigasleep.remote.SessionListDto
-import com.rbmr.taigasleep.remote.SessionUploadResponse
-import com.rbmr.taigasleep.remote.TaigaClient
+import com.rbmr.taigasleep.remote.StubTaigaClient
 import com.rbmr.taigasleep.storage.SessionConfig
-import java.io.File
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -39,7 +31,8 @@ class AnalysisServiceTest {
 
     assertEquals(listOf(StagerChoice("wav2sleep", "1.1.0")), client.requests)
     assertEquals("a-wav2sleep", started?.analysisId)
-    assertEquals("j-wav2sleep", started?.jobId)
+    assertEquals("queued", started?.status)
+    assertEquals(listOf("s1"), client.recordings)
     assertEquals(1, client.algorithmCalls)
   }
 
@@ -116,8 +109,9 @@ class AnalysisServiceTest {
           needs = listOf(AlgorithmNeedDto("hr", required = true)),
       )
 
-  private class FakeClient(private val algorithms: List<AlgorithmDto>) : TaigaClient {
+  private class FakeClient(private val algorithms: List<AlgorithmDto>) : StubTaigaClient() {
     val requests = mutableListOf<StagerChoice>()
+    val recordings = mutableListOf<String>()
     var algorithmCalls = 0
 
     override suspend fun getAlgorithms(): AlgorithmListDto {
@@ -126,58 +120,20 @@ class AnalysisServiceTest {
     }
 
     override suspend fun requestAnalysis(
-        sessionId: String,
-        model: String,
+        recordingId: String,
+        algorithm: String,
         version: String,
-    ): AnalysisRequestResponse {
-      requests += StagerChoice(model, version)
-      return AnalysisRequestResponse(
-          analyses =
-              listOf(
-                  AnalysisDto(
-                      id = "a-$model",
-                      session = sessionId,
-                      model = model,
-                      model_version = version,
-                      status = "queued",
-                  )
-              ),
-          jobs = listOf(JobDto(id = "j-$model", session = sessionId, status = "queued")),
+        params: JsonObject?,
+    ): AnalysisDto {
+      requests += StagerChoice(algorithm, version)
+      recordings += recordingId
+      return AnalysisDto(
+          id = "a-$algorithm",
+          recording = recordingId,
+          algorithm = algorithm,
+          version = version,
+          status = "queued",
       )
     }
-
-    override suspend fun createSession(metaJson: String): SessionUploadResponse =
-        throw UnsupportedOperationException()
-
-    override suspend fun getUpload(sessionId: String): SessionUploadResponse =
-        throw UnsupportedOperationException()
-
-    override suspend fun appendFile(
-        sessionId: String,
-        file: String,
-        offset: Long,
-        bytes: ByteArray,
-        encoding: String?,
-    ): AppendResponse = throw UnsupportedOperationException()
-
-    override suspend fun completeUpload(sessionId: String): SessionUploadResponse =
-        throw UnsupportedOperationException()
-
-    override suspend fun deleteSession(sessionId: String) = Unit
-
-    override suspend fun getAnalysis(analysisId: String): AnalysisDto =
-        throw UnsupportedOperationException()
-
-    override suspend fun getSession(sessionId: String): SessionDetailDto =
-        throw UnsupportedOperationException()
-
-    override suspend fun downloadSessionFile(sessionId: String, file: String, target: File) =
-        throw UnsupportedOperationException()
-
-    override suspend fun listSessions(perPage: Int): SessionListDto =
-        throw UnsupportedOperationException()
-
-    override suspend fun retryJob(jobId: String): RetryJobResponse =
-        throw UnsupportedOperationException()
   }
 }

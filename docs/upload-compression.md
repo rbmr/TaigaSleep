@@ -35,32 +35,34 @@ higher levels cost a lot of CPU for almost nothing (see the benchmark).
 The app requests the mode per append:
 
 ```text
-PUT /api/taiga/sessions/{id}/upload/file/{file}?offset=N&encoding=gzip
+PATCH /v1/recordings/{id}/files/{name}
+Upload-Offset: N
+Content-Encoding: gzip
 ```
 
-- Accepted encodings are advertised in the upload manifest
-  (`accepted_encodings`). `identity` is the default and is always accepted. The
-  manifest's `compression` object names the codec and version (`gzip`, version
-  1), that each chunk is one complete member, and that the bytes are
-  deterministic.
-- The encoding is chosen by the first stream chunk of a session and cannot
-  change afterwards. Mixing compressed and plain bytes in one session returns
-  `409`.
+- `HEAD` on the same path reports the stored size in `Upload-Offset` and, for a
+  compressed file, `Content-Encoding: gzip`. A plain file has no
+  `Content-Encoding`, and a file that has no chunk yet answers `404`, so the
+  upload starts at 0.
+- The encoding is chosen by the first chunk of each file and cannot change
+  afterwards. Mixing compressed and plain bytes in one file returns `409`
+  (`encoding_mismatch`).
 - Each request body is exactly **one complete gzip member**. The member must
   use no optional header fields (no FEXTRA, FNAME, FCOMMENT or FHCRC) and no
   reserved flags, so its header is always 10 bytes.
-- `offset` is the compressed byte offset and must equal the stored file length,
-  exactly like the identity mode.
-- `meta.json` is never compressed. It keeps its own JSON meta routes.
+- `Upload-Offset` is the compressed byte offset and must equal the stored file
+  length, exactly like the identity mode. A wrong offset answers
+  `409 offset_mismatch` with the stored length in the `Upload-Offset` header.
+- `meta.json` is never compressed and is not a file of the recording: it is the
+  body of `PUT /v1/recordings/{id}`.
 - The app writes a deterministic member: mtime 0, XFL 0, OS unknown, zlib level
   6, and a hand-written header so no timestamp or filename leaks into the
   stream and re-running the same input produces the same member.
-- The response reports `length` (stored compressed bytes), `validated_length`,
-  `uncompressed_length`, `members`, `encoding` and the same state fields as the
-  identity mode.
+- The response is `204` with `Upload-Offset` set to the new stored size.
 
-`complete` marks the session `uploaded` without inflating anything. Frame
-validation is the worker's job in this mode; the API only checks gzip framing.
+`PATCH /v1/recordings/{id}` with `{"complete": true}` seals the recording without
+inflating anything. Frame validation is the worker's job in this mode; the API
+only checks gzip framing.
 
 ### What the API validates, and what it does not
 
@@ -81,8 +83,7 @@ keeps upload CPU low and gives the full stream check one owner.
 ## Storage layout
 
 ```text
-<pb_data>/recordings/<session id>/
-  meta.json          plain JSON, always
+<pb_data>/recordings/<recording id>/
   events.jsonl.gz    concatenated gzip members
   hr.log.gz
   ecg.log.gz
@@ -91,12 +92,15 @@ keeps upload CPU low and gives the full stream check one owner.
 
 Only the compressed form is stored on the server, so backups and disk usage
 shrink. The worker always extracts to its temporary directory and deletes it
-after the job. The upload manifest names the stored file (`stored_name`) and
-its encoding, so a worker never has to guess.
+after the job. `GET /v1/recordings/{id}/files` names each stored file and its
+encoding, so a worker never has to guess.
 
-The owner download route (`GET /api/taiga/sessions/{id}/files/{file}`) reads the
-same layout and inflates a stored gzip stream on the fly, so the phone can
-restore a raw file it cleaned up locally as the original bytes.
+The download route (`GET /v1/recordings/{id}/files/{name}`) reads the same layout
+and inflates a stored gzip stream on the fly unless the request says
+`Accept-Encoding: gzip`, so the phone can restore a raw file it cleaned up locally
+as the original bytes. The phone asks for `identity`: a stored file is several gzip
+members, and HTTP clients that decode `Content-Encoding` themselves often read
+only the first (OkHttp fails on the second).
 
 ## Limits
 
@@ -104,14 +108,14 @@ Defaults, all overridable per deployment:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `TAIGA_MAX_RECORDING_MB` | 256 | Stored bytes per session (compressed when in gzip mode). |
+| `TAIGA_MAX_RECORDING_MB` | 256 | Stored bytes per recording (compressed when in gzip mode). |
 | `TAIGA_MAX_RECORDING_FILE_MB` | 64 | Stored bytes per file. |
-| `TAIGA_MAX_RECORDING_UNCOMPRESSED_MB` | 512 | Reckoned uncompressed bytes per session. |
+| `TAIGA_MAX_RECORDING_UNCOMPRESSED_MB` | 512 | Reckoned uncompressed bytes per recording. |
 | `TAIGA_MAX_RECORDING_UNCOMPRESSED_FILE_MB` | 128 | Reckoned uncompressed bytes per file. |
 | `TAIGA_MAX_UPLOAD_CHUNK_MB` | 8 | Request body size; one gzip member per request. |
 | `TAIGA_MAX_UPLOAD_UNCOMPRESSED_CHUNK_MB` | 16 | Bytes one member may expand to. |
 | `TAIGA_MAX_UPLOAD_MEMBERS` | 10000 | Compressed members per file. |
-| `max_expansion_ratio` | 200 | Manifest value; per member decompressed/compressed. |
+| `max_expansion_ratio` | 200 | Fixed in the API; per member decompressed/compressed. |
 
 The worker enforces the same limits after download: total and per-file
 decompressed size, member count, expansion ratio per member and a whitelist of
@@ -126,9 +130,11 @@ The setting is **Settings → Recordings → Compress uploads**, on by default. 
 can be turned off for a very fast server or to keep the server-side files
 directly readable. When it is on:
 
-- a fresh upload uses gzip; an upload that already has compressed bytes
-  continues in gzip even if the setting was turned off;
-- an upload that already has plain bytes stays plain;
+- a file that has no chunk on the server yet is sent as gzip; a file that already
+  has compressed bytes continues in gzip even if the setting was turned off;
+- a file that already has plain bytes stays plain;
+- the server's chunk limit is not advertised; the app starts at 2 MiB and halves
+  the chunk after a `413 chunk_too_large`;
 - the app keeps a compressed cache under
   `<files>/upload-cache/<local session id>/` with a small boundary index;
 - every chunk is appended to the cache and its boundary recorded **before** it
@@ -139,7 +145,7 @@ directly readable. When it is on:
   boundary and the transfer continues;
 - the cache is deleted when the upload completes. If the cache is lost while
   the server already holds bytes, the app fails with an explicit message and
-  the user can delete the remote session and upload again.
+  the user can delete the recording on the server and upload again.
 
 ## Benchmark
 
@@ -232,9 +238,9 @@ server storage or upload bandwidth becomes the binding constraint.
 | Symptom | Where | Result |
 | --- | --- | --- |
 | Not a gzip member, bad flags, empty member, too much expansion | API | `400` before anything is stored |
-| Offset not at a member boundary | API | `409`, re-read the manifest |
-| Mixed encodings in one session | API | `409`, the first encoding wins |
+| Offset not at a member boundary | API | `409 offset_mismatch`, resume from the `Upload-Offset` it carries |
+| Mixed encodings in one file | API | `409 encoding_mismatch`, the first encoding wins |
 | Truncated or corrupt member | Worker | job fails with the member reason; lease/retry logic applies |
 | Decompression bomb | Worker | job fails before analysis; size/member/ratio limits |
-| Cache lost while the server has bytes | App | explicit error; delete the remote session and retry |
+| Cache lost while the server has bytes | App | explicit error; delete the recording on the server and retry |
 | Bad frame or CRC after decompression | Worker | valid prefix kept, warning in the result provenance |

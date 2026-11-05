@@ -5,6 +5,7 @@ import com.rbmr.taigasleep.upload.UploadFailure
 import com.rbmr.taigasleep.upload.UploadPhase
 import com.rbmr.taigasleep.upload.UploadRecord
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -16,7 +17,26 @@ class LegacyNightRecordTest {
     val record = UploadRecord(id = "n", phase = UploadPhase.LOCAL).toNightRecord()
 
     assertEquals(BackupPhase.NOT_BACKED_UP, record.backup.phase)
+    assertFalse(record.onServer)
     assertTrue(record.analyses.isEmpty())
+  }
+
+  @Test
+  fun anUploadStartedByThisAppMarksTheServerCopy() {
+    val record =
+        UploadRecord(id = "n", onServer = true, phase = UploadPhase.UPLOADING).toNightRecord()
+
+    assertTrue(record.onServer)
+  }
+
+  @Test
+  fun aRecordFromBeforeTheSharedIdStillKnowsItsNightWasUploaded() {
+    // Older records have no flag; the phases after a finished upload imply a server copy.
+    for (phase in listOf(UploadPhase.PROCESSING, UploadPhase.DONE)) {
+      assertTrue(UploadRecord(id = "n", phase = phase).toNightRecord().onServer)
+    }
+    assertTrue(UploadRecord(id = "n", analysisId = "a1", phase = UploadPhase.FAILED).toNightRecord().onServer)
+    assertFalse(UploadRecord(id = "n", phase = UploadPhase.QUEUED).toNightRecord().onServer)
   }
 
   @Test
@@ -48,7 +68,6 @@ class LegacyNightRecordTest {
     val record =
         UploadRecord(
                 id = "n",
-                remoteId = "s1",
                 phase = UploadPhase.PROCESSING,
                 uploadedAtMs = 100,
             )
@@ -64,9 +83,7 @@ class LegacyNightRecordTest {
     val record =
         UploadRecord(
                 id = "n",
-                remoteId = "s1",
                 analysisId = "a1",
-                jobId = "j1",
                 phase = UploadPhase.DONE,
                 model = "wav2sleep",
                 modelVersion = "1.1.0",
@@ -91,7 +108,7 @@ class LegacyNightRecordTest {
     val record =
         UploadRecord(
                 id = "n",
-                remoteId = "s1",
+                onServer = true,
                 phase = UploadPhase.FAILED,
                 failure = UploadFailure.NETWORK,
                 errorDetail = "offline",
@@ -109,7 +126,6 @@ class LegacyNightRecordTest {
     val record =
         UploadRecord(
                 id = "n",
-                remoteId = "s1",
                 analysisId = "a1",
                 phase = UploadPhase.FAILED,
                 failure = UploadFailure.ANALYSIS,
@@ -128,7 +144,6 @@ class LegacyNightRecordTest {
     val record =
         UploadRecord(
                 id = "n",
-                remoteId = "s1",
                 phase = UploadPhase.FAILED,
                 failure = UploadFailure.ANALYSIS,
             )

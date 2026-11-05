@@ -1,99 +1,17 @@
 from __future__ import annotations
 
 import gzip
-import json
 from pathlib import Path
 from typing import Any, Mapping
 
 import pytest
 
+from taiga_worker.api import ApiError
 from taiga_worker.runner import Outcome
-from taiga_worker.upload import (
-    UploadError,
-    decompress_gzip,
-    verify_recording_file,
-)
+from taiga_worker.upload import verify_recording_file
 from taiga_worker.worker import Worker
 from tests import analysis_fixture as fx
-from tests.test_worker import FakeApi, FakeRunner, config
-
-
-def member(data: bytes) -> bytes:
-    return gzip.compress(data, mtime=0)
-
-
-def compress_chunks(data: bytes, size: int) -> bytes:
-    return b"".join(member(data[i : i + size]) for i in range(0, len(data), size))
-
-
-def test_concatenated_members_are_decompressed(tmp_path: Path) -> None:
-    source = tmp_path / "hr.log.gz"
-    original = fx.hr_log(duration_s=6)
-    source.write_bytes(compress_chunks(original, 100))
-    destination = tmp_path / "hr.log"
-
-    stats = decompress_gzip(
-        source,
-        destination,
-        max_bytes=1_000_000,
-        max_members=100,
-        max_ratio=200,
-    )
-
-    assert destination.read_bytes() == original
-    assert stats.members == (len(original) + 99) // 100
-    assert stats.stored_bytes == source.stat().st_size
-    assert stats.uncompressed_bytes == len(original)
-
-
-def test_truncated_member_is_rejected(tmp_path: Path) -> None:
-    source = tmp_path / "hr.log.gz"
-    source.write_bytes(member(fx.hr_log(duration_s=3))[:-4])
-
-    with pytest.raises(UploadError):
-        decompress_gzip(
-            source,
-            tmp_path / "out",
-            max_bytes=1_000_000,
-            max_members=10,
-            max_ratio=200,
-        )
-
-
-def test_expansion_ratio_and_size_limits_are_enforced(tmp_path: Path) -> None:
-    source = tmp_path / "hr.log.gz"
-    source.write_bytes(member(b"\x00" * 100_000))
-
-    with pytest.raises(UploadError, match="ratio"):
-        decompress_gzip(
-            source,
-            tmp_path / "out",
-            max_bytes=1_000_000,
-            max_members=10,
-            max_ratio=2,
-        )
-    with pytest.raises(UploadError, match="limit"):
-        decompress_gzip(
-            source,
-            tmp_path / "out",
-            max_bytes=1000,
-            max_members=10,
-            max_ratio=10_000,
-        )
-
-
-def test_member_count_limit_is_enforced(tmp_path: Path) -> None:
-    source = tmp_path / "hr.log.gz"
-    source.write_bytes(member(b"a") + member(b"b"))
-
-    with pytest.raises(UploadError, match="members"):
-        decompress_gzip(
-            source,
-            tmp_path / "out",
-            max_bytes=1000,
-            max_members=1,
-            max_ratio=1000,
-        )
+from tests.test_worker import FakeApi, FakeRunner, analysis, config
 
 
 def test_verify_keeps_only_the_valid_prefix(tmp_path: Path) -> None:
@@ -105,9 +23,37 @@ def test_verify_keeps_only_the_valid_prefix(tmp_path: Path) -> None:
 
     assert check.frames == 3
     assert check.valid_bytes == len(good)
+    assert check.size == len(good) + 10
     assert check.truncated
     assert "truncated frame" in (check.error or "")
     assert path.read_bytes() == good
+
+
+def test_verify_stops_at_the_first_bad_crc(tmp_path: Path) -> None:
+    path = tmp_path / "hr.log"
+    good = fx.hr_log(duration_s=2)
+    broken = fx.frame(fx.hr_payload(fx.START_NS, 0, 60), bad_crc=True)
+    after = fx.frame(fx.hr_payload(fx.START_NS + 1_000_000_000, 1_000_000_000, 61))
+    path.write_bytes(good + broken + after)
+
+    check = verify_recording_file(path, "hr.log")
+
+    assert check.frames == 2
+    assert check.truncated
+    assert "CRC" in (check.error or "")
+    assert path.read_bytes() == good
+
+
+def test_verify_rejects_a_log_with_the_wrong_header(tmp_path: Path) -> None:
+    path = tmp_path / "ecg.log"
+    path.write_bytes(fx.hr_log(duration_s=2))  # an HR log under the ECG name
+
+    check = verify_recording_file(path, "ecg.log")
+
+    assert check.frames == 0
+    assert check.valid_bytes == 0
+    assert check.truncated
+    assert path.read_bytes() == b""
 
 
 def test_verify_events_truncates_a_partial_line(tmp_path: Path) -> None:
@@ -123,128 +69,199 @@ def test_verify_events_truncates_a_partial_line(tmp_path: Path) -> None:
     assert path.read_bytes() == line
 
 
-class GzipApi(FakeApi):
-    """A manifest and downloads for one session with compressed streams."""
+def test_verify_leaves_a_valid_file_alone(tmp_path: Path) -> None:
+    path = tmp_path / "hr.log"
+    good = fx.hr_log(duration_s=5)
+    path.write_bytes(good)
 
-    def __init__(self, files: Mapping[str, bytes | None], *, encoding: str = "gzip") -> None:
-        super().__init__(jobs=[job()])
-        self.bodies = dict(files)
-        self.raw_downloads: dict[str, bytes] = {}
-        self.encoding = encoding
-        self.limits = {
-            "max_uncompressed_file_bytes": 10_000_000,
-            "max_uncompressed_total_bytes": 20_000_000,
-            "max_members": 10000,
-            "max_expansion_ratio": 200,
-            "max_chunk_bytes": 8 * 1024 * 1024,
-        }
+    check = verify_recording_file(path, "hr.log")
 
-    def manifest(self, session_id: str, job_id: str, worker: str) -> dict[str, Any]:
-        entries: dict[str, Any] = {}
-        for name, body in self.bodies.items():
-            compressed = name != "meta.json" and self.encoding == "gzip"
-            entries[name] = {
-                "length": len(body or b""),
-                "encoding": "gzip" if compressed else "identity",
-                "stored_name": name + ".gz" if compressed else name,
-                "state": "ok",
-            }
-        return {
-            "upload": {
-                "encoding": self.encoding,
-                "files": entries,
-                "limits": self.limits,
-            }
-        }
-
-    def download_file(self, session_id: str, name: str, destination, job_id: str, worker: str) -> None:
-        self.downloads.append(name)
-        if name in self.raw_downloads:
-            destination.write_bytes(self.raw_downloads[name])
-            return
-        body = self.bodies[name.removesuffix(".gz")]
-        if name.endswith(".gz") and name != "meta.json":
-            destination.write_bytes(compress_chunks(body, 4096))
-        else:
-            destination.write_bytes(body)
+    assert (check.frames, check.valid_bytes, check.truncated, check.error) == (
+        5,
+        len(good),
+        False,
+        None,
+    )
+    assert path.read_bytes() == good
 
 
-def job() -> dict[str, Any]:
-    return {
-        "id": "job1",
-        "kind": "analysis",
-        "model": "baseline",
-        "session": "s1",
-        "analysis": "a1",
-    }
+class InflatingApi(FakeApi):
+    """Reports stored sizes like the API does: compressed files are smaller than
+    the bytes that a download delivers, because the API inflates them."""
+
+    def files(self, recording_id: str) -> list[dict[str, Any]]:
+        entries = super().files(recording_id)
+        for entry in entries:
+            if entry["encoding"] == "gzip":
+                entry["size"] = len(gzip.compress(self.files_by_name[entry["name"]], mtime=0))
+        return entries
 
 
-class InspectRunner:
+class InspectRunner(FakeRunner):
     def __init__(self) -> None:
-        self.jobs: list[Mapping[str, Any]] = []
-        self.seen: dict[str, Any] = {}
+        super().__init__(Outcome(ok=True, result={"analysis": {"ok": True}}))
 
-    def run(self, run_job: Mapping[str, Any]) -> Outcome:
-        self.jobs.append(run_job)
-        root = Path(str(run_job["recording_dir"]))
-        self.seen["files"] = sorted(p.name for p in root.iterdir() if p.is_file())
-        self.seen["source"] = run_job["source"]
-        self.seen["hr"] = (root / "hr.log").read_bytes()
-        return Outcome(ok=True, result={"ok": True})
+    @property
+    def seen(self) -> dict[str, bytes]:
+        return self.recordings[0]
+
+    @property
+    def source(self) -> Mapping[str, Any]:
+        return self.jobs[0]["source"]
 
 
-def test_worker_extracts_a_compressed_recording(tmp_path: Path) -> None:
-    directory = fx.write_recording(tmp_path / "recording")
-    bodies = {
+def recording_bytes(tmp_path: Path, **kwargs: Any) -> dict[str, bytes]:
+    directory = fx.write_recording(tmp_path / "recording", **kwargs)
+    return {
         name: (directory / name).read_bytes()
-        for name in ("meta.json", "hr.log", "ecg.log", "acc.log", "events.jsonl")
+        for name in ("hr.log", "ecg.log", "acc.log", "events.jsonl")
+        if (directory / name).exists()
     }
-    api = GzipApi(bodies)
-    runner = InspectRunner()
+
+
+def run_worker(api: FakeApi, runner: FakeRunner | None = None) -> FakeRunner:
+    runner = runner or InspectRunner()
     worker = Worker(config(), api, runner, sleep=lambda _: None)
-
     assert worker.run_once()
+    return runner
 
-    seen = runner.seen
-    assert seen["files"] == ["acc.log", "ecg.log", "events.jsonl", "hr.log", "meta.json"]
-    assert seen["hr"] == bodies["hr.log"]
-    source = seen["source"]
-    assert source["encoding"] == "gzip"
-    assert source["files"]["hr.log"]["encoding"] == "gzip"
-    assert source["files"]["hr.log"]["members"] > 0
+
+@pytest.mark.parametrize("encoding", ["identity", "gzip"])
+def test_worker_hands_the_downloaded_files_to_the_analysis(tmp_path: Path, encoding: str) -> None:
+    bodies = recording_bytes(tmp_path)
+    api = InflatingApi([analysis()], files=bodies, encodings={name: encoding for name in bodies})
+
+    runner = run_worker(api)
+
+    assert isinstance(runner, InspectRunner)
+    assert sorted(runner.seen) == ["acc.log", "ecg.log", "events.jsonl", "hr.log", "meta.json"]
+    for name, body in bodies.items():
+        assert runner.seen[name] == body
+    source = runner.source
+    assert source["encoding"] == encoding
+    assert source["files"]["hr.log"]["encoding"] == encoding
     assert source["files"]["hr.log"]["frames"] == 120
     assert source["uncompressed_bytes"] == sum(len(body) for body in bodies.values())
-    assert source["stored_bytes"] < source["uncompressed_bytes"]
-    assert source["compression_ratio"] > 1
+    assert source["warnings"] == []
+    if encoding == "gzip":
+        assert source["stored_bytes"] < source["uncompressed_bytes"]
+        assert source["compression_ratio"] > 1
+    else:
+        assert source["stored_bytes"] == source["uncompressed_bytes"]
+        assert source["compression_ratio"] == 1.0
+    assert len(api.completed) == 1
 
 
-def test_worker_rejects_a_compressed_recording_without_frames() -> None:
+def test_worker_reports_mixed_encodings(tmp_path: Path) -> None:
+    bodies = recording_bytes(tmp_path)
+    api = InflatingApi([analysis()], files=bodies, encodings={"ecg.log": "gzip"})
+
+    runner = run_worker(api)
+
+    assert runner.source["encoding"] == "mixed"
+    assert runner.source["files"]["ecg.log"]["encoding"] == "gzip"
+    assert runner.source["files"]["hr.log"]["encoding"] == "identity"
+
+
+@pytest.mark.parametrize("encoding", ["identity", "gzip"])
+def test_a_corrupt_tail_is_cut_off_whatever_the_encoding(tmp_path: Path, encoding: str) -> None:
+    bodies = recording_bytes(tmp_path)
+    good_hr = bodies["hr.log"]
+    bodies["hr.log"] = good_hr + b"\x10\x00\x00\x00broken"
+    bodies["events.jsonl"] += b'{"phone_ns":1,"type":"st'
+    api = InflatingApi([analysis()], files=bodies, encodings={name: encoding for name in bodies})
+
+    runner = run_worker(api)
+
+    assert runner.seen["hr.log"] == good_hr
+    assert runner.seen["events.jsonl"].endswith(b"\n")
+    hr = runner.source["files"]["hr.log"]
+    assert hr["frames"] == 120
+    assert hr["valid_bytes"] == len(good_hr)
+    assert hr["truncated_tail"]
+    assert runner.source["files"]["events.jsonl"]["truncated_tail"]
+    assert any("hr.log: truncated frame" in item for item in runner.source["warnings"])
+    assert any("events.jsonl" in item for item in runner.source["warnings"])
+    assert not runner.source["files"]["ecg.log"]["truncated_tail"]
+    assert len(api.completed) == 1
+
+
+def test_a_bad_crc_in_a_plain_file_ends_the_stream_there(tmp_path: Path) -> None:
+    bodies = recording_bytes(tmp_path, duration_s=60)
+    good = fx.hr_log(duration_s=10)
+    bad = fx.frame(fx.hr_payload(fx.START_NS, 0, 60), bad_crc=True)
+    later = fx.frame(fx.hr_payload(fx.START_NS + 11_000_000_000, 11_000_000_000, 60))
+    bodies["hr.log"] = good + bad + later
+    api = FakeApi([analysis()], files=bodies)
+
+    runner = run_worker(api)
+
+    assert runner.seen["hr.log"] == good
+    assert runner.source["files"]["hr.log"]["frames"] == 10
+    assert any("CRC" in item for item in runner.source["warnings"])
+
+
+@pytest.mark.parametrize("encoding", ["identity", "gzip"])
+def test_a_recording_without_a_valid_frame_fails_for_good(encoding: str) -> None:
     bodies = {
-        "meta.json": json.dumps(fx.meta("s1")).encode(),
         "hr.log": fx.frame_header(1),
         "events.jsonl": fx.event_line(fx.START_NS, 0, "start", "started"),
     }
-    api = GzipApi(bodies)
+    api = InflatingApi([analysis()], files=bodies, encodings={name: encoding for name in bodies})
     runner = FakeRunner()
-    worker = Worker(config(), api, runner, sleep=lambda _: None)
 
-    assert worker.run_once()
+    run_worker(api, runner)
+
     assert runner.jobs == []
-    assert api.finished[0]["status"] == "failed"
-    assert "no valid frames" in api.finished[0]["error"]
+    assert api.failed[0]["retryable"] is False
+    assert "no valid frames" in api.failed[0]["error"]
 
 
-def test_worker_reports_a_decompression_error() -> None:
-    bodies = {
-        "meta.json": json.dumps(fx.meta("s1")).encode(),
-        "hr.log": fx.hr_log(duration_s=3),
-    }
-    api = GzipApi(bodies)
-    api.raw_downloads["hr.log.gz"] = b"not a gzip member"
+def test_a_stream_that_is_not_a_frame_log_counts_for_nothing() -> None:
+    api = FakeApi([analysis()], files={"hr.log": b"this is not a frame log at all"})
     runner = FakeRunner()
-    worker = Worker(config(), api, runner, sleep=lambda _: None)
 
-    assert worker.run_once()
+    run_worker(api, runner)
+
     assert runner.jobs == []
-    assert api.finished[0]["status"] == "failed"
-    assert "gzip" in api.finished[0]["error"]
+    assert "no valid frames" in api.failed[0]["error"]
+
+
+def test_a_recording_without_files_fails_for_good() -> None:
+    api = FakeApi([analysis()], files={})
+    runner = FakeRunner()
+
+    run_worker(api, runner)
+
+    assert runner.jobs == []
+    assert api.failed[0]["retryable"] is False
+    assert "no files" in api.failed[0]["error"]
+
+
+def test_only_the_data_files_are_downloaded(tmp_path: Path) -> None:
+    bodies = recording_bytes(tmp_path)
+    bodies["meta.json"] = b"{}"
+    bodies["notes.txt"] = b"hello"
+    api = FakeApi([analysis()], files=bodies)
+
+    runner = run_worker(api)
+
+    assert sorted(api.downloads) == ["acc.log", "ecg.log", "events.jsonl", "hr.log"]
+    # meta.json is the recording's meta, never a downloaded file.
+    assert runner.seen["meta.json"] != b"{}"
+    assert "notes.txt" not in runner.seen
+
+
+def test_a_failed_download_is_retryable() -> None:
+    class BrokenDownload(FakeApi):
+        def download_file(self, recording_id: str, name: str, destination: Path) -> None:
+            raise ApiError("connection reset", status=None)
+
+    api = BrokenDownload([analysis()], files={"hr.log": fx.hr_log(duration_s=5)})
+    runner = FakeRunner()
+
+    run_worker(api, runner)
+
+    assert runner.jobs == []
+    assert api.failed[0]["retryable"] is True
+    assert "cannot download hr.log" in api.failed[0]["error"]

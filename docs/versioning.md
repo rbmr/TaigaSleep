@@ -44,7 +44,7 @@ already released app fail against the backend: a renamed or removed field, a
 changed shape, a new required parameter. Additive changes that old apps ignore do
 not need a bump.
 
-The app compares the server's `api` from the public `/api/taiga/health` response
+The app compares the server's `api` from the public `GET /v1/version` response
 with the `requires_api` value it was built with, on every connect, login, resume
 and upload. Equal values are the only compatible pair, so a mismatch has a clear
 message: update the server when the server is older, update the app when the app
@@ -122,7 +122,7 @@ python3 tools/release_plan.py               # the plan for this branch
 - Diagnostics `process_start`: version name, version code, build type and git
   commit.
 - Diagnostics `remote_check`: the server's version and API revision.
-- `/api/taiga/health`: `version` and `api`.
+- `/v1/version`: `version` and `api`.
 - Each recording's `meta.json`, through the same build values.
 
 ## Out of scope for now

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import json
 import shutil
 import socket
@@ -7,37 +8,46 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Mapping
-from urllib.parse import quote, urlencode, urljoin
+from urllib.parse import quote, urljoin
 
 from . import __version__
 
 
 class ApiError(RuntimeError):
-    """An error returned by (or while talking to) the PocketBase API."""
+    """An error returned by (or while talking to) the Taiga Sleep API."""
 
-    def __init__(self, message: str, status: int | None = None) -> None:
+    def __init__(self, message: str, status: int | None = None, code: str | None = None) -> None:
         super().__init__(message)
         self.status = status
+        self.code = code
 
 
 class ApiClient:
-    """Small stdlib-only PocketBase client for the worker routes."""
+    """Small stdlib-only client for the worker's side of API v1 (docs/api.md)."""
 
     def __init__(self, base_url: str, timeout_s: float = 30.0) -> None:
         self.base_url = base_url.rstrip("/") + "/"
         self.timeout_s = timeout_s
         self.token: str | None = None
 
-    def _request(
+    def _open(
         self,
         method: str,
         path: str,
         body: Mapping[str, Any] | None = None,
         auth: bool = True,
+        accept: str = "application/json",
+        timeout_s: float | None = None,
     ) -> Any:
+        """Send one request and return the open response, or raise ApiError.
+
+        No Accept-Encoding is sent, so the API inflates a file it stores compressed
+        and every download is the original bytes.
+        """
+
         data = None
         headers = {
-            "Accept": "application/json",
+            "Accept": accept,
             "User-Agent": f"taiga-sleep-worker/{__version__}",
         }
         if body is not None:
@@ -46,7 +56,7 @@ class ApiClient:
         if auth:
             if not self.token:
                 raise ApiError("not authenticated", status=401)
-            headers["Authorization"] = self.token
+            headers["Authorization"] = f"Bearer {self.token}"
 
         request = urllib.request.Request(
             urljoin(self.base_url, path.lstrip("/")),
@@ -56,20 +66,32 @@ class ApiClient:
         )
 
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
-                raw = response.read()
+            return urllib.request.urlopen(request, timeout=timeout_s or self.timeout_s)
         except urllib.error.HTTPError as exc:
-            raw = exc.read()
-            message = f"HTTP {exc.code}"
+            message, code = f"HTTP {exc.code}", None
             try:
-                payload = json.loads(raw)
-                if isinstance(payload, dict) and payload.get("message"):
-                    message = str(payload["message"])
-            except (ValueError, TypeError):
+                payload = json.loads(exc.read())
+                if isinstance(payload, dict):
+                    message = str(payload.get("message") or message)
+                    code = str(payload["code"]) if payload.get("code") else None
+            except (ValueError, TypeError, OSError):
                 pass
-            raise ApiError(message, status=exc.code) from exc
+            raise ApiError(message, status=exc.code, code=code) from exc
         except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
             raise ApiError(f"cannot reach {self.base_url}: {exc}") from exc
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        body: Mapping[str, Any] | None = None,
+        auth: bool = True,
+    ) -> Any:
+        try:
+            with self._open(method, path, body, auth) as response:
+                raw = response.read()
+        except (socket.timeout, TimeoutError, OSError, http.client.HTTPException) as exc:
+            raise ApiError(f"cannot read the answer of {self.base_url}: {exc}") from exc
 
         if not raw:
             return None
@@ -81,130 +103,87 @@ class ApiClient:
     def login(self, email: str, password: str) -> str:
         payload = self._request(
             "POST",
-            "/api/collections/workers/auth-with-password",
-            {"identity": email, "password": password},
+            "/v1/auth/login",
+            {"email": email, "password": password},
             auth=False,
         )
         if not isinstance(payload, dict) or not payload.get("token"):
             raise ApiError("login response did not contain a token")
+        if payload.get("role") != "worker":
+            raise ApiError("the account is not a worker account")
         self.token = str(payload["token"])
         return self.token
 
-    def auth_check(self) -> dict[str, Any]:
-        payload = self._request("GET", "/api/taiga/auth-check")
-        return payload if isinstance(payload, dict) else {}
+    def announce(
+        self,
+        name: str,
+        version: str,
+        algorithms: list[dict[str, Any]],
+    ) -> None:
+        """Say what this worker can run; also tells the API that it is alive."""
+
+        self._request(
+            "PUT",
+            "/v1/workers/me",
+            {"name": name, "version": version, "algorithms": algorithms},
+        )
 
     def claim(
         self,
-        worker: str,
+        algorithms: list[dict[str, str]],
         lease_seconds: int,
-        algorithms: list[str] | None = None,
     ) -> dict[str, Any] | None:
-        body: dict[str, Any] = {"worker": worker, "lease_seconds": lease_seconds}
-        if algorithms is not None:
-            body["algorithms"] = list(algorithms)
-        payload = self._request("POST", "/api/taiga/worker/jobs/claim", body)
-        if not isinstance(payload, dict):
-            raise ApiError("claim response was not an object")
-        job = payload.get("job")
-        if job is None:
+        """Take the oldest queued analysis this worker can run, or None."""
+
+        payload = self._request(
+            "POST",
+            "/v1/analyses/claim",
+            {"algorithms": list(algorithms), "lease_seconds": lease_seconds},
+        )
+        if payload is None:
             return None
-        if not isinstance(job, dict) or not job.get("id"):
-            raise ApiError("claim response contained an invalid job")
-        return job
+        if not isinstance(payload, dict) or not payload.get("id") or not payload.get("recording"):
+            raise ApiError("claim response was not an analysis")
+        return payload
 
-    def finish(
-        self,
-        job_id: str,
-        worker: str,
-        status: str,
-        result: Mapping[str, Any] | None = None,
-        error: str | None = None,
-        retryable: bool | None = None,
-    ) -> dict[str, Any]:
-        if status not in {"done", "failed"}:
-            raise ValueError("status must be 'done' or 'failed'")
-        body: dict[str, Any] = {
-            "worker": worker,
-            "status": status,
-            "result": dict(result) if result is not None else None,
-            "error": error or "",
-        }
-        if retryable is not None:
-            body["retryable"] = bool(retryable)
+    def complete(self, analysis_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
         payload = self._request(
             "POST",
-            f"/api/taiga/worker/jobs/{job_id}/result",
-            body,
+            f"/v1/analyses/{quote(analysis_id, safe='')}/complete",
+            {"result": dict(result)},
         )
         return payload if isinstance(payload, dict) else {}
 
-    def report_capabilities(
-        self,
-        worker: str,
-        version: str,
-        algorithms: list[dict[str, Any]],
-    ) -> dict[str, Any]:
+    def fail(self, analysis_id: str, error: str, retryable: bool) -> dict[str, Any]:
         payload = self._request(
             "POST",
-            "/api/taiga/worker/capabilities",
-            {"worker": worker, "version": version, "algorithms": algorithms},
+            f"/v1/analyses/{quote(analysis_id, safe='')}/fail",
+            {"error": error, "retryable": bool(retryable)},
         )
         return payload if isinstance(payload, dict) else {}
 
-    def manifest(self, session_id: str, job_id: str, worker: str) -> dict[str, Any]:
-        query = urlencode({"job": job_id, "worker": worker})
-        payload = self._request(
-            "GET",
-            f"/api/taiga/worker/sessions/{quote(session_id, safe='')}/manifest?{query}",
-        )
-        return payload if isinstance(payload, dict) else {}
+    def recording(self, recording_id: str) -> dict[str, Any]:
+        """The recording, including its meta; readable while the lease is held."""
 
-    def download_file(
-        self,
-        session_id: str,
-        name: str,
-        destination: Path,
-        job_id: str,
-        worker: str,
-    ) -> None:
-        if not self.token:
-            raise ApiError("not authenticated", status=401)
-        query = urlencode({"job": job_id, "worker": worker})
-        url = urljoin(
-            self.base_url,
-            f"api/taiga/worker/sessions/{quote(session_id, safe='')}/files/"
-            f"{quote(name, safe='')}?{query}",
-        )
-        request = urllib.request.Request(
-            url,
-            headers={
-                "Accept": "application/octet-stream",
-                "Authorization": self.token,
-                "User-Agent": f"taiga-sleep-worker/{__version__}",
-            },
-        )
+        payload = self._request("GET", f"/v1/recordings/{quote(recording_id, safe='')}")
+        if not isinstance(payload, dict):
+            raise ApiError("recording response was not an object")
+        return payload
+
+    def files(self, recording_id: str) -> list[dict[str, Any]]:
+        payload = self._request("GET", f"/v1/recordings/{quote(recording_id, safe='')}/files")
+        items = payload.get("items") if isinstance(payload, dict) else None
+        if not isinstance(items, list):
+            raise ApiError("files response did not contain a list")
+        return [item for item in items if isinstance(item, dict)]
+
+    def download_file(self, recording_id: str, name: str, destination: Path) -> None:
+        path = f"/v1/recordings/{quote(recording_id, safe='')}/files/{quote(name, safe='')}"
         try:
-            with urllib.request.urlopen(request, timeout=max(self.timeout_s, 300.0)) as response:
+            with self._open(
+                "GET", path, accept="application/octet-stream", timeout_s=max(self.timeout_s, 300.0)
+            ) as response:
                 with Path(destination).open("wb") as handle:
                     shutil.copyfileobj(response, handle)
-        except urllib.error.HTTPError as exc:
-            message = f"HTTP {exc.code}"
-            try:
-                payload = json.loads(exc.read())
-                if isinstance(payload, dict) and payload.get("message"):
-                    message = str(payload["message"])
-            except (ValueError, TypeError):
-                pass
-            raise ApiError(message, status=exc.code) from exc
-        except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
+        except (socket.timeout, TimeoutError, OSError, http.client.HTTPException) as exc:
             raise ApiError(f"cannot download {name}: {exc}") from exc
-
-    def requeue_expired(self) -> int:
-        payload = self._request("POST", "/api/taiga/worker/jobs/requeue", {})
-        if not isinstance(payload, dict):
-            return 0
-        try:
-            return int(payload.get("requeued", 0))
-        except (TypeError, ValueError):
-            return 0

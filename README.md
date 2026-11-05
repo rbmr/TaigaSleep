@@ -118,7 +118,7 @@ release APK, because a release-signed APK cannot replace a debug-signed one.
 ## Backend
 
 The optional self-hosted backend lives in [`backend/`](backend/README.md). It is
-a PocketBase API (SQLite, users, owner-only collections, durable job queue) plus
+a PocketBase-based API (SQLite, users, recordings, a durable analysis queue; documented at `/v1/docs`) plus
 a small Python worker supervisor. See the backend README for setup,
 configuration, deployment, backup and restore.
 

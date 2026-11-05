@@ -40,9 +40,9 @@ enum class UploadFailure {
 @Serializable
 data class UploadRecord(
     val id: String,
-    val remoteId: String? = null,
+    /** The server has a copy of this recording, which it keeps under [id]. */
+    val onServer: Boolean = false,
     val analysisId: String? = null,
-    val jobId: String? = null,
     val phase: UploadPhase = UploadPhase.LOCAL,
     /** 0..1 for [UploadPhase.UPLOADING]; 1 once the upload is complete. */
     val progress: Float = 0f,
@@ -112,8 +112,8 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
     }
   }
 
-  fun markRemote(id: String, remoteId: String) {
-    update(id) { it.copy(remoteId = remoteId, updatedAtMs = now()) }
+  fun markOnServer(id: String) {
+    update(id) { it.copy(onServer = true, updatedAtMs = now()) }
   }
 
   fun markUploading(id: String, progress: Float) {
@@ -133,24 +133,17 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
     }
   }
 
-  fun markProcessing(
-      id: String,
-      remoteId: String,
-      analysisId: String?,
-      jobId: String?,
-      warning: String? = null,
-  ) {
+  fun markProcessing(id: String, analysisId: String?) {
     val confirmedAt = now()
     update(id) {
       it.copy(
           phase = UploadPhase.PROCESSING,
-          remoteId = remoteId,
+          onServer = true,
           analysisId = analysisId,
-          jobId = jobId,
           progress = 1f,
           failure = null,
           errorDetail = null,
-          warning = warning,
+          warning = null,
           updatedAtMs = confirmedAt,
           uploadedAtMs = it.uploadedAtMs ?: confirmedAt,
       )
@@ -159,9 +152,7 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
 
   fun markDone(
       id: String,
-      remoteId: String,
       analysisId: String?,
-      jobId: String?,
       model: String?,
       modelVersion: String?,
       epochSeconds: Int,
@@ -173,9 +164,8 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
     update(id) {
       it.copy(
           phase = UploadPhase.DONE,
-          remoteId = remoteId,
+          onServer = true,
           analysisId = analysisId,
-          jobId = jobId,
           progress = 1f,
           failure = null,
           errorDetail = null,

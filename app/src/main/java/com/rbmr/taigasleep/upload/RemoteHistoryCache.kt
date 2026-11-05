@@ -1,7 +1,7 @@
 package com.rbmr.taigasleep.upload
 
 import android.content.Context
-import com.rbmr.taigasleep.remote.SessionListDto
+import com.rbmr.taigasleep.remote.RecordingSummaryListDto
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -12,11 +12,11 @@ import kotlinx.serialization.json.Json
 @Serializable
 private data class CachedRemoteHistory(
     val accountKey: String = "",
-    val sessions: SessionListDto = SessionListDto(),
+    val recordings: RecordingSummaryListDto = RecordingSummaryListDto(),
 )
 
 /**
- * The last remote session list per account, so History can still show remote-only nights when the
+ * The last remote recording list per account, so History can still show remote-only nights when the
  * server is temporarily unreachable. It is replaced on every successful fetch and never shown for
  * a different account.
  */
@@ -28,21 +28,21 @@ class RemoteHistoryCache(private val file: File) {
         explicitNulls = false
       }
 
-  fun load(accountKey: String): SessionListDto? {
+  fun load(accountKey: String): RecordingSummaryListDto? {
     if (accountKey.isBlank() || !file.isFile) return null
     return runCatching {
           val cached = json.decodeFromString<CachedRemoteHistory>(file.readText())
-          cached.sessions.takeIf { cached.accountKey == accountKey }
+          cached.recordings.takeIf { cached.accountKey == accountKey }
         }
         .getOrNull()
   }
 
-  fun save(accountKey: String, sessions: SessionListDto) {
+  fun save(accountKey: String, recordings: RecordingSummaryListDto) {
     if (accountKey.isBlank()) return
     runCatching {
           file.parentFile?.mkdirs()
           val tmp = File(file.parentFile, "${file.name}.tmp")
-          tmp.writeText(json.encodeToString(CachedRemoteHistory(accountKey, sessions)))
+          tmp.writeText(json.encodeToString(CachedRemoteHistory(accountKey, recordings)))
           Files.move(
               tmp.toPath(),
               file.toPath(),
@@ -57,7 +57,10 @@ class RemoteHistoryCache(private val file: File) {
   }
 
   companion object {
-    fun of(context: Context): RemoteHistoryCache =
-        RemoteHistoryCache(File(context.filesDir, "history/remote-sessions.json"))
+    fun of(context: Context): RemoteHistoryCache {
+      // The list of an older app holds session summaries that this version cannot read.
+      File(context.filesDir, "history/remote-sessions.json").delete()
+      return RemoteHistoryCache(File(context.filesDir, "history/remote-recordings.json"))
+    }
   }
 }

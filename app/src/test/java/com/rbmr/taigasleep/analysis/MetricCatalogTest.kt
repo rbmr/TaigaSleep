@@ -1,6 +1,6 @@
 package com.rbmr.taigasleep.analysis
 
-import com.rbmr.taigasleep.remote.AnalysisDto
+import com.rbmr.taigasleep.remote.AnalysisResultDto
 import com.rbmr.taigasleep.remote.MetricSupportDto
 import com.rbmr.taigasleep.remote.StageSegmentDto
 import com.rbmr.taigasleep.ui.components.QualityBand
@@ -18,9 +18,9 @@ class MetricCatalogTest {
   @Test
   fun supportComesFromTheServerMap() {
     val analysis =
-        json.decodeFromString<AnalysisDto>(
+        json.decodeFromString<AnalysisResultDto>(
             """
-            {"id":"a1","status":"done",
+            {"contract_version":3,
              "metrics":{"total_sleep_s":5400.0,"hrv_rmssd_ms":null,"movement_index":null},
              "metric_support":{
                "total_sleep_s":{"status":"supported"},

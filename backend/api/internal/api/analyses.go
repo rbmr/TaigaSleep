@@ -4,579 +4,365 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"io"
 	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/pocketbase/dbx"
-	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 )
 
-type StageSegment struct {
-	Stage string `json:"stage"`
-	Count int    `json:"count"`
-}
-
-type StageTimeline struct {
-	EpochSeconds  int             `json:"epoch_seconds"`
-	StartUnixMs   int64           `json:"start_unix_ms"`
-	Count         int             `json:"count"`
-	Segments      []StageSegment  `json:"segments"`
-	Confidence    json.RawMessage `json:"confidence"`
-	Artifacts     json.RawMessage `json:"artifacts"`
-	Probabilities json.RawMessage `json:"probabilities"`
-}
-
-// HrSeries is the compact, epoch-aligned heart-rate curve of a recording. A
-// null mean marks an epoch without valid samples; it is not a gap to fill in.
-type HrSeries struct {
-	EpochSeconds int        `json:"epoch_seconds"`
-	StartUnixMs  int64      `json:"start_unix_ms"`
-	Count        int        `json:"count"`
-	MeanBPM      []*float64 `json:"mean_bpm"`
-	SampleCount  []int      `json:"sample_count,omitempty"`
-}
-
-// SleepScoreComponent is one normalized contribution to the sleep score.
-type SleepScoreComponent struct {
-	Value     *float64 `json:"value"`
-	Weight    float64  `json:"weight"`
-	Available bool     `json:"available"`
-}
-
-// SleepQuality is the sleep score: a transparent product policy over the sleep
-// figures, separate from the recording's data-quality score.
-type SleepQuality struct {
-	Score             *float64                       `json:"score"`
-	ComponentsVersion int                            `json:"components_version"`
-	Components        map[string]SleepScoreComponent `json:"components"`
-	Notes             []string                       `json:"notes"`
-}
-
-type AnalysisResultWire struct {
-	ContractVersion int            `json:"contract_version"`
-	Model           string         `json:"model"`
-	ModelVersion    string         `json:"model_version"`
-	Params          map[string]any `json:"params"`
-	ParamsHash      string         `json:"params_hash"`
-	Stages          StageTimeline  `json:"stages"`
-	Hr              *HrSeries      `json:"hr,omitempty"`
-	Metrics         map[string]any `json:"metrics"`
-	MetricSupport   map[string]any `json:"metric_support"`
-	Quality         map[string]any `json:"quality"`
-	SleepQuality    *SleepQuality  `json:"sleep_quality,omitempty"`
-	Capabilities    map[string]any `json:"capabilities"`
-	Provenance      map[string]any `json:"provenance"`
-	Extras          map[string]any `json:"extras"`
-	Warnings        []string       `json:"warnings"`
-}
-
-type AnalysisModel struct {
-	Model   string          `json:"model"`
-	Version string          `json:"version"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-
-type AnalysisRequest struct {
-	Models  []AnalysisModel `json:"models,omitempty"`
-	Model   string          `json:"model,omitempty"`
-	Version string          `json:"version,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-
+// AnalysisView is an analysis. Result is left out of lists unless asked for, since
+// it is the large part; Summary is the small derived headline.
 type AnalysisView struct {
-	ID              string         `json:"id"`
-	Session         string         `json:"session"`
-	Model           string         `json:"model"`
-	ModelVersion    string         `json:"model_version"`
-	Params          map[string]any `json:"params"`
-	ParamsHash      string         `json:"params_hash"`
-	Status          string         `json:"status"`
-	ContractVersion int            `json:"contract_version"`
-	Stages          any            `json:"stages"`
-	Hr              *HrSeries      `json:"hr"`
-	Metrics         any            `json:"metrics"`
-	MetricSupport   any            `json:"metric_support"`
-	Quality         any            `json:"quality"`
-	SleepQuality    *SleepQuality  `json:"sleep_quality"`
-	Capabilities    any            `json:"capabilities"`
-	Provenance      any            `json:"provenance"`
-	Extras          any            `json:"extras"`
-	Warnings        []string       `json:"warnings"`
-	Error           string         `json:"error"`
-	Created         string         `json:"created"`
-	Updated         string         `json:"updated"`
+	ID         string         `json:"id"`
+	Recording  string         `json:"recording"`
+	Algorithm  string         `json:"algorithm"`
+	Version    string         `json:"version"`
+	Params     map[string]any `json:"params"`
+	Status     string         `json:"status"`
+	Error      string         `json:"error"`
+	Attempts   int            `json:"attempts"`
+	Created    string         `json:"created"`
+	Updated    string         `json:"updated"`
+	FinishedAt *string        `json:"finished_at"`
+	Summary    any            `json:"summary"`
+	Result     any            `json:"result,omitempty"`
 }
 
-type AnalysisSummaryView struct {
-	ID           string        `json:"id"`
-	Session      string        `json:"session"`
-	Model        string        `json:"model"`
-	ModelVersion string        `json:"model_version"`
-	ParamsHash   string        `json:"params_hash"`
-	Status       string        `json:"status"`
-	Error        string        `json:"error"`
-	Metrics      any           `json:"metrics"`
-	Quality      any           `json:"quality"`
-	SleepQuality *SleepQuality `json:"sleep_quality"`
-	Stages       *StageSummary `json:"stages"`
-	Created      string        `json:"created"`
-	Updated      string        `json:"updated"`
+type AnalysisList struct {
+	Items  []AnalysisView `json:"items"`
+	Limit  int            `json:"limit"`
+	Offset int            `json:"offset"`
+	Total  int64          `json:"total"`
 }
 
-type StageSummary struct {
-	EpochSeconds int            `json:"epoch_seconds"`
-	StartUnixMs  int64          `json:"start_unix_ms"`
-	Count        int            `json:"count"`
-	Segments     []StageSegment `json:"segments"`
+// AnalysisRequest asks for one algorithm to be run on a recording. Version defaults
+// to the newest one a worker offers.
+type AnalysisRequest struct {
+	Algorithm string          `json:"algorithm"`
+	Version   string          `json:"version,omitempty"`
+	Params    json.RawMessage `json:"params,omitempty"`
 }
 
-type AnalysisCounts struct {
-	Total   int `json:"total"`
-	Queued  int `json:"queued"`
-	Running int `json:"running"`
-	Done    int `json:"done"`
-	Failed  int `json:"failed"`
-}
+const (
+	statusQueued    = "queued"
+	statusRunning   = "running"
+	statusSucceeded = "succeeded"
+	statusFailed    = "failed"
+)
+
+var analysisStatuses = map[string]bool{statusQueued: true, statusRunning: true, statusSucceeded: true, statusFailed: true}
 
 func readAny(record *core.Record, name string) any {
 	var value any
-	_ = record.UnmarshalJSONField(name, &value)
+	if err := record.UnmarshalJSONField(name, &value); err != nil {
+		return nil
+	}
 	return value
 }
 
-func readStages(record *core.Record) *StageTimeline {
-	var stages StageTimeline
-	if err := record.UnmarshalJSONField("stages", &stages); err != nil || stages.Count == 0 {
-		return nil
-	}
-	return &stages
-}
-
-func readHrSeries(record *core.Record) *HrSeries {
-	var series HrSeries
-	if err := record.UnmarshalJSONField("hr", &series); err != nil || series.Count == 0 {
-		return nil
-	}
-	return &series
-}
-
-func readSleepQuality(record *core.Record) *SleepQuality {
-	if readAny(record, "sleep_quality") == nil {
-		return nil
-	}
-	var quality SleepQuality
-	if err := record.UnmarshalJSONField("sleep_quality", &quality); err != nil {
-		return nil
-	}
-	return &quality
-}
-
-func serializeAnalysis(record *core.Record) AnalysisView {
-	var params map[string]any
-	readJSONField(record, "params", &params)
+func serializeAnalysis(record *core.Record, withResult bool) AnalysisView {
+	params := map[string]any{}
+	_ = record.UnmarshalJSONField("params", &params)
 	if params == nil {
 		params = map[string]any{}
 	}
-	var warnings []string
-	readJSONField(record, "warnings", &warnings)
-	return AnalysisView{
-		ID:              record.Id,
-		Session:         record.GetString("session"),
-		Model:           record.GetString("model"),
-		ModelVersion:    record.GetString("model_version"),
-		Params:          params,
-		ParamsHash:      record.GetString("params_hash"),
-		Status:          record.GetString("status"),
-		ContractVersion: record.GetInt("contract_version"),
-		Stages:          readAny(record, "stages"),
-		Hr:              readHrSeries(record),
-		Metrics:         readAny(record, "metrics"),
-		MetricSupport:   readAny(record, "metric_support"),
-		Quality:         readAny(record, "quality"),
-		SleepQuality:    readSleepQuality(record),
-		Capabilities:    readAny(record, "capabilities"),
-		Provenance:      readAny(record, "provenance"),
-		Extras:          readAny(record, "extras"),
-		Warnings:        warnings,
-		Error:           record.GetString("error"),
-		Created:         record.GetString("created"),
-		Updated:         record.GetString("updated"),
+	view := AnalysisView{
+		ID:         record.Id,
+		Recording:  record.GetString("recording"),
+		Algorithm:  record.GetString("algorithm"),
+		Version:    record.GetString("version"),
+		Params:     params,
+		Status:     record.GetString("status"),
+		Error:      record.GetString("error"),
+		Attempts:   record.GetInt("attempts"),
+		Created:    derefString(rfc3339(record.GetString("created"))),
+		Updated:    derefString(rfc3339(record.GetString("updated"))),
+		FinishedAt: rfc3339(record.GetString("finished_at")),
+		Summary:    readAny(record, "summary"),
 	}
-}
-
-func serializeAnalysisSummary(record *core.Record) AnalysisSummaryView {
-	var stages *StageSummary
-	if timeline := readStages(record); timeline != nil {
-		stages = &StageSummary{
-			EpochSeconds: timeline.EpochSeconds,
-			StartUnixMs:  timeline.StartUnixMs,
-			Count:        timeline.Count,
-			Segments:     timeline.Segments,
-		}
+	if withResult {
+		view.Result = readAny(record, "result")
 	}
-	return AnalysisSummaryView{
-		ID:           record.Id,
-		Session:      record.GetString("session"),
-		Model:        record.GetString("model"),
-		ModelVersion: record.GetString("model_version"),
-		ParamsHash:   record.GetString("params_hash"),
-		Status:       record.GetString("status"),
-		Error:        record.GetString("error"),
-		Metrics:      readAny(record, "metrics"),
-		Quality:      readAny(record, "quality"),
-		SleepQuality: readSleepQuality(record),
-		Stages:       stages,
-		Created:      record.GetString("created"),
-		Updated:      record.GetString("updated"),
-	}
+	return view
 }
 
-func analysisCounts(records []*core.Record) AnalysisCounts {
-	result := AnalysisCounts{Total: len(records)}
-	for _, record := range records {
-		switch record.GetString("status") {
-		case "queued":
-			result.Queued++
-		case "running":
-			result.Running++
-		case "done":
-			result.Done++
-		case "failed":
-			result.Failed++
-		}
-	}
-	return result
-}
-
-func analysesFor(app core.App, sessionID string) ([]*core.Record, error) {
-	return app.FindRecordsByFilter("analyses", "session = {:session}", "created", 0, 0, dbx.Params{"session": sessionID})
-}
-
-func jobsFor(app core.App, sessionID string) ([]*core.Record, error) {
-	return app.FindRecordsByFilter("jobs", "session = {:session}", "created", 0, 0, dbx.Params{"session": sessionID})
-}
-
-func findAnalysis(app core.App, sessionID, model, version, hash string) (*core.Record, error) {
-	return app.FindFirstRecordByFilter(
-		"analyses",
-		"session = {:session} && model = {:model} && model_version = {:version} && params_hash = {:hash}",
-		dbx.Params{"session": sessionID, "model": model, "version": version, "hash": hash},
-	)
-}
-
-func findJob(app core.App, analysisID string) (*core.Record, error) {
-	return app.FindFirstRecordByFilter("jobs", "analysis = {:analysis}", dbx.Params{"analysis": analysisID})
-}
-
-func createAnalysis(app core.App, sessionID, model, version string, params map[string]any, hash string) (*core.Record, error) {
-	collection, err := app.FindCollectionByNameOrId("analyses")
+func paramsHash(params map[string]any) (string, error) {
+	raw, err := json.Marshal(params) // map keys are sorted, so equal params hash equal
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	record := core.NewRecord(collection)
-	record.Set("session", sessionID)
-	record.Set("model", model)
-	record.Set("model_version", version)
-	record.Set("params", params)
-	record.Set("params_hash", hash)
-	record.Set("status", "queued")
-	record.Set("error", "")
-	if err := app.Save(record); err != nil {
-		return nil, err
+	return hashHex(raw), nil
+}
+
+// analysisFor finds an analysis the caller may read: a user's own (through the
+// recording's owner) or, for a worker, any.
+func analysisFor(e *core.RequestEvent, id string) (*core.Record, error) {
+	record, err := e.App.FindRecordById("analyses", id)
+	if err != nil {
+		return nil, notFound("analysis")
+	}
+	if roleOf(e) == roleUser {
+		if _, err := ownRecording(e.App, e, record.GetString("recording")); err != nil {
+			return nil, notFound("analysis")
+		}
 	}
 	return record, nil
 }
 
-func createJob(app core.App, analysis *core.Record) (*core.Record, error) {
-	collection, err := app.FindCollectionByNameOrId("jobs")
+func CreateAnalysis(e *core.RequestEvent) error {
+	var body AnalysisRequest
+	if err := json.NewDecoder(io.LimitReader(e.Request.Body, 32768)).Decode(&body); err != nil {
+		return badRequest("invalid_body", "the body must be a JSON object with an algorithm")
+	}
+	if !algorithmIDRE.MatchString(body.Algorithm) {
+		return badRequest("invalid_algorithm", "algorithm is not a valid algorithm id")
+	}
+	if len(body.Version) > 100 {
+		return badRequest("invalid_version", "version is too long")
+	}
+	params := map[string]any{}
+	if raw := strings.TrimSpace(string(body.Params)); raw != "" && raw != "null" {
+		if len(raw) > 16384 {
+			return badRequest("invalid_params", "params are too large")
+		}
+		if err := json.Unmarshal(body.Params, &params); err != nil || params == nil {
+			return badRequest("invalid_params", "params must be a JSON object")
+		}
+	}
+	hash, err := paramsHash(params)
 	if err != nil {
-		return nil, err
-	}
-	job := core.NewRecord(collection)
-	job.Set("session", analysis.GetString("session"))
-	job.Set("analysis", analysis.Id)
-	job.Set("kind", "analysis")
-	job.Set("model", analysis.GetString("model"))
-	job.Set("model_version", analysis.GetString("model_version"))
-	job.Set("params_hash", analysis.GetString("params_hash"))
-	job.Set("status", "queued")
-	job.Set("attempts", 0)
-	job.Set("available_at", nowString())
-	job.Set("worker", "")
-	job.Set("lease_until", "")
-	job.Set("error", "")
-	if err := app.Save(job); err != nil {
-		return nil, err
-	}
-	return job, nil
-}
-
-func requestAnalyses(txApp core.App, session *core.Record, items []AnalysisModel) ([]*core.Record, []*core.Record, error) {
-	if len(items) == 0 {
-		return nil, nil, apis.NewBadRequestError("models must be a non-empty array", nil)
-	}
-	if len(items) > 8 {
-		return nil, nil, apis.NewBadRequestError("at most 8 models can be requested at once", nil)
+		return badRequest("invalid_params", "params are invalid")
 	}
 
-	var analyses []*core.Record
-	var jobs []*core.Record
-	seen := map[string]bool{}
-
-	for _, item := range items {
-		model := item.Model
-		if !modelIDRE.MatchString(model) {
-			return nil, nil, apis.NewBadRequestError("model id is invalid", nil)
-		}
-		version := item.Version
-		if version == "" {
-			return nil, nil, apis.NewBadRequestError("version is required; read it from GET /api/taiga/algorithms", nil)
-		}
-		if len(version) > 100 {
-			return nil, nil, apis.NewBadRequestError("model version is too long", nil)
-		}
-
-		params := map[string]any{}
-		if len(item.Params) > 0 {
-			decoded, err := decodeObject(item.Params)
-			if err != nil {
-				return nil, nil, apis.NewBadRequestError("params must be a JSON object", nil)
-			}
-			params = decoded
-		}
-		rawParams, err := json.Marshal(params)
+	var result *core.Record
+	created := false
+	err = e.App.RunInTransaction(func(txApp core.App) error {
+		recording, err := ownRecording(txApp, e, e.Request.PathValue("id"))
 		if err != nil {
-			return nil, nil, apis.NewBadRequestError("params are invalid", nil)
-		}
-		if len(rawParams) > 16384 {
-			return nil, nil, apis.NewBadRequestError("params are too large", nil)
-		}
-		hash, err := paramsHash(params)
-		if err != nil {
-			return nil, nil, apis.NewBadRequestError("params are invalid", nil)
-		}
-		key := model + "\x00" + version + "\x00" + hash
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-
-		analysis, err := findAnalysis(txApp, session.Id, model, version, hash)
-		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				return nil, nil, err
-			}
-			analysis, err = createAnalysis(txApp, session.Id, model, version, params, hash)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-		job, err := findJob(txApp, analysis.Id)
-		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				return nil, nil, err
-			}
-			job, err = createJob(txApp, analysis)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-		analyses = append(analyses, analysis)
-		jobs = append(jobs, job)
-	}
-	return analyses, jobs, nil
-}
-
-func validateAnalysisResult(result *AnalysisResultWire) error {
-	if result.ContractVersion == 0 {
-		return fmt.Errorf("analysis result is missing contract_version")
-	}
-	if result.Model == "" || result.ModelVersion == "" {
-		return fmt.Errorf("analysis result is missing model identity")
-	}
-	if result.Stages.Count < 1 || len(result.Stages.Segments) == 0 {
-		return fmt.Errorf("analysis result has no stage timeline")
-	}
-	covered := 0
-	for _, segment := range result.Stages.Segments {
-		if segment.Stage == "" || segment.Count < 1 {
-			return fmt.Errorf("analysis result has an invalid stage segment")
-		}
-		covered += segment.Count
-	}
-	if covered != result.Stages.Count {
-		return fmt.Errorf("stage segments do not cover every epoch")
-	}
-	if result.Hr != nil {
-		if result.Hr.EpochSeconds <= 0 || result.Hr.Count < 1 {
-			return fmt.Errorf("analysis result has an invalid heart-rate series")
-		}
-		if len(result.Hr.MeanBPM) != result.Hr.Count {
-			return fmt.Errorf("heart-rate means do not cover every epoch")
-		}
-		if result.Hr.SampleCount != nil && len(result.Hr.SampleCount) != result.Hr.Count {
-			return fmt.Errorf("heart-rate sample counts do not cover every epoch")
-		}
-	}
-	if result.SleepQuality != nil && result.SleepQuality.Score != nil {
-		if *result.SleepQuality.Score < 0 || *result.SleepQuality.Score > 100 {
-			return fmt.Errorf("sleep score must be between 0 and 100")
-		}
-	}
-	if result.Metrics == nil || result.Quality == nil || result.Capabilities == nil || result.Provenance == nil {
-		return fmt.Errorf("analysis result is missing metrics, quality, capabilities or provenance")
-	}
-	return nil
-}
-
-func completeAnalysis(txApp core.App, job *core.Record, result *AnalysisResultWire) error {
-	analysis, err := txApp.FindRecordById("analyses", job.GetString("analysis"))
-	if err != nil {
-		return failJob(txApp, job, "analysis row is missing", false)
-	}
-	if err := validateAnalysisResult(result); err != nil {
-		return failJob(txApp, job, err.Error(), false)
-	}
-	if result.Model != analysis.GetString("model") {
-		return failJob(txApp, job, "worker reported a different model", false)
-	}
-	analysisVersion := analysis.GetString("model_version")
-	if analysisVersion == "latest" || analysisVersion == "unversioned" {
-		analysis.Set("model_version", result.ModelVersion)
-	} else if result.ModelVersion != analysisVersion {
-		return failJob(txApp, job, "worker reported a different model version", false)
-	}
-	if result.ParamsHash != "" && result.ParamsHash != analysis.GetString("params_hash") {
-		return failJob(txApp, job, "worker reported a different params hash", false)
-	}
-
-	analysis.Set("status", "done")
-	analysis.Set("error", "")
-	analysis.Set("contract_version", result.ContractVersion)
-	analysis.Set("stages", result.Stages)
-	if result.Hr != nil {
-		analysis.Set("hr", result.Hr)
-	}
-	analysis.Set("metrics", result.Metrics)
-	analysis.Set("metric_support", result.MetricSupport)
-	analysis.Set("quality", result.Quality)
-	if result.SleepQuality != nil {
-		analysis.Set("sleep_quality", result.SleepQuality)
-	}
-	analysis.Set("capabilities", result.Capabilities)
-	analysis.Set("provenance", result.Provenance)
-	analysis.Set("extras", result.Extras)
-	analysis.Set("warnings", result.Warnings)
-	if err := txApp.Save(analysis); err != nil {
-		return err
-	}
-
-	job.Set("status", "done")
-	job.Set("lease_until", "")
-	job.Set("error", "")
-	summary := map[string]any{"analysis": analysis.Id}
-	if runtime, ok := result.Provenance["runtime_s"]; ok {
-		summary["runtime_s"] = runtime
-	}
-	if peak, ok := result.Provenance["peak_rss_mb"]; ok {
-		summary["peak_rss_mb"] = peak
-	}
-	job.Set("result", summary)
-	return txApp.Save(job)
-}
-
-func failJob(txApp core.App, job *core.Record, message string, retryable bool) error {
-	message = truncate(message, 4000)
-	attempts := job.GetInt("attempts")
-	maxAttempts := int(envInt("TAIGA_JOB_MAX_ATTEMPTS", 3))
-	if maxAttempts < 1 {
-		maxAttempts = 1
-	}
-	shouldRetry := retryable && attempts < maxAttempts
-	delay := 30
-	if attempts > 1 {
-		delay = 30 * (1 << minInt(attempts-1, 4))
-	}
-	if delay > 300 {
-		delay = 300
-	}
-
-	var analysis *core.Record
-	analysis, _ = txApp.FindRecordById("analyses", job.GetString("analysis"))
-
-	if shouldRetry {
-		job.Set("status", "queued")
-		job.Set("available_at", afterSeconds(delay))
-		job.Set("worker", "")
-		job.Set("lease_until", "")
-		job.Set("error", message)
-		if analysis != nil {
-			analysis.Set("status", "queued")
-			analysis.Set("error", message)
-			if err := txApp.Save(analysis); err != nil {
-				return err
-			}
-		}
-	} else {
-		job.Set("status", "failed")
-		job.Set("lease_until", "")
-		job.Set("error", message)
-		if analysis != nil {
-			analysis.Set("status", "failed")
-			analysis.Set("error", message)
-			if err := txApp.Save(analysis); err != nil {
-				return err
-			}
-		}
-	}
-	return txApp.Save(job)
-}
-
-func retryJob(txApp core.App, job *core.Record) error {
-	if job.GetString("status") != "failed" {
-		return apis.NewApiError(http.StatusConflict, "only failed jobs can be retried", nil)
-	}
-	job.Set("status", "queued")
-	job.Set("available_at", nowString())
-	job.Set("worker", "")
-	job.Set("lease_until", "")
-	job.Set("error", "")
-	if err := txApp.Save(job); err != nil {
-		return err
-	}
-	if analysis, err := txApp.FindRecordById("analyses", job.GetString("analysis")); err == nil {
-		analysis.Set("status", "queued")
-		analysis.Set("error", "")
-		if err := txApp.Save(analysis); err != nil {
 			return err
 		}
+		if !recording.GetBool("complete") {
+			return conflict("recording_incomplete", "the recording has not been completed yet")
+		}
+		version, err := resolveVersion(txApp, body.Algorithm, body.Version)
+		if err != nil {
+			return err
+		}
+		existing, findErr := txApp.FindFirstRecordByFilter(
+			"analyses",
+			"recording = {:recording} && algorithm = {:algorithm} && version = {:version} && params_hash = {:hash}",
+			dbx.Params{"recording": recording.Id, "algorithm": body.Algorithm, "version": version, "hash": hash},
+		)
+		switch {
+		case findErr == nil && existing.GetString("status") != statusFailed:
+			result = existing
+			return nil
+		case findErr == nil:
+			// A failed analysis is replaced: asking again is how a retry is made.
+			if err := txApp.Delete(existing); err != nil {
+				return err
+			}
+		case !errors.Is(findErr, sql.ErrNoRows):
+			return findErr
+		}
+		collection, err := txApp.FindCollectionByNameOrId("analyses")
+		if err != nil {
+			return err
+		}
+		record := core.NewRecord(collection)
+		record.Set("recording", recording.Id)
+		record.Set("algorithm", body.Algorithm)
+		record.Set("version", version)
+		record.Set("params", params)
+		record.Set("params_hash", hash)
+		record.Set("status", statusQueued)
+		record.Set("error", "")
+		record.Set("attempts", 0)
+		record.Set("available_at", nowString())
+		if err := txApp.Save(record); err != nil {
+			return err
+		}
+		result = record
+		created = true
+		return nil
+	})
+	if err != nil {
+		return err
 	}
-	return nil
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+		e.Response.Header().Set("Location", "/v1/analyses/"+result.Id)
+	}
+	return e.JSON(status, serializeAnalysis(result, true))
 }
 
-func markAnalysisRunning(txApp core.App, job *core.Record) {
-	analysisID := job.GetString("analysis")
-	if analysisID == "" {
-		return
+func listAnalyses(e *core.RequestEvent, recording string) error {
+	query := e.Request.URL.Query()
+	limit, offset, err := pageParams(query)
+	if err != nil {
+		return err
 	}
-	if analysis, err := txApp.FindRecordById("analyses", analysisID); err == nil {
-		analysis.Set("status", "running")
-		analysis.Set("error", "")
-		_ = txApp.Save(analysis)
+	conditions := []dbx.Expression{}
+	if recording == "" {
+		recording = strings.TrimSpace(query.Get("recording"))
 	}
+	if recording != "" {
+		conditions = append(conditions, dbx.HashExp{"recording": recording})
+	}
+	if roleOf(e) == roleUser {
+		conditions = append(conditions, dbx.NewExp(
+			"recording IN (SELECT id FROM recordings WHERE owner = {:owner})",
+			dbx.Params{"owner": e.Auth.Id},
+		))
+	}
+	if status := strings.TrimSpace(query.Get("status")); status != "" {
+		if !analysisStatuses[status] {
+			return badRequest("invalid_query", "status is not an analysis status")
+		}
+		conditions = append(conditions, dbx.HashExp{"status": status})
+	}
+	order := "created DESC"
+	switch strings.TrimSpace(query.Get("sort")) {
+	case "", "-created":
+	case "created":
+		order = "created ASC"
+	default:
+		return badRequest("invalid_query", "unknown sort")
+	}
+	withResult := false
+	switch strings.TrimSpace(query.Get("expand")) {
+	case "":
+	case "result":
+		withResult = true
+	default:
+		return badRequest("invalid_query", "expand can only be result")
+	}
+
+	total, err := e.App.CountRecords("analyses", conditions...)
+	if err != nil {
+		return err
+	}
+	records := []*core.Record{}
+	q := e.App.RecordQuery("analyses").OrderBy(order, "id ASC").Limit(int64(limit)).Offset(int64(offset))
+	for _, condition := range conditions {
+		q = q.AndWhere(condition)
+	}
+	if err := q.All(&records); err != nil {
+		return err
+	}
+	items := make([]AnalysisView, 0, len(records))
+	for _, record := range records {
+		items = append(items, serializeAnalysis(record, withResult))
+	}
+	return e.JSON(http.StatusOK, AnalysisList{Items: items, Limit: limit, Offset: offset, Total: total})
 }
 
-func truncate(value string, max int) string {
-	if len(value) <= max {
-		return value
+func ListAnalyses(e *core.RequestEvent) error { return listAnalyses(e, "") }
+
+func ListRecordingAnalyses(e *core.RequestEvent) error {
+	id := e.Request.PathValue("id")
+	if _, err := ownRecording(e.App, e, id); err != nil {
+		return err
 	}
-	return value[:max]
+	return listAnalyses(e, id)
 }
 
-func minInt(a, b int) int {
-	if a < b {
-		return a
+func GetAnalysis(e *core.RequestEvent) error {
+	record, err := analysisFor(e, e.Request.PathValue("id"))
+	if err != nil {
+		return err
 	}
-	return b
+	return e.JSON(http.StatusOK, serializeAnalysis(record, true))
+}
+
+func DeleteAnalysis(e *core.RequestEvent) error {
+	err := e.App.RunInTransaction(func(txApp core.App) error {
+		record, err := txApp.FindRecordById("analyses", e.Request.PathValue("id"))
+		if err != nil {
+			return notFound("analysis")
+		}
+		if _, err := ownRecording(txApp, e, record.GetString("recording")); err != nil {
+			return notFound("analysis")
+		}
+		return txApp.Delete(record)
+	})
+	if err != nil {
+		return err
+	}
+	return e.NoContent(http.StatusNoContent)
+}
+
+// resolveVersion checks that some registered worker offers the algorithm and, when
+// no version was asked for, picks the newest one on offer.
+func resolveVersion(app core.App, algorithm, requested string) (string, error) {
+	cutoff := pbDateMillis(time.Now().Add(-time.Duration(envInt("TAIGA_WORKER_TTL_S", 900)) * time.Second).UnixMilli())
+	live, all := map[string]bool{}, map[string]bool{}
+	for _, offered := range registeredAlgorithms(app) {
+		if offered.ID != algorithm {
+			continue
+		}
+		all[offered.Version] = true
+		if offered.lastSeen >= cutoff {
+			live[offered.Version] = true
+		}
+	}
+	if len(all) == 0 {
+		return "", unprocessable("unknown_algorithm", "no worker offers the algorithm "+algorithm)
+	}
+	if requested != "" {
+		if !all[requested] {
+			return "", unprocessable("unknown_algorithm", "no worker offers "+algorithm+" "+requested)
+		}
+		return requested, nil
+	}
+	// The default is the newest version a worker that is still announcing offers, so
+	// a worker that went away does not make its newer version the default. When none
+	// is announcing, the newest known one still beats refusing the request: the
+	// analysis waits in the queue for a worker to come back.
+	candidates := live
+	if len(candidates) == 0 {
+		candidates = all
+	}
+	versions := make([]string, 0, len(candidates))
+	for version := range candidates {
+		versions = append(versions, version)
+	}
+	sort.Slice(versions, func(i, j int) bool { return compareVersions(versions[i], versions[j]) < 0 })
+	return versions[len(versions)-1], nil
+}
+
+// compareVersions orders dotted versions numerically where it can and falls back to
+// string order for anything else.
+func compareVersions(a, b string) int {
+	left, right := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(left) || i < len(right); i++ {
+		l, r := "0", "0" // a missing part counts as zero: 1.0 equals 1.0.0
+		if i < len(left) {
+			l = left[i]
+		}
+		if i < len(right) {
+			r = right[i]
+		}
+		ln, lerr := strconv.Atoi(l)
+		rn, rerr := strconv.Atoi(r)
+		if lerr == nil && rerr == nil {
+			if ln != rn {
+				if ln < rn {
+					return -1
+				}
+				return 1
+			}
+			continue
+		}
+		if c := strings.Compare(l, r); c != 0 {
+			return c
+		}
+	}
+	return 0
 }

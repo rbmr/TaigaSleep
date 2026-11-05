@@ -11,53 +11,110 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 
 /**
- * The recording, analysis and history calls from the backend README. The interface is separate so
- * the upload state machine can be tested without Android or a live server.
+ * The recording, analysis and algorithm calls of docs/api.md. The interface is separate so the
+ * upload state machine can be tested without Android or a live server.
  */
 interface TaigaClient {
-  suspend fun createSession(metaJson: String): SessionUploadResponse
+  /** Creates the recording at the phone's id, or replaces its metadata while it is incomplete. */
+  suspend fun putRecording(id: String, metaJson: String): RecordingDto
 
-  suspend fun getUpload(sessionId: String): SessionUploadResponse
+  suspend fun getRecording(id: String): RecordingDto
 
+  /** What the server holds of one file, or null when no chunk of it has arrived yet. */
+  suspend fun headFile(id: String, file: String): RemoteFile?
+
+  /**
+   * Appends one chunk at [offset] and returns the file's new stored size. [encoding] is `gzip` for
+   * a chunk that is one complete gzip member. A wrong offset throws [TaigaConflictException] with
+   * the size the server has.
+   */
   suspend fun appendFile(
-      sessionId: String,
+      id: String,
       file: String,
       offset: Long,
       bytes: ByteArray,
       encoding: String? = null,
-  ): AppendResponse
+  ): Long
 
-  suspend fun completeUpload(sessionId: String): SessionUploadResponse
+  /** Seals the recording once every file has been sent. */
+  suspend fun completeRecording(id: String): RecordingDto
 
+  /**
+   * Asks for one analysis. Asking again for a failed one replaces it, which is how a retry is made,
+   * so a retry has to repeat the failed run's [params].
+   */
   suspend fun requestAnalysis(
-      sessionId: String,
-      model: String,
+      recordingId: String,
+      algorithm: String,
       version: String,
-  ): AnalysisRequestResponse
+      params: JsonObject? = null,
+  ): AnalysisDto
 
   suspend fun getAlgorithms(): AlgorithmListDto
 
-  suspend fun deleteSession(sessionId: String)
+  suspend fun deleteRecording(id: String)
 
+  /** One analysis with its summary and, once it succeeded, its full result. */
   suspend fun getAnalysis(analysisId: String): AnalysisDto
 
-  suspend fun getSession(sessionId: String): SessionDetailDto
+  suspend fun listFiles(id: String): RecordingFileListDto
 
-  /** Downloads one raw recording file, inflating the server's compressed copy when needed. */
-  suspend fun downloadSessionFile(sessionId: String, file: String, target: File)
+  /** Downloads one raw recording file. The server inflates its compressed copy when needed. */
+  suspend fun downloadFile(id: String, file: String, target: File)
 
-  suspend fun listSessions(perPage: Int = 100): SessionListDto
+  suspend fun listRecordings(limit: Int = 100): RecordingListDto
 
-  suspend fun retryJob(jobId: String): RetryJobResponse
+  /**
+   * One page of analyses, newest first, without their results. All of the account's analyses, or
+   * those of [recording] only.
+   */
+  suspend fun listAnalyses(
+      recording: String? = null,
+      limit: Int = 200,
+      offset: Int = 0,
+  ): AnalysisListDto
+}
+
+/**
+ * The newest [limit] recordings with their analyses, which is what History shows. The analyses
+ * come from the account's paged analysis list instead of one request per recording.
+ */
+suspend fun TaigaClient.recordingSummaries(limit: Int = 100): RecordingSummaryListDto {
+  val recordings = listRecordings(limit).items
+  val wanted = recordings.map { it.id }.toSet()
+  val byRecording = mutableMapOf<String, MutableList<AnalysisDto>>()
+  var offset = 0
+  while (offset < MAX_LISTED_ANALYSES) {
+    val page = listAnalyses(offset = offset)
+    for (analysis in page.items) {
+      if (analysis.recording !in wanted) continue
+      byRecording.getOrPut(analysis.recording) { mutableListOf() }.add(analysis)
+    }
+    offset += page.items.size
+    if (page.items.isEmpty() || offset >= page.total) break
+  }
+  return RecordingSummaryListDto(
+      recordings.map { RecordingSummaryDto(it, byRecording[it.id].orEmpty()) }
+  )
+}
+
+private const val MAX_LISTED_ANALYSES = 2000
+
+/** The error `code` values of docs/api.md that the app acts on. */
+object ApiCode {
+  const val OFFSET_MISMATCH = "offset_mismatch"
+  const val RECORDING_COMPLETE = "recording_complete"
+  const val RECORDING_IN_PROGRESS = "recording_in_progress"
+  const val CHUNK_TOO_LARGE = "chunk_too_large"
 }
 
 open class TaigaException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -66,12 +123,23 @@ class TaigaNetworkException(cause: Throwable) : TaigaException("network unavaila
 
 class TaigaMalformedException(cause: Throwable) : TaigaException("malformed response", cause)
 
-open class TaigaHttpException(val status: Int, message: String) : TaigaException(message)
+/** An error answer. [code] is the stable identifier from the `{code, message}` body, or empty. */
+open class TaigaHttpException(val status: Int, message: String, val code: String = "") :
+    TaigaException(message)
 
-class TaigaUnauthorizedException(status: Int, message: String) : TaigaHttpException(status, message)
+class TaigaUnauthorizedException(status: Int, message: String, code: String = "") :
+    TaigaHttpException(status, message, code)
 
-/** The append offset no longer matches the server. The caller can re-read the manifest and resume. */
-class TaigaConflictException(status: Int, message: String) : TaigaHttpException(status, message)
+/**
+ * The request conflicts with the server's state; [code] says how. For [ApiCode.OFFSET_MISMATCH],
+ * [uploadOffset] is the stored size the caller can resume from.
+ */
+class TaigaConflictException(
+    status: Int,
+    message: String,
+    code: String = "",
+    val uploadOffset: Long? = null,
+) : TaigaHttpException(status, message, code)
 
 class OkHttpTaigaApi(
     private val baseUrl: String,
@@ -87,141 +155,141 @@ class OkHttpTaigaApi(
         explicitNulls = false
       }
 
-  override suspend fun createSession(metaJson: String): SessionUploadResponse {
-    val meta = json.parseToJsonElement(metaJson)
-    val payload = buildJsonObject { put("meta", meta) }.toString()
-    return decode(execute(post("/api/taiga/sessions", payload)))
-  }
+  override suspend fun putRecording(id: String, metaJson: String): RecordingDto =
+      decode(
+          execute(
+              request("/v1/recordings/${path(id)}")
+                  .put(metaJson.toRequestBody(JSON_MEDIA_TYPE))
+                  .build()
+          )
+      )
 
-  override suspend fun getUpload(sessionId: String): SessionUploadResponse =
-      decode(execute(get("/api/taiga/sessions/${path(sessionId)}/upload")))
+  override suspend fun getRecording(id: String): RecordingDto =
+      decode(execute(request("/v1/recordings/${path(id)}").get().build()))
+
+  override suspend fun headFile(id: String, file: String): RemoteFile? =
+      try {
+        call(request("/v1/recordings/${path(id)}/files/${path(file)}").head().build()) { response ->
+          val size =
+              response.header(UPLOAD_OFFSET)?.toLongOrNull()
+                  ?: throw TaigaMalformedException(IllegalStateException("missing $UPLOAD_OFFSET"))
+          RemoteFile(size = size, encoding = response.header("Content-Encoding").orEmpty())
+        }
+      } catch (e: TaigaHttpException) {
+        // A file that has no chunk yet is not an error: the upload starts at 0.
+        if (e.status == 404) null else throw e
+      }
 
   override suspend fun appendFile(
-      sessionId: String,
+      id: String,
       file: String,
       offset: Long,
       bytes: ByteArray,
       encoding: String?,
-  ): AppendResponse {
-    val query = buildString {
-      append("offset=$offset")
-      if (!encoding.isNullOrBlank()) append("&encoding=$encoding")
+  ): Long {
+    val builder =
+        request("/v1/recordings/${path(id)}/files/${path(file)}")
+            .patch(bytes.toRequestBody(OCTET))
+            .header(UPLOAD_OFFSET, offset.toString())
+    if (!encoding.isNullOrBlank()) builder.header("Content-Encoding", encoding)
+    return call(builder.build()) { response ->
+      response.header(UPLOAD_OFFSET)?.toLongOrNull()
+          ?: throw TaigaMalformedException(IllegalStateException("missing $UPLOAD_OFFSET"))
     }
-    val request =
-        Request.Builder()
-            .url(url("/api/taiga/sessions/${path(sessionId)}/upload/file/${path(file)}?$query"))
-            .put(bytes.toRequestBody(OCTET))
-            .header("Accept", JSON)
-            .header("Authorization", token)
-            .header("User-Agent", userAgent)
-            .build()
-    return decode(execute(request))
   }
 
-  override suspend fun completeUpload(sessionId: String): SessionUploadResponse =
-      decode(execute(post("/api/taiga/sessions/${path(sessionId)}/upload/complete", "{}")))
+  override suspend fun completeRecording(id: String): RecordingDto =
+      decode(
+          execute(
+              request("/v1/recordings/${path(id)}")
+                  .patch("""{"complete":true}""".toRequestBody(JSON_MEDIA_TYPE))
+                  .build()
+          )
+      )
 
   override suspend fun requestAnalysis(
-      sessionId: String,
-      model: String,
+      recordingId: String,
+      algorithm: String,
       version: String,
-  ): AnalysisRequestResponse {
+      params: JsonObject?,
+  ): AnalysisDto {
     val payload =
         buildJsonObject {
-              put(
-                  "models",
-                  buildJsonArray {
-                    add(
-                        buildJsonObject {
-                          put("model", model)
-                          put("version", version)
-                          put("params", buildJsonObject {})
-                        }
-                    )
-                  },
-              )
+              put("algorithm", algorithm)
+              if (version.isNotBlank()) put("version", version)
+              if (params != null) put("params", params)
             }
             .toString()
-    return decode(execute(post("/api/taiga/sessions/${path(sessionId)}/analysis", payload)))
+    return decode(
+        execute(
+            request("/v1/recordings/${path(recordingId)}/analyses")
+                .post(payload.toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+        )
+    )
   }
 
   override suspend fun getAlgorithms(): AlgorithmListDto =
-      decode(execute(get("/api/taiga/algorithms")))
+      decode(execute(request("/v1/algorithms").get().build()))
 
-  override suspend fun deleteSession(sessionId: String) {
-    execute(delete("/api/collections/sessions/records/${path(sessionId)}"))
+  override suspend fun deleteRecording(id: String) {
+    execute(request("/v1/recordings/${path(id)}").delete().build())
   }
 
   override suspend fun getAnalysis(analysisId: String): AnalysisDto =
-      decode(execute(get("/api/taiga/analyses/${path(analysisId)}")))
+      decode(execute(request("/v1/analyses/${path(analysisId)}").get().build()))
 
-  override suspend fun getSession(sessionId: String): SessionDetailDto =
-      decode(execute(get("/api/taiga/sessions/${path(sessionId)}")))
+  override suspend fun listFiles(id: String): RecordingFileListDto =
+      decode(execute(request("/v1/recordings/${path(id)}/files").get().build()))
 
-  override suspend fun downloadSessionFile(sessionId: String, file: String, target: File) {
-    withContext(Dispatchers.IO) {
-      val request = get("/api/taiga/sessions/${path(sessionId)}/files/${path(file)}")
-      try {
-        client.newCall(request).execute().use { response ->
-          if (!response.isSuccessful) {
-            throw failure(response.code, response.body?.string().orEmpty())
-          }
-          val body = response.body
-          if (body == null) {
-            throw TaigaMalformedException(IllegalStateException("empty response body"))
-          }
-          target.outputStream().use { out -> body.byteStream().copyTo(out) }
-        }
-      } catch (e: TaigaException) {
-        target.delete()
-        throw e
-      } catch (e: IOException) {
-        target.delete()
-        throw TaigaNetworkException(e)
+  override suspend fun downloadFile(id: String, file: String, target: File) {
+    // The server stores a compressed file as a sequence of gzip members. Asking for identity makes
+    // it inflate them itself, because OkHttp's transparent gzip handling reads a single member.
+    val request =
+        request("/v1/recordings/${path(id)}/files/${path(file)}")
+            .get()
+            .header("Accept-Encoding", "identity")
+            .build()
+    try {
+      call(request) { response ->
+        val body = response.body
+        if (body == null) throw TaigaMalformedException(IllegalStateException("empty response body"))
+        target.outputStream().use { out -> body.byteStream().copyTo(out) }
       }
+    } catch (e: TaigaException) {
+      target.delete()
+      throw e
     }
   }
 
-  override suspend fun listSessions(perPage: Int): SessionListDto =
-      decode(execute(get("/api/taiga/sessions?perPage=${perPage.coerceIn(1, 100)}&sort=-started_at")))
+  override suspend fun listRecordings(limit: Int): RecordingListDto {
+    val query = "limit=${limit.coerceIn(1, 200)}&sort=-started_at"
+    return decode(execute(request("/v1/recordings?$query").get().build()))
+  }
 
-  override suspend fun retryJob(jobId: String): RetryJobResponse =
-      decode(execute(post("/api/taiga/jobs/${path(jobId)}/retry", "{}")))
+  override suspend fun listAnalyses(recording: String?, limit: Int, offset: Int): AnalysisListDto {
+    val base =
+        if (recording == null) "/v1/analyses" else "/v1/recordings/${path(recording)}/analyses"
+    val query = "limit=${limit.coerceIn(1, 200)}&offset=${offset.coerceAtLeast(0)}&sort=-created"
+    return decode(execute(request("$base?$query").get().build()))
+  }
 
-  private fun get(path: String): Request =
+  private fun request(path: String): Request.Builder =
       Request.Builder()
           .url(url(path))
-          .get()
           .header("Accept", JSON)
-          .header("Authorization", token)
+          .header("Authorization", bearer(token))
           .header("User-Agent", userAgent)
-          .build()
 
-  private fun post(path: String, payload: String): Request =
-      Request.Builder()
-          .url(url(path))
-          .post(payload.toRequestBody(JSON_MEDIA_TYPE))
-          .header("Accept", JSON)
-          .header("Authorization", token)
-          .header("User-Agent", userAgent)
-          .build()
-
-  private fun delete(path: String): Request =
-      Request.Builder()
-          .url(url(path))
-          .delete()
-          .header("Accept", JSON)
-          .header("Authorization", token)
-          .header("User-Agent", userAgent)
-          .build()
-
-  private suspend fun execute(request: Request): String =
+  /** Runs the request off the main thread and hands a successful response to [read]. */
+  private suspend fun <T> call(request: Request, read: (Response) -> T): T =
       withContext(Dispatchers.IO) {
         try {
           client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw failure(response.code, body)
-            body
+            if (!response.isSuccessful) {
+              throw failure(response, response.body?.string().orEmpty())
+            }
+            read(response)
           }
         } catch (e: TaigaException) {
           throw e
@@ -230,18 +298,25 @@ class OkHttpTaigaApi(
         }
       }
 
-  private fun failure(status: Int, body: String): TaigaException {
-    val message =
-        runCatching {
-              json.decodeFromString<ApiErrorDto>(body).message
-            }
-            .getOrNull()
-            ?.takeIf { it.isNotBlank() }
-            ?: "HTTP $status"
-    return when {
-      status == 401 || status == 403 -> TaigaUnauthorizedException(status, message)
-      status == 409 -> TaigaConflictException(status, message)
-      else -> TaigaHttpException(status, message)
+  private suspend fun execute(request: Request): String =
+      call(request) { response -> response.body?.string().orEmpty() }
+
+  private fun failure(response: Response, body: String): TaigaException {
+    val error = runCatching { json.decodeFromString<ApiErrorDto>(body) }.getOrNull()
+    val status = response.code
+    val message = error?.message?.takeIf { it.isNotBlank() } ?: "HTTP $status"
+    val code = error?.code.orEmpty()
+    return when (status) {
+      401,
+      403 -> TaigaUnauthorizedException(status, message, code)
+      409 ->
+          TaigaConflictException(
+              status,
+              message,
+              code,
+              uploadOffset = response.header(UPLOAD_OFFSET)?.toLongOrNull(),
+          )
+      else -> TaigaHttpException(status, message, code)
     }
   }
 
@@ -258,12 +333,13 @@ class OkHttpTaigaApi(
 
   private fun url(path: String): String = baseUrl.trimEnd('/') + path
 
-  /** Ids and file names are server-generated and already restricted, but encode path separators. */
+  /** Ids and file names are restricted by the server, but encode path separators anyway. */
   private fun path(value: String): String =
       value.replace("/", "%2F").replace("?", "%3F").replace("#", "%23")
 
   private companion object {
     const val JSON = "application/json"
+    const val UPLOAD_OFFSET = "Upload-Offset"
     val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     val OCTET = "application/octet-stream".toMediaType()
   }
@@ -278,102 +354,44 @@ private fun defaultTaigaClient(): OkHttpClient =
         .retryOnConnectionFailure(true)
         .build()
 
-@Serializable private data class ApiErrorDto(val message: String = "")
+@Serializable private data class ApiErrorDto(val code: String = "", val message: String = "")
+
+/** What the server holds of one file: its stored size, and its encoding (`gzip` or empty). */
+data class RemoteFile(val size: Long, val encoding: String)
 
 @Serializable
-data class SessionDto(
+data class RecordingDto(
     val id: String = "",
-    val client_session_id: String = "",
+    val state: String = "",
     val device: String = "",
     val started_at: String = "",
-    val ended_at: String = "",
+    val ended_at: String? = null,
     val duration_s: Double = 0.0,
-    val state: String = "",
-    val upload_status: String = "",
-    val uploaded_at: String = "",
-    val upload_error: String = "",
+    /** All files have been uploaded and the recording is sealed. */
+    val complete: Boolean = false,
+    val size_bytes: Long = 0,
     val created: String = "",
     val updated: String = "",
 )
 
 @Serializable
-data class UploadFileDto(
-    val length: Long = 0,
-    val validated_length: Long = 0,
-    val uncompressed_length: Long = 0,
-    val members: Int = 0,
-    val frames: Int = 0,
-    val lines: Int = 0,
-    val state: String = "",
-    val error: String = "",
-    val truncated: Boolean = false,
-    val corrupt_at: Long? = null,
-    val pending_bytes: Long? = null,
+data class RecordingListDto(
+    val items: List<RecordingDto> = emptyList(),
+    val limit: Int = 0,
+    val offset: Int = 0,
+    val total: Long = 0,
+)
+
+@Serializable
+data class RecordingFileDto(
+    val name: String = "",
+    /** Stored bytes, which are compressed bytes for a gzip file. */
+    val size: Long = 0,
     val encoding: String = "",
-    val stored_name: String = "",
-    val compressed: Boolean = false,
-    val updated: String = "",
+    val uncompressed_size: Long = 0,
 )
 
-@Serializable
-data class UploadLimitsDto(
-    val max_total_bytes: Long = 0,
-    val max_file_bytes: Long = 0,
-    val max_uncompressed_total_bytes: Long = 0,
-    val max_uncompressed_file_bytes: Long = 0,
-    val max_chunk_bytes: Long = 0,
-    val max_uncompressed_chunk_bytes: Long = 0,
-    val max_expansion_ratio: Double = 0.0,
-    val max_members: Int = 0,
-)
-
-@Serializable
-data class CompressionInfoDto(
-    val codec: String = "",
-    val version: Int = 0,
-    val member_per_chunk: Boolean = false,
-    val deterministic: Boolean = false,
-)
-
-@Serializable
-data class UploadManifestDto(
-    val session: String = "",
-    val upload_status: String = "",
-    val uploaded_at: String = "",
-    val upload_error: String = "",
-    val completed: Boolean = false,
-    val completed_at: String = "",
-    val encoding: String = "",
-    val accepted_encodings: List<String> = emptyList(),
-    val compression: CompressionInfoDto = CompressionInfoDto(),
-    val total_bytes: Long = 0,
-    val uncompressed_bytes: Long = 0,
-    val limits: UploadLimitsDto = UploadLimitsDto(),
-    val files: Map<String, UploadFileDto> = emptyMap(),
-)
-
-@Serializable
-data class SessionUploadResponse(
-    val session: SessionDto = SessionDto(),
-    val upload: UploadManifestDto = UploadManifestDto(),
-)
-
-@Serializable
-data class AppendResponse(
-    val file: String = "",
-    val offset: Long = 0,
-    val written: Int = 0,
-    val length: Long = 0,
-    val validated_length: Long = 0,
-    val uncompressed_length: Long = 0,
-    val members: Int = 0,
-    val encoding: String = "",
-    val frames: Int = 0,
-    val lines: Int = 0,
-    val state: String = "",
-    val error: String = "",
-    val truncated: Boolean = false,
-)
+@Serializable data class RecordingFileListDto(val items: List<RecordingFileDto> = emptyList())
 
 @Serializable
 data class StageSegmentDto(val stage: String = "unknown", val count: Int = 0)
@@ -437,23 +455,21 @@ data class HrSeriesDto(
 data class MetricSupportDto(val status: String = "", val reason: String? = null)
 
 @Serializable
-data class AnalysisCountsDto(
-    val total: Int = 0,
-    val queued: Int = 0,
-    val running: Int = 0,
-    val done: Int = 0,
-    val failed: Int = 0,
+data class AnalysisSummaryDto(
+    val metrics: JsonObject? = null,
+    val quality: QualityDto? = null,
+    val sleep_quality: SleepQualityDto? = null,
+    val stages: StageSummaryDto? = null,
 )
 
+/** The worker's output, as documented in docs/analysis-contract.md. */
 @Serializable
-data class AnalysisDto(
-    val id: String = "",
-    val session: String = "",
+data class AnalysisResultDto(
+    val contract_version: Int = 0,
     val model: String = "",
     val model_version: String = "",
+    val params: JsonObject? = null,
     val params_hash: String = "",
-    val status: String = "",
-    val contract_version: Int = 0,
     val stages: StageTimelineDto? = null,
     val hr: HrSeriesDto? = null,
     val metrics: JsonObject? = null,
@@ -464,71 +480,53 @@ data class AnalysisDto(
     val provenance: JsonObject? = null,
     val extras: JsonObject? = null,
     val warnings: List<String> = emptyList(),
-    val error: String = "",
-    val created: String = "",
-    val updated: String = "",
 )
 
+/**
+ * One algorithm applied to one recording. [status] is `queued`, `running`, `succeeded` or `failed`.
+ * [summary] is the small headline of a succeeded run, [result] its full output; lists leave the
+ * result out.
+ */
 @Serializable
-data class AnalysisSummaryDto(
+data class AnalysisDto(
     val id: String = "",
-    val session: String = "",
-    val model: String = "",
-    val model_version: String = "",
-    val params_hash: String = "",
+    val recording: String = "",
+    val algorithm: String = "",
+    val version: String = "",
+    val params: JsonObject? = null,
     val status: String = "",
     val error: String = "",
-    val metrics: JsonObject? = null,
-    val quality: QualityDto? = null,
-    val sleep_quality: SleepQualityDto? = null,
-    val stages: StageSummaryDto? = null,
+    val attempts: Int = 0,
     val created: String = "",
     val updated: String = "",
-)
+    val finished_at: String? = null,
+    val summary: AnalysisSummaryDto? = null,
+    val result: AnalysisResultDto? = null,
+) {
+  val isSucceeded: Boolean
+    get() = status == "succeeded"
+
+  val isFailed: Boolean
+    get() = status == "failed"
+}
 
 @Serializable
-data class JobDto(
-    val id: String = "",
-    val session: String = "",
-    val analysis: String = "",
-    val status: String = "",
-    val error: String = "",
-    val created: String = "",
-    val updated: String = "",
+data class AnalysisListDto(
+    val items: List<AnalysisDto> = emptyList(),
+    val limit: Int = 0,
+    val offset: Int = 0,
+    val total: Long = 0,
 )
 
+/** One recording of the History list with its analyses; this is what is cached for offline use. */
 @Serializable
-data class SessionSummaryDto(
-    val session: SessionDto = SessionDto(),
-    val analyses: List<AnalysisSummaryDto> = emptyList(),
-    val analysis_summary: AnalysisCountsDto = AnalysisCountsDto(),
-)
-
-@Serializable
-data class SessionListDto(
-    val page: Int = 1,
-    val perPage: Int = 0,
-    val hasMore: Boolean = false,
-    val items: List<SessionSummaryDto> = emptyList(),
-)
-
-@Serializable
-data class SessionDetailDto(
-    val session: SessionDto = SessionDto(),
-    val upload: UploadManifestDto = UploadManifestDto(),
+data class RecordingSummaryDto(
+    val recording: RecordingDto = RecordingDto(),
     val analyses: List<AnalysisDto> = emptyList(),
-    val jobs: List<JobDto> = emptyList(),
-    val analysis_summary: AnalysisCountsDto = AnalysisCountsDto(),
 )
 
 @Serializable
-data class AnalysisRequestResponse(
-    val analyses: List<AnalysisDto> = emptyList(),
-    val jobs: List<JobDto> = emptyList(),
-)
-
-@Serializable
-data class RetryJobResponse(val job: JobDto = JobDto(), val analysis: AnalysisDto? = null)
+data class RecordingSummaryListDto(val items: List<RecordingSummaryDto> = emptyList())
 
 @Serializable
 data class AlgorithmNeedDto(
@@ -557,4 +555,4 @@ data class AlgorithmDto(
 )
 
 @Serializable
-data class AlgorithmListDto(val algorithms: List<AlgorithmDto> = emptyList())
+data class AlgorithmListDto(val items: List<AlgorithmDto> = emptyList())

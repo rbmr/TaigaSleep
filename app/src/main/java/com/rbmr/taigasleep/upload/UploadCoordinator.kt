@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.upload
 import android.content.Context
 import com.rbmr.taigasleep.analysis.AnalysisService
 import com.rbmr.taigasleep.analysis.AnalysisSettingsStore
+import com.rbmr.taigasleep.night.recordingIdOf
 import com.rbmr.taigasleep.remote.CheckResult
 import com.rbmr.taigasleep.remote.RemoteRepository
 import com.rbmr.taigasleep.remote.TaigaHttpException
@@ -30,16 +31,10 @@ object UploadCoordinator {
   }
 
   /**
-   * Retry a failed analysis. Pending analyses only need a fresh poll; a failed job must be requeued
-   * through the job route first.
+   * Retry a failed analysis. Pending analyses only need a fresh poll; a failed one is asked for
+   * again, which makes the server replace it with a fresh queued one under a new id.
    */
-  suspend fun retryAnalysis(
-      context: Context,
-      key: String,
-      remoteId: String,
-      analysisId: String?,
-      jobId: String?,
-  ): Result<Unit> =
+  suspend fun retryAnalysis(context: Context, key: String, analysisId: String?): Result<Unit> =
       withContext(Dispatchers.IO) {
         val remote = RemoteRepository.of(context)
         val verified =
@@ -55,49 +50,42 @@ object UploadCoordinator {
         }
         val api = remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
         val store = UploadStore.of(context)
+        val recordingId = recordingIdOf(key)
 
         try {
-          val detail = api.getSession(remoteId)
-          var targetAnalysis = analysisId
-          var targetJob = jobId
-          if (targetAnalysis == null) {
-            targetAnalysis =
-                detail.analyses.firstOrNull { it.status == "failed" }?.id
-                    ?: detail.analyses.maxByOrNull { it.created }?.id
-          }
-          if (targetJob == null) {
-            targetJob = detail.jobs.firstOrNull { it.analysis == targetAnalysis }?.id
-          }
+          val analyses = api.listAnalyses(recordingId).items
+          val target =
+              analyses.firstOrNull { it.id == analysisId }
+                  ?: analyses.firstOrNull { it.isFailed }
+                  ?: analyses.maxByOrNull { it.created }
 
-          val failedJob =
-              detail.jobs.firstOrNull {
-                it.id == targetJob && it.status == "failed"
+          val targetId =
+              when {
+                target == null -> {
+                  val settings = AnalysisSettingsStore.of(context).settings.value
+                  AnalysisService.startPreferred(
+                          api,
+                          recordingId,
+                          localConfig(context, key),
+                          settings,
+                      )
+                      .analysisId
+                }
+                target.isFailed -> {
+                  val again =
+                      api.requestAnalysis(
+                          recordingId,
+                          target.algorithm,
+                          target.version,
+                          target.params,
+                      )
+                  again.id
+                }
+                else -> target.id
               }
-                  ?: detail.jobs.firstOrNull {
-                    it.status == "failed" &&
-                        (targetAnalysis == null || it.analysis == targetAnalysis)
-                  }
-          if (failedJob != null) {
-            val retried = api.retryJob(failedJob.id)
-            targetAnalysis = retried.analysis?.id ?: targetAnalysis
-            targetJob = retried.job.id.ifBlank { failedJob.id }
-          } else if (targetAnalysis == null) {
-            val settings = AnalysisSettingsStore.of(context).settings.value
-            val started =
-                AnalysisService.startPreferred(api, remoteId, localConfig(context, key), settings)
-            targetAnalysis = started.analysisId
-            targetJob = started.jobId
-          }
 
-          store.markProcessing(key, remoteId, targetAnalysis, targetJob)
-          UploadScheduler.enqueuePoll(
-              context,
-              key,
-              remoteId,
-              targetAnalysis,
-              targetJob,
-              replace = true,
-          )
+          store.markProcessing(key, targetId)
+          UploadScheduler.enqueuePoll(context, key, targetId, replace = true)
           Result.success(Unit)
         } catch (e: TaigaUnauthorizedException) {
           remote.logout()

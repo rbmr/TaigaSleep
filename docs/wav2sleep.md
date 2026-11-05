@@ -115,7 +115,7 @@ cannot be imported under a tight memory limit).
 ## Default selection and fallback
 
 When the extra and checkpoint are present the worker reports the algorithm in
-its capability report, so it appears in `GET /api/taiga/algorithms`. The app
+its capability report, so it appears in `GET /v1/algorithms`. The app
 already prefers `wav2sleep`, then `baseline`, and only chooses a
 stager whose required streams and rates match the recording. Re-analysis of a
 local recording uses the same selection instead of hard-coding `baseline`.

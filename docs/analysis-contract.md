@@ -246,7 +246,7 @@ my_algo = "my_package.module:STAGER"
 a subclass of `Stager`; the ABC enforces the class-level `info: AlgorithmInfo`
 and the abstract `stage()` method, and rejects duck-typed objects at
 registration. The worker reports installed algorithms to the API; the app can
-offer them and the job claim filters by model. Two algorithms may share an id
+offer them and the claim filters by algorithm. Two algorithms may share an id
 only if their versions differ; the latest version is the default, and an
 analysis can request an exact version.
 

@@ -33,7 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--api-url",
-        help="PocketBase base URL (env: TAIGA_API_URL, default: http://127.0.0.1:8090)",
+        help="Backend base URL (env: TAIGA_API_URL, default: http://127.0.0.1:8090)",
     )
     parser.add_argument(
         "--email",
@@ -49,7 +49,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--worker-id",
-        help="Stable worker name recorded on leases (env: TAIGA_WORKER_ID)",
+        help="Stable worker name announced to the API (env: TAIGA_WORKER_ID)",
     )
     parser.add_argument(
         "--poll-interval",
@@ -59,7 +59,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--lease-seconds",
         type=int,
-        help="Job lease length in seconds (env: TAIGA_JOB_LEASE_S)",
+        help="Analysis lease length in seconds (env: TAIGA_JOB_LEASE_S)",
     )
     parser.add_argument(
         "--memory-mb",
@@ -69,12 +69,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--timeout",
         type=float,
-        help="Wall-clock limit for one job in seconds (env: TAIGA_JOB_TIMEOUT_S)",
+        help="Wall-clock limit for one analysis in seconds (env: TAIGA_JOB_TIMEOUT_S)",
     )
     parser.add_argument(
         "--once",
         action="store_true",
-        help="Claim and process at most one job, then exit (useful for tests)",
+        help="Claim and process at most one analysis, then exit (useful for tests)",
     )
     parser.add_argument(
         "--log-level",

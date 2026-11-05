@@ -23,6 +23,11 @@ var (
 	marshalerType  = reflect.TypeOf((*json.Marshaler)(nil)).Elem()
 )
 
+// schemaTypes names the types a `schema:"Name"` struct tag can point at.
+var schemaTypes = map[string]reflect.Type{
+	"RecordingMeta": reflect.TypeOf(RecordingMeta{}),
+}
+
 func newSchemaReflector() *schemaReflector {
 	return &schemaReflector{defs: map[string]any{}}
 }
@@ -112,7 +117,13 @@ func (r *schemaReflector) objectSchema(t reflect.Type) map[string]any {
 		if name == "" {
 			name = field.Name
 		}
-		properties[name] = r.schemaOf(field.Type)
+		if documented, ok := field.Tag.Lookup("schema"); ok {
+			// A raw JSON field whose shape is a Go type: document that type, since
+			// the field is stored and returned verbatim.
+			properties[name] = r.schemaOf(schemaTypes[documented])
+		} else {
+			properties[name] = r.schemaOf(field.Type)
+		}
 		if !hasJSONOption(options, "omitempty") && !hasJSONOption(options, "omitzero") {
 			required = append(required, name)
 		}

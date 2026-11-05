@@ -27,9 +27,13 @@ recordings to Parquet.
   events.jsonl   append-only, one JSON object per line
 ```
 
-`session_id` is the local start time, `yyyyMMdd_HHmmss` (bumped by whole
-seconds if that directory already exists). A stream file exists only if that
-stream was enabled for the session.
+`session_id` is the local start time, `yyyyMMdd_HHmmss`, a dash and four random
+lowercase letters or digits (`20261023_223000-k3f9`). The server stores the
+recording under the same id, and ids are unique across all accounts there, so the
+suffix keeps two phones that start in the same second apart; an id that already
+exists as a directory is drawn again. Recordings made before the suffix was added
+keep their plain `yyyyMMdd_HHmmss` id. A stream file exists only if that stream
+was enabled for the session.
 
 ## meta.json
 
@@ -41,7 +45,7 @@ step).
 {
   "format": "taiga-recording",
   "version": 1,
-  "session_id": "20261023_223000",
+  "session_id": "20261023_223000-k3f9",
   "state": "recording",
   "start_utc_ms": 1792798200000,
   "end_utc_ms": null,
@@ -164,14 +168,16 @@ ECG quality, rates and staleness are derived only by the live monitor, never by 
 ## Export / upload
 
 Because files only grow, the uploader sends `(file, byte_offset, bytes)` and
-resumes from the server's current length. The backend route is
-`PUT /api/taiga/sessions/{id}/upload/file/{file}?offset=N`; see
-[`backend/README.md`](../backend/README.md#recording-uploads) for the full
-create/resume/complete flow.
+resumes from the server's current length. The recording is created with
+`PUT /v1/recordings/{session_id}` and `meta.json` as the body, each file is
+appended with `PATCH /v1/recordings/{session_id}/files/{name}` and an
+`Upload-Offset` header, and `PATCH /v1/recordings/{session_id}` with
+`{"complete": true}` ends the upload. `meta.json` is not uploaded as a file. See
+[`api.md`](api.md) for the full contract.
 
 For manual export the app can zip the session directory on demand (never stored
 permanently). The backend stores the same files under
-`<pb_data>/recordings/<session id>/`.
+`<pb_data>/recordings/<recording id>/`; `meta.json` is kept in the recording itself.
 
 The upload can optionally compress the stream and event files with one gzip
 member per chunk; the server then stores `hr.log.gz` and similar names. The
