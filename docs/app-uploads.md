@@ -192,8 +192,10 @@ the phone:
 | Delete raw data straight after upload | Removed as soon as the server confirms the upload. |
 | Delete raw data after 5 / 14 / 30 days | Removed once that many days have passed since the confirmed upload. |
 
-`meta.json` and `events.jsonl` are metadata, not raw stream data, and are always
-kept, so History, the upload state and the cached analysis survive raw cleanup.
+`meta.json`, `events.jsonl` and `sync.json` are metadata, not raw stream data, and
+are always kept, so History, the upload state and the cached analysis survive raw
+cleanup. `sync.json` is written into the recording directory itself, so the upload
+state dies with the recording instead of lingering in a separate store.
 Cleanup only runs after the server confirmed the upload, so a recording that was
 never transferred is never touched. The policy is applied on app start, when
 History opens, when an upload completes and when the setting changes, so a night

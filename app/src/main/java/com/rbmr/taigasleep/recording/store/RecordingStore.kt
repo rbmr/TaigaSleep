@@ -113,7 +113,9 @@ class RecordingStore(val root: File) {
   fun zip(id: String, out: File, onProgress: (Float) -> Unit = {}) {
     val dir = File(root, id)
     val files =
-        dir.listFiles()?.filter { it.isFile && !it.name.endsWith(".tmp") }?.sortedBy { it.name }
+        dir.listFiles()
+            ?.filter { it.isFile && !it.name.endsWith(".tmp") && it.name != SYNC_FILE }
+            ?.sortedBy { it.name }
             ?: emptyList()
     val total = files.sumOf { it.length() }
     var written = 0L
@@ -144,6 +146,9 @@ class RecordingStore(val root: File) {
 
     /** The recorded stream files. meta.json and events.jsonl are not raw data. */
     val RAW_FILES = listOf("hr.log", "ecg.log", "acc.log")
+
+    /** The app's sync state for this recording, kept beside meta.json and not exported. */
+    const val SYNC_FILE = "sync.json"
 
     fun of(context: Context): RecordingStore {
       val base = context.getExternalFilesDir(null) ?: context.filesDir

@@ -27,6 +27,9 @@ object UploadScheduler {
   const val KEY_RECORDING_ID = "recording_id"
 
   fun onRecordingFinished(context: Context, localId: String) {
+    // A finished recording always has a durable sync state, even when nothing will upload it now.
+    val store = UploadStore.of(context)
+    if (store.record(localId) == null) store.markLocal(localId)
     val settings = UploadSettings.get(context)
     if (!settings.autoUpload.value.enabled) return
     if (!RemoteRepository.of(context).hasSession) return

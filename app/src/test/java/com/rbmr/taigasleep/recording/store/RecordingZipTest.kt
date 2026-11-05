@@ -14,6 +14,7 @@ class RecordingZipTest {
     val dir = File(root, "night").apply { mkdirs() }
     File(dir, "hr.log").writeBytes(ByteArray(200_000) { it.toByte() })
     File(dir, "meta.json").writeText("""{"version":1}""")
+    File(dir, RecordingStore.SYNC_FILE).writeText("""{"phase":"DONE"}""")
     val out = File(root, "night.zip")
     val progress = mutableListOf<Float>()
 
