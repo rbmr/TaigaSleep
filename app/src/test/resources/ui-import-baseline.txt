@@ -1,0 +1,44 @@
+# How many imports each screen file under ui/ takes from sync, backend, tracker, recording and
+# guard. Every file except a `*ViewModel.kt` is listed, including the ones with none: the ratchet
+# fails when a count rises and when it falls, so the line changes with the code. Paths are relative
+# to `app/src/main/java/com/rbmr/taigasleep/ui/`. See ArchitectureTest.
+TaigaApp.kt 6
+components/Buttons.kt 0
+components/Components.kt 0
+components/PreviewTheme.kt 0
+components/RecordingCharts.kt 2
+components/SegmentedProgress.kt 0
+components/Status.kt 0
+components/TaigaBottomBar.kt 0
+components/TaigaLogo.kt 0
+home/ActiveHome.kt 0
+home/DataSheet.kt 1
+home/GuardCard.kt 1
+home/HomeFactory.kt 12
+home/HomeScreen.kt 3
+home/HomeUiState.kt 6
+home/RecordingCard.kt 4
+home/SensorPickerSheet.kt 3
+recording/AnalysisSheet.kt 1
+recording/DataQualitySection.kt 2
+recording/DetailsSheet.kt 0
+recording/HeartRateSection.kt 1
+recording/MovementSection.kt 1
+recording/NightScreen.kt 0
+recording/RecordingBody.kt 2
+recording/RecordingDetailFactory.kt 8
+recording/RecordingDetailUiState.kt 5
+recording/RecordingOverlays.kt 0
+recording/ScoreCard.kt 2
+recording/SharedComponents.kt 1
+recording/SleepSection.kt 1
+recording/StatusCards.kt 1
+screens/AboutScreen.kt 0
+screens/FlowScreen.kt 11
+screens/HistoryScreen.kt 1
+screens/RemoteScreen.kt 7
+screens/SettingsScreen.kt 8
+theme/Color.kt 0
+theme/Theme.kt 0
+theme/ThemeMode.kt 0
+theme/Type.kt 0

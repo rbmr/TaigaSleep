@@ -45,7 +45,7 @@ import kotlinx.coroutines.withContext
  * The raw bytes and the analyses stay independent: [RecordingView.backup] says where the bytes are and
  * [RecordingView.analyses] lists every requested result. [RecordingView.status] is only a derived display summary.
  */
-class RecordingLibrary private constructor(context: Context) : LiveSyncTarget {
+class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, NightSource {
   private val context = context.applicationContext
   private val remote = RemoteRepository.of(this.context)
   private val uploads = UploadStore.of(this.context)
@@ -59,9 +59,9 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget {
   private val historyLock = Any()
 
   /** The one connection state, shared with the screens so they do not touch the remote store. */
-  val remoteStatus = remote.status
+  override val remoteStatus = remote.status
 
-  val recordings: StateFlow<List<RecordingView>> =
+  override val recordings: StateFlow<List<RecordingView>> =
       combine(
               RecordingRepository.sessions,
               uploads.records,
@@ -82,7 +82,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget {
   }
 
   /** Re-read the cached server list, for example after the account or the app resumed. */
-  fun reload() {
+  override fun reload() {
     val account = remote.accountKey
     if (account != loadedAccount) {
       // A fresh recording list belongs to one account; never show it after switching accounts.
@@ -98,10 +98,10 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget {
     remoteSummaries.value = history.load(account)
   }
 
-  fun recording(key: String): RecordingView? = recordings.value.firstOrNull { it.key == key }
+  override fun recording(key: String): RecordingView? = recordings.value.firstOrNull { it.key == key }
 
   /** The full cached payload for one analysis, if it is on this phone. */
-  fun cachedResult(key: String, analysisId: String?): AnalysisDto? =
+  override fun cachedResult(key: String, analysisId: String?): AnalysisDto? =
       results.load(key, analysisId)
 
   /** Fetch the server's recording list and cache it. Does not touch local recordings. */
@@ -133,7 +133,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget {
   }
 
   /** Installed algorithms the server reports that this recording can actually feed. */
-  suspend fun compatibleAlgorithms(recording: RecordingView): Result<List<AlgorithmDto>> =
+  override suspend fun compatibleAlgorithms(recording: RecordingView): Result<List<AlgorithmDto>> =
       withContext(Dispatchers.IO) {
         val api =
             remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
@@ -154,7 +154,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget {
    * Request one explicit analysis and remember that it was manual. Nothing waits for it: the event
    * stream reports it while the app is open, and the next open reads it otherwise.
    */
-  suspend fun requestManual(recording: RecordingView, algorithmId: String): Result<Unit> =
+  override suspend fun requestManual(recording: RecordingView, algorithmId: String): Result<Unit> =
       withContext(Dispatchers.IO) {
         val server = recording.remoteId
             ?: return@withContext Result.failure(IllegalStateException("this night is not uploaded"))
@@ -184,7 +184,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget {
       }
 
   /** Remember which finished run the user wants to see. */
-  fun selectAnalysis(recording: RecordingView, analysisId: String) {
+  override fun selectAnalysis(recording: RecordingView, analysisId: String) {
     uploads.markSelectedAnalysis(recording.key, analysisId)
   }
 
@@ -194,7 +194,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget {
    * night's stored state, the result cache and the cached History list follow what the server says
    * (see [AnalysisSync]). The selected analysis is read when it is still listed.
    */
-  suspend fun refreshRecording(
+  override suspend fun refreshRecording(
       key: String,
       remoteId: String?,
       analysisId: String?,
