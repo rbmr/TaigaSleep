@@ -20,9 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.guidance.PreviewDevice
+import com.rbmr.taigasleep.guard.GuidanceStore
+import com.rbmr.taigasleep.guard.PreviewDevice
 
 /** Picks which device's guidance to preview; opened by long-pressing Home's readiness card. */
 @Composable

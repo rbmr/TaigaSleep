@@ -29,23 +29,23 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.ThemeMode
-import com.rbmr.taigasleep.guidance.FlowScreen
-import com.rbmr.taigasleep.guidance.GuidanceFlows
-import com.rbmr.taigasleep.remote.RemoteError
-import com.rbmr.taigasleep.remote.RemoteRepository
-import com.rbmr.taigasleep.remote.RemoteStatus
+import com.rbmr.taigasleep.backend.RemoteError
+import com.rbmr.taigasleep.backend.RemoteRepository
+import com.rbmr.taigasleep.backend.RemoteStatus
+import com.rbmr.taigasleep.guard.GuidanceFlows
+import com.rbmr.taigasleep.guard.GuidanceStore
+import com.rbmr.taigasleep.sync.UploadScheduler
 import com.rbmr.taigasleep.ui.components.BottomBarItem
 import com.rbmr.taigasleep.ui.components.TaigaBottomBar
 import com.rbmr.taigasleep.ui.screens.AboutScreen
+import com.rbmr.taigasleep.ui.screens.FlowScreen
 import com.rbmr.taigasleep.ui.screens.HistoryScreen
 import com.rbmr.taigasleep.ui.screens.HomeScreen
 import com.rbmr.taigasleep.ui.screens.NightDetailScreen
 import com.rbmr.taigasleep.ui.screens.RemoteScreen
 import com.rbmr.taigasleep.ui.screens.SettingsScreen
-import com.rbmr.taigasleep.upload.UploadScheduler
+import com.rbmr.taigasleep.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
 
 private data class Tab(

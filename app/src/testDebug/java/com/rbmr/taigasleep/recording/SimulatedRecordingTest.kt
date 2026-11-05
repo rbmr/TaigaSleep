@@ -1,13 +1,13 @@
 package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.TestClock
-import com.rbmr.taigasleep.sensor.ConnectionState
-import com.rbmr.taigasleep.sensor.SimulatedSensor
-import com.rbmr.taigasleep.sensor.StreamConfig
-import com.rbmr.taigasleep.storage.FrameLog
-import com.rbmr.taigasleep.storage.SessionConfig
-import com.rbmr.taigasleep.storage.SessionMeta
-import com.rbmr.taigasleep.storage.SessionState
+import com.rbmr.taigasleep.recording.store.FrameLog
+import com.rbmr.taigasleep.recording.store.SessionConfig
+import com.rbmr.taigasleep.recording.store.SessionMeta
+import com.rbmr.taigasleep.recording.store.SessionState
+import com.rbmr.taigasleep.tracker.ConnectionState
+import com.rbmr.taigasleep.tracker.SimulatedSensor
+import com.rbmr.taigasleep.tracker.StreamConfig
 import java.io.File
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
@@ -153,8 +153,8 @@ class SimulatedRecordingTest {
       samples +=
           when (stream) {
             1 -> 1
-            2 -> com.rbmr.taigasleep.storage.Payloads.decodeEcg(payload).values.size
-            else -> com.rbmr.taigasleep.storage.Payloads.decodeAcc(payload).values.size / 3
+            2 -> com.rbmr.taigasleep.recording.store.Payloads.decodeEcg(payload).values.size
+            else -> com.rbmr.taigasleep.recording.store.Payloads.decodeAcc(payload).values.size / 3
           }
     }
     return samples

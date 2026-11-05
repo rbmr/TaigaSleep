@@ -1,11 +1,11 @@
 package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.TestClock
-import com.rbmr.taigasleep.sensor.HrSample
-import com.rbmr.taigasleep.sensor.Stamp
-import com.rbmr.taigasleep.storage.SessionConfig
-import com.rbmr.taigasleep.storage.SessionMeta
-import com.rbmr.taigasleep.storage.SessionState
+import com.rbmr.taigasleep.recording.store.SessionConfig
+import com.rbmr.taigasleep.recording.store.SessionMeta
+import com.rbmr.taigasleep.recording.store.SessionState
+import com.rbmr.taigasleep.tracker.HrSample
+import com.rbmr.taigasleep.tracker.Stamp
 import org.json.JSONObject
 import org.junit.Assert.assertTrue
 import org.junit.Test

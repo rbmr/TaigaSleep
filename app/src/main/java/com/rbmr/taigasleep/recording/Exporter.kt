@@ -3,7 +3,7 @@ package com.rbmr.taigasleep.recording
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
-import com.rbmr.taigasleep.storage.SessionStore
+import com.rbmr.taigasleep.recording.store.SessionStore
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

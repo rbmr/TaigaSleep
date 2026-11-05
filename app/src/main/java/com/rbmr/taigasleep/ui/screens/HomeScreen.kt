@@ -56,13 +56,13 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.debug.DebugTools
 import com.rbmr.taigasleep.debug.GuidancePreviewPicker
-import com.rbmr.taigasleep.guidance.GuidanceFlows
-import com.rbmr.taigasleep.guidance.HomeState
-import com.rbmr.taigasleep.guidance.ReadinessState
+import com.rbmr.taigasleep.guard.GuidanceFlows
+import com.rbmr.taigasleep.guard.GuidanceStore
+import com.rbmr.taigasleep.guard.HomeState
+import com.rbmr.taigasleep.guard.ReadinessState
 import com.rbmr.taigasleep.recording.Phase
 import com.rbmr.taigasleep.recording.RecordingFormat
 import com.rbmr.taigasleep.recording.RecordingPrefs
@@ -70,11 +70,11 @@ import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.RecordingService
 import com.rbmr.taigasleep.recording.RecordingState
 import com.rbmr.taigasleep.recording.RecordingStatus
-import com.rbmr.taigasleep.sensor.ConnectionState
-import com.rbmr.taigasleep.sensor.SensorHub
-import com.rbmr.taigasleep.sensor.SensorKind
-import com.rbmr.taigasleep.sensor.SleepSensor
-import com.rbmr.taigasleep.sensor.StreamConfig
+import com.rbmr.taigasleep.recording.SensorHub
+import com.rbmr.taigasleep.tracker.ConnectionState
+import com.rbmr.taigasleep.tracker.SensorKind
+import com.rbmr.taigasleep.tracker.SleepSensor
+import com.rbmr.taigasleep.tracker.StreamConfig
 import com.rbmr.taigasleep.ui.components.ButtonSize
 import com.rbmr.taigasleep.ui.components.DestructiveButton
 import com.rbmr.taigasleep.ui.components.LogoVariant
@@ -83,8 +83,8 @@ import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SecondaryButton
 import com.rbmr.taigasleep.ui.components.StatusBanner
 import com.rbmr.taigasleep.ui.components.StatusKind
-import com.rbmr.taigasleep.ui.components.TaigaLogo
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.components.TaigaLogo
 
 private val bluetoothPermissions =
     arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)

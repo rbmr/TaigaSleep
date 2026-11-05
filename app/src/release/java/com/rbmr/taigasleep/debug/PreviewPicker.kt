@@ -1,7 +1,7 @@
 package com.rbmr.taigasleep.debug
 
 import androidx.compose.runtime.Composable
-import com.rbmr.taigasleep.GuidanceStore
+import com.rbmr.taigasleep.guard.GuidanceStore
 
 /** Release twin of the debug guidance preview picker; never shown, since GUIDANCE_PREVIEW is off. */
 @Composable

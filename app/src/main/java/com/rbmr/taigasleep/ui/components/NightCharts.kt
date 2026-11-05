@@ -72,13 +72,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.analysis.applicableStages
-import com.rbmr.taigasleep.analysis.formatSeconds
-import com.rbmr.taigasleep.analysis.stageLabelRes
-import com.rbmr.taigasleep.analysis.stageSeconds
-import com.rbmr.taigasleep.remote.HrSeriesDto
-import com.rbmr.taigasleep.remote.MetricSupportDto
-import com.rbmr.taigasleep.remote.StageSegmentDto
+import com.rbmr.taigasleep.backend.HrSeriesDto
+import com.rbmr.taigasleep.backend.MetricSupportDto
+import com.rbmr.taigasleep.backend.StageSegmentDto
+import com.rbmr.taigasleep.insights.applicableStages
+import com.rbmr.taigasleep.insights.formatSeconds
+import com.rbmr.taigasleep.insights.stageLabelRes
+import com.rbmr.taigasleep.insights.stageSeconds
 import com.rbmr.taigasleep.ui.theme.taiga
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -790,11 +790,11 @@ private fun NightChartsPreview() {
       )
   val support =
       listOf("wake", "rem", "light", "deep").associate {
-        "time_in_${it}_s" to com.rbmr.taigasleep.remote.MetricSupportDto("supported")
+        "time_in_${it}_s" to com.rbmr.taigasleep.backend.MetricSupportDto("supported")
       } +
           listOf("nrem", "sleep").associate {
             "time_in_${it}_s" to
-                com.rbmr.taigasleep.remote.MetricSupportDto(
+                com.rbmr.taigasleep.backend.MetricSupportDto(
                     "unsupported_algorithm",
                     "algorithm_does_not_distinguish_$it",
                 )

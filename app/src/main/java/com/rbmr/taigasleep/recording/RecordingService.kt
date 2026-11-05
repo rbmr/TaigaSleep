@@ -1,8 +1,6 @@
 package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.diagnostics.Diagnostics
-import com.rbmr.taigasleep.guidance.Readiness
-import com.rbmr.taigasleep.guidance.ReadinessState
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -17,19 +15,16 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import com.rbmr.taigasleep.BuildConfig
-import com.rbmr.taigasleep.GuidanceStore
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.sensor.ConnectionState
-import com.rbmr.taigasleep.sensor.SensorHub
-import com.rbmr.taigasleep.sensor.SensorKind
-import com.rbmr.taigasleep.sensor.SleepSensor
-import com.rbmr.taigasleep.sensor.StreamConfig
-import com.rbmr.taigasleep.sensor.SystemClockSource
-import com.rbmr.taigasleep.storage.SessionConfig
-import com.rbmr.taigasleep.storage.SessionMeta
-import com.rbmr.taigasleep.storage.SessionState
-import com.rbmr.taigasleep.storage.SessionStore
-import com.rbmr.taigasleep.upload.UploadScheduler
+import com.rbmr.taigasleep.recording.store.SessionConfig
+import com.rbmr.taigasleep.recording.store.SessionMeta
+import com.rbmr.taigasleep.recording.store.SessionState
+import com.rbmr.taigasleep.recording.store.SessionStore
+import com.rbmr.taigasleep.tracker.ConnectionState
+import com.rbmr.taigasleep.tracker.SensorKind
+import com.rbmr.taigasleep.tracker.SleepSensor
+import com.rbmr.taigasleep.tracker.StreamConfig
+import com.rbmr.taigasleep.tracker.SystemClockSource
 import java.util.TimeZone
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CoroutineScope
@@ -56,7 +51,7 @@ class RecordingService : Service() {
 
   private lateinit var store: SessionStore
   private lateinit var prefs: RecordingPrefs
-  private lateinit var guidance: GuidanceStore
+  private lateinit var hooks: RecordingHooks
 
   private class Live(
       val writer: SessionWriter,
@@ -73,7 +68,7 @@ class RecordingService : Service() {
     super.onCreate()
     store = SessionStore.of(this)
     prefs = RecordingPrefs.get(this)
-    guidance = GuidanceStore(this)
+    hooks = RecordingHooks.current()
     getSystemService(NotificationManager::class.java)
         .createNotificationChannel(
             NotificationChannel(
@@ -124,9 +119,9 @@ class RecordingService : Service() {
 
   private suspend fun start(intent: Intent) {
     if (live != null) return
-    // The same answer Home shows, from the flow the user picked. No separate copy here.
-    if (!ReadinessState.ready(this, guidance, preview = null)) {
-      Log.w(TAG, "start refused: ${Readiness.read(this).summary()}")
+    // The same answer Home shows, from the flow the user picked: the app wiring supplies it.
+    if (!hooks.mayStart(this)) {
+      Log.w(TAG, "start refused: ${hooks.readinessSummary(this)}")
       leave(getString(R.string.rec_error_not_ready))
       return
     }
@@ -177,7 +172,7 @@ class RecordingService : Service() {
           leave(getString(R.string.rec_error_storage))
           return
         }
-    writer.event("readiness", Readiness.read(this).summary())
+    writer.event("readiness", hooks.readinessSummary(this))
     attach(writer, sensor)
   }
 
@@ -199,7 +194,7 @@ class RecordingService : Service() {
       leave(null)
       return
     }
-    writer.event("readiness", Readiness.read(this).summary())
+    writer.event("readiness", hooks.readinessSummary(this))
     val sensor =
         try {
           SensorHub.obtain(this, kind, meta.sensorId, meta.sensorName)
@@ -318,7 +313,7 @@ class RecordingService : Service() {
     RecordingRepository.setIdle()
     RecordingRepository.refreshSessions(this)
     if (s.writer.meta.state != SessionState.RECORDING) {
-      UploadScheduler.onRecordingFinished(this, s.writer.meta.sessionId)
+      hooks.onRecordingFinished(this, s.writer.meta.sessionId)
     }
     stopForeground(STOP_FOREGROUND_REMOVE)
     stopSelf()
@@ -358,7 +353,7 @@ class RecordingService : Service() {
   private suspend fun tickLoop(s: Live) {
     var lastHeartbeat = 0L
     var lastReadinessCheck = 0L
-    var readiness = Readiness.read(this)
+    var readiness = hooks.readinessSummary(this)
     while (true) {
       val nowMs = SystemClock.elapsedRealtime()
       val nowNs = SystemClockSource.elapsedNs()
@@ -374,8 +369,8 @@ class RecordingService : Service() {
       }
       if (nowMs - lastReadinessCheck >= READINESS_MS) {
         lastReadinessCheck = nowMs
-        val now = Readiness.read(this)
-        if (now != readiness) s.writer.event("readiness", now.summary())
+        val now = hooks.readinessSummary(this)
+        if (now != readiness) s.writer.event("readiness", now)
         readiness = now
       }
       delay(1000)

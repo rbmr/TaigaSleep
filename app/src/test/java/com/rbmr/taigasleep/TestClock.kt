@@ -1,6 +1,6 @@
 package com.rbmr.taigasleep
 
-import com.rbmr.taigasleep.sensor.Clock
+import com.rbmr.taigasleep.tracker.Clock
 
 /** A clock that only moves when the test says so. */
 class TestClock(var phoneNs: Long = 1_792_798_200_000_000_000L, var elapsed: Long = 5_000_000_000L) :

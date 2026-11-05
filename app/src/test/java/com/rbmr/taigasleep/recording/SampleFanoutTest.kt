@@ -1,14 +1,14 @@
 package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.TestClock
-import com.rbmr.taigasleep.sensor.AccBatch
-import com.rbmr.taigasleep.sensor.EcgBatch
-import com.rbmr.taigasleep.sensor.HrSample
-import com.rbmr.taigasleep.sensor.Stamp
-import com.rbmr.taigasleep.storage.FrameLog
-import com.rbmr.taigasleep.storage.SessionConfig
-import com.rbmr.taigasleep.storage.SessionMeta
-import com.rbmr.taigasleep.storage.SessionState
+import com.rbmr.taigasleep.recording.store.FrameLog
+import com.rbmr.taigasleep.recording.store.SessionConfig
+import com.rbmr.taigasleep.recording.store.SessionMeta
+import com.rbmr.taigasleep.recording.store.SessionState
+import com.rbmr.taigasleep.tracker.AccBatch
+import com.rbmr.taigasleep.tracker.EcgBatch
+import com.rbmr.taigasleep.tracker.HrSample
+import com.rbmr.taigasleep.tracker.Stamp
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame

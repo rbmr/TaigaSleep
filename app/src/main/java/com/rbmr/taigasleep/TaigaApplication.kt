@@ -2,11 +2,16 @@ package com.rbmr.taigasleep
 
 import android.app.Activity
 import android.app.Application
+import android.content.Context
 import android.os.Bundle
 import com.rbmr.taigasleep.debug.DebugTools
 import com.rbmr.taigasleep.diagnostics.Diagnostics
-import com.rbmr.taigasleep.upload.RawRetention
-import com.rbmr.taigasleep.upload.UploadScheduler
+import com.rbmr.taigasleep.guard.GuidanceStore
+import com.rbmr.taigasleep.guard.Readiness
+import com.rbmr.taigasleep.guard.ReadinessState
+import com.rbmr.taigasleep.recording.RecordingHooks
+import com.rbmr.taigasleep.sync.RawRetention
+import com.rbmr.taigasleep.sync.UploadScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -16,6 +21,8 @@ class TaigaApplication : Application() {
 
   override fun onCreate() {
     super.onCreate()
+    // Before anything can start a recording: the service asks these to decide and to hand over.
+    RecordingHooks.install(RecordingWiring)
     Diagnostics.init(this)
     registerActivityLifecycleCallbacks(lifecycleLogger)
     DebugTools.install(this)
@@ -84,4 +91,19 @@ class TaigaApplication : Application() {
         ),
     )
   }
+}
+
+/**
+ * Answers what the recording service asks of the rest of the app, so `recording` does not depend on
+ * `guard` or `sync`: the start gate is the readiness Home shows, and a finished recording goes to
+ * the upload queue.
+ */
+private object RecordingWiring : RecordingHooks {
+  override fun mayStart(context: Context): Boolean =
+      ReadinessState.ready(context, GuidanceStore(context), preview = null)
+
+  override fun readinessSummary(context: Context): String = Readiness.read(context).summary()
+
+  override fun onRecordingFinished(context: Context, sessionId: String) =
+      UploadScheduler.onRecordingFinished(context, sessionId)
 }
