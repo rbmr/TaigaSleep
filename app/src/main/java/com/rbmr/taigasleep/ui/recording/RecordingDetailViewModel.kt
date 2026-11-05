@@ -56,7 +56,11 @@ class RecordingDetailViewModel(
       library.recordings.collect { nights ->
         val night = nightIn(nights)
         _state.update { it.copy(night = night, canExport = canExportOf(night)) }
-        if (night != null) followSelectedResult(night)
+        if (night != null) {
+          followSelectedResult(night)
+          // The raw files appear and go behind the sheet, so its size follows the night.
+          if (_state.value.showDetails) readRawSize()
+        }
       }
     }
     scope.launch {
@@ -195,10 +199,8 @@ class RecordingDetailViewModel(
   }
 
   fun openDetails() {
-    val id = _state.value.local?.id ?: localId
-    _state.update {
-      it.copy(showDetails = true, rawSizeBytes = if (id == null) 0L else work.rawSize(id))
-    }
+    _state.update { it.copy(showDetails = true) }
+    readRawSize()
   }
 
   fun closeDetails() {
@@ -325,6 +327,13 @@ class RecordingDetailViewModel(
 
   private fun progress(value: Float) {
     _state.update { it.copy(exportProgress = value) }
+  }
+
+  /** Bytes the raw files take on this phone now, which a download or a delete can change. */
+  private fun readRawSize() {
+    val id = _state.value.local?.id ?: localId
+    val size = if (id == null) 0L else work.rawSize(id)
+    _state.update { it.copy(rawSizeBytes = size) }
   }
 
   /** The phone has the raw files, or the server does: either copy can be exported. */

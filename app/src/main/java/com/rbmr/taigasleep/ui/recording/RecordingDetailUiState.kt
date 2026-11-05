@@ -38,7 +38,7 @@ data class RecordingDetailUiState(
     val loginExpired: Boolean = false,
     val connected: Boolean = false,
     val actionError: String? = null,
-    /** Bytes of the raw streams on this phone, read when the details sheet opens. */
+    /** Bytes of the raw streams on this phone, read while the details sheet is open. */
     val rawSizeBytes: Long = 0,
     val showDetails: Boolean = false,
     val exportBusy: Boolean = false,
