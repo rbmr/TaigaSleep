@@ -26,6 +26,7 @@ from tests.harness import (
     WORKER_DIR,
     Account,
     Backend,
+    CuttableProxy,
     Response,
     manifest,
     result,
@@ -1831,6 +1832,88 @@ def test_the_running_worker_polls_works_and_stops_on_sigterm(api: Backend, basel
             pytest.fail("the worker did not stop on SIGTERM")
     assert process.returncode == 0, stderr
     assert "worker stopped" in stderr
+
+
+# ---------------------------------------------------------------------------
+# A worker that is woken by events instead of polling
+# ---------------------------------------------------------------------------
+
+# An hour: whatever the worker does within the test, it does not do it because it polled.
+LONG_POLL = "3600"
+
+
+def assert_stopped_cleanly(worker: Any) -> None:
+    assert worker.returncode == 0, worker.log
+    assert "worker stopped" in worker.log
+    assert worker.stop_seconds is not None and worker.stop_seconds < 5, "SIGTERM took too long"
+
+
+def test_a_worker_with_a_long_poll_interval_claims_new_work_within_seconds(api: Backend, baseline: str) -> None:
+    api.drain_queue()
+    with api.running_worker(TAIGA_POLL_INTERVAL_S=LONG_POLL) as worker:
+        # Idle and listening: its first claim found nothing and the stream is open.
+        worker.wait_for_log("event stream connected")
+        worker.wait_for_log("waiting for an event")
+
+        recording = api.make_recording(api.user_a, hr_frames=120)
+        created = api.request_analysis(api.user_a, recording, "baseline", expect=201).json()
+
+        worker.wait_for_log(f"claimed analysis {created['id']}", timeout_s=10)
+        analysis = api.wait_for_status(api.user_a, created["id"], ("succeeded", "failed"), timeout_s=90)
+        assert analysis["status"] == "succeeded", analysis["error"]
+        assert analysis["result"]["provenance"]["worker"] == "integration-worker"
+
+        # It is idle again and ready for the next one, which it also takes at once.
+        worker.wait_for_log("waiting for an event", times=2)
+        second = api.request_analysis(api.user_a, recording, "baseline", params={"smooth_window_epochs": 5}, expect=201).json()
+        worker.wait_for_log(f"claimed analysis {second['id']}", timeout_s=10)
+        assert api.wait_for_status(api.user_a, second["id"], ("succeeded", "failed"), timeout_s=90)["status"] == "succeeded"
+    assert_stopped_cleanly(worker)
+
+
+def test_a_worker_started_with_work_queued_claims_it_without_waiting_for_the_poll_interval(
+    api: Backend, baseline: str
+) -> None:
+    api.drain_queue()
+    recording = api.make_recording(api.user_a, hr_frames=120)
+    created = api.request_analysis(api.user_a, recording, "baseline", expect=201).json()
+
+    with api.running_worker(TAIGA_POLL_INTERVAL_S=LONG_POLL) as worker:
+        worker.wait_for_log(f"claimed analysis {created['id']}", timeout_s=30)
+        analysis = api.wait_for_status(api.user_a, created["id"], ("succeeded", "failed"), timeout_s=90)
+        assert analysis["status"] == "succeeded", analysis["error"]
+        worker.wait_for_log("event stream connected")
+    assert_stopped_cleanly(worker)
+
+
+def test_a_worker_whose_stream_dropped_claims_what_it_missed_once_it_is_connected_again(
+    api: Backend, baseline: str
+) -> None:
+    api.drain_queue()
+    proxy = CuttableProxy(int(api.base_url.rsplit(":", 1)[1]))
+    try:
+        with api.running_worker(TAIGA_POLL_INTERVAL_S=LONG_POLL, TAIGA_API_URL=proxy.url) as worker:
+            worker.wait_for_log("event stream connected")
+            worker.wait_for_log("waiting for an event")
+
+            proxy.cut()
+            # Its stream is gone and every try to open it again is refused.
+            worker.wait_for_log("cannot listen for new analyses")
+            recording = api.make_recording(api.user_a, hr_frames=120)
+            created = api.request_analysis(api.user_a, recording, "baseline", expect=201).json()
+            # Nobody told the worker, and it does not poll for an hour.
+            time.sleep(1.5)
+            assert api.analysis(api.user_a, created["id"])["status"] == "queued"
+            assert f"claimed analysis {created['id']}" not in worker.log
+
+            proxy.restore()
+            worker.wait_for_log("listening for new analyses again", timeout_s=30)
+            worker.wait_for_log(f"claimed analysis {created['id']}", timeout_s=10)
+            analysis = api.wait_for_status(api.user_a, created["id"], ("succeeded", "failed"), timeout_s=90)
+            assert analysis["status"] == "succeeded", analysis["error"]
+        assert_stopped_cleanly(worker)
+    finally:
+        proxy.close()
 
 
 # ---------------------------------------------------------------------------

@@ -25,7 +25,6 @@ import kotlinx.coroutines.withContext
 object UploadScheduler {
   const val KEY_SESSION_ID = "session_id"
   const val KEY_RECORDING_ID = "recording_id"
-  const val KEY_ANALYSIS_ID = "analysis_id"
 
   fun onRecordingFinished(context: Context, localId: String) {
     val settings = UploadSettings.get(context)
@@ -55,42 +54,9 @@ object UploadScheduler {
     enqueue(context, localId, autoConstraints(settings), ExistingWorkPolicy.KEEP)
   }
 
-  /**
-   * [localId] is the night's key: the local recording id, or `remote-` and the id of a recording
-   * that exists only on the server.
-   */
-  fun enqueuePoll(
-      context: Context,
-      localId: String,
-      analysisId: String?,
-      delayMs: Long = 0,
-      replace: Boolean = false,
-  ) {
-    val data =
-        Data.Builder()
-            .putString(KEY_SESSION_ID, localId)
-            .apply { if (analysisId != null) putString(KEY_ANALYSIS_ID, analysisId) }
-            .build()
-    val request =
-        OneTimeWorkRequestBuilder<AnalysisWorker>()
-            .setInputData(data)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-            .addTag(TAG_POLL)
-            .build()
-    WorkManager.getInstance(context)
-        .enqueueUniqueWork(
-            "analysis-$localId",
-            if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
-            request,
-        )
-  }
-
   fun cancelRecordingWork(context: Context, localId: String) {
     val manager = WorkManager.getInstance(context)
     manager.cancelUniqueWork("upload-$localId")
-    manager.cancelUniqueWork("analysis-$localId")
   }
 
   fun enqueueDelete(context: Context, recordingId: String) {
@@ -105,6 +71,14 @@ object UploadScheduler {
             .build()
     WorkManager.getInstance(context)
         .enqueueUniqueWork("delete-$recordingId", ExistingWorkPolicy.KEEP, request)
+  }
+
+  /**
+   * Version 0.5 polled analyses from WorkManager under this tag. Nothing polls any more, so work an
+   * earlier version left queued is dropped instead of failing to start a worker class that is gone.
+   */
+  fun cancelLegacyPolls(context: Context) {
+    WorkManager.getInstance(context).cancelAllWorkByTag(LEGACY_TAG_POLL)
   }
 
   /** Restore the remote-delete queue after a process restart. */
@@ -129,12 +103,9 @@ object UploadScheduler {
     if (!RemoteRepository.of(context).hasSession) return
     local.forEach { session ->
       if (session.state == SessionState.RECORDING) return@forEach
-      val record = store.record(session.id)
-      if (record?.phase == UploadPhase.PROCESSING) {
-        enqueuePoll(context, session.id, record.analysisId, replace = true)
-      } else if (settings.enabled) {
-        enqueueAuto(context, session.id)
-      }
+      // A night that is processing is on the server already; its result comes from the live stream.
+      if (store.record(session.id)?.phase == UploadPhase.PROCESSING) return@forEach
+      if (settings.enabled) enqueueAuto(context, session.id)
     }
   }
 
@@ -154,10 +125,10 @@ object UploadScheduler {
           }
           val record = store.record(session.id)
           when (record?.phase) {
+            // Results are not polled: a processing night is refreshed by the live sync.
             UploadPhase.DONE,
-            UploadPhase.FAILED -> Unit
-            UploadPhase.PROCESSING ->
-                enqueuePoll(context, session.id, record.analysisId, replace = true)
+            UploadPhase.FAILED,
+            UploadPhase.PROCESSING -> Unit
             UploadPhase.LOCAL,
             UploadPhase.QUEUED,
             UploadPhase.UPLOADING,
@@ -200,6 +171,6 @@ object UploadScheduler {
           .build()
 
   private const val TAG_UPLOAD = "recording-upload"
-  private const val TAG_POLL = "analysis-poll"
   private const val TAG_DELETE = "recording-delete"
+  private const val LEGACY_TAG_POLL = "analysis-poll"
 }

@@ -20,7 +20,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -37,7 +36,6 @@ import com.rbmr.taigasleep.night.NightStatus
 import com.rbmr.taigasleep.night.formatDuration
 import com.rbmr.taigasleep.night.formatNightDateAndTime
 import com.rbmr.taigasleep.recording.RecordingRepository
-import com.rbmr.taigasleep.remote.RemoteStatus
 import com.rbmr.taigasleep.ui.components.ScoreBadge
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SectionLabel
@@ -63,8 +61,6 @@ fun HistoryScreen(
   val remoteStatus by repository.remoteStatus.collectAsStateWithLifecycle()
   val nights by repository.nights.collectAsStateWithLifecycle()
 
-  var refreshKey by remember { mutableIntStateOf(0) }
-
   LaunchedEffect(Unit) {
     RecordingRepository.refreshSessions(context)
     UploadScheduler.resumePendingDeletes(context)
@@ -75,24 +71,12 @@ fun HistoryScreen(
   LifecycleResumeEffect(Unit) {
     RecordingRepository.refreshSessions(context)
     repository.reload()
-    refreshKey++
     onPauseOrDispose {}
   }
   LaunchedEffect(remoteStatus) { repository.reload() }
-  LaunchedEffect(remoteStatus, refreshKey) {
-    if (remoteStatus !is RemoteStatus.Connected) {
-      return@LaunchedEffect
-    }
-    repository.refreshList()
-  }
-  // Results are small. Fetch any finished result whose full payload is not on this phone yet.
-  LaunchedEffect(nights, remoteStatus) {
-    if (remoteStatus !is RemoteStatus.Connected) return@LaunchedEffect
-    for (night in nights) {
-      if (night.remoteId == null || !night.isDone || night.resultDownloaded) continue
-      UploadScheduler.enqueuePoll(context, night.localId ?: night.key, night.analysisId)
-    }
-  }
+  // The server's list and the results that are still missing are not fetched here: the live sync
+  // does it once per open and on every reconnect (see LiveSync), and updates the rows as events
+  // arrive.
 
   val items =
       remember(nights, pendingDeletes) {

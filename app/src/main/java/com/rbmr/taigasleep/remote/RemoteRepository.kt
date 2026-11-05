@@ -4,9 +4,13 @@ import android.content.Context
 import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.diagnostics.Diagnostics
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -26,6 +30,7 @@ import kotlinx.coroutines.withContext
 class RemoteRepository internal constructor(
     private val store: RemoteStore,
     private val api: RemoteApi,
+    transport: EventTransport = OkHttpEventTransport(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
   private val mutex = Mutex()
@@ -62,6 +67,30 @@ class RemoteRepository internal constructor(
 
   val hasSession: Boolean
     get() = store.token != null
+
+  /**
+   * The account the live event stream may run for: [accountKey] while there is a session and the
+   * server can be spoken to, null otherwise. It changes when the user logs in, out or into another
+   * account, and when the server turns out to speak another API revision, so a collector restarts or
+   * stops the stream exactly then. A refresh of the same session does not change it.
+   */
+  val streamAccount: Flow<String?> =
+      _status
+          .map { if (hasSession && it.canStream()) accountKey else null }
+          .distinctUntilChanged()
+          // Reading the token opens the Keystore.
+          .flowOn(Dispatchers.IO)
+
+  private val eventStream =
+      EventStream(target = ::streamTarget, transport = transport, onUnauthorized = ::sessionUsable)
+
+  /**
+   * The server's event stream for the saved session, kept connected until the collector goes away.
+   * It does not connect without a session or against a server that is not usable (see
+   * [canStream]). A refused token is handled like any other: the session is refreshed by [verify],
+   * and dropped when the server no longer accepts it. See [EventStream].
+   */
+  fun events(): Flow<RemoteEvent> = eventStream.events().flowOn(Dispatchers.IO)
 
   /**
    * A client for the saved address and token. Null until the user has logged in. Transport failures
@@ -203,6 +232,19 @@ class RemoteRepository internal constructor(
           }
         }
       }
+
+  private fun streamTarget(): StreamTarget? {
+    if (!_status.value.canStream()) return null
+    val baseUrl = savedUrl.takeIf { it.isNotBlank() } ?: return null
+    val token = store.token ?: return null
+    return StreamTarget(baseUrl, token)
+  }
+
+  /** After a refused token: the same refresh a resume does, then whether a session is left. */
+  private suspend fun sessionUsable(): Boolean {
+    verify()
+    return hasSession && _status.value.canStream()
+  }
 
   fun logout() {
     store.clearToken()

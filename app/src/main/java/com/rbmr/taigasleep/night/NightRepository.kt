@@ -6,19 +6,26 @@ import com.rbmr.taigasleep.analysis.compatible
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.remote.AlgorithmDto
 import com.rbmr.taigasleep.remote.AnalysisDto
+import com.rbmr.taigasleep.remote.RecordingSummaryDto
 import com.rbmr.taigasleep.remote.RecordingSummaryListDto
 import com.rbmr.taigasleep.remote.RemoteRepository
+import com.rbmr.taigasleep.remote.TaigaHttpException
 import com.rbmr.taigasleep.remote.TaigaUnauthorizedException
 import com.rbmr.taigasleep.remote.recordingSummaries
 import com.rbmr.taigasleep.storage.SessionConfig
 import com.rbmr.taigasleep.storage.SessionMeta
+import com.rbmr.taigasleep.storage.SessionStore
+import com.rbmr.taigasleep.upload.AnalysisSync
+import com.rbmr.taigasleep.upload.LiveSyncTarget
+import com.rbmr.taigasleep.upload.PendingDeleteStore
+import com.rbmr.taigasleep.upload.RecordingSnapshot
 import com.rbmr.taigasleep.upload.RemoteHistoryCache
 import com.rbmr.taigasleep.upload.ResultCache
 import com.rbmr.taigasleep.upload.UploadFailure
 import com.rbmr.taigasleep.upload.UploadPhase
 import com.rbmr.taigasleep.upload.UploadRecord
-import com.rbmr.taigasleep.upload.UploadScheduler
 import com.rbmr.taigasleep.upload.UploadStore
+import com.rbmr.taigasleep.upload.pendingRecordings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,7 +45,7 @@ import kotlinx.coroutines.withContext
  * The raw bytes and the analyses stay independent: [Night.backup] says where the bytes are and
  * [Night.analyses] lists every requested result. [Night.status] is only a derived display summary.
  */
-class NightRepository private constructor(context: Context) {
+class NightRepository private constructor(context: Context) : LiveSyncTarget {
   private val context = context.applicationContext
   private val remote = RemoteRepository.of(this.context)
   private val uploads = UploadStore.of(this.context)
@@ -49,6 +56,7 @@ class NightRepository private constructor(context: Context) {
   private val remoteSummaries = MutableStateFlow<RecordingSummaryListDto?>(null)
   private val overrides = MutableStateFlow<Map<String, NightRemoteOverride>>(emptyMap())
   private var loadedAccount: String? = null
+  private val historyLock = Any()
 
   /** The one connection state, shared with the screens so they do not touch the remote store. */
   val remoteStatus = remote.status
@@ -103,8 +111,10 @@ class NightRepository private constructor(context: Context) {
             remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
         try {
           val list = api.recordingSummaries()
-          history.save(remote.accountKey, list)
-          remoteSummaries.value = list
+          synchronized(historyLock) {
+            history.save(remote.accountKey, list)
+            remoteSummaries.value = list
+          }
           Result.success(Unit)
         } catch (e: TaigaUnauthorizedException) {
           remote.logout()
@@ -140,7 +150,10 @@ class NightRepository private constructor(context: Context) {
         }
       }
 
-  /** Request one explicit analysis, remember that it was manual, and start polling it. */
+  /**
+   * Request one explicit analysis and remember that it was manual. Nothing waits for it: the event
+   * stream reports it while the app is open, and the next open reads it otherwise.
+   */
   suspend fun requestManual(night: Night, algorithmId: String): Result<Unit> =
       withContext(Dispatchers.IO) {
         val server = night.remoteId
@@ -157,12 +170,6 @@ class NightRepository private constructor(context: Context) {
           for (run in started) {
             uploads.markManualAnalysis(night.key, run.analysisId)
             uploads.markProcessing(night.key, run.analysisId)
-            UploadScheduler.enqueuePoll(
-                context,
-                night.localId ?: night.key,
-                run.analysisId,
-                replace = true,
-            )
           }
           refreshNight(night.key, server, started.first().analysisId)
           Result.success(Unit)
@@ -182,8 +189,10 @@ class NightRepository private constructor(context: Context) {
   }
 
   /**
-   * Refresh one night's recording and its selected analysis. The fetched analysis list replaces the
-   * cached run summaries for this process, so several analyses are visible immediately.
+   * Refresh one night's recording and its analyses, once. The fetched analysis list replaces the
+   * cached run summaries for this process, so several analyses are visible immediately, and the
+   * night's stored state, the result cache and the cached History list follow what the server says
+   * (see [AnalysisSync]). The selected analysis is read when it is still listed.
    */
   suspend fun refreshNight(
       key: String,
@@ -191,55 +200,127 @@ class NightRepository private constructor(context: Context) {
       analysisId: String?,
   ): Result<AnalysisDto?> =
       withContext(Dispatchers.IO) {
-        val record = uploads.record(key)
         val server = remoteId ?: return@withContext Result.success(null)
         val api =
             remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
         try {
-          val recording = api.getRecording(server)
-          val analyses = api.listAnalyses(server).items
-          // A remembered analysis can be gone (deleted, or replaced by a retry), so only an id the
-          // server lists can be the target.
-          val target =
-              listOfNotNull(
-                      analysisId,
-                      nights.value.firstOrNull { it.key == key }?.analysisId,
-                      record?.analysisId,
+          val snapshot =
+              AnalysisSync(api, uploads, results)
+                  .refresh(
+                      key = key,
+                      recordingId = server,
+                      preferred =
+                          listOf(
+                              analysisId,
+                              nights.value.firstOrNull { it.key == key }?.analysisId,
+                              uploads.record(key)?.analysisId,
+                          ),
                   )
-                  .firstOrNull { id -> analyses.any { it.id == id } }
-                  ?: analyses.filter { it.isSucceeded }.maxByOrNull { it.updated }?.id
-                  ?: analyses.maxByOrNull { it.created }?.id
-          val analysis = target?.let { api.getAnalysis(it) }
-          val runs = analyses.map { run -> run.toRun(downloaded = results.has(key, run.id)) }
-          overrides.update { it + (key to NightRemoteOverride(recording, runs)) }
-
-          if (analysis?.isSucceeded == true) {
-            val downloaded = results.save(key, analysis.id, analysis)
-            uploads.markDone(
-                id = key,
-                analysisId = analysis.id,
-                model = analysis.algorithm,
-                modelVersion = analysis.version,
-                epochSeconds = analysis.result?.stages?.epoch_seconds ?: 30,
-                segments = analysis.result?.stages?.segments.orEmpty(),
-                sleepScore = analysis.result?.sleep_quality?.score,
-                resultDownloaded = downloaded,
-            )
-          } else if (analysis?.isFailed == true) {
-            uploads.markFailed(key, UploadFailure.ANALYSIS, analysis.error)
-          } else if (recording.complete) {
-            uploads.markProcessing(key, target)
-          }
-          Result.success(analysis)
+          val runs = snapshot.analyses.map { run -> run.toRun(downloaded = results.has(key, run.id)) }
+          overrides.update { it + (key to NightRemoteOverride(snapshot.recording, runs)) }
+          rememberSummary(snapshot)
+          Result.success(snapshot.shown)
         } catch (e: TaigaUnauthorizedException) {
           remote.logout()
           Result.failure(e)
         } catch (e: CancellationException) {
           throw e
+        } catch (e: TaigaHttpException) {
+          if (e.status == 404) forget(key, server, e)
+          Result.failure(e)
         } catch (e: Exception) {
           Result.failure(e)
         }
       }
+
+  /**
+   * One refresh of everything that may be out of date, for when the event stream (re)connects and
+   * the app opens: the History list, then every night whose analysis is not settled (see
+   * [pendingRecordings]), one at a time. A night that finished, failed or vanished while the app
+   * was closed is settled here, and a finished result that is not on this phone yet is downloaded.
+   */
+  override suspend fun reconcile() {
+    withContext(Dispatchers.IO) {
+      reload()
+      if (refreshList().isFailure) return@withContext
+      val pendingDeletes = PendingDeleteStore.of(context).remoteIds()
+      val records = uploads.records.value
+      // The nights as the screens see them now, with the list that was just fetched. The sessions
+      // come from disk: the screens may not have loaded them yet when the app has just opened.
+      val current =
+          buildNights(
+              localSessions = SessionStore.of(context).list(),
+              records = records.mapValues { it.value.toNightRecord() },
+              remote = remoteSummaries.value,
+              overrides = overrides.value,
+          )
+      for (night in pendingRecordings(current, records)) {
+        if (night.recordingId in pendingDeletes) continue
+        refreshNight(night.key, night.recordingId, night.analysisId)
+      }
+    }
+  }
+
+  /** One recording changed on the server: read it and its analyses. */
+  override suspend fun refreshRecording(recordingId: String) {
+    withContext(Dispatchers.IO) {
+      // A recording the user deleted is only waiting for the server to say so.
+      if (recordingId in PendingDeleteStore.of(context).remoteIds()) return@withContext
+      refreshNight(keyFor(recordingId), recordingId, null)
+    }
+  }
+
+  /** The night key of a recording: the phone's own id when it has the recording, else the remote key. */
+  private fun keyFor(recordingId: String): String =
+      if (SessionStore.of(context).dir(recordingId).isDirectory) recordingId
+      else remoteKey(recordingId)
+
+  /**
+   * Keeps the cached History list in line with a recording that was just read, so a cold start
+   * shows it too. Only what History shows is written to disk, which keeps an upload (a change of
+   * the recording per chunk) from rewriting the cache each time.
+   */
+  private fun rememberSummary(snapshot: RecordingSnapshot) {
+    val fresh = RecordingSummaryDto(snapshot.recording, snapshot.analyses)
+    var changed = false
+    remoteSummaries.update { list ->
+      if (list == null) return@update null
+      val at = list.items.indexOfFirst { it.recording.id == fresh.recording.id }
+      val old = list.items.getOrNull(at)
+      changed =
+          old == null ||
+              old.analyses != fresh.analyses ||
+              old.recording.complete != fresh.recording.complete
+      RecordingSummaryListDto(
+          if (at >= 0) list.items.toMutableList().also { it[at] = fresh } else list.items + fresh
+      )
+    }
+    if (changed) saveSummaries()
+  }
+
+  /**
+   * The server says the recording does not exist (any more). Its fresh state is dropped, and a night
+   * that was waiting for its analysis is marked failed instead of processing for ever.
+   */
+  private fun forget(key: String, recordingId: String, cause: TaigaHttpException) {
+    overrides.update { it - key }
+    remoteSummaries.update { list ->
+      list?.let { RecordingSummaryListDto(it.items.filterNot { s -> s.recording.id == recordingId }) }
+    }
+    saveSummaries()
+    if (uploads.record(key)?.phase == UploadPhase.PROCESSING) {
+      uploads.markFailed(key, UploadFailure.ANALYSIS, cause.message)
+    }
+  }
+
+  private fun saveSummaries() {
+    synchronized(historyLock) {
+      val list = remoteSummaries.value ?: return
+      val account = remote.accountKey
+      if (account.isBlank() || account != loadedAccount) return
+      history.save(account, list)
+    }
+  }
 
   companion object {
     private val HR_ONLY = SessionConfig(hr = true, ecg = false, acc = false)

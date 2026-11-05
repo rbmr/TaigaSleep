@@ -31,8 +31,8 @@ object UploadCoordinator {
   }
 
   /**
-   * Retry a failed analysis. Pending analyses only need a fresh poll; a failed one is asked for
-   * again, which makes the server replace it with a fresh queued one under a new id.
+   * Retry a failed analysis. A pending analysis is left as it is; a failed one is asked for again,
+   * which makes the server replace it with a fresh queued one under a new id.
    */
   suspend fun retryAnalysis(context: Context, key: String, analysisId: String?): Result<Unit> =
       withContext(Dispatchers.IO) {
@@ -84,8 +84,8 @@ object UploadCoordinator {
                 else -> target.id
               }
 
+          // The result arrives through the event stream while the app is open, or at the next open.
           store.markProcessing(key, targetId)
-          UploadScheduler.enqueuePoll(context, key, targetId, replace = true)
           Result.success(Unit)
         } catch (e: TaigaUnauthorizedException) {
           remote.logout()

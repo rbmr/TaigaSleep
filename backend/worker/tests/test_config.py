@@ -16,7 +16,7 @@ def test_defaults() -> None:
     config = from_env(env=BASE, argv=[])
     assert config.api_url == "http://127.0.0.1:8090"
     assert config.email == "worker@example.com"
-    assert config.poll_interval_s == 15.0
+    assert config.poll_interval_s == 60.0
     assert config.lease_seconds == 1800
     assert config.job_memory_mb == 1024
     assert config.job_timeout_s == 3600.0

@@ -9,9 +9,14 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.rbmr.taigasleep.ui.TaigaApp
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
+import com.rbmr.taigasleep.upload.LiveSync
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
   private val settings by lazy { AppSettings(this) }
@@ -19,6 +24,11 @@ class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+    // Results arrive live while the app is on screen: the event stream is open exactly while the
+    // activity is started, and is closed when it is not. Nothing is kept running in the background.
+    lifecycleScope.launch {
+      repeatOnLifecycle(Lifecycle.State.STARTED) { LiveSync.of(applicationContext).run() }
+    }
     setContent {
       val themeMode by settings.themeMode.collectAsStateWithLifecycle()
       val darkTheme =

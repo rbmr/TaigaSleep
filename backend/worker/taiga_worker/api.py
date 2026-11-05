@@ -100,6 +100,16 @@ class ApiClient:
         except ValueError as exc:
             raise ApiError("API returned invalid JSON") from exc
 
+    def open_events(self, timeout_s: float = 60.0) -> Any:
+        """Open the event stream (GET /v1/events) and return the open response.
+
+        The caller reads it line by line and closes it. ``timeout_s`` is how long the
+        stream may stay silent before a read fails; the API sends a comment line every
+        20 seconds, so a connection that stays quiet longer than that is dead.
+        """
+
+        return self._open("GET", "/v1/events", accept="text/event-stream", timeout_s=timeout_s)
+
     def login(self, email: str, password: str) -> str:
         payload = self._request(
             "POST",

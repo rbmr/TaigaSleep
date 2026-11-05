@@ -54,7 +54,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--poll-interval",
         type=float,
-        help="Seconds to sleep when the queue is empty (env: TAIGA_POLL_INTERVAL_S)",
+        help=(
+            "Seconds after which an idle worker claims again if no event woke it earlier; "
+            "new work normally arrives as an event, so this is only the fallback "
+            "(env: TAIGA_POLL_INTERVAL_S, default: 60)"
+        ),
     )
     parser.add_argument(
         "--lease-seconds",
@@ -161,7 +165,7 @@ def from_env(
 
     poll_interval = _float(
         str(args.poll_interval) if args.poll_interval is not None else _env(env, "TAIGA_POLL_INTERVAL_S"),
-        15.0,
+        60.0,
         "poll interval",
     )
     lease_seconds = _int(

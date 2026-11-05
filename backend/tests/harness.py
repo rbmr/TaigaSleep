@@ -11,17 +11,20 @@ import gzip
 import json as jsonlib
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 
 from tests import recording_fixture as fx
 
@@ -444,6 +447,27 @@ class Backend:
             raise AssertionError(f"worker exited with {result.returncode}\n{result.stderr}")
         return result.stderr
 
+    @contextmanager
+    def running_worker(self, **env: str) -> Iterator["WorkerProcess"]:
+        """Run the real worker as a service (not ``--once``) and stop it with SIGTERM afterwards.
+
+        It logs at DEBUG, which is where it says that it is waiting for work.
+        """
+
+        process = subprocess.Popen(
+            [sys.executable, "-m", "taiga_worker"],
+            cwd=WORKER_DIR,
+            env=self.worker_env(**{"TAIGA_LOG_LEVEL": "DEBUG", "PYTHONUNBUFFERED": "1", **env}),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        worker = WorkerProcess(process)
+        try:
+            yield worker
+        finally:
+            worker.stop()
+
     def wait_for_status(
         self,
         token: str | Account,
@@ -457,6 +481,132 @@ class Backend:
             if analysis["status"] in statuses or time.monotonic() > deadline:
                 return analysis
             time.sleep(0.2)
+
+
+class WorkerProcess:
+    """The real worker running as a service; its log is collected in the background."""
+
+    def __init__(self, process: "subprocess.Popen[str]") -> None:
+        self.process = process
+        self.stop_seconds: float | None = None
+        self._lines: list[str] = []
+        self._reader = threading.Thread(target=self._read, daemon=True)
+        self._reader.start()
+
+    def _read(self) -> None:
+        assert self.process.stderr is not None
+        for line in self.process.stderr:
+            self._lines.append(line)
+
+    @property
+    def log(self) -> str:
+        return "".join(self._lines)
+
+    @property
+    def returncode(self) -> int | None:
+        return self.process.returncode
+
+    def wait_for_log(self, text: str, timeout_s: float = 30.0, *, times: int = 1) -> None:
+        """Block until the log holds ``text`` ``times`` times, or fail with the log."""
+
+        deadline = time.monotonic() + timeout_s
+        while self.log.count(text) < times:
+            if self.process.poll() is not None or time.monotonic() > deadline:
+                raise AssertionError(f"the worker never logged {text!r} ({times}x); its log:\n{self.log}")
+            time.sleep(0.05)
+
+    def stop(self, timeout_s: float = 15.0) -> None:
+        """SIGTERM the worker and wait for it; ``stop_seconds`` is how long that took."""
+
+        started = time.monotonic()
+        if self.process.poll() is None:
+            self.process.send_signal(signal.SIGTERM)
+            try:
+                self.process.wait(timeout=timeout_s)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+                self._reader.join(5)
+                raise AssertionError(f"the worker did not stop on SIGTERM; its log:\n{self.log}") from None
+        self._reader.join(5)
+        self.stop_seconds = time.monotonic() - started
+
+
+class CuttableProxy:
+    """A TCP forwarder in front of the API that can be cut and restored.
+
+    A client that talks to the API through it loses its connections when it is cut and is
+    refused until it is restored, which is what a restarted API or a dropped network
+    looks like to it.
+    """
+
+    def __init__(self, target_port: int) -> None:
+        self._target = ("127.0.0.1", target_port)
+        self._listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._listener.bind(("127.0.0.1", 0))
+        self._listener.listen(16)
+        self.url = f"http://127.0.0.1:{self._listener.getsockname()[1]}"
+        self._forwarding = True
+        self._sockets: list[socket.socket] = []
+        self._lock = threading.Lock()
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self) -> None:
+        while True:
+            try:
+                client, _ = self._listener.accept()
+            except OSError:
+                return
+            if not self._forwarding:
+                client.close()
+                continue
+            try:
+                upstream = socket.create_connection(self._target, timeout=5)
+            except OSError:
+                client.close()
+                continue
+            upstream.settimeout(None)
+            with self._lock:
+                self._sockets += [client, upstream]
+            for source, sink in ((client, upstream), (upstream, client)):
+                threading.Thread(target=self._pump, args=(source, sink), daemon=True).start()
+
+    @staticmethod
+    def _pump(source: socket.socket, sink: socket.socket) -> None:
+        try:
+            while data := source.recv(65536):
+                sink.sendall(data)
+        except OSError:
+            pass
+        finally:
+            for end in (source, sink):
+                try:
+                    end.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+    def cut(self) -> None:
+        """Drop every connection and refuse new ones until :meth:`restore`."""
+
+        self._forwarding = False
+        with self._lock:
+            sockets, self._sockets = self._sockets, []
+        for end in sockets:
+            try:
+                end.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    def restore(self) -> None:
+        self._forwarding = True
+
+    def close(self) -> None:
+        self.cut()
+        try:
+            self._listener.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self._listener.close()
 
 
 def manifest(algorithm: str, version: str = "1.0.0", **changes: Any) -> dict[str, Any]:

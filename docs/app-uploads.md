@@ -73,8 +73,9 @@ History shows one status per recording:
 - **Uploading N%** — bytes are moving. The notification keeps the transfer alive
   while the app is in the background.
 - **Analysing** — the upload completed and the analysis is queued or running.
-- **Ready** — the row shows the sleep score and the stage bar. Missing full results
-  are fetched in the background; opening the night uses the cached copy.
+- **Ready** — the row shows the sleep score and the stage bar. A full result that is
+  not on the phone yet is fetched when it arrives or at the next open; opening the
+  night uses the cached copy.
 - **Failed** — the row says Upload failed, Analysis failed, Login needed or Update
   needed. Opening the night shows the error and the retry action.
 
@@ -92,10 +93,22 @@ or losing the network therefore does not restart a night from zero. The server's
 chunk limit is configuration, not part of the API; a `413` makes the uploader halve
 its chunks and continue.
 
-Analysis polling is a separate work item. It keeps the transfer notification
-closed, backs off exponentially while the queue is empty, and stops when the
-analysis is done, failed or the user logs out. History also proactively downloads
-any finished result that is not in the local cache yet.
+The upload worker ends as soon as the analysis has been requested, with the night in
+the processing state. Nothing polls and nothing runs in the background for a result.
+While the app is on screen it keeps the event stream (`GET /v1/events`, see
+[`api.md`](api.md#events)) open:
+
+- Every time the stream connects, and once at open if it does not, the app refreshes
+  everything pending: the History list, every night whose analysis is not settled
+  (queued, running, or stored as processing) and any finished result that is not on
+  the phone yet. Events are not replayed, so this is how a night that finished,
+  failed or was replaced while the app was closed gets settled.
+- An `analysis` or `recording` event refreshes only that recording, so History and
+  the night screen update at once. Events for one recording that arrive close
+  together are one refresh.
+- The stream is closed when the app leaves the screen. Without a stream (a proxy
+  that blocks it) the refresh at open is all there is, and **Check again** on the
+  night repeats it for that night.
 
 ## Night detail
 
@@ -231,7 +244,7 @@ still pending. Pending remote deletes are shown in History and survive a restart
 - **Analysis** — the worker failed, the analysis was lost, or the backend refused
   to queue it because no worker offers the algorithm yet (`422`; the upload itself
   is complete). Retry asks for the analysis again, which makes the backend replace
-  a failed one with a fresh queued one, then polls it.
+  a failed one with a fresh queued one. The new run is reported by the event stream.
 
 ## Privacy
 

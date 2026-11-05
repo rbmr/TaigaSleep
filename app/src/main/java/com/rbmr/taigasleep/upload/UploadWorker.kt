@@ -126,35 +126,10 @@ class UploadWorker(
       store.markProcessing(localId, started?.analysisId)
       // The server has the bytes now, so an immediate or overdue cleanup may run.
       RawRetention.enforce(context)
-      if (started == null) {
-        // Automatic analysis is off. The night is safely stored; it can be analysed manually.
-        return Result.success()
-      }
-
-      val poller = AnalysisPoller(api, store, ResultCache.of(context), localId)
-      try {
-        when (val polled = poller.poll(localId, started.analysisId)) {
-          is PollResult.Done,
-          is PollResult.Failed -> Result.success()
-          is PollResult.Pending -> {
-            UploadScheduler.enqueuePoll(context, localId, polled.analysisId, delayMs = 10_000)
-            Result.success()
-          }
-        }
-      } catch (e: TaigaNetworkException) {
-        // The upload is safe on the server; only the first status read was missed.
-        UploadScheduler.enqueuePoll(context, localId, started.analysisId, delayMs = 15_000)
-        Result.success()
-      } catch (e: TaigaHttpException) {
-        if (e.status == 401 || e.status == 403) throw e
-        if (e.status == 429 || e.status >= 500) {
-          UploadScheduler.enqueuePoll(context, localId, started.analysisId, delayMs = 30_000)
-          Result.success()
-        } else {
-          store.markFailed(localId, UploadFailure.ANALYSIS, e.message)
-          Result.success()
-        }
-      }
+      // The night stays in the processing state and nothing waits for it: while the app is open the
+      // event stream reports the result, otherwise the next open reads it. With automatic analysis
+      // off (started is null) the night is only stored and can be analysed manually.
+      Result.success()
     } catch (e: TaigaUnauthorizedException) {
       remote.logout()
       store.markFailed(localId, UploadFailure.LOGIN, e.message)

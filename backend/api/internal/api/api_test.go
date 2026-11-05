@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -672,4 +674,196 @@ func TestDefaultVersionIgnoresWorkersThatWentAway(t *testing.T) {
 	}
 	// Asking for the old one by name still queues it: its worker may come back.
 	s.expect(201, http.MethodPost, "/v1/recordings/rec1/analyses", alice, map[string]string{"algorithm": "baseline", "version": "2.0.0"}, nil)
+}
+
+// stream is an open GET /v1/events connection, read by a goroutine so a test can wait for
+// events with a timeout.
+type stream struct {
+	t      *testing.T
+	events chan string
+	cancel func()
+	done   chan struct{}
+}
+
+func openStream(t *testing.T, s *server, token string) *stream {
+	t.Helper()
+	httpServer := httptest.NewServer(s.mux)
+	t.Cleanup(httpServer.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, httpServer.URL+"/v1/events", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	if response.StatusCode != 200 || !strings.HasPrefix(response.Header.Get("Content-Type"), "text/event-stream") {
+		cancel()
+		t.Fatalf("events = %d %s", response.StatusCode, response.Header.Get("Content-Type"))
+	}
+	st := &stream{t: t, events: make(chan string, 32), cancel: cancel, done: make(chan struct{})}
+	go func() {
+		defer close(st.done)
+		defer response.Body.Close()
+		reader := bufio.NewReader(response.Body)
+		name := ""
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			line = strings.TrimRight(line, "\r\n")
+			switch {
+			case strings.HasPrefix(line, "event: "):
+				name = strings.TrimPrefix(line, "event: ")
+			case strings.HasPrefix(line, "data: "):
+				st.events <- name + " " + strings.TrimPrefix(line, "data: ")
+			case strings.HasPrefix(line, ":"):
+				st.events <- line
+			}
+		}
+	}()
+	t.Cleanup(cancel)
+	if first := st.next(); first != ": connected" {
+		t.Fatalf("first line = %q", first)
+	}
+	return st
+}
+
+func (st *stream) next() string {
+	st.t.Helper()
+	select {
+	case line := <-st.events:
+		return line
+	case <-time.After(5 * time.Second):
+		st.t.Fatal("no event within 5 seconds")
+		return ""
+	}
+}
+
+// nothing asserts that no event arrives for a moment.
+func (st *stream) nothing() {
+	st.t.Helper()
+	select {
+	case line := <-st.events:
+		st.t.Fatalf("unexpected event %q", line)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestEventStream(t *testing.T) {
+	s := newServer(t)
+	alice, bob, worker := s.tokens["alice"], s.tokens["bob"], s.tokens["worker"]
+	s.expectCode(401, "unauthorized", http.MethodGet, "/v1/events", "", nil, nil)
+
+	aliceEvents, bobEvents, workerEvents := openStream(t, s, alice), openStream(t, s, bob), openStream(t, s, worker)
+	if events.count() != 3 {
+		t.Fatalf("%d subscribers", events.count())
+	}
+
+	id := "rec1"
+	s.expect(201, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "recording"), nil)
+	if got := aliceEvents.next(); got != `recording {"id":"rec1","change":"created"}` {
+		t.Fatalf("created event = %q", got)
+	}
+	s.expect(200, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "stopped"), nil)
+	if got := aliceEvents.next(); got != `recording {"id":"rec1","change":"updated"}` {
+		t.Fatalf("meta change event = %q", got)
+	}
+	if st, _, b := appendChunk(s, alice, id, "hr.log", 0, []byte("frames"), nil); st != 204 {
+		t.Fatalf("append: %d %s", st, b)
+	}
+	aliceEvents.nothing() // a chunk is not a change to what clients show
+	s.expect(200, http.MethodPatch, "/v1/recordings/"+id, alice, map[string]bool{"complete": true}, nil)
+	if got := aliceEvents.next(); got != `recording {"id":"rec1","change":"updated"}` {
+		t.Fatalf("sealed event = %q", got)
+	}
+	drain := func(st *stream) {
+		for {
+			select {
+			case <-st.events:
+			case <-time.After(300 * time.Millisecond):
+				return
+			}
+		}
+	}
+	drain(aliceEvents)
+
+	// A user only hears about their own things; a worker only about queued work.
+	announce(s, "baseline", "1.0.0")
+	analysis := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, map[string]string{"algorithm": "baseline"}, nil))
+	queued := `analysis {"id":"` + analysis.ID + `","recording":"rec1","status":"queued"}`
+	if got := aliceEvents.next(); got != queued {
+		t.Fatalf("alice = %q, want %q", got, queued)
+	}
+	if got := workerEvents.next(); got != queued {
+		t.Fatalf("worker = %q, want %q", got, queued)
+	}
+	bobEvents.nothing()
+
+	s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil)
+	if got := aliceEvents.next(); got != `analysis {"id":"`+analysis.ID+`","recording":"rec1","status":"running"}` {
+		t.Fatalf("running event = %q", got)
+	}
+	workerEvents.nothing() // running is not work to claim
+	s.expect(200, http.MethodPost, "/v1/analyses/"+analysis.ID+"/complete", worker, CompleteRequest{Result: mustJSON(t, validResult("baseline", "1.0.0"))}, nil)
+	if got := aliceEvents.next(); got != `analysis {"id":"`+analysis.ID+`","recording":"rec1","status":"succeeded"}` {
+		t.Fatalf("succeeded event = %q", got)
+	}
+
+	// A retryable failure is queued again, which is work for a worker.
+	again := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, map[string]any{"algorithm": "baseline", "params": map[string]int{"k": 1}}, nil))
+	workerEvents.next()
+	s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil)
+	s.expect(200, http.MethodPost, "/v1/analyses/"+again.ID+"/fail", worker, FailRequest{Error: "flaky", Retryable: true}, nil)
+	if got := workerEvents.next(); !strings.Contains(got, again.ID) || !strings.Contains(got, `"queued"`) {
+		t.Fatalf("requeue event = %q", got)
+	}
+
+	// Deleting an analysis and then the recording.
+	drain(aliceEvents)
+	s.expect(204, http.MethodDelete, "/v1/analyses/"+analysis.ID, alice, nil, nil)
+	if got := aliceEvents.next(); got != `analysis {"id":"`+analysis.ID+`","recording":"rec1","status":"deleted"}` {
+		t.Fatalf("delete event = %q", got)
+	}
+	s.expect(204, http.MethodDelete, "/v1/recordings/"+id, alice, nil, nil)
+	for aliceEvents.next() != `recording {"id":"rec1","change":"deleted"}` {
+	}
+	bobEvents.nothing()
+
+	// Disconnecting releases the subscription.
+	aliceEvents.cancel()
+	<-aliceEvents.done
+	deadline := time.Now().Add(2 * time.Second)
+	for events.count() != 2 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if events.count() != 2 {
+		t.Fatalf("%d subscribers after a disconnect, want 2", events.count())
+	}
+}
+
+func TestEventStreamKeepalive(t *testing.T) {
+	old := eventKeepalive
+	eventKeepalive = 50 * time.Millisecond
+	t.Cleanup(func() { eventKeepalive = old })
+	s := newServer(t)
+	st := openStream(t, s, s.tokens["alice"])
+	if got := st.next(); got != ": keepalive" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestSlowSubscriberIsDropped(t *testing.T) {
+	hub := &eventHub{subs: map[*subscriber]struct{}{}}
+	sub := hub.subscribe(roleUser, "u1")
+	for i := 0; i <= subscriberBuffer; i++ {
+		hub.toUser("u1", eventRecording, RecordingEvent{ID: "x", Change: "updated"})
+	}
+	if hub.count() != 0 {
+		t.Fatal("a subscriber that cannot keep up must be dropped so it reconnects")
+	}
+	for range sub.ch { // the channel is closed after what it held
+	}
+	hub.unsubscribe(sub) // and unsubscribing again is harmless
 }

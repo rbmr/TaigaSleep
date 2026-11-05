@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
@@ -82,6 +83,7 @@ func ClaimAnalysis(e *core.RequestEvent) error {
 	if claimed == nil {
 		return e.NoContent(http.StatusNoContent)
 	}
+	announceAnalysis(e.App, claimed, statusRunning) // the claim is raw SQL: no record hook ran
 	return e.JSON(http.StatusOK, serializeAnalysis(claimed, false))
 }
 
@@ -208,6 +210,7 @@ func FailAnalysis(e *core.RequestEvent) error {
 		return badRequest("invalid_body", `the body must be {"error": "...", "retryable": false}`)
 	}
 	var saved *core.Record
+	retryIn := 0
 	err := e.App.RunInTransaction(func(txApp core.App) error {
 		record, err := leasedAnalysis(txApp, e.Request.PathValue("id"), e.Auth.Id)
 		if err != nil {
@@ -224,12 +227,23 @@ func FailAnalysis(e *core.RequestEvent) error {
 				delay = 300
 			}
 			requeue(record, truncate(body.Error, 4000), delay)
+			retryIn = delay
 			return txApp.Save(record)
 		}
 		return finish(txApp, record, statusFailed, body.Error)
 	})
 	if err != nil {
 		return err
+	}
+	if retryIn > 0 {
+		// The queued event went out when the analysis was requeued, but it cannot be
+		// claimed until the backoff has passed: tell the workers again when it can.
+		app, id := e.App, saved.Id
+		time.AfterFunc(time.Duration(retryIn)*time.Second, func() {
+			if record, err := app.FindRecordById("analyses", id); err == nil && record.GetString("status") == statusQueued {
+				announceAnalysis(app, record, statusQueued)
+			}
+		})
 	}
 	return e.JSON(http.StatusOK, serializeAnalysis(saved, false))
 }

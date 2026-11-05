@@ -1,8 +1,14 @@
 package com.rbmr.taigasleep.remote
 
 import com.rbmr.taigasleep.BuildConfig
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -460,6 +466,132 @@ class RemoteRepositoryTest {
     assertEquals(RemoteState.NO_REMOTE, repo.state.value)
   }
 
+  private val account = "http://localhost:8090|me@example.com"
+
+  @Test
+  fun `the stream may run for a working session and for a server that may come back`() {
+    val connected = RemoteStatus.Connected("me@example.com", now)
+    assertTrue(connected.canStream())
+    for (reason in listOf(RemoteError.Unreachable, RemoteError.UnknownHost, RemoteError.Http(503))) {
+      assertTrue(RemoteStatus.Unreachable(reason, now).canStream())
+    }
+  }
+
+  @Test
+  fun `the stream does not run without a login or against a server it cannot talk to`() {
+    assertFalse(RemoteStatus.NotConfigured.canStream())
+    assertFalse(RemoteStatus.LoginNeeded("me@example.com", now, RemoteError.SessionExpired).canStream())
+    val incompatible = RemoteError.IncompatibleApi(required = 3, server = 2)
+    for (reason in
+        listOf(
+            incompatible,
+            RemoteError.NotTaiga,
+            RemoteError.InvalidUrl,
+            RemoteError.InsecureUrl,
+            RemoteError.MalformedResponse,
+        )) {
+      assertFalse(reason.label, RemoteStatus.Unreachable(reason, now).canStream())
+    }
+  }
+
+  @Test
+  fun `the stream account follows login, logout and an incompatible server`() = runBlocking {
+    val repo = repository()
+    assertNull(repo.streamAccount.first())
+
+    login(repo)
+    assertEquals(account, repo.streamAccount.first())
+
+    api.serverApi = BuildConfig.API_VERSION + 1
+    repo.verify()
+    // The session is kept, but the server speaks another revision: no stream.
+    assertNull(repo.streamAccount.first())
+
+    api.serverApi = BuildConfig.API_VERSION
+    repo.verify()
+    assertEquals(account, repo.streamAccount.first())
+
+    repo.logout()
+    assertNull(repo.streamAccount.first())
+  }
+
+  @Test
+  fun `the stream does not connect without a session`() = runBlocking {
+    val transport = FakeTransport()
+    val repo = RemoteRepository(store(), api, transport) { now }
+
+    assertTrue(repo.events().toList().isEmpty())
+    assertTrue(transport.tokens.isEmpty())
+  }
+
+  @Test
+  fun `the stream connects to the saved address with the saved token`() = runBlocking {
+    login(repository())
+    val transport = FakeTransport(listOf(RemoteEvent.Connected))
+    val repo = RemoteRepository(store(), api, transport) { now }
+
+    val events = repo.events().take(1).toList()
+
+    assertEquals(listOf<RemoteEvent>(RemoteEvent.Connected), events)
+    assertEquals(listOf("http://localhost:8090|token-1"), transport.tokens)
+  }
+
+  @Test
+  fun `the stream does not connect to a server with another api revision`() = runBlocking {
+    login(repository())
+    api.serverApi = BuildConfig.API_VERSION - 1
+    val transport = FakeTransport(listOf(RemoteEvent.Connected))
+    val repo = RemoteRepository(store(), api, transport) { now }
+    repo.verify()
+
+    assertTrue(repo.events().toList().isEmpty())
+    assertTrue(transport.tokens.isEmpty())
+  }
+
+  @Test
+  fun `a refused token is refreshed like on any resume and the stream uses the new one`() =
+      runBlocking {
+        login(repository())
+        val transport =
+            FakeTransport(
+                failure = TaigaUnauthorizedException(401, "expired"),
+                then = listOf(RemoteEvent.Connected),
+            )
+        val repo = RemoteRepository(store(), api, transport) { now }
+        api.calls.clear()
+
+        val events = repo.events().take(1).toList()
+
+        assertEquals(listOf<RemoteEvent>(RemoteEvent.Connected), events)
+        // The refresh machinery ran: version, refresh with the old token, proof with the new one.
+        assertEquals(listOf("version", "refresh:token-1", "auth-check:token-2"), api.calls)
+        assertEquals(listOf("http://localhost:8090|token-1", "http://localhost:8090|token-2"), transport.tokens)
+        assertEquals("token-2", store().token)
+      }
+
+  @Test
+  fun `a refused token that the server will not refresh drops the session and ends the stream`() =
+      runBlocking {
+        login(repository())
+        val transport =
+            FakeTransport(
+                failure = TaigaUnauthorizedException(401, "expired"),
+                then = listOf(RemoteEvent.Connected),
+            )
+        val repo = RemoteRepository(store(), api, transport) { now }
+        api.refreshError = RemoteError.SessionExpired
+
+        val events = repo.events().toList()
+
+        assertTrue(events.isEmpty())
+        assertEquals(1, transport.tokens.size)
+        // The same state a rejected token produces everywhere else.
+        assertNull(store().token)
+        val status = repo.status.value as RemoteStatus.LoginNeeded
+        assertEquals(RemoteError.SessionExpired, status.reason)
+        assertNull(repo.streamAccount.first())
+      }
+
   @Test
   fun `the address a login would use follows the last check`() {
     val repo = repository()
@@ -468,6 +600,27 @@ class RemoteRepositoryTest {
     runBlocking { repo.checkAddress("localhost:8090") }
 
     assertEquals("http://localhost:8090", repo.address.value)
+  }
+}
+
+/**
+ * A stream that first fails with [failure] (if given), then connects and emits [then], over and over.
+ * It records the address and the token of every connection.
+ */
+private class FakeTransport(
+    private val then: List<RemoteEvent> = emptyList(),
+    private val failure: Throwable? = null,
+) : EventTransport {
+  val tokens = mutableListOf<String>()
+  private var failed = false
+
+  override fun open(baseUrl: String, token: String): Flow<RemoteEvent> = flow {
+    tokens += "$baseUrl|$token"
+    if (failure != null && !failed) {
+      failed = true
+      throw failure
+    }
+    then.forEach { emit(it) }
   }
 }
 
