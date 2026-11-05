@@ -5,6 +5,10 @@ import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /** How a typed number is shown. The item's unit selects it; an unknown unit is not guessed. */
 enum class MetricValueKind {
@@ -104,11 +108,24 @@ fun stageLabelRes(stage: String): Int =
 val StageOrder = listOf("wake", "rem", "nrem", "light", "deep", "sleep", "unknown")
 
 /**
- * Stages that this result actually contains. The timeline is the source: a stage the algorithm
- * cannot distinguish never appears in it, so it is not drawn with a "not supported" row.
+ * Stages to show for a result: every stage the algorithm supports, in display order, plus
+ * `unknown` only when the timeline actually contains unscored epochs. A supported stage with no
+ * time stays visible as 0s / 0%, and a stage the algorithm cannot produce is not shown. When the
+ * result carries no list (for example an older cached payload), fall back to the timeline.
  */
-fun applicableStages(segments: List<StageSegmentDto>): List<String> {
+fun applicableStages(segments: List<StageSegmentDto>, capabilities: JsonObject?): List<String> {
   val present = segments.filter { it.count > 0 }.map { it.stage }.toSet()
-  val stages = StageOrder.filter { it != "unknown" && it in present }
+  val supported = capabilities.supportedStages()
+  val stages =
+      if (supported.isNullOrEmpty()) {
+        StageOrder.filter { it != "unknown" && it in present }
+      } else {
+        StageOrder.filter { it != "unknown" && it in supported }
+      }
   return if ("unknown" in present) stages + "unknown" else stages
+}
+
+private fun JsonObject?.supportedStages(): List<String>? {
+  val array = this?.get("supported_stages") as? JsonArray ?: return null
+  return array.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.takeIf { it.isNotEmpty() }
 }

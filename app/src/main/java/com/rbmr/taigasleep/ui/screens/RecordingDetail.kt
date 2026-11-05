@@ -755,6 +755,7 @@ fun RecordingDetailScreen(
                           ?: state.analysis?.result?.stages?.start_unix_ms
                           ?: 0L,
                   modifier = chartModifier,
+                  capabilities = state.analysis?.result?.capabilities,
                   fullscreen = true,
               )
           else ->
@@ -1343,6 +1344,7 @@ private fun SleepStatsCard(
         segments = segmentsOf(state),
         epochSeconds = epochSecondsOf(state),
         startUnixMs = start.takeIf { it > 0 } ?: analysis.stages?.start_unix_ms ?: 0L,
+        capabilities = analysis.capabilities,
     )
     Spacer(Modifier.height(16.dp))
     Text(
@@ -1353,6 +1355,7 @@ private fun SleepStatsCard(
     StageBreakdown(
         segments = segmentsOf(state),
         epochSeconds = epochSecondsOf(state),
+        capabilities = analysis.capabilities,
     )
     val items = analysis.items.filter { it.kind == "number" && it.group == "sleep" }
     if (items.isNotEmpty()) {

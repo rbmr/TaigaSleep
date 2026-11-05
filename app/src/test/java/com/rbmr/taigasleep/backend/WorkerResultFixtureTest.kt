@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.backend
 
+import com.rbmr.taigasleep.insights.applicableStages
 import com.rbmr.taigasleep.insights.formatItemValue
 import com.rbmr.taigasleep.insights.metricSpec
 import com.rbmr.taigasleep.ui.components.hrSeriesPoints
@@ -83,6 +84,14 @@ class WorkerResultFixtureTest {
 
     val series = result.items.single { it.kind == "series" }.series
     assertTrue(hrSeriesPoints(series).any { it != null })
+  }
+
+  @Test
+  fun everySupportedStageIsDrawnEvenWhenItHasNoTime() {
+    val result = result()
+    val stages = applicableStages(result.stages!!.segments, result.capabilities)
+
+    assertTrue(stages.containsAll(listOf("wake", "rem", "light", "deep")))
   }
 
   @Test

@@ -4,6 +4,10 @@ import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.ui.components.QualityBand
 import com.rbmr.taigasleep.ui.components.qualityBand
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.putJsonArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -67,33 +71,66 @@ class ResultItemsTest {
     assertEquals(30L, seconds["deep"])
   }
 
+  private fun capabilities(vararg stages: String): JsonObject =
+      buildJsonObject {
+        putJsonArray("supported_stages") { stages.forEach { add(it) } }
+      }
+
   @Test
-  fun applicableStagesFollowTheTimeline() {
-    val threeClass =
+  fun aSupportedStageStaysVisibleWithoutTime() {
+    val segments =
         listOf(
             StageSegmentDto("wake", 2),
             StageSegmentDto("rem", 3),
-            StageSegmentDto("nrem", 8),
+            StageSegmentDto("light", 8),
+        )
+
+    assertEquals(
+        listOf("wake", "rem", "light", "deep"),
+        applicableStages(segments, capabilities("wake", "rem", "light", "deep", "unknown")),
+    )
+  }
+
+  @Test
+  fun anAlgorithmThatCannotSplitLightAndDeepNeverListsThem() {
+    val segments = listOf(StageSegmentDto("wake", 2), StageSegmentDto("nrem", 8))
+
+    val stages = applicableStages(segments, capabilities("wake", "rem", "nrem", "unknown"))
+
+    assertEquals(listOf("wake", "rem", "nrem"), stages)
+    assertNull(stages.firstOrNull { it == "light" || it == "deep" })
+  }
+
+  @Test
+  fun unknownAppearsOnlyWhenTheTimelineContainsIt() {
+    val caps = capabilities("wake", "rem", "light", "deep", "unknown")
+    val scored =
+        listOf(
+            StageSegmentDto("wake", 2),
+            StageSegmentDto("light", 8),
+        )
+
+    assertEquals(listOf("wake", "rem", "light", "deep"), applicableStages(scored, caps))
+    assertEquals(
+        listOf("wake", "rem", "light", "deep", "unknown"),
+        applicableStages(scored + StageSegmentDto("unknown", 1), caps),
+    )
+  }
+
+  @Test
+  fun aResultWithoutSupportedStagesFallsBackToTheTimeline() {
+    val segments =
+        listOf(
+            StageSegmentDto("rem", 1),
+            StageSegmentDto("nrem", 4),
             StageSegmentDto("unknown", 1),
         )
-    assertEquals(listOf("wake", "rem", "nrem", "unknown"), applicableStages(threeClass))
 
-    val fourClass =
-        listOf(
-            StageSegmentDto("wake", 2),
-            StageSegmentDto("rem", 3),
-            StageSegmentDto("light", 8),
-            StageSegmentDto("deep", 4),
-        )
-    assertEquals(listOf("wake", "rem", "light", "deep"), applicableStages(fourClass))
-
-    val noUnknownTime =
-        listOf(
-            StageSegmentDto("wake", 2),
-            StageSegmentDto("light", 8),
-            StageSegmentDto("unknown", 0),
-        )
-    assertEquals(listOf("wake", "light"), applicableStages(noUnknownTime))
+    assertEquals(listOf("rem", "nrem", "unknown"), applicableStages(segments, null))
+    assertEquals(
+        listOf("rem", "nrem", "unknown"),
+        applicableStages(segments, JsonObject(emptyMap())),
+    )
   }
 
   @Test

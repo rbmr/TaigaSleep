@@ -79,6 +79,7 @@ import com.rbmr.taigasleep.insights.formatSeconds
 import com.rbmr.taigasleep.insights.stageLabelRes
 import com.rbmr.taigasleep.insights.stageSeconds
 import com.rbmr.taigasleep.ui.theme.taiga
+import kotlinx.serialization.json.JsonObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -554,9 +555,10 @@ fun SleepStagesChart(
     startUnixMs: Long,
     modifier: Modifier = Modifier,
     chartHeight: Int = 176,
+    capabilities: JsonObject? = null,
     fullscreen: Boolean = false,
 ) {
-  val lanes = applicableStages(segments).ifEmpty { listOf("unknown") }
+  val lanes = applicableStages(segments, capabilities).ifEmpty { listOf("unknown") }
   val total = segments.sumOf { it.count }.coerceAtLeast(1)
   val totalSeconds = total.toLong() * epochSeconds.coerceAtLeast(1)
   val endUnixMs = if (startUnixMs > 0) startUnixMs + totalSeconds * 1000L else 0L
@@ -725,10 +727,11 @@ fun StageBreakdown(
     segments: List<StageSegmentDto>,
     epochSeconds: Int,
     modifier: Modifier = Modifier,
+    capabilities: JsonObject? = null,
 ) {
   val durations = stageSeconds(segments, epochSeconds)
   val total = durations.values.sum().coerceAtLeast(1)
-  val stages = applicableStages(segments)
+  val stages = applicableStages(segments, capabilities)
   Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
     for (stage in stages) {
       val seconds = durations[stage] ?: 0L
