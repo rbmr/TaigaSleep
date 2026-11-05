@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.os.PowerManager
+import com.rbmr.taigasleep.tracker.RecordingMode
 
 /**
  * The phone settings that decide whether a night survives. Read once per answer, never decided
@@ -61,6 +62,8 @@ data class Readiness(
 enum class HomeState {
   READY,
   NEEDS_SETTINGS,
+  /** The chosen mode stores the night on the tracker, so the phone may sleep. */
+  NOT_NEEDED,
 }
 
 /**
@@ -69,10 +72,9 @@ enum class HomeState {
  * pages and the service start gate cannot disagree, and the user's own flow pick is honoured
  * everywhere.
  *
- * The card is shown only while preventing shutdown matters, which today is every recording because
- * every stream is live. A tracker that stores the night on itself and syncs in the morning will not
- * need these settings, and Home will show that state instead of asking for them; see
- * "Preventing shutdown" in `docs/vision.md`.
+ * The card is shown only while preventing shutdown matters. A streamed recording needs it; a
+ * recording stored on the tracker does not, because the phone may sleep. See "Preventing shutdown"
+ * in `docs/vision.md`.
  */
 object ReadinessState {
   /** The flow the app will show: the user's own pick if they corrected the detection. */
@@ -81,6 +83,10 @@ object ReadinessState {
 
   fun state(flow: Flow, isOk: (Step) -> Boolean): HomeState =
       if (Progress.isReady(flow, isOk)) HomeState.READY else HomeState.NEEDS_SETTINGS
+
+  /** The mode decides whether the flow applies at all; no other input matters on the tracker. */
+  fun state(flow: Flow, mode: RecordingMode, isOk: (Step) -> Boolean): HomeState =
+      if (mode == RecordingMode.ON_DEVICE) HomeState.NOT_NEEDED else state(flow, isOk)
 
   fun state(readiness: Readiness, store: GuidanceStore, flow: Flow): HomeState =
       state(flow) { Progress.isOk(readiness, store, flow, it) }
@@ -92,7 +98,21 @@ object ReadinessState {
   fun state(context: Context, store: GuidanceStore, preview: PreviewDevice?): HomeState =
       state(Readiness.read(context), store, flow(store, preview))
 
+  /** The mode decides whether the check applies at all. */
+  fun state(
+      context: Context,
+      store: GuidanceStore,
+      preview: PreviewDevice?,
+      mode: RecordingMode,
+  ): HomeState =
+      if (mode == RecordingMode.ON_DEVICE) HomeState.NOT_NEEDED
+      else state(context, store, preview)
+
   /** The shared result, for the recording service's start gate. */
-  fun ready(context: Context, store: GuidanceStore, preview: PreviewDevice?): Boolean =
-      state(context, store, preview) == HomeState.READY
+  fun ready(
+      context: Context,
+      store: GuidanceStore,
+      preview: PreviewDevice?,
+      mode: RecordingMode,
+  ): Boolean = state(context, store, preview, mode) != HomeState.NEEDS_SETTINGS
 }

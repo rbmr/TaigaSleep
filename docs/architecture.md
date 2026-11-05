@@ -70,7 +70,7 @@ One Gradle module, one package per concern under `com.rbmr.taigasleep`:
 | --- | --- | --- |
 | `tracker` | What a tracker is: its capabilities, its recording mode, its configuration. Implementations per device (`polar`), a simulated one in debug builds. | `diagnostics` |
 | `recording` | Capturing: the selected tracker, the recording state machine, the foreground service, the on-disk format, the local store, export. | `tracker`, `diagnostics` |
-| `guard` | The preventing-shutdown flow: per-device steps, checks, the final readiness list. | `diagnostics` |
+| `guard` | The preventing-shutdown flow: per-device steps, checks, the final readiness list. | `tracker`, `diagnostics` |
 | `backend` | A client for API v1: DTOs, requests, authentication state, the event stream. No business logic. | `diagnostics` |
 | `sync` | Moving recordings to and from the backend: upload queue, retention, deletion, analysis requests, result cache. | `recording`, `backend`, `insights`, `diagnostics` |
 | `insights` | Turning analysis results into what is displayed: statistics, series, scores, the algorithm catalogue and the user's algorithm preference. | `backend`, `diagnostics` |

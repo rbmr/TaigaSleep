@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.recording
 
 import android.content.Context
+import com.rbmr.taigasleep.tracker.RecordingMode
 
 /**
  * What [RecordingService] needs to know or tell the rest of the app without depending on it. The
@@ -10,10 +11,10 @@ import android.content.Context
  */
 interface RecordingHooks {
   /**
-   * Whether a recording may start. False refuses the start, and the service tells the user that the
-   * phone is not ready.
+   * Whether a recording may start in [mode]. False refuses the start, and the service tells the
+   * user that the phone is not ready. On-device recording needs no battery settings.
    */
-  fun mayStart(context: Context): Boolean
+  fun mayStart(context: Context, mode: RecordingMode): Boolean
 
   /**
    * One line naming the phone settings that decide whether a night survives (battery optimisation,

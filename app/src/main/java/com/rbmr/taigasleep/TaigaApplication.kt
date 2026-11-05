@@ -12,6 +12,7 @@ import com.rbmr.taigasleep.guard.ReadinessState
 import com.rbmr.taigasleep.recording.RecordingHooks
 import com.rbmr.taigasleep.sync.RawRetention
 import com.rbmr.taigasleep.sync.UploadScheduler
+import com.rbmr.taigasleep.tracker.RecordingMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -99,8 +100,8 @@ class TaigaApplication : Application() {
  * the upload queue.
  */
 private object RecordingWiring : RecordingHooks {
-  override fun mayStart(context: Context): Boolean =
-      ReadinessState.ready(context, GuidanceStore(context), preview = null)
+  override fun mayStart(context: Context, mode: RecordingMode): Boolean =
+      ReadinessState.ready(context, GuidanceStore(context), preview = null, mode = mode)
 
   override fun readinessSummary(context: Context): String = Readiness.read(context).summary()
 

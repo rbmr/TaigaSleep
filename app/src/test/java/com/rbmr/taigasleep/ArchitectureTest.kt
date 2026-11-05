@@ -245,7 +245,7 @@ private object Architecture {
       mapOf(
           "tracker" to setOf("diagnostics"),
           "recording" to setOf("tracker", "diagnostics"),
-          "guard" to setOf("diagnostics"),
+          "guard" to setOf("tracker", "diagnostics"),
           "backend" to setOf("diagnostics"),
           "sync" to setOf("recording", "backend", "insights", "diagnostics"),
           "insights" to setOf("backend", "diagnostics"),
