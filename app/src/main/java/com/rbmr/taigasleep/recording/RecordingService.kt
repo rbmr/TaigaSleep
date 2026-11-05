@@ -21,6 +21,8 @@ import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.tracker.ConnectionState
+import com.rbmr.taigasleep.tracker.OnDeviceTracker
+import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.StreamConfig
@@ -56,7 +58,10 @@ class RecordingService : Service() {
   private class Live(
       val writer: RecordingWriter,
       val sensor: SleepSensor,
-      val wakeLock: PowerManager.WakeLock,
+      val mode: RecordingMode,
+      val lifecycle: RecordingLifecycle,
+      val fanout: SampleFanout,
+      val wakeLock: PowerManager.WakeLock?,
       val monitor: RecordingMonitor,
   ) {
     var jobs = emptyList<Job>()
@@ -143,11 +148,24 @@ class RecordingService : Service() {
             ecg = intent.getBooleanExtra(EXTRA_ECG, false) && sensor.capabilities.ecg,
             acc = intent.getBooleanExtra(EXTRA_ACC, false) && sensor.capabilities.acc,
         )
+    val modes = sensor.recordingModes(StreamConfig(config.ecg, config.acc))
+    if (modes.isEmpty()) {
+      leave(getString(R.string.rec_error_mode))
+      return
+    }
+    val requested = RecordingMode.fromWire(intent.getStringExtra(EXTRA_MODE))
+    val mode =
+        when {
+          requested != null && requested in modes -> requested
+          RecordingMode.STREAM in modes -> RecordingMode.STREAM
+          else -> modes.first()
+        }
     val now = System.currentTimeMillis()
     val meta =
         RecordingMeta(
             recordingId = store.newRecordingId(now),
             state = RecordingPhase.RECORDING,
+            mode = mode,
             startUtcMs = now,
             endUtcMs = null,
             timezone = TimeZone.getDefault().id,
@@ -173,7 +191,7 @@ class RecordingService : Service() {
           return
         }
     writer.event("readiness", hooks.readinessSummary(this))
-    attach(writer, sensor)
+    attach(writer, sensor, mode)
   }
 
   /** Picks up the session recorded before this process or service instance died. */
@@ -205,15 +223,26 @@ class RecordingService : Service() {
           leave(null)
           return
         }
-    attach(writer, sensor)
+    attach(writer, sensor, meta.mode)
   }
 
-  private fun attach(writer: RecordingWriter, sensor: SleepSensor) {
-    val pm = getSystemService(PowerManager::class.java)
+  private fun attach(
+      writer: RecordingWriter,
+      sensor: SleepSensor,
+      mode: RecordingMode,
+  ) {
+    val lifecycle = RecordingLifecycle(mode)
+    val needsWakeLock = lifecycle.start().contains(LifecycleEffect.AcquireWakeLock)
     val wakeLock =
-        pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TaigaSleep::recording").apply {
-          setReferenceCounted(false)
-          acquire(WAKE_LOCK_MS)
+        if (needsWakeLock) {
+          getSystemService(PowerManager::class.java)
+              .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TaigaSleep::recording")
+              .apply {
+                setReferenceCounted(false)
+                acquire(WAKE_LOCK_MS)
+              }
+        } else {
+          null
         }
     val monitor =
         RecordingMonitor(
@@ -224,7 +253,9 @@ class RecordingService : Service() {
         )
     monitor.onPhase(RecordingState.Phase.RECORDING)
     monitor.onLink(sensor.connection.value)
-    val s = Live(writer, sensor, wakeLock, monitor)
+    val fanout =
+        SampleFanout(writer, monitor) { message -> writer.event("error", message) }
+    val s = Live(writer, sensor, mode, lifecycle, fanout, wakeLock, monitor)
     live = s
     running = true
     lastNotificationText = null
@@ -242,13 +273,22 @@ class RecordingService : Service() {
           startUtcMs = writer.meta.startUtcMs,
           config = cfg,
           sensorName = sensor.name,
-          liveStreaming = sensor.capabilities.live,
+          liveStreaming = mode == RecordingMode.STREAM && sensor.capabilities.live,
           state = monitor.state.value,
       )
     }
-    val fanout =
-        SampleFanout(writer, monitor) { message -> writer.event("error", message) }
-    sensor.startStreams(StreamConfig(cfg.ecg, cfg.acc), fanout)
+    val streamConfig = StreamConfig(cfg.ecg, cfg.acc)
+    if (mode == RecordingMode.ON_DEVICE) {
+      val tracker = sensor as? OnDeviceTracker
+      if (tracker == null) {
+        writer.finish(RecordingPhase.INTERRUPTED, "tracker cannot record on the device")
+        end(s)
+        return
+      }
+      tracker.startOnDevice(streamConfig, fanout)
+    } else {
+      sensor.startStreams(streamConfig, fanout)
+    }
     if (sensor.connection.value == ConnectionState.DISCONNECTED) sensor.connect()
 
     s.jobs =
@@ -275,16 +315,7 @@ class RecordingService : Service() {
     RecordingRepository.update { it.copy(phase = Phase.STOPPING) }
     s.monitor.onPhase(RecordingState.Phase.STOPPING)
     s.jobs.forEach { it.cancel() }
-    if (forced) {
-      // One-sided: the data is closed first and the sensor is told afterwards, if at all.
-      s.writer.finish(RecordingPhase.FORCED_STOP, "forced stop")
-      Thread { runCatching { s.sensor.stopStreams() } }.start()
-    } else {
-      withTimeoutOrNull(STOP_STREAMS_TIMEOUT_MS) {
-        withContext(Dispatchers.IO) { runCatching { s.sensor.stopStreams() } }
-      }
-      s.writer.finish(RecordingPhase.STOPPED, "stopped by user")
-    }
+    apply(s, if (forced) s.lifecycle.forceStop() else s.lifecycle.stop())
     end(s)
   }
 
@@ -295,10 +326,40 @@ class RecordingService : Service() {
       return
     }
     s.jobs.forEach { it.cancel() }
-    Thread { runCatching { s.sensor.stopStreams() } }.start()
-    s.writer.close()
-    store.delete(s.writer.meta.recordingId)
+    apply(s, s.lifecycle.discard())
     end(s)
+  }
+
+  /** Performs the effects a lifecycle transition asked for, in order. */
+  private suspend fun apply(s: Live, effects: List<LifecycleEffect>) {
+    for (effect in effects) {
+      when (effect) {
+        LifecycleEffect.AcquireWakeLock -> Unit // Acquired in attach, before the first samples.
+        LifecycleEffect.StopStreams ->
+            withTimeoutOrNull(STOP_STREAMS_TIMEOUT_MS) {
+              withContext(Dispatchers.IO) { runCatching { s.sensor.stopStreams() } }
+            }
+        LifecycleEffect.StopStreamsAsync ->
+            Thread { runCatching { s.sensor.stopStreams() } }.start()
+        LifecycleEffect.FetchFromTracker ->
+            (s.sensor as? OnDeviceTracker)?.fetchOnDevice(s.fanout)
+        LifecycleEffect.DiscardOnTracker ->
+            (s.sensor as? OnDeviceTracker)?.discardOnDevice()
+        is LifecycleEffect.Finish -> {
+          val message =
+              when (effect.phase) {
+                RecordingPhase.FORCED_STOP -> "forced stop"
+                RecordingPhase.INTERRUPTED -> "interrupted"
+                else -> "stopped by user"
+              }
+          s.writer.finish(effect.phase, message)
+        }
+        LifecycleEffect.DeleteLocal -> {
+          s.writer.close()
+          store.delete(s.writer.meta.recordingId)
+        }
+      }
+    }
   }
 
   private fun end(s: Live) {
@@ -312,7 +373,8 @@ class RecordingService : Service() {
     releaseWakeLock(s)
     RecordingRepository.setIdle()
     RecordingRepository.refreshRecordings(this)
-    if (s.writer.meta.state != RecordingPhase.RECORDING) {
+    if (s.lifecycle.state != LifecycleState.DISCARDED &&
+        s.writer.meta.state != RecordingPhase.RECORDING) {
       hooks.onRecordingFinished(this, s.writer.meta.recordingId)
     }
     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -327,7 +389,7 @@ class RecordingService : Service() {
   }
 
   private fun releaseWakeLock(s: Live) {
-    if (s.wakeLock.isHeld) s.wakeLock.release()
+    s.wakeLock?.takeIf { it.isHeld }?.release()
   }
 
   // Live work.
@@ -501,6 +563,7 @@ class RecordingService : Service() {
     private const val EXTRA_SENSOR_NAME = "sensor_name"
     private const val EXTRA_ECG = "ecg"
     private const val EXTRA_ACC = "acc"
+    private const val EXTRA_MODE = "mode"
 
     /** True while this process has a session being recorded. */
     @Volatile
@@ -510,7 +573,12 @@ class RecordingService : Service() {
     fun intent(context: Context, action: String) =
         Intent(context, RecordingService::class.java).setAction(action)
 
-    fun start(context: Context, sensor: SleepSensor, config: StreamConfig) {
+    fun start(
+        context: Context,
+        sensor: SleepSensor,
+        config: StreamConfig,
+        mode: RecordingMode = RecordingMode.STREAM,
+    ) {
       val i =
           intent(context, ACTION_START)
               .putExtra(EXTRA_SENSOR_KIND, sensor.kind.wire)
@@ -518,6 +586,7 @@ class RecordingService : Service() {
               .putExtra(EXTRA_SENSOR_NAME, sensor.name)
               .putExtra(EXTRA_ECG, config.ecg)
               .putExtra(EXTRA_ACC, config.acc)
+              .putExtra(EXTRA_MODE, mode.wire)
       context.startForegroundService(i)
     }
 

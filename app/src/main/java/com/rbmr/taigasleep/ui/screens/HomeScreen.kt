@@ -37,6 +37,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -72,6 +73,7 @@ import com.rbmr.taigasleep.recording.RecordingState
 import com.rbmr.taigasleep.recording.CaptureStatus
 import com.rbmr.taigasleep.recording.SensorHub
 import com.rbmr.taigasleep.tracker.ConnectionState
+import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.StreamConfig
@@ -423,6 +425,8 @@ private fun ConfirmDialog(action: StopAction, onDismiss: () -> Unit, onConfirm: 
 private fun DataDialog(sensor: SleepSensor, prefs: RecordingPrefs, onDismiss: () -> Unit) {
   var ecg by remember(sensor.id) { mutableStateOf(prefs.ecgEnabled(sensor.id)) }
   var acc by remember(sensor.id) { mutableStateOf(prefs.accEnabled(sensor.id)) }
+  var mode by remember(sensor.id) { mutableStateOf(prefs.mode(sensor.id)) }
+  val modes = sensor.recordingModes(StreamConfig(ecg, acc))
   AlertDialog(
       onDismissRequest = onDismiss,
       title = { Text(stringResource(R.string.rec_data_title)) },
@@ -446,6 +450,39 @@ private fun DataDialog(sensor: SleepSensor, prefs: RecordingPrefs, onDismiss: ()
               acc = it
               prefs.setAccEnabled(sensor.id, it)
             }
+          }
+          if (modes.size > 1) {
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = stringResource(R.string.rec_mode_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            ModeRow(
+                label = stringResource(R.string.rec_mode_stream),
+                selected = mode == RecordingMode.STREAM,
+                enabled = RecordingMode.STREAM in modes,
+            ) {
+              mode = RecordingMode.STREAM
+              prefs.setMode(sensor.id, mode)
+            }
+            ModeRow(
+                label = stringResource(R.string.rec_mode_on_device),
+                selected = mode == RecordingMode.ON_DEVICE,
+                enabled = RecordingMode.ON_DEVICE in modes,
+            ) {
+              mode = RecordingMode.ON_DEVICE
+              prefs.setMode(sensor.id, mode)
+            }
+            Text(
+                text =
+                    stringResource(
+                        if (mode == RecordingMode.ON_DEVICE) R.string.rec_mode_on_device_note
+                        else R.string.rec_mode_stream_note
+                    ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 48.dp, bottom = 8.dp),
+            )
           }
         }
       },
@@ -539,14 +576,20 @@ private fun SensorCard(
 private fun startRecording(context: Context, sensor: SleepSensor?, prefs: RecordingPrefs) {
   sensor ?: return
   RecordingRepository.setIdle()
-  RecordingService.start(
-      context,
-      sensor,
+  val config =
       StreamConfig(
           ecg = sensor.capabilities.ecg && prefs.ecgEnabled(sensor.id),
           acc = sensor.capabilities.acc && prefs.accEnabled(sensor.id),
-      ),
-  )
+      )
+  val modes = sensor.recordingModes(config)
+  val saved = prefs.mode(sensor.id)
+  val mode =
+      when {
+        saved in modes -> saved
+        RecordingMode.STREAM in modes -> RecordingMode.STREAM
+        else -> modes.firstOrNull() ?: RecordingMode.STREAM
+      }
+  RecordingService.start(context, sensor, config, mode)
 }
 
 @Composable
@@ -558,6 +601,18 @@ private fun connectionText(state: ConnectionState) =
           ConnectionState.DISCONNECTED -> R.string.rec_connection_disconnected
         }
     )
+
+@Composable
+private fun ModeRow(label: String, selected: Boolean, enabled: Boolean, onChange: () -> Unit) {
+  Row(
+      modifier = Modifier.fillMaxWidth().clickable(enabled = enabled) { onChange() },
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    RadioButton(selected = selected, onClick = if (enabled) onChange else null, enabled = enabled)
+    Spacer(Modifier.width(8.dp))
+    Text(text = label, style = MaterialTheme.typography.bodyLarge)
+  }
+}
 
 @Composable
 private fun ToggleRow(label: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {

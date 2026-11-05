@@ -6,6 +6,7 @@ import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.tracker.ConnectionState
+import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SimulatedSensor
 import com.rbmr.taigasleep.tracker.StreamConfig
 import java.io.File
@@ -139,6 +140,41 @@ class SimulatedRecordingTest {
     assertEquals(tornOut, 3, tornCode)
     assertTrue(tornOut, tornOut.contains("DAMAGED TAIL"))
     assertTrue(tornOut, tornOut.contains("acc.log") && tornOut.contains("hr.log"))
+  }
+
+
+  @Test
+  fun anOnDeviceRecordingStaysOnTheTrackerUntilItIsFetched() {
+    val clock = TestClock()
+    val root = File("build/fixtures-on-device").apply { deleteRecursively(); mkdirs() }
+    val writer =
+        RecordingWriter.create(
+            root,
+            meta(clock).copy(recordingId = "on-device", mode = RecordingMode.ON_DEVICE),
+            clock,
+        )
+    val monitor =
+        RecordingMonitor(
+            meta = writer.meta,
+            clock = clock,
+            event = writer::event,
+            storageHealth = writer::storageHealth,
+        )
+    val sensor = SimulatedSensor(clock, autoRun = false)
+    val fanout =
+        SampleFanout(writer, monitor) { message -> writer.event("error", message) }
+    sensor.connect()
+    sensor.startOnDevice(StreamConfig(ecg = false, acc = false), fanout)
+    repeat(300) {
+      clock.advanceMs(100)
+      sensor.pump(clock.elapsedNs())
+    }
+
+    assertEquals(0L, frames(File(writer.dir, "hr.log")))
+
+    assertTrue(sensor.fetchOnDevice(fanout))
+    writer.finish(RecordingPhase.STOPPED, "test stop")
+    assertTrue(samples(File(writer.dir, "hr.log"), 1) > 0)
   }
 
   private fun frames(file: File): Long {

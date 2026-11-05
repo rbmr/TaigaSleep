@@ -15,6 +15,7 @@
   <string name="rec_error_not_ready">Recording was not started: the phone would stop Taiga in the background. Fix the background settings first.</string>
   <string name="rec_error_no_sensor">Recording was not started: no sensor selected.</string>
   <string name="rec_error_storage">Recording was not started: could not create the session on this phone.</string>
+  <string name="rec_error_mode">Recording was not started: this tracker cannot record with the chosen streams.</string>
 
   <string name="rec_connected_title">%1$s</string>
   <string name="rec_battery">Battery %1$d%%</string>
@@ -27,6 +28,11 @@
   <string name="rec_sensor_none_body">Select a Polar H10 to record heart rate, ECG and movement.</string>
   <string name="rec_data_settings">Data to record</string>
   <string name="rec_data_title">Data to record</string>
+  <string name="rec_mode_title">Recording mode</string>
+  <string name="rec_mode_stream">Stream to phone</string>
+  <string name="rec_mode_on_device">Record on tracker</string>
+  <string name="rec_mode_stream_note">The tracker sends data to the phone while you sleep. Keep the phone awake and nearby.</string>
+  <string name="rec_mode_on_device_note">The tracker stores the night itself. Taiga fetches it when you stop in the morning.</string>
   <string name="rec_done">Done</string>
   <string name="rec_home_title_idle">Recordings</string>
   <string name="rec_home_subtitle_idle">Start a new recording or view existing recordings.</string>
@@ -79,7 +85,7 @@
   <string name="rec_active_storage_error_body">%1$s</string>
   <string name="rec_active_ecg">ECG</string>
   <string name="rec_active_acc">Movement</string>
-  <string name="rec_active_offline">This sensor stores data on itself. Only the connection is shown.</string>
+  <string name="rec_active_offline">This tracker is storing the night itself. Stop in the morning to fetch it.</string>
   <string name="rec_active_failure">Writing to the phone failed: %1$s</string>
   <string name="rec_stop">Stop</string>
   <string name="rec_force_stop">Force stop</string>

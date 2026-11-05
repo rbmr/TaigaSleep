@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.recording
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
 
 /** The sensor the user picked last, so it can be reconnected without scanning again. */
@@ -49,6 +50,13 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
 
   fun setAccEnabled(sensorId: String, on: Boolean) =
       prefs.edit().putBoolean("acc_$sensorId", on).apply()
+
+  /** How this tracker records: streamed to the phone or stored on the tracker. */
+  fun mode(sensorId: String): RecordingMode =
+      RecordingMode.fromWire(prefs.getString("mode_$sensorId", null)) ?: RecordingMode.STREAM
+
+  fun setMode(sensorId: String, mode: RecordingMode) =
+      prefs.edit().putString("mode_$sensorId", mode.wire).apply()
 
   companion object {
     private const val KEY_ACTIVE = "active_session"

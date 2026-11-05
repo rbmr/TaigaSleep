@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.recording.store
 
+import com.rbmr.taigasleep.tracker.RecordingMode
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
@@ -37,6 +38,8 @@ data class RecordingConfig(
 data class RecordingMeta(
     val recordingId: String,
     val state: RecordingPhase,
+    /** Streamed to the phone, or made on the tracker and fetched at the end. */
+    val mode: RecordingMode = RecordingMode.STREAM,
     val startUtcMs: Long,
     val endUtcMs: Long?,
     val timezone: String,
@@ -59,6 +62,7 @@ data class RecordingMeta(
           .put("version", 1)
           .put("session_id", recordingId)
           .put("state", state.wire)
+          .put("mode", mode.wire)
           .put("start_utc_ms", startUtcMs)
           .put("end_utc_ms", endUtcMs ?: JSONObject.NULL)
           .put("timezone", timezone)
@@ -103,6 +107,7 @@ data class RecordingMeta(
       return RecordingMeta(
           recordingId = o.getString("session_id"),
           state = RecordingPhase.fromWire(o.optString("state")),
+          mode = RecordingMode.fromWire(o.optString("mode")) ?: RecordingMode.STREAM,
           startUtcMs = o.getLong("start_utc_ms"),
           endUtcMs = if (o.isNull("end_utc_ms")) null else o.getLong("end_utc_ms"),
           timezone = o.optString("timezone"),
