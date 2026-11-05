@@ -11,6 +11,7 @@ from typing import Any, Callable, Mapping
 from . import __version__
 from .api import ApiClient, ApiError
 from .config import Config
+from .events import EventStream
 from .runner import JobRunner, Outcome
 from .upload import RECORDING_FILES, STREAM_IDS, verify_recording_file
 
@@ -29,20 +30,30 @@ class Worker:
         logger: logging.Logger | None = None,
         sleep: Callable[[float], None] | None = None,
         clock: Callable[[], float] | None = None,
+        events: bool = True,
+        wake: threading.Event | None = None,
     ) -> None:
         self.config = config
         self.api = api
         self.runner = runner
         self.log = logger or logging.getLogger("taiga_worker")
         self._stop = threading.Event()
+        # Rung when there may be work: by the event stream, and by a stop request.
+        self.wake = wake if wake is not None else threading.Event()
+        self._events = (
+            EventStream(api, self.wake, call=self._call, logger=self.log) if events else None
+        )
         self._sleep = sleep or self._stop.wait
         self._clock = clock or time.monotonic
+        # The event stream logs in from its own thread, so logging in is serialised.
+        self._auth_lock = threading.RLock()
         self._capabilities: list[dict[str, Any]] | None = None
         self._algorithm_ids: list[str] = []
         self._announced_at: float | None = None
 
     def request_stop(self) -> None:
         self._stop.set()
+        self.wake.set()
         self.runner.terminate()
 
     @property
@@ -54,14 +65,20 @@ class Worker:
             self._sleep(seconds)
 
     def _login(self) -> None:
-        self.api.login(self.config.email, self.config.password)
-        self.log.info("authenticated to %s as %s", self.config.api_url, self.config.email)
-        # A new token always comes with a fresh announcement.
-        self._announced_at = None
-        try:
-            self._announce()
-        except ApiError as exc:
-            self.log.warning("cannot announce algorithms yet: %s", exc)
+        with self._auth_lock:
+            self.api.login(self.config.email, self.config.password)
+            self.log.info("authenticated to %s as %s", self.config.api_url, self.config.email)
+            # A new token always comes with a fresh announcement.
+            self._announced_at = None
+            try:
+                self._announce()
+            except ApiError as exc:
+                self.log.warning("cannot announce algorithms yet: %s", exc)
+
+    def _ensure_login(self) -> None:
+        with self._auth_lock:
+            if not self.api.token:
+                self._login()
 
     def login(self) -> None:
         """Authenticate eagerly (used by --once to surface bad credentials)."""
@@ -69,16 +86,24 @@ class Worker:
         self._login()
 
     def _call(self, fn: Callable[[], Any]) -> Any:
-        if not self.api.token:
-            self._login()
+        """Run one request, logging in first and once more when the token is rejected.
+
+        The worker loop and the event stream both call through here, so a token that
+        one of them found rejected is not replaced a second time by the other.
+        """
+
+        self._ensure_login()
+        sent = self.api.token
         try:
             return fn()
         except ApiError as exc:
             if exc.status != 401:
                 raise
-            self.log.info("token rejected; logging in again")
-            self.api.token = None
-            self._login()
+            with self._auth_lock:
+                if not self.api.token or self.api.token == sent:
+                    self.log.info("token rejected; logging in again")
+                    self.api.token = None
+                    self._login()
             return fn()
 
     def _discover(self) -> None:
@@ -119,8 +144,7 @@ class Worker:
         )
 
     def _announce_if_due(self) -> None:
-        if not self.api.token:
-            self._login()
+        self._ensure_login()
         if (
             self._announced_at is not None
             and self._clock() - self._announced_at < ANNOUNCE_INTERVAL_S
@@ -335,8 +359,29 @@ class Worker:
                 delay = min(delay * 2, 10.0)
 
     def run_forever(self) -> None:
+        """Claim analyses until stopped.
+
+        The worker claims back to back while there is work. When the queue is empty it
+        waits for the event stream to say that something was queued, and claims again
+        after ``poll_interval_s`` at the latest, which covers what no event announces
+        (a retry whose delay ran out) and a stream that is down.
+        """
+
+        if self._events is not None:
+            self._events.start()
+        try:
+            self._loop()
+        finally:
+            if self._events is not None:
+                self._events.stop()
+        self.log.info("worker stopped")
+
+    def _loop(self) -> None:
         backoff = 1.0
         while not self.stopping:
+            # Cleared before claiming: an event that arrives from here on is either
+            # claimed right now or wakes the next wait.
+            self.wake.clear()
             try:
                 worked = self.run_once()
                 backoff = 1.0
@@ -351,7 +396,9 @@ class Worker:
                 backoff = min(backoff * 2, 60.0)
                 continue
 
-            if not worked:
-                self._wait(self.config.poll_interval_s)
-
-        self.log.info("worker stopped")
+            if not worked and not self.stopping:
+                self.log.debug(
+                    "nothing to claim; waiting for an event (claiming again in %ss at the latest)",
+                    self.config.poll_interval_s,
+                )
+                self.wake.wait(self.config.poll_interval_s)

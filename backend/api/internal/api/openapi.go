@@ -31,6 +31,7 @@ const (
 	tagFiles      = "recording files"
 	tagAnalyses   = "analyses"
 	tagAlgorithms = "algorithms"
+	tagEvents     = "events"
 	tagWorkers    = "worker"
 )
 
@@ -116,6 +117,9 @@ func buildOpenAPIDocument() map[string]any {
 	// Keep the shared error shape in components even though operations only
 	// reference it through responses.
 	reflector.schemaOf(reflect.TypeOf(ErrorResponse{}))
+	// The event payloads are only referenced from prose, so list them here.
+	reflector.schemaOf(reflect.TypeOf(AnalysisEvent{}))
+	reflector.schemaOf(reflect.TypeOf(RecordingEvent{}))
 
 	paths := map[string]any{}
 	for _, route := range Routes() {
@@ -144,6 +148,7 @@ func buildOpenAPIDocument() map[string]any {
 			map[string]any{"name": tagRecordings, "description": "Recordings and their metadata."},
 			map[string]any{"name": tagFiles, "description": "The raw data files of a recording."},
 			map[string]any{"name": tagAnalyses, "description": "Analyses of recordings: request, read, delete."},
+			map[string]any{"name": tagEvents, "description": "Live changes."},
 			map[string]any{"name": tagAlgorithms, "description": "What can analyse a recording."},
 			map[string]any{"name": tagWorkers, "description": "Used by the analysis worker."},
 		},

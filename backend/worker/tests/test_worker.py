@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 
-from taiga_worker.api import ApiError
+import pytest
+
+from taiga_worker.api import ApiClient, ApiError
 from taiga_worker.config import Config
 from taiga_worker.runner import Outcome
 from taiga_worker.worker import ANNOUNCE_INTERVAL_S, Worker
 from tests import analysis_fixture as fx
+from tests.event_server import EventServer, queued, wait_until
 
 
 def config(**changes: Any) -> Config:
@@ -369,20 +374,103 @@ def test_stop_during_analysis_leaves_it_leased() -> None:
     assert runner.terminated
 
 
-def test_run_forever_polls_then_stops() -> None:
+class IdleWake(threading.Event):
+    """The wake event of a worker that is stopped when it has waited ``waits`` times.
+
+    Nothing really waits, so a test sees what the worker did between two idle moments.
+    """
+
+    def __init__(self, waits: int = 1) -> None:
+        super().__init__()
+        self.waits = waits
+        self.timeouts: list[float | None] = []
+        self.set_when_waiting: list[bool] = []
+        self.worker: Worker | None = None
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self.timeouts.append(timeout)
+        self.set_when_waiting.append(self.is_set())
+        if len(self.timeouts) >= self.waits and self.worker is not None:
+            self.worker.request_stop()
+        return self.is_set()
+
+
+def idle_worker(api: FakeApi, *, waits: int = 1, **changes: Any) -> tuple[Worker, IdleWake]:
+    wake = IdleWake(waits)
+    worker = Worker(
+        config(**changes), api, FakeRunner(), sleep=lambda _: None, events=False, wake=wake
+    )
+    wake.worker = worker
+    return worker, wake
+
+
+def test_an_idle_worker_waits_for_an_event_for_the_poll_interval() -> None:
     api = FakeApi()
-    holder: dict[str, Worker] = {}
-    sleeps: list[float] = []
+    worker, wake = idle_worker(api, poll_interval_s=42)
 
-    def fake_sleep(seconds: float) -> None:
-        sleeps.append(seconds)
-        holder["worker"].request_stop()
-
-    worker = Worker(config(), api, FakeRunner(), sleep=fake_sleep)
-    holder["worker"] = worker
     worker.run_forever()
 
-    assert sleeps == [config().poll_interval_s]
+    assert wake.timeouts == [42]
+    assert len(api.claims) == 1
+
+
+def test_the_worker_claims_back_to_back_while_there_is_work() -> None:
+    api = FakeApi(
+        analyses=[analysis(id="an1"), analysis(id="an2"), analysis(id="an3")], files=hr_recording()
+    )
+    worker, wake = idle_worker(api, poll_interval_s=42)
+
+    worker.run_forever()
+
+    assert [item["id"] for item in api.completed] == ["an1", "an2", "an3"]
+    assert len(api.claims) == 4  # three analyses and the empty queue
+    assert wake.timeouts == [42]  # it only waited once the queue was empty
+
+
+def test_an_event_that_came_before_the_claim_does_not_make_the_worker_claim_twice() -> None:
+    api = FakeApi()
+    worker, wake = idle_worker(api)
+    wake.set()  # rung before the loop starts, e.g. by a connection
+
+    worker.run_forever()
+
+    assert len(api.claims) == 1
+    assert wake.set_when_waiting == [False]  # cleared before claiming, so it waits
+
+
+def test_a_stop_request_ends_the_wait_of_an_idle_worker() -> None:
+    api = FakeApi()
+    worker = Worker(config(poll_interval_s=3600), api, FakeRunner(), events=False)
+    thread = threading.Thread(target=worker.run_forever, daemon=True)
+    thread.start()
+    assert wait_until(lambda: len(api.claims) == 1)
+    time.sleep(0.1)
+
+    started = time.monotonic()
+    worker.request_stop()
+    thread.join(5)
+
+    assert not thread.is_alive()
+    assert time.monotonic() - started < 2
+
+
+def test_an_event_wakes_an_idle_worker_long_before_the_poll_interval() -> None:
+    api = FakeApi(files=hr_recording())
+    worker = Worker(config(poll_interval_s=3600), api, FakeRunner(), events=False)
+    thread = threading.Thread(target=worker.run_forever, daemon=True)
+    thread.start()
+    try:
+        assert wait_until(lambda: len(api.claims) == 1)
+        time.sleep(0.1)  # idle now
+
+        api.analyses.append(analysis(id="an9"))
+        worker.wake.set()
+
+        assert wait_until(lambda: [item["id"] for item in api.completed] == ["an9"], 5)
+    finally:
+        worker.request_stop()
+        thread.join(5)
+    assert not thread.is_alive()
 
 
 def test_run_forever_recovers_from_api_errors() -> None:
@@ -394,18 +482,127 @@ def test_run_forever_recovers_from_api_errors() -> None:
             return super().claim(algorithms, lease_seconds)
 
     api = FlakyApi(analyses=[analysis()], files=hr_recording())
-    holder: dict[str, Worker] = {}
     sleeps: list[float] = []
+    worker, _ = idle_worker(api)
+    worker._sleep = sleeps.append
 
-    def fake_sleep(seconds: float) -> None:
-        sleeps.append(seconds)
-        if len(sleeps) == 1:
-            return
-        holder["worker"].request_stop()
-
-    worker = Worker(config(), api, FakeRunner(), sleep=fake_sleep)
-    holder["worker"] = worker
     worker.run_forever()
 
     assert api.completed[0]["id"] == "an1"
-    assert sleeps[0] == 1.0
+    assert sleeps == [1.0]
+
+
+# --- the worker with its event stream, against a stub of the API ---
+
+
+@pytest.fixture()
+def api_stub() -> Iterator[EventServer]:
+    stub = EventServer()
+    try:
+        yield stub
+    finally:
+        stub.close()
+
+
+class Listening(threading.Event):
+    """A wake event that counts its waits, to know when the worker is idle."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.waits = 0
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self.waits += 1
+        return super().wait(timeout)
+
+
+def settled(read: Any, quiet_s: float = 0.4) -> Any:
+    """The value of ``read()`` once it has stayed the same for ``quiet_s``."""
+
+    value, since = read(), time.monotonic()
+    while time.monotonic() - since < quiet_s:
+        time.sleep(0.02)
+        current = read()
+        if current != value:
+            value, since = current, time.monotonic()
+    return value
+
+
+@pytest.fixture()
+def listening_worker(api_stub: EventServer) -> Iterator[tuple[Worker, Listening, threading.Thread]]:
+    """A worker that waits an hour between claims, listening to the stub."""
+
+    wake = Listening()
+    api = ApiClient(api_stub.url, timeout_s=5)
+    worker = Worker(config(api_url=api_stub.url, poll_interval_s=3600), api, FakeRunner(), wake=wake)
+    thread = threading.Thread(target=worker.run_forever, daemon=True)
+    thread.start()
+    try:
+        yield worker, wake, thread
+    finally:
+        worker.request_stop()
+        thread.join(10)
+        assert not thread.is_alive()
+
+
+def test_the_worker_claims_when_connected_and_when_an_analysis_is_queued(api_stub, listening_worker) -> None:
+    worker, wake, _ = listening_worker
+    (connection,) = api_stub.wait_for_connections(1)
+    assert wait_until(lambda: wake.waits >= 1)
+    claims = settled(lambda: len(api_stub.claims))
+    assert claims >= 1  # at least the one it makes on connecting
+
+    # Events that are not about new work leave it idle.
+    connection.send(b": keepalive\n\n")
+    connection.send(b'event: analysis\ndata: {"id": "a", "recording": "r", "status": "running"}\n\n')
+    connection.send(b'event: recording\ndata: {"id": "r", "change": "created"}\n\n')
+    assert settled(lambda: len(api_stub.claims)) == claims
+
+    connection.send(queued())
+
+    assert wait_until(lambda: len(api_stub.claims) == claims + 1, 5)
+
+
+def test_the_worker_claims_after_every_reconnect(api_stub, listening_worker) -> None:
+    worker, wake, _ = listening_worker
+    (first,) = api_stub.wait_for_connections(1)
+    assert wait_until(lambda: wake.waits >= 1)
+    claims = settled(lambda: len(api_stub.claims))
+
+    first.cut()  # whatever is queued from here on is announced to nobody
+
+    api_stub.wait_for_connections(2)
+    assert wait_until(lambda: len(api_stub.claims) == claims + 1, 5)
+    assert first.gone.is_set()
+
+
+def test_a_rejected_token_is_replaced_once_for_the_stream_and_the_worker(api_stub, listening_worker) -> None:
+    worker, wake, _ = listening_worker
+    (first,) = api_stub.wait_for_connections(1)
+    assert wait_until(lambda: wake.waits >= 1)
+    claims = settled(lambda: len(api_stub.claims))
+    assert api_stub.logins == 1
+
+    api_stub.revoked.add("token-1")
+    first.cut()
+
+    api_stub.wait_for_connections(2)
+    assert wait_until(lambda: len(api_stub.claims) == claims + 1, 5)
+    assert api_stub.logins == 2
+    assert api_stub.requests[-1]["token"] == "token-2"
+    assert api_stub.claims[-1] == "token-2"
+
+
+def test_stopping_closes_the_stream_and_ends_the_worker_at_once(api_stub, listening_worker) -> None:
+    worker, wake, thread = listening_worker
+    (connection,) = api_stub.wait_for_connections(1)
+    assert wait_until(lambda: wake.waits >= 1)
+    time.sleep(0.1)
+
+    started = time.monotonic()
+    worker.request_stop()
+    thread.join(5)
+
+    assert not thread.is_alive()
+    assert time.monotonic() - started < 2
+    assert connection.gone.wait(2)

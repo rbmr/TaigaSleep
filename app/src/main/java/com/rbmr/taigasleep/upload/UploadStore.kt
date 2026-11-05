@@ -81,12 +81,29 @@ data class UploadRecord(
             phase == UploadPhase.FAILED
 }
 
+/** Where the records are kept: one JSON document. Preferences in the app, memory in unit tests. */
+interface UploadRecordsStorage {
+  fun read(): String?
+
+  fun write(json: String)
+}
+
+private class PreferencesRecords(private val prefs: SharedPreferences) : UploadRecordsStorage {
+  override fun read(): String? = prefs.getString(KEY_RECORDS, null)
+
+  override fun write(json: String) {
+    prefs.edit().putString(KEY_RECORDS, json).apply()
+  }
+}
+
+private const val KEY_RECORDS = "records"
+
 /**
  * Persisted status for every local recording. The backend is authoritative for the bytes and the
  * analysis; this store is the app's durable view so History survives process death and an upload
  * can resume where it stopped.
  */
-class UploadStore private constructor(private val prefs: SharedPreferences) {
+class UploadStore internal constructor(private val storage: UploadRecordsStorage) {
   private val lock = Any()
   private val json =
       Json {
@@ -182,18 +199,6 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
     }
   }
 
-  fun markProcessingRetry(id: String, failure: UploadFailure, detail: String? = null) {
-    update(id) {
-      it.copy(
-          phase = UploadPhase.PROCESSING,
-          failure = failure,
-          errorDetail = detail,
-          progress = 1f,
-          updatedAtMs = now(),
-      )
-    }
-  }
-
   fun markFailed(id: String, failure: UploadFailure, detail: String? = null) {
     update(id) {
       it.copy(
@@ -258,18 +263,17 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
   }
 
   private fun persist(records: Map<String, UploadRecord>) {
-    prefs.edit().putString(KEY_RECORDS, json.encodeToString<Map<String, UploadRecord>>(records)).apply()
+    storage.write(json.encodeToString<Map<String, UploadRecord>>(records))
   }
 
   private fun load(): Map<String, UploadRecord> {
-    val raw = prefs.getString(KEY_RECORDS, null) ?: return emptyMap()
+    val raw = storage.read() ?: return emptyMap()
     return runCatching { json.decodeFromString<Map<String, UploadRecord>>(raw) }.getOrDefault(emptyMap())
   }
 
   private fun now(): Long = System.currentTimeMillis()
 
   companion object {
-    private const val KEY_RECORDS = "records"
     @Volatile private var instance: UploadStore? = null
 
     fun of(context: Context): UploadStore =
@@ -277,7 +281,12 @@ class UploadStore private constructor(private val prefs: SharedPreferences) {
             ?: synchronized(this) {
               instance
                   ?: UploadStore(
-                          context.applicationContext.getSharedPreferences("uploads", Context.MODE_PRIVATE)
+                          PreferencesRecords(
+                              context.applicationContext.getSharedPreferences(
+                                  "uploads",
+                                  Context.MODE_PRIVATE,
+                              )
+                          )
                       )
                       .also { instance = it }
             }

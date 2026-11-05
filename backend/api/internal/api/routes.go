@@ -21,6 +21,7 @@ func Register(app core.App) {
 		removeRecordingDir(e.App, e.Record.Id)
 		return e.Next()
 	})
+	registerEvents(app)
 
 	app.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
 		settings := e.App.Settings()
@@ -368,6 +369,27 @@ func Routes() []openAPIRoute {
 			Params:      []routeParam{pathParam("id", "The id of the analysis.")},
 			Responses:   withErrors([]routeResponse{emptyResponse(204, "Deleted.")}, 401, 403, 404),
 			Handler:     DeleteAnalysis,
+		},
+
+		// --- events ---
+		{
+			Method: http.MethodGet, Path: apiPrefix + "/events", OperationID: "streamEvents", Tag: tagEvents,
+			Summary: "Stream changes as Server-Sent Events",
+			Description: "A `text/event-stream` that stays open. `analysis` events (`{id, recording, status}`) and `recording` " +
+				"events (`{id, change}`) tell a user that something they show has changed; a worker receives `analysis` events " +
+				"with status `queued`, which is its signal to claim. Events carry no data and are not replayed: fetch the " +
+				"resource, and treat a reconnect as \"refetch what I show\". A comment line is sent every 20 seconds.",
+			Access: accessAny,
+			Responses: withErrors([]routeResponse{{
+				Status: 200, Description: "The event stream.", ContentType: "text/event-stream",
+				Schema: func(r *schemaReflector) map[string]any {
+					return map[string]any{
+						"type":        "string",
+						"description": "`event: analysis` with an AnalysisEvent, or `event: recording` with a RecordingEvent, as JSON `data`.",
+					}
+				},
+			}}, 401, 403),
+			Handler: StreamEvents,
 		},
 
 		// --- algorithms ---

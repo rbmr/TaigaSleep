@@ -268,8 +268,9 @@ fun NightDetailScreen(
   }
 
   // The night can arrive after the first composition (the stores are read on a flow). Load its
-  // cached result as soon as the selected analysis is known, without waiting for the network.
-  LaunchedEffect(key, night?.analysisId) {
+  // cached result as soon as the selected analysis is known, without waiting for the network. A
+  // result that arrives while the screen is open (the live sync saves it) is picked up the same way.
+  LaunchedEffect(key, night?.analysisId, night?.resultDownloaded) {
     val selected = night?.analysisId
     if (selected == null) return@LaunchedEffect
     val cached = repository.cachedResult(key, selected)
@@ -308,11 +309,6 @@ fun NightDetailScreen(
   }
 
   fun checkNow() {
-    val id = state.local?.id ?: localId ?: state.remoteId?.let { "remote-$it" }
-    val server = state.remoteId
-    if (id != null && server != null) {
-      UploadScheduler.enqueuePoll(context, id, state.analysisId, replace = true)
-    }
     refreshKey++
   }
 

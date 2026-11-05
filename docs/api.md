@@ -178,8 +178,6 @@ A lease that expires puts the analysis back in the queue; the backend does this 
 
 ## Events
 
-> Planned: the stream is added by a later change; this revision has no `/v1/events`.
-
 `GET /v1/events` is a Server-Sent Events stream for the caller. A comment line (`:`) is
 sent every 20 seconds so intermediaries keep the connection open.
 
@@ -191,6 +189,8 @@ event: recording
 data: {"id": "20261023_223000-k3f9", "change": "deleted"}
 ```
 
+- `analysis` events carry the analysis status (`queued`, `running`, `succeeded`, `failed`)
+  or `deleted`; `recording` events carry `change` (`created`, `updated`, `deleted`); `updated` means the metadata changed or the recording was sealed, not that a chunk arrived.
 - A **user** receives events for their own recordings and analyses.
 - A **worker** receives `analysis` events with `status: "queued"`, which is its signal to
   claim; it also claims once on connecting, because events are not replayed.

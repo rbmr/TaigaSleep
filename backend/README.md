@@ -107,10 +107,14 @@ export TAIGA_WORKER_PASSWORD='<password>'
 uv run --frozen python -m taiga_worker
 ```
 
-It logs in, reports the algorithms it has installed, polls the claim endpoint,
-downloads one recording through the API, runs one stager in a fresh subprocess,
-and reports the result. The supervisor never reads the database or recording
-files directly.
+It logs in, reports the algorithms it has installed, listens to the API's event
+stream (`GET /v1/events`) and claims an analysis the moment one is queued, and
+once after every (re)connect, since events are not replayed. It then downloads one
+recording through the API, runs one stager in a fresh subprocess, and reports the
+result. While the queue is empty it also claims every `TAIGA_POLL_INTERVAL_S`
+seconds (60 by default), which finds what no event announces, such as a retry whose
+delay ran out, and keeps a worker whose stream is down (a proxy that buffers it,
+say) working. The supervisor never reads the database or recording files directly.
 
 The analysis library lives in `taiga_worker/analysis/`: the stager contract,
 recording decoder, shared metrics, data quality, the sleep score and the built-in `baseline` stager.
@@ -190,7 +194,7 @@ Command-line flags take precedence over environment variables.
 | `TAIGA_WORKER_PASSWORD` | `--password` | required | Password; prefer the file/env form. |
 | `TAIGA_WORKER_PASSWORD_FILE` | `--password-file` | unset | Read the password from a root-only file. |
 | `TAIGA_WORKER_ID` | `--worker-id` | hostname-pid | Name recorded on a lease. |
-| `TAIGA_POLL_INTERVAL_S` | `--poll-interval` | `15` | Sleep when the queue is empty. |
+| `TAIGA_POLL_INTERVAL_S` | `--poll-interval` | `60` | Fallback when the queue is empty: claim again after this long without an event. New work normally arrives as an event. |
 | `TAIGA_JOB_LEASE_S` | `--lease-seconds` | `1800` | Lease length; an expired lease is requeued. |
 | `TAIGA_JOB_MEMORY_MB` | `--memory-mb` | `1024` | Address-space limit for one job; `0` disables it. Use `2048` for wav2sleep or SleepECG. |
 | `TAIGA_JOB_TIMEOUT_S` | `--timeout` | `3600` | Wall-clock limit for one job. |
