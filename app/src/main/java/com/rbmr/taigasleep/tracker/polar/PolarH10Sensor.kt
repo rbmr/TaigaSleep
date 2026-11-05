@@ -12,6 +12,10 @@ import com.polar.sdk.api.PolarBleApiDefaultImpl
 import com.polar.sdk.api.model.EcgSample
 import com.polar.sdk.api.model.PolarDeviceInfo
 import com.polar.sdk.api.model.PolarHealthThermometerData
+import com.polar.sdk.api.model.PolarHrData
+import com.polar.sdk.api.model.PolarOfflineRecordingData
+import com.polar.sdk.api.model.PolarOfflineRecordingEntry
+import com.polar.sdk.api.model.PolarRecordingSecret
 import com.polar.sdk.api.model.PolarSensorSetting
 import com.polar.sdk.api.model.PolarSensorSetting.SettingType
 import com.rbmr.taigasleep.tracker.AccBatch
@@ -19,6 +23,8 @@ import com.rbmr.taigasleep.tracker.Clock
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.EcgBatch
 import com.rbmr.taigasleep.tracker.HrSample
+import com.rbmr.taigasleep.tracker.OnDeviceTracker
+import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SampleListener
 import com.rbmr.taigasleep.tracker.SensorCapabilities
 import com.rbmr.taigasleep.tracker.SensorKind
@@ -57,6 +63,7 @@ private object PolarSdk {
                       PolarBleSdkFeature.FEATURE_DEVICE_INFO,
                       PolarBleSdkFeature.FEATURE_BATTERY_INFO,
                       PolarBleSdkFeature.FEATURE_POLAR_ONLINE_STREAMING,
+                      PolarBleSdkFeature.FEATURE_POLAR_OFFLINE_RECORDING,
                       PolarBleSdkFeature.FEATURE_POLAR_DEVICE_TIME_SETUP,
                   ),
               )
@@ -103,13 +110,21 @@ private object PolarSdk {
       }
 }
 
+/**
+ * The H10 can store HR and RR on the device, but not ECG or ACC. An HR-only configuration may
+ * therefore stream or record on the strap; anything else has to stream.
+ */
+internal fun polarRecordingModes(config: StreamConfig): Set<RecordingMode> =
+    if (config.ecg || config.acc) setOf(RecordingMode.STREAM)
+    else setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE)
+
 /** A Polar H10 over BLE: HR (with RR), ECG at 130 Hz and ACC at 50 Hz, ±8 G, raw SDK values. */
 class PolarH10Sensor(
     context: Context,
     override val id: String,
     override val name: String,
     private val clock: Clock = SystemClockSource,
-) : SleepSensor {
+) : SleepSensor, OnDeviceTracker {
   override val kind = SensorKind.POLAR_H10
   override val capabilities = SensorCapabilities(ecg = true, acc = true, rr = true)
 
@@ -138,6 +153,13 @@ class PolarH10Sensor(
   private var wanted: StreamConfig? = null
   private var listener: SampleListener? = null
   private var userDisconnect = false
+
+  // On-device recording: the strap stores HR/RR itself and the phone fetches it in the morning.
+  private var onDeviceWanted: StreamConfig? = null
+  private var onDeviceListener: SampleListener? = null
+  private var onDeviceStartedAtMs = 0L
+  private var onDeviceActive = false
+  private val secrets = PolarRecordingSecrets(appContext)
 
   // The strap's clock is set once per recording, before its streams start, so the sample
   // timestamps are real time (an unset H10 clock was days off). Touched on the control thread.
@@ -175,6 +197,39 @@ class PolarH10Sensor(
     _connection.value = ConnectionState.DISCONNECTED
   }
 
+  override fun recordingModes(config: StreamConfig): Set<RecordingMode> = polarRecordingModes(config)
+
+  override fun startOnDevice(config: StreamConfig, listener: SampleListener) {
+    control.execute {
+      onDeviceWanted = config
+      onDeviceListener = listener
+      maybeBeginOnDevice()
+    }
+  }
+
+  override fun fetchOnDevice(listener: SampleListener): Boolean =
+      try {
+        control.submit<Boolean> { fetchStoredRecording(listener) }.get(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
+      } catch (e: Exception) {
+        listener.onError("could not fetch the recording from the tracker: ${e.message ?: e.javaClass.simpleName}")
+        false
+      }
+
+  override fun discardOnDevice() {
+    control.execute {
+      stopOnDevice()
+      val since = onDeviceStartedAtMs
+      runCatching {
+        for (entry in hrEntries(since)) {
+          api.removeOfflineRecord(id, entry).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingAwait()
+        }
+      }
+      onDeviceWanted = null
+      onDeviceListener = null
+      onDeviceStartedAtMs = 0
+    }
+  }
+
   override fun startStreams(config: StreamConfig, listener: SampleListener) {
     control.execute {
       wanted = config
@@ -206,9 +261,13 @@ class PolarH10Sensor(
 
   internal fun onConnected() {
     _connection.value = ConnectionState.CONNECTED
-    control.execute { maybeBeginStreams() }
+    control.execute {
+      maybeBeginOnDevice()
+      maybeBeginStreams()
+    }
     // If readiness is never reported, try anyway after a while.
     control.schedule({ maybeBeginStreams(force = true) }, FEATURE_WAIT_S, TimeUnit.SECONDS)
+    control.schedule({ maybeBeginOnDevice(force = true) }, FEATURE_WAIT_S, TimeUnit.SECONDS)
   }
 
   internal fun onDisconnected() {
@@ -229,6 +288,7 @@ class PolarH10Sensor(
   internal fun onFeatureReady(feature: PolarBleSdkFeature) {
     control.execute {
       ready += feature
+      maybeBeginOnDevice()
       maybeBeginStreams()
     }
   }
@@ -240,6 +300,110 @@ class PolarH10Sensor(
   internal fun onFirmware(value: String) {
     // The strap pads the revision string with a NUL.
     _firmware.value = value.trimEnd('\u0000').trim()
+  }
+
+  // On-device recording. Everything below runs on the control thread.
+
+  private fun maybeBeginOnDevice(force: Boolean = false) {
+    val cfg = onDeviceWanted ?: return
+    if (cfg.ecg || cfg.acc) return
+    if (onDeviceActive) return
+    if (_connection.value != ConnectionState.CONNECTED) return
+    if (PolarBleSdkFeature.FEATURE_POLAR_OFFLINE_RECORDING !in ready && !force) return
+    val l = onDeviceListener ?: return
+    try {
+      // A service restart can find the strap already recording from the previous instance. Do not
+      // start a second file; the fetch at the end drains whatever is there.
+      val active =
+          api.getOfflineRecordingStatus(id)
+              .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
+              .blockingGet()
+      if (PolarDeviceDataType.HR in active) {
+        onDeviceActive = true
+        onDeviceStartedAtMs = System.currentTimeMillis()
+        l.onNote("on_device_resume", "the tracker was already storing HR and RR")
+        return
+      }
+      // HR is the only stream the H10 can keep on the device; the service only offers this mode
+      // for an HR-only configuration.
+      val settings =
+          api.requestOfflineRecordingSettings(id, PolarDeviceDataType.HR)
+              .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
+              .blockingGet()
+      api.startOfflineRecording(id, PolarDeviceDataType.HR, settings, secrets.get())
+          .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
+          .blockingAwait()
+      onDeviceActive = true
+      onDeviceStartedAtMs = System.currentTimeMillis()
+      l.onNote("on_device_start", "the tracker is storing HR and RR on the device")
+    } catch (e: Exception) {
+      Log.e(TAG, "offline recording did not start", e)
+      l.onError("on-device recording did not start: ${e.message ?: e.javaClass.simpleName}")
+      onDeviceWanted = null
+    }
+  }
+
+  private fun fetchStoredRecording(listener: SampleListener): Boolean {
+    stopOnDevice()
+    val since = onDeviceStartedAtMs
+    var any = false
+    try {
+      for (entry in hrEntries(since)) {
+        val data =
+            api.getOfflineRecord(id, entry, secrets.get())
+                .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
+                .blockingGet()
+        if (data is PolarOfflineRecordingData.HrOfflineRecording) {
+          val startMs = data.startTime.toInstant(ZoneOffset.UTC).toEpochMilli()
+          data.data.samples.forEachIndexed { index, sample ->
+            val phoneNs = (startMs + index * 1_000L) * 1_000_000L
+            listener.onHr(
+                Stamp(phoneNs, clock.elapsedNs()),
+                HrSample(
+                    sample.hr,
+                    sample.contactStatusSupported,
+                    sample.contactStatus,
+                    sample.rrAvailable,
+                    sample.rrsMs.map { it }.toIntArray(),
+                ),
+            )
+          }
+          any = true
+        }
+        // It is on the phone now; the strap can forget it.
+        runCatching {
+          api.removeOfflineRecord(id, entry).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingAwait()
+        }
+      }
+    } catch (e: Exception) {
+      listener.onError("could not read the tracker recording: ${e.message ?: e.javaClass.simpleName}")
+    }
+    onDeviceWanted = null
+    onDeviceListener = null
+    onDeviceStartedAtMs = 0
+    return any
+  }
+
+  private fun hrEntries(sinceMs: Long): List<PolarOfflineRecordingEntry> {
+    val entries =
+        api.listOfflineRecordings(id)
+            .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
+            .blockingIterable()
+            .toList()
+    return entries.filter {
+      it.type == PolarDeviceDataType.HR &&
+          (sinceMs <= 0 || it.date.toInstant(ZoneOffset.UTC).toEpochMilli() >= sinceMs - 60_000)
+    }
+  }
+
+  private fun stopOnDevice() {
+    if (!onDeviceActive) return
+    onDeviceActive = false
+    runCatching {
+      api.stopOfflineRecording(id, PolarDeviceDataType.HR)
+          .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
+          .blockingAwait()
+    }
   }
 
   // Streaming. Everything below runs on the control thread.
@@ -492,6 +656,7 @@ class PolarH10Sensor(
     private const val CLOCK_SYNC_S = 5L
     private const val CLOCK_WAIT_S = 3L
     private const val FIRST_DATA_S = 15L
+    private const val OFFLINE_TIMEOUT_S = 60L
 
     /** Devices in range, as the SDK finds them. */
     fun scan(context: Context): Flowable<PolarDeviceInfo> =
