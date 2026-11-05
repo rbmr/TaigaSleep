@@ -2,7 +2,6 @@ package com.rbmr.taigasleep.sync
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,7 +43,6 @@ data class UploadRecord(
     val id: String,
     /** The server has a copy of this recording, which it keeps under [id]. */
     val onServer: Boolean = false,
-    val analysisId: String? = null,
     val phase: UploadPhase = UploadPhase.LOCAL,
     /** 0..1 for [UploadPhase.UPLOADING]; 1 once the upload is complete. */
     val progress: Float = 0f,
@@ -53,14 +51,6 @@ data class UploadRecord(
     val errorDetail: String? = null,
     val warning: String? = null,
     val updatedAtMs: Long = 0,
-    /** Enough of the result to draw the History row without a network call. */
-    val epochSeconds: Int = 30,
-    val segments: List<StageSegmentDto> = emptyList(),
-    val sleepScore: Double? = null,
-    val model: String? = null,
-    val modelVersion: String? = null,
-    /** True only when the full analysis payload is in the local result cache. */
-    val resultDownloaded: Boolean = false,
     /**
      * When the server last confirmed that the upload is complete. Raw cleanup counts from here.
      * Null for a night that was never uploaded or whose state predates this field.

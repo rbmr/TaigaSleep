@@ -469,7 +469,7 @@ fun formatDuration(ms: Long): String {
  * phase for display; the recording view then treats the phone and the server as two copies.
  */
 internal fun UploadRecord.hasServerCopy(): Boolean =
-    onServer || phase == UploadPhase.PROCESSING || phase == UploadPhase.DONE || analysisId != null
+    onServer || phase == UploadPhase.PROCESSING || phase == UploadPhase.DONE
 
 internal fun UploadRecord.backupState(): BackupState =
     when (phase) {
@@ -492,7 +492,8 @@ internal fun UploadRecord.backupState(): BackupState =
               uploadedAtMs = uploadedAtMs ?: updatedAtMs,
           )
       UploadPhase.FAILED ->
-          if (failure == UploadFailure.ANALYSIS && analysisId != null) {
+          // An analysis that failed leaves the upload itself complete; the run says the rest.
+          if (failure == UploadFailure.ANALYSIS) {
             BackupState(
                 phase = BackupPhase.BACKED_UP,
                 progress = 1f,
@@ -508,32 +509,3 @@ internal fun UploadRecord.backupState(): BackupState =
             )
           }
     }
-
-/**
- * The one run the sync store remembers locally, enough for a History row before the server is read.
- * The full list comes from the server; [backupState] and this are the two adapters that keep the
- * legacy record from leaking into the view.
- */
-internal fun UploadRecord.localAnalysis(): Analysis? {
-  val runStatus =
-      when (phase) {
-        UploadPhase.DONE -> AnalysisStatus.DONE
-        UploadPhase.FAILED -> if (failure == UploadFailure.ANALYSIS) AnalysisStatus.FAILED else null
-        UploadPhase.PROCESSING -> AnalysisStatus.RUNNING
-        else -> null
-      }
-  val id = analysisId ?: return null
-  val status = runStatus ?: return null
-  return Analysis(
-      id = id,
-      algorithm = model.orEmpty(),
-      version = modelVersion.orEmpty(),
-      status = status,
-      error = errorDetail.takeIf { failure == UploadFailure.ANALYSIS },
-      epochSeconds = epochSeconds,
-      segments = segments,
-      sleepScore = sleepScore,
-      updatedAtMs = updatedAtMs,
-      resultDownloaded = resultDownloaded,
-  )
-}

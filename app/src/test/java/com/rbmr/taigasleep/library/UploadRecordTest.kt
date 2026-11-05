@@ -1,16 +1,14 @@
 package com.rbmr.taigasleep.library
 
-import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The sync record is the only stored state; these adapters are what the library may read from it. */
+/** The sync record says where the bytes are and whether they are moving, nothing about results. */
 class UploadRecordTest {
   @Test
   fun aLocalRecordingHasNoServerCopy() {
@@ -18,7 +16,6 @@ class UploadRecordTest {
 
     assertEquals(BackupPhase.NOT_BACKED_UP, record.backupState().phase)
     assertFalse(record.hasServerCopy())
-    assertNull(record.localAnalysis())
   }
 
   @Test
@@ -34,7 +31,6 @@ class UploadRecordTest {
     for (phase in listOf(UploadPhase.PROCESSING, UploadPhase.DONE)) {
       assertTrue(UploadRecord(id = "n", phase = phase).hasServerCopy())
     }
-    assertTrue(UploadRecord(id = "n", analysisId = "a1", phase = UploadPhase.FAILED).hasServerCopy())
     assertFalse(UploadRecord(id = "n", phase = UploadPhase.QUEUED).hasServerCopy())
   }
 
@@ -63,36 +59,11 @@ class UploadRecordTest {
   }
 
   @Test
-  fun anUploadedRecordingWaitingForAnalysisHasNoRunYet() {
+  fun anUploadedRecordingWaitingForAnalysisIsABackedUpCopy() {
     val record = UploadRecord(id = "n", phase = UploadPhase.PROCESSING, uploadedAtMs = 100)
 
     assertEquals(BackupPhase.BACKED_UP, record.backupState().phase)
     assertEquals(100L, record.backupState().uploadedAtMs)
-    assertNull(record.localAnalysis())
-  }
-
-  @Test
-  fun aFinishedAnalysisBecomesOneDoneRun() {
-    val record =
-        UploadRecord(
-            id = "n",
-            analysisId = "a1",
-            phase = UploadPhase.DONE,
-            model = "wav2sleep",
-            modelVersion = "1.1.0",
-            segments = listOf(StageSegmentDto("light", 4)),
-            sleepScore = 81.0,
-            resultDownloaded = true,
-        )
-
-    assertEquals(BackupPhase.BACKED_UP, record.backupState().phase)
-    val run = record.localAnalysis()!!
-    assertEquals("a1", run.id)
-    assertEquals("wav2sleep", run.algorithm)
-    assertEquals("1.1.0", run.version)
-    assertEquals(AnalysisStatus.DONE, run.status)
-    assertEquals(81.0, run.sleepScore ?: 0.0, 0.001)
-    assertTrue(run.resultDownloaded)
   }
 
   @Test
@@ -117,25 +88,12 @@ class UploadRecordTest {
     val record =
         UploadRecord(
             id = "n",
-            analysisId = "a1",
             phase = UploadPhase.FAILED,
             failure = UploadFailure.ANALYSIS,
             errorDetail = "worker failed",
         )
 
+    // The bytes are on the server and only the analysis failed; the run says the rest.
     assertEquals(BackupPhase.BACKED_UP, record.backupState().phase)
-    val run = record.localAnalysis()!!
-    assertEquals(AnalysisStatus.FAILED, run.status)
-    assertEquals("worker failed", run.error)
-  }
-
-  @Test
-  fun aFailedAnalysisWithoutAnIdIsStillAFailedRecording() {
-    val record =
-        UploadRecord(id = "n", phase = UploadPhase.FAILED, failure = UploadFailure.ANALYSIS)
-
-    assertEquals(BackupPhase.FAILED, record.backupState().phase)
-    assertNull(record.localAnalysis())
-    assertFalse(record.hasServerCopy())
   }
 }

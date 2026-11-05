@@ -55,27 +55,20 @@ class PendingRecordingsTest {
       complete: Boolean = true,
   ) = RecordingSummaryDto(recording = recording(id, complete), analyses = analyses)
 
-  private fun record(
-      key: String = "remote-r1",
-      phase: UploadPhase,
-      analysisId: String? = null,
-      downloaded: Boolean = false,
-  ) =
-      UploadRecord(
-          id = key,
-          onServer = true,
-          phase = phase,
-          analysisId = analysisId,
-          resultDownloaded = downloaded,
-          model = if (analysisId != null) "baseline" else null,
-          modelVersion = if (analysisId != null) "1.0.0" else null,
-      )
+  private fun record(key: String = "remote-r1", phase: UploadPhase) =
+      UploadRecord(id = key, onServer = true, phase = phase)
+
+  /** A result cache holding one finished run of [key]. */
+  private fun cacheWith(key: String, analysisId: String): ResultCache =
+      ResultCache(temporary.newFolder("results")).also { cache ->
+        cache.save(key, analysisId, AnalysisDto(id = analysisId, status = "succeeded"))
+      }
 
   private fun pending(
       summaries: List<RecordingSummaryDto>,
       vararg records: UploadRecord,
       local: List<Recording> = emptyList(),
-      results: com.rbmr.taigasleep.sync.ResultCache? = null,
+      results: ResultCache? = null,
   ): List<PendingRecording> {
     val byKey = records.associateBy { it.id }
     val nights =
@@ -90,19 +83,11 @@ class PendingRecordingsTest {
 
   @Test
   fun `a night whose result is on the phone is settled`() {
-    val cache =
-        ResultCache(temporary.newFolder("results")).also { cache ->
-          cache.save(
-              "remote-r1",
-              "a1",
-              AnalysisDto(id = "a1", recording = "r1", status = "succeeded"),
-          )
-        }
     val result =
         pending(
             listOf(summary(listOf(analysis("a1", "succeeded")))),
-            record(phase = UploadPhase.DONE, analysisId = "a1"),
-            results = cache,
+            record(phase = UploadPhase.DONE),
+            results = cacheWith("remote-r1", "a1"),
         )
 
     assertTrue(result.isEmpty())
@@ -135,7 +120,7 @@ class PendingRecordingsTest {
     val result =
         pending(
             listOf(summary(listOf(analysis("a1", "succeeded")))),
-            record(phase = UploadPhase.PROCESSING, analysisId = "a1"),
+            record(phase = UploadPhase.PROCESSING),
         )
 
     assertEquals(listOf("remote-r1"), result.map { it.key })
@@ -146,37 +131,25 @@ class PendingRecordingsTest {
     val result =
         pending(
             listOf(summary(listOf(analysis("a1", "failed", error = "x")))),
-            record(phase = UploadPhase.PROCESSING, analysisId = "a1"),
+            record(phase = UploadPhase.PROCESSING),
         )
 
     assertEquals(listOf("remote-r1"), result.map { it.key })
   }
 
   @Test
-  fun `a stored analysis id the server does not know is pending until a read replaces it`() {
-    // The analysis was deleted, or replaced by a retry under another id.
+  fun `a night stored as processing with nothing to settle is left alone`() {
+    // The analysis was never requested, or the server no longer lists one: a read would only
+    // repeat what the list already says.
     val result =
-        pending(
-            listOf(summary(listOf(analysis("fresh", "queued")))),
-            record(phase = UploadPhase.PROCESSING, analysisId = "gone"),
-        )
-    assertEquals(listOf("remote-r1"), result.map { it.key })
+        pending(listOf(summary(emptyList())), record(phase = UploadPhase.PROCESSING))
 
-    val none =
-        pending(
-            listOf(summary(emptyList())),
-            record(phase = UploadPhase.PROCESSING, analysisId = "gone"),
-        )
-    assertEquals(listOf("remote-r1"), none.map { it.key })
+    assertTrue(result.isEmpty())
   }
 
   @Test
   fun `a night uploaded with automatic analysis off is not read again and again`() {
-    val result =
-        pending(
-            listOf(summary(emptyList())),
-            record(phase = UploadPhase.PROCESSING, analysisId = null),
-        )
+    val result = pending(listOf(summary(emptyList())), record(phase = UploadPhase.PROCESSING))
 
     assertTrue(result.isEmpty())
   }
@@ -186,7 +159,7 @@ class PendingRecordingsTest {
     val result =
         pending(
             listOf(summary(listOf(analysis("a1", "failed", error = "x")))),
-            record(phase = UploadPhase.PROCESSING, analysisId = null),
+            record(phase = UploadPhase.PROCESSING),
         )
 
     assertEquals(listOf("remote-r1"), result.map { it.key })
@@ -208,11 +181,7 @@ class PendingRecordingsTest {
         )
 
     val result =
-        pending(
-            emptyList(),
-            record(key = id, phase = UploadPhase.PROCESSING, analysisId = "a9"),
-            local = listOf(night),
-        )
+        pending(emptyList(), record(key = id, phase = UploadPhase.PROCESSING), local = listOf(night))
 
     // The list does not hold it, so the read has no run to prefer; it goes by the recording id.
     assertEquals(listOf(PendingRecording(id, id, null)), result)
@@ -223,7 +192,7 @@ class PendingRecordingsTest {
     val result =
         pending(
             listOf(summary(listOf(analysis("a1", "running")), complete = false)),
-            record(phase = UploadPhase.PROCESSING, analysisId = "a1"),
+            record(phase = UploadPhase.PROCESSING),
         )
 
     assertTrue(result.isEmpty())
@@ -232,24 +201,13 @@ class PendingRecordingsTest {
   @Test
   fun `a night that is only on the phone is not read`() {
     val result =
-        pending(
-            emptyList(),
-            UploadRecord(id = "20261023_223000-k3f9", phase = UploadPhase.QUEUED),
-        )
+        pending(emptyList(), UploadRecord(id = "20261023_223000-k3f9", phase = UploadPhase.QUEUED))
 
     assertTrue(result.isEmpty())
   }
 
   @Test
   fun `only the pending nights of several are returned`() {
-    val cache =
-        ResultCache(temporary.newFolder("results")).also { cache ->
-          cache.save(
-              "remote-r1",
-              "a1",
-              AnalysisDto(id = "a1", recording = "r1", status = "succeeded"),
-          )
-        }
     val result =
         pending(
             listOf(
@@ -257,8 +215,8 @@ class PendingRecordingsTest {
                 summary(listOf(analysis("a2", "running")), id = "r2"),
                 summary(listOf(analysis("a3", "failed", error = "x")), id = "r3"),
             ),
-            record(key = "remote-r1", phase = UploadPhase.DONE, analysisId = "a1"),
-            results = cache,
+            record(key = "remote-r1", phase = UploadPhase.DONE),
+            results = cacheWith("remote-r1", "a1"),
         )
 
     assertEquals(listOf("remote-r2"), result.map { it.key })
