@@ -35,6 +35,10 @@ private class RecordingTarget : LiveSyncTarget {
     calls += "refresh:$recordingId"
     if (failRefresh) throw IllegalStateException("boom")
   }
+
+  override suspend fun recordingDeleted(recordingId: String) {
+    calls += "deleted:$recordingId"
+  }
 }
 
 /** Which events and requests cost a refresh, and how many. No clock and no network. */
@@ -139,6 +143,18 @@ class SyncQueueTest {
     assertEquals(listOf("refresh:a", "refresh:b"), target.calls)
     worker.cancelAndJoin()
   }
+
+  @Test
+  fun `a deleted recording is dropped once, however many events announce it`() = runBlocking {
+    val queue = queue()
+    val worker = launch { queue.run() }
+
+    repeat(3) { queue.requestDeleted("a") }
+    yield()
+
+    assertEquals(listOf("deleted:a"), target.calls)
+    worker.cancelAndJoin()
+  }
 }
 
 /** The gating and lifecycle of the live sync: when a stream runs, what it triggers, when it stops. */
@@ -223,9 +239,21 @@ class LiveSyncTest {
     await("the reconcile") { target.calls.contains("reconcile") }
 
     emit(RemoteEvent.AnalysisChanged("a1", "r1", "succeeded"))
-    emit(RemoteEvent.RecordingChanged("r2", "deleted"))
+    emit(RemoteEvent.RecordingChanged("r2", "updated"))
 
     await("both refreshes") { target.calls.containsAll(listOf("refresh:r1", "refresh:r2")) }
+  }
+
+  @Test
+  fun `a deleted recording event drops the recording without reading it`() {
+    start()
+    gate.value = "server|me"
+    await("the reconcile") { target.calls.contains("reconcile") }
+
+    emit(RemoteEvent.RecordingChanged("r3", "deleted"))
+
+    await("the drop") { target.calls.contains("deleted:r3") }
+    assertTrue("refresh:r3" !in target.calls)
   }
 
   @Test

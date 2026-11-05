@@ -9,6 +9,7 @@ import java.nio.file.Files
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -62,4 +63,61 @@ class RemoteHistoryCacheTest {
 
     assertNull(cache.load("https://sleep.example|me@example.com"))
   }
+
+  @Test
+  fun `a completed delete removes the recording from the saved list`() {
+    cache.save(account, twoRecordings())
+
+    cache.remove(account, "20261023_223000-k3f9")
+
+    val saved = cache.load(account)
+    assertEquals(listOf("20261024_223000-m1a2"), saved?.items?.map { it.recording.id })
+    assertTrue("20261023_223000-k3f9" in cache.removed.value)
+  }
+
+  @Test
+  fun `a 404 on a remote-only recording removes it from the list`() {
+    // This is the call the library makes for a 404, including for an entry that is only in memory.
+    cache.remove(account, "20261023_223000-k3f9")
+
+    val fetchedEarlier = twoRecordings()
+    val shown = fetchedEarlier.withoutRecordings(cache.removed.value)
+
+    assertEquals(listOf("20261024_223000-m1a2"), shown.items.map { it.recording.id })
+  }
+
+  @Test
+  fun `removing the same recording twice changes nothing`() {
+    cache.save(account, twoRecordings())
+
+    cache.remove(account, "20261023_223000-k3f9")
+    cache.remove(account, "20261023_223000-k3f9")
+
+    assertEquals(1, cache.load(account)?.items?.size)
+  }
+
+  @Test
+  fun `a recording that is still on the phone can return after it is uploaded again`() {
+    cache.save(account, twoRecordings())
+
+    cache.remove(account, "20261023_223000-k3f9", keepOut = false)
+
+    assertEquals(1, cache.load(account)?.items?.size)
+    assertTrue(cache.removed.value.isEmpty())
+  }
+
+  private val account = "https://sleep.example|me@example.com"
+
+  private fun twoRecordings() =
+      RecordingSummaryListDto(
+          listOf(
+              RecordingSummaryDto(
+                  recording = RecordingDto(id = "20261023_223000-k3f9", complete = true),
+                  analyses = listOf(AnalysisDto(id = "a1", status = "succeeded")),
+              ),
+              RecordingSummaryDto(
+                  recording = RecordingDto(id = "20261024_223000-m1a2", complete = true),
+              ),
+          )
+      )
 }

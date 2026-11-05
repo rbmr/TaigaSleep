@@ -178,6 +178,34 @@ class RecordingMergeTest {
   }
 
   @Test
+  fun `a pending-delete id is filtered from the remote list`() {
+    val remote =
+        summaries(
+            RecordingSummaryDto(
+                recording = recording(id = "gone"),
+                analyses = listOf(succeeded("a1")),
+            ),
+            RecordingSummaryDto(recording = recording(id = "kept")),
+        )
+
+    val nights = buildRecordings(emptyList(), emptyMap(), remote, hiddenRemoteIds = setOf("gone"))
+
+    assertEquals(listOf("remote-kept"), nights.map { it.key })
+  }
+
+  @Test
+  fun `a local night stays while its server copy is being deleted`() {
+    val remote = summaries(RecordingSummaryDto(recording = recording(id = "local")))
+
+    val night = buildRecordings(listOf(local), emptyMap(), remote, hiddenRemoteIds = setOf("local")).single()
+
+    // The server copy is on its way out; the night on the phone is still a night.
+    assertEquals("local", night.localId)
+    assertNull(night.remoteId)
+    assertEquals(RecordingStatus.LOCAL_ONLY, night.status)
+  }
+
+  @Test
   fun aNightWithSeveralAnalysesCanHaveAResultAndKeepWorking() {
     val remote =
         summaries(

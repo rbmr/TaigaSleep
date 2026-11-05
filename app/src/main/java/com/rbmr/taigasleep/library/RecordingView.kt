@@ -156,6 +156,10 @@ data class RecordingView(
  * [overrides] carries a fresh recording and analysis list fetched by the night screen, so a night
  * with several analyses shows all of them before the next History refresh.
  *
+ * [hiddenRemoteIds] are recordings whose server copy is being deleted or is already gone. Their
+ * server summary, their fresh override and their cached runs are left out, so History cannot show
+ * a night that the server no longer has. A local recording stays as the local night it is.
+ *
  * The phone's recording id is the server's recording id, so a local night and its server copy are
  * matched by id.
  */
@@ -164,22 +168,25 @@ fun buildRecordings(
     records: Map<String, UploadRecord>,
     remote: RecordingSummaryListDto?,
     overrides: Map<String, RemoteOverride> = emptyMap(),
+    hiddenRemoteIds: Set<String> = emptySet(),
 ): List<RecordingView> {
   val byId = remote?.items?.associateBy { it.recording.id }.orEmpty()
   val localIds = recordings.map { it.id }.toSet()
   val nights = mutableListOf<RecordingView>()
   for (recording in recordings) {
+    val hidden = recording.id in hiddenRemoteIds
     nights +=
         buildNight(
             key = recording.id,
             local = recording,
-            summary = byId[recording.id],
+            summary = byId[recording.id].takeUnless { hidden },
             record = records[recording.id],
-            override = overrides[recording.id],
+            override = overrides[recording.id].takeUnless { hidden },
         )
   }
   for (summary in remote?.items.orEmpty()) {
     if (summary.recording.id in localIds) continue
+    if (summary.recording.id in hiddenRemoteIds) continue
     val key = remoteKey(summary.recording.id)
     nights +=
         buildNight(
@@ -192,6 +199,7 @@ fun buildRecordings(
   }
   // A night opened directly by its recording id can be fresh before the next History refresh.
   for ((key, override) in overrides) {
+    if (recordingIdOf(key) in hiddenRemoteIds) continue
     if (nights.none { it.key == key }) {
       nights += buildNight(key, null, null, records[key], override)
     }

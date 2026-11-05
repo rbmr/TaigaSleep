@@ -528,10 +528,12 @@ private object SyncSurface {
           "PendingDeleteStore",
           "LiveSync",
           "LiveSyncTarget",
-          // A night's key, and which installed algorithm a recording can feed.
+          // A night's key, which installed algorithm a recording can feed, and the server's list
+          // without the recordings the app deleted.
           "remoteKey",
           "recordingIdOf",
           "compatible",
+          "withoutRecordings",
       )
 
   private val PACKAGE = Regex("""^\s*package\s+([\w.]+)""", RegexOption.MULTILINE)
