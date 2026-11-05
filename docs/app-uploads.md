@@ -12,6 +12,12 @@ and a cached remote summary, so a logged-out or offline user still sees every
 night that exists on the phone. Uploading is an extra step attached to that
 local record; it never moves or rewrites the recording.
 
+The session id is the local start time, a dash and four random lowercase
+letters or digits (`20261023_223000-k3f9`). The server keeps the recording
+under the same id, so the phone needs no separate server id: ids are unique
+across all accounts on a server, and the suffix keeps two phones that start
+in the same second apart. Recordings made before the suffix keep their id.
+
 There is no local sleep analysis. The phone records and talks to the backend;
 sleep stages, the sleep score, heart-rate statistics, data quality and HRV come
 from the server.
@@ -47,14 +53,14 @@ The uploader sends one complete gzip member per 2 MiB chunk, appends the members
 to `<file>.gz` on the server, and keeps a small boundary index under
 `<files>/upload-cache/<local session id>/` so the server's compressed offset can
 be mapped back to the local file after a kill. The cache is deleted when the
-upload completes. A night whose upload already started compressed continues in
-gzip even if the setting is later turned off; a night that started plain stays
-plain, because a session's encoding cannot change.
+upload completes. A file whose upload already started compressed continues in
+gzip even if the setting is later turned off; a file that started plain stays
+plain, because a file's encoding is fixed by its first chunk.
 
-Frame validation moves to the worker in this mode: the API only checks gzip
-framing, the worker inflates with size/member/ratio limits, validates frame
-headers and CRCs, keeps the valid prefix and records the compression ratio in
-the analysis provenance. Full details and the measured trade-off are in
+The API stores the bytes as they are and only checks gzip framing. The worker
+inflates with size/member/ratio limits, validates frame headers and CRCs, keeps
+the valid prefix and records the compression ratio in the analysis provenance.
+Full details and the measured trade-off are in
 [`upload-compression.md`](upload-compression.md).
 
 ## Upload lifecycle
@@ -66,7 +72,7 @@ History shows one status per recording:
   charging constraints.
 - **Uploading N%** — bytes are moving. The notification keeps the transfer alive
   while the app is in the background.
-- **Analysing** — the upload completed and the analysis job is queued or running.
+- **Analysing** — the upload completed and the analysis is queued or running.
 - **Ready** — the row shows the sleep score and the stage bar. Missing full results
   are fetched in the background; opening the night uses the cached copy.
 - **Failed** — the row says Upload failed, Analysis failed, Login needed or Update
@@ -76,10 +82,15 @@ Opening a night is the only action in the list. Retry, upload, export and delete
 live in the night screen and its Night details sheet.
 
 WorkManager uses one unique work item per local session. An upload is resumable:
-before sending bytes the worker asks the server for the current length of each
-file and continues from that offset. A conflict (`409`, another attempt moved the
-offset) re-reads the manifest and retries. Force-stopping the app or losing the
-network therefore does not restart a night from zero.
+the worker creates the recording on the server from `meta.json` (a repeat of that
+request is harmless until the recording is complete), asks for the stored length of
+each file with `HEAD` and continues from that offset. A conflict
+(`409 offset_mismatch`, another attempt moved the offset) carries the server's
+current offset in the `Upload-Offset` header, and the upload continues from there.
+When every file is there the recording is marked complete. Force-stopping the app
+or losing the network therefore does not restart a night from zero. The server's
+chunk limit is configuration, not part of the API; a `413` makes the uploader halve
+its chunks and continue.
 
 Analysis polling is a separate work item. It keeps the transfer notification
 closed, backs off exponentially while the queue is empty, and stops when the
@@ -121,8 +132,8 @@ After an upload it fetches the installed algorithms and their stream
 requirements from the backend, filters out those the recording cannot feed, and
 requests the first compatible id and version. wav2sleep is the default for
 recordings with ECG; SleepECG is the best HR-only option; `baseline` is the safe
-fallback when no worker has reported. The backend still requires an explicit
-model and version.
+fallback when no worker has reported. The backend would pick the newest version
+itself, but the app always names the one it chose.
 
 **Settings → Analysis** controls the automatic flag and the preferred order.
 Both are app-wide, not per account. Automatic analysis is on by default; turning
@@ -133,7 +144,7 @@ the next compatible one is used; if none is reported, the built-in baseline is
 the fallback. A failed run is not replaced automatically: the analysis sheet
 offers another algorithm or the existing retry. A manual request can ask for any
 compatible algorithm and ignores the automatic flag and order. The backend
-removes duplicates by model, version and parameter hash.
+removes duplicates by algorithm, version and parameters.
 
 ## Choosing an analysis
 
@@ -185,7 +196,7 @@ copies.
 
 The **Night details** sheet shows the recording facts and where the copies are.
 Export prepares the raw files first: if they are only on the server, it fetches
-them through `GET /api/taiga/sessions/{id}/files/{file}` with progress and then
+them through `GET /v1/recordings/{id}/files/{name}` with progress and then
 opens the share sheet. The backend inflates its compressed copy on the fly, so the
 restored files are the original streams. A restored night is protected from
 automatic cleanup until its raw data is deleted explicitly.
@@ -202,9 +213,9 @@ server copy is what makes the night recoverable after local cleanup.
 ## Deleting a recording
 
 Open a night and use its **Night details** sheet to export or delete it.
-Delete removes the local recording, its cached analysis and the remote session.
+Delete removes the local recording, its cached analysis and the remote recording.
 If the server is unreachable, the remote deletion is queued and retried; a `404`
-is treated as success because the session is already gone. The local copy is
+is treated as success because the recording is already gone. The local copy is
 removed immediately, so the History row disappears even when the remote delete is
 still pending. Pending remote deletes are shown in History and survive a restart.
 
@@ -215,10 +226,12 @@ still pending. Pending remote deletes are shown in History and survive a restart
 - **Network** — the server or network is unavailable. WorkManager retries with
   exponential backoff; after several failed attempts the night is marked failed
   and can be retried manually.
-- **Server** — the backend rejected the upload (invalid meta, no valid frames,
-  limits). The message is shown verbatim.
-- **Analysis** — the worker failed or the job was lost. Retry requeues the failed
-  job through the backend's job retry route, then polls again.
+- **Server** — the backend rejected the upload (invalid meta, a recording id that
+  belongs to another account, limits). The message is shown verbatim.
+- **Analysis** — the worker failed, the analysis was lost, or the backend refused
+  to queue it because no worker offers the algorithm yet (`422`; the upload itself
+  is complete). Retry asks for the analysis again, which makes the backend replace
+  a failed one with a fresh queued one, then polls it.
 
 ## Privacy
 

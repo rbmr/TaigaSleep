@@ -76,7 +76,7 @@ class RemoteRepository internal constructor(
 
   /**
    * Pings the address typed in the URL field. This is step one, before any login: it validates the
-   * address and calls the unauthenticated health endpoint. It never changes the saved session, but
+   * address and calls the unauthenticated version endpoint. It never changes the saved session, but
    * its result is the shared connection state, so the flow, the address field and the login all
    * agree.
    */
@@ -90,7 +90,7 @@ class RemoteRepository internal constructor(
                   return@withLock failedAddress(parseError(e), "address")
                 }
             addressInPlay = address.baseUrl
-            val error = health(address.baseUrl, "address")
+            val error = checkVersion(address.baseUrl, "address")
             if (error != null) return@withLock AddressCheck.Failure(error)
             AddressCheck.Reachable(address.baseUrl, address.insecure)
           } finally {
@@ -100,7 +100,7 @@ class RemoteRepository internal constructor(
       }
 
   /**
-   * Re-determines the status of the address in play: health first, then the saved token when the
+   * Re-determines the status of the address in play: the version first, then the saved token when the
    * address is the one it belongs to. This is what the Status page's "Check connection" runs, so a
    * server that is down never costs the user the token and a recovered one restores the session.
    * Returns null when there is no address to check.
@@ -111,7 +111,7 @@ class RemoteRepository internal constructor(
           _checking.value = true
           try {
             val baseUrl = addressInPlay ?: savedBaseUrl() ?: return@withLock null
-            val error = health(baseUrl, "status")
+            val error = checkVersion(baseUrl, "status")
             if (error != null) return@withLock CheckResult.Failure(RemoteStep.REACHABLE, error)
             val token = store.token
             if (token == null || baseUrl != savedBaseUrl()) return@withLock null
@@ -189,7 +189,7 @@ class RemoteRepository internal constructor(
                 }
             val token = store.token
             addressInPlay = address.baseUrl
-            val error = health(address.baseUrl, "resume")
+            val error = checkVersion(address.baseUrl, "resume")
             if (error != null) return@withLock CheckResult.Failure(RemoteStep.REACHABLE, error)
             if (token == null) {
               // Configured but never logged in: the password is what is missing, not a session.
@@ -234,13 +234,13 @@ class RemoteRepository internal constructor(
   }
 
   /**
-   * The unauthenticated alive check. A failure is a server problem, never a login problem. The
-   * server also has to speak this build's API contract revision, because a mismatch would fail
-   * later in ways the user cannot read.
+   * The unauthenticated version query, which is also the alive check. A failure is a server
+   * problem, never a login problem. The server also has to speak this build's API contract
+   * revision, because a mismatch would fail later in ways the user cannot read.
    */
-  private fun health(baseUrl: String, source: String): RemoteError? =
+  private fun checkVersion(baseUrl: String, source: String): RemoteError? =
       try {
-        val server = api.health(baseUrl)
+        val server = api.version(baseUrl)
         val details = serverDetails(server)
         if (server.api != BuildConfig.API_VERSION) {
           val error =
@@ -259,8 +259,8 @@ class RemoteRepository internal constructor(
         e.error
       }
 
-  private fun serverDetails(health: ServerHealth): Map<String, Any?> =
-      mapOf("server_version" to health.version, "server_api" to health.api)
+  private fun serverDetails(server: ServerVersion): Map<String, Any?> =
+      mapOf("server_version" to server.version, "server_api" to server.api)
 
   private fun failedAddress(error: RemoteError, source: String): AddressCheck.Failure {
     onUnreachable(error)

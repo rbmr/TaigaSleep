@@ -112,7 +112,7 @@ object RawRetention {
   suspend fun restore(
       context: Context,
       localId: String,
-      remoteId: String,
+      recordingId: String,
       onProgress: (Float) -> Unit = {},
   ): Result<Unit> =
       withContext(Dispatchers.IO) {
@@ -136,23 +136,20 @@ object RawRetention {
         val restored = mutableListOf<File>()
         try {
           val available =
-              api
-                  .getSession(remoteId)
-                  .upload
-                  .files
-                  .filterKeys { it in SessionStore.RAW_FILES }
-                  .filterValues { it.length > 0 }
+              api.listFiles(recordingId).items.filter {
+                it.name in SessionStore.RAW_FILES && it.size > 0
+              }
           if (available.isEmpty()) {
             return@withContext Result.failure(
                 IllegalStateException("the server has no raw files for this recording")
             )
           }
-          available.keys.forEachIndexed { index, name ->
+          available.map { it.name }.forEachIndexed { index, name ->
             val target = File(dir, name)
             val part = File(dir, "$name.part")
             part.delete()
             try {
-              api.downloadSessionFile(remoteId, name, part)
+              api.downloadFile(recordingId, name, part)
               Files.move(
                   part.toPath(),
                   target.toPath(),
@@ -182,7 +179,6 @@ object RawRetention {
 
   /** When the server last confirmed the upload, or null while no server copy exists. */
   internal fun UploadRecord.uploadConfirmedAt(): Long? {
-    if (remoteId == null) return null
     uploadedAtMs?.let { return it }
     // Records written before uploadedAtMs existed fall back to their last transition.
     return when (phase) {

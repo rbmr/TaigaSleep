@@ -54,14 +54,14 @@ class RawRetentionTest {
     with(RawRetention) {
       assertNull(UploadRecord(id = "local", phase = UploadPhase.LOCAL).uploadConfirmedAt())
       assertNull(
-          UploadRecord(id = "queued", phase = UploadPhase.QUEUED, remoteId = "r")
+          UploadRecord(id = "queued", phase = UploadPhase.QUEUED, onServer = true)
               .uploadConfirmedAt()
       )
       assertNull(
           UploadRecord(
                   id = "failed-before-complete",
                   phase = UploadPhase.FAILED,
-                  remoteId = "r",
+                  onServer = true,
                   updatedAtMs = 10,
               )
               .uploadConfirmedAt()
@@ -77,7 +77,7 @@ class RawRetentionTest {
           UploadRecord(
                   id = "processing",
                   phase = UploadPhase.PROCESSING,
-                  remoteId = "r",
+                  onServer = true,
                   uploadedAtMs = 5_000,
                   updatedAtMs = 9_000,
               )
@@ -89,7 +89,7 @@ class RawRetentionTest {
           UploadRecord(
                   id = "analysis-failed",
                   phase = UploadPhase.FAILED,
-                  remoteId = "r",
+                  onServer = true,
                   uploadedAtMs = 5_000,
                   updatedAtMs = 9_000,
               )
@@ -101,7 +101,7 @@ class RawRetentionTest {
           UploadRecord(
                   id = "old",
                   phase = UploadPhase.DONE,
-                  remoteId = "r",
+                  onServer = true,
                   updatedAtMs = 9_000,
               )
               .uploadConfirmedAt(),

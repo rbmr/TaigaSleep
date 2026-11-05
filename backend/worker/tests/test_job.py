@@ -41,7 +41,7 @@ def test_provenance_records_the_upload_source(tmp_path: Path) -> None:
         "uncompressed_bytes": 2000,
         "compression_ratio": 2.0,
         "warnings": ["hr.log: truncated frame at byte 12"],
-        "files": {"hr.log": {"encoding": "gzip", "members": 1}},
+        "files": {"hr.log": {"encoding": "gzip", "frames": 3}},
     }
 
     result = analyze(
@@ -59,7 +59,7 @@ def test_provenance_records_the_upload_source(tmp_path: Path) -> None:
     provenance = result["provenance"]["recording"]["source"]
     assert provenance["encoding"] == "gzip"
     assert provenance["compression_ratio"] == 2.0
-    assert provenance["files"]["hr.log"]["members"] == 1
+    assert provenance["files"]["hr.log"]["frames"] == 3
     assert "hr.log: truncated frame at byte 12" in result["warnings"]
 
 

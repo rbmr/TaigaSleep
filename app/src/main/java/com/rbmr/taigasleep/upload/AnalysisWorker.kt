@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.upload
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.rbmr.taigasleep.night.recordingIdOf
 import com.rbmr.taigasleep.remote.CheckResult
 import com.rbmr.taigasleep.remote.RemoteError
 import com.rbmr.taigasleep.remote.RemoteRepository
@@ -19,9 +20,7 @@ class AnalysisWorker(
 ) : CoroutineWorker(appContext, params) {
   override suspend fun doWork(): Result {
     val localId = inputData.getString(UploadScheduler.KEY_SESSION_ID) ?: return Result.failure()
-    val remoteId = inputData.getString(UploadScheduler.KEY_REMOTE_ID) ?: return Result.failure()
     val analysisId = inputData.getString(UploadScheduler.KEY_ANALYSIS_ID)
-    val jobId = inputData.getString(UploadScheduler.KEY_JOB_ID)
     val context = applicationContext
     val store = UploadStore.of(context)
     val remote = RemoteRepository.of(context)
@@ -59,12 +58,12 @@ class AnalysisWorker(
             }
     val poller = AnalysisPoller(api, store, ResultCache.of(context), localId)
     return try {
-      when (val polled = poller.poll(remoteId, analysisId, jobId)) {
+      when (val polled = poller.poll(recordingIdOf(localId), analysisId)) {
         is PollResult.Done,
         is PollResult.Failed -> Result.success()
         is PollResult.Pending -> {
           if (runAttemptCount >= MAX_POLLS) {
-            // Keep the night in PROCESSING with its ids; History offers "Check now" instead of
+            // Keep the night in PROCESSING with its id; History offers "Check now" instead of
             // retrying forever in the background.
             Result.success()
           } else {

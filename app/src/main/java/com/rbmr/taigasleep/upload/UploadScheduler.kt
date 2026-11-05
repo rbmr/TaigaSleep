@@ -18,15 +18,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Owns the WorkManager queue. Uploads resume from the server manifest, so replacing a queued worker
- * never loses bytes. Manual uploads use the same worker with a connected-network constraint and no
+ * Owns the WorkManager queue. Uploads resume from the stored size of each file on the server, so
+ * replacing a queued worker never loses bytes. Manual uploads use the same worker with a connected-network constraint and no
  * charging requirement.
  */
 object UploadScheduler {
   const val KEY_SESSION_ID = "session_id"
-  const val KEY_REMOTE_ID = "remote_id"
+  const val KEY_RECORDING_ID = "recording_id"
   const val KEY_ANALYSIS_ID = "analysis_id"
-  const val KEY_JOB_ID = "job_id"
 
   fun onRecordingFinished(context: Context, localId: String) {
     val settings = UploadSettings.get(context)
@@ -56,23 +55,21 @@ object UploadScheduler {
     enqueue(context, localId, autoConstraints(settings), ExistingWorkPolicy.KEEP)
   }
 
+  /**
+   * [localId] is the night's key: the local recording id, or `remote-` and the id of a recording
+   * that exists only on the server.
+   */
   fun enqueuePoll(
       context: Context,
       localId: String,
-      remoteId: String,
       analysisId: String?,
-      jobId: String?,
       delayMs: Long = 0,
       replace: Boolean = false,
   ) {
     val data =
         Data.Builder()
             .putString(KEY_SESSION_ID, localId)
-            .putString(KEY_REMOTE_ID, remoteId)
-            .apply {
-              if (analysisId != null) putString(KEY_ANALYSIS_ID, analysisId)
-              if (jobId != null) putString(KEY_JOB_ID, jobId)
-            }
+            .apply { if (analysisId != null) putString(KEY_ANALYSIS_ID, analysisId) }
             .build()
     val request =
         OneTimeWorkRequestBuilder<AnalysisWorker>()
@@ -96,10 +93,10 @@ object UploadScheduler {
     manager.cancelUniqueWork("analysis-$localId")
   }
 
-  fun enqueueDelete(context: Context, remoteId: String) {
+  fun enqueueDelete(context: Context, recordingId: String) {
     val request =
         OneTimeWorkRequestBuilder<DeleteWorker>()
-            .setInputData(Data.Builder().putString(KEY_REMOTE_ID, remoteId).build())
+            .setInputData(Data.Builder().putString(KEY_RECORDING_ID, recordingId).build())
             .setConstraints(
                 Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
             )
@@ -107,13 +104,13 @@ object UploadScheduler {
             .addTag(TAG_DELETE)
             .build()
     WorkManager.getInstance(context)
-        .enqueueUniqueWork("delete-$remoteId", ExistingWorkPolicy.KEEP, request)
+        .enqueueUniqueWork("delete-$recordingId", ExistingWorkPolicy.KEEP, request)
   }
 
   /** Restore the remote-delete queue after a process restart. */
   fun resumePendingDeletes(context: Context) {
-    for (remoteId in PendingDeleteStore.of(context).remoteIds()) {
-      enqueueDelete(context, remoteId)
+    for (recordingId in PendingDeleteStore.of(context).remoteIds()) {
+      enqueueDelete(context, recordingId)
     }
   }
 
@@ -134,17 +131,7 @@ object UploadScheduler {
       if (session.state == SessionState.RECORDING) return@forEach
       val record = store.record(session.id)
       if (record?.phase == UploadPhase.PROCESSING) {
-        val remote = record.remoteId
-        if (remote != null) {
-          enqueuePoll(
-              context,
-              session.id,
-              remote,
-              record.analysisId,
-              record.jobId,
-              replace = true,
-          )
-        }
+        enqueuePoll(context, session.id, record.analysisId, replace = true)
       } else if (settings.enabled) {
         enqueueAuto(context, session.id)
       }
@@ -169,17 +156,8 @@ object UploadScheduler {
           when (record?.phase) {
             UploadPhase.DONE,
             UploadPhase.FAILED -> Unit
-            UploadPhase.PROCESSING -> {
-              val remote = record.remoteId ?: continue
-              enqueuePoll(
-                  context,
-                  session.id,
-                  remote,
-                  record.analysisId,
-                  record.jobId,
-                  replace = true,
-              )
-            }
+            UploadPhase.PROCESSING ->
+                enqueuePoll(context, session.id, record.analysisId, replace = true)
             UploadPhase.LOCAL,
             UploadPhase.QUEUED,
             UploadPhase.UPLOADING,

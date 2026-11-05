@@ -148,6 +148,5 @@ below 1536 MiB.
 - Recordings and analysis results are health data. They live only in the local
   recording directory, the backend's data directory, or a local benchmark file.
 - The benchmark script does not upload anything.
-- Deleting a session removes its recording directory and cascades its analyses
-  and jobs.
+- Deleting a recording removes its directory and cascades to its analyses.
 - Back up the whole PocketBase data directory, not just `data.db`.

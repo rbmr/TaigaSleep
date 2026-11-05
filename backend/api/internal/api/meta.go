@@ -7,24 +7,13 @@ import (
 	"strings"
 )
 
-const (
-	metaFileName   = "meta.json"
-	eventsFileName = "events.jsonl"
-	hrFileName     = "hr.log"
-	ecgFileName    = "ecg.log"
-	accFileName    = "acc.log"
-)
-
 var (
-	sessionIDRE = regexp.MustCompile(`^[A-Za-z0-9]{1,32}$`)
-	clientIDRE  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,40}$`)
-	modelIDRE   = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
-)
+	// recordingIDRE is what a client may choose as a recording id. It is also what
+	// meta.session_id must match, so the phone's id is the backend's id.
+	recordingIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,40}$`)
+	algorithmIDRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
-var (
-	logFiles = []string{hrFileName, ecgFileName, accFileName}
-	allFiles = []string{metaFileName, eventsFileName, hrFileName, ecgFileName, accFileName}
-	states   = map[string]bool{
+	states = map[string]bool{
 		"recording":   true,
 		"stopped":     true,
 		"forced_stop": true,
@@ -78,7 +67,7 @@ func ValidateMeta(raw []byte) (RecordingMeta, error) {
 	if meta.Version != 1 {
 		return meta, fmt.Errorf("unsupported meta.version")
 	}
-	if !clientIDRE.MatchString(meta.SessionID) {
+	if !recordingIDRE.MatchString(meta.SessionID) {
 		return meta, fmt.Errorf("meta.session_id is invalid")
 	}
 	if !states[meta.State] {

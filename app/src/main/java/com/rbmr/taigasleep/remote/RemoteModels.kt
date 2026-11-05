@@ -142,7 +142,7 @@ enum class RemoteState {
 /** A logged-in session as returned by the backend. */
 data class AuthSession(val token: String, val email: String)
 
-/** What a Taiga server reports about itself on the public health route. */
-data class ServerHealth(val version: String, val api: Int)
+/** What a Taiga server reports about itself on the public version route. */
+data class ServerVersion(val version: String, val api: Int)
 
-data class AuthUser(val id: String, val collection: String)
+data class AuthUser(val id: String, val email: String, val role: String)

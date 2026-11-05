@@ -12,8 +12,11 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 /** The calls the remote check needs. Kept small so the check logic can be tested with a fake. */
 interface RemoteApi {
-  /** The unauthenticated alive check. Throws [RemoteFailure]. */
-  fun health(baseUrl: String): ServerHealth
+  /**
+   * The unauthenticated version query. It tells a Taiga backend apart from any other server and
+   * names the API revision it speaks. Throws [RemoteFailure].
+   */
+  fun version(baseUrl: String): ServerVersion
 
   /** Exchanges the email and password for a token. */
   fun login(baseUrl: String, email: String, password: String): AuthSession
@@ -29,17 +32,45 @@ class RemoteFailure(val error: RemoteError) : Exception(error.label)
 
 class RemoteHttpException(val status: Int) : Exception("HTTP $status")
 
-/** OkHttp plus kotlinx.serialization against the PocketBase routes from the backend README. */
+/** OkHttp plus kotlinx.serialization against the `/v1` routes from docs/api.md. */
 class OkHttpRemoteApi(
     private val client: OkHttpClient = defaultRemoteClient(),
     private val userAgent: String = "taiga-sleep-android/${BuildConfig.VERSION_NAME}",
 ) : RemoteApi {
   private val json = Json { ignoreUnknownKeys = true }
 
-  override fun health(baseUrl: String): ServerHealth {
+  override fun version(baseUrl: String): ServerVersion {
     val body =
         try {
-          execute(Request.Builder().url(url(baseUrl, HEALTH)).get().header("Accept", JSON).build())
+          execute(Request.Builder().url(url(baseUrl, VERSION)).get().header("Accept", JSON).build())
+        } catch (e: RemoteHttpException) {
+          when (e.status) {
+            404,
+            405 -> return legacyVersion(baseUrl)
+            else -> throw RemoteFailure(RemoteError.Http(e.status))
+          }
+        }
+    val version =
+        try {
+          json.decodeFromString<VersionDto>(body)
+        } catch (_: Exception) {
+          throw RemoteFailure(RemoteError.NotTaiga)
+        }
+    // The service name is what tells a Taiga backend apart from any other JSON endpoint.
+    if (version.service != "taiga-sleep") throw RemoteFailure(RemoteError.NotTaiga)
+    return ServerVersion(version = version.version, api = version.api)
+  }
+
+  /**
+   * A backend of API 1 has no `/v1` routes but announces itself on its old health route. Reading
+   * that lets the app report "different API revision" instead of "not a Taiga server".
+   */
+  private fun legacyVersion(baseUrl: String): ServerVersion {
+    val body =
+        try {
+          execute(
+              Request.Builder().url(url(baseUrl, LEGACY_HEALTH)).get().header("Accept", JSON).build()
+          )
         } catch (e: RemoteHttpException) {
           throw when (e.status) {
             404,
@@ -49,14 +80,12 @@ class OkHttpRemoteApi(
         }
     val health =
         try {
-          json.decodeFromString<HealthDto>(body)
+          json.decodeFromString<VersionDto>(body)
         } catch (_: Exception) {
           throw RemoteFailure(RemoteError.NotTaiga)
         }
-    if (health.status != "ok") throw RemoteFailure(RemoteError.NotTaiga)
-    // The service name is what tells a Taiga backend apart from any other "ok" endpoint.
     if (health.service != "taiga-sleep") throw RemoteFailure(RemoteError.NotTaiga)
-    return ServerHealth(version = health.version, api = health.api)
+    return ServerVersion(version = health.version, api = health.api)
   }
 
   override fun login(baseUrl: String, email: String, password: String): AuthSession {
@@ -66,14 +95,13 @@ class OkHttpRemoteApi(
           execute(post(url(baseUrl, LOGIN), payload, token = null))
         } catch (e: RemoteHttpException) {
           throw when (e.status) {
-            400,
             401,
             403 -> RemoteFailure(RemoteError.BadCredentials)
             404 -> RemoteFailure(RemoteError.NotTaiga)
             else -> RemoteFailure(RemoteError.Http(e.status))
           }
         }
-    return readSession(body, fallbackEmail = email)
+    return readSession(body, fallbackEmail = email, wrongRole = RemoteError.BadCredentials)
   }
 
   override fun refresh(baseUrl: String, token: String): AuthSession {
@@ -88,7 +116,7 @@ class OkHttpRemoteApi(
             else -> RemoteFailure(RemoteError.Http(e.status))
           }
         }
-    return readSession(body, fallbackEmail = "")
+    return readSession(body, fallbackEmail = "", wrongRole = RemoteError.SessionExpired)
   }
 
   override fun authCheck(baseUrl: String, token: String): AuthUser {
@@ -96,10 +124,10 @@ class OkHttpRemoteApi(
         try {
           execute(
               Request.Builder()
-                  .url(url(baseUrl, AUTH_CHECK))
+                  .url(url(baseUrl, ME))
                   .get()
                   .header("Accept", JSON)
-                  .header("Authorization", token)
+                  .header("Authorization", bearer(token))
                   .build()
           )
         } catch (e: RemoteHttpException) {
@@ -110,17 +138,23 @@ class OkHttpRemoteApi(
             else -> RemoteFailure(RemoteError.Http(e.status))
           }
         }
-    val checked =
+    val me =
         try {
-          json.decodeFromString<AuthCheckDto>(body)
+          json.decodeFromString<MeDto>(body)
         } catch (_: Exception) {
           throw RemoteFailure(RemoteError.MalformedResponse)
         }
-    if (!checked.ok) throw RemoteFailure(RemoteError.MalformedResponse)
-    return AuthUser(id = checked.id, collection = checked.collection)
+    if (me.id.isBlank()) throw RemoteFailure(RemoteError.MalformedResponse)
+    // A worker account is valid on the server but cannot be used by the app.
+    if (me.role != ROLE_USER) throw RemoteFailure(RemoteError.SessionExpired)
+    return AuthUser(id = me.id, email = me.email, role = me.role)
   }
 
-  private fun readSession(body: String, fallbackEmail: String): AuthSession {
+  private fun readSession(
+      body: String,
+      fallbackEmail: String,
+      wrongRole: RemoteError,
+  ): AuthSession {
     val response =
         try {
           json.decodeFromString<AuthResponse>(body)
@@ -128,7 +162,9 @@ class OkHttpRemoteApi(
           throw RemoteFailure(RemoteError.MalformedResponse)
         }
     if (response.token.isBlank()) throw RemoteFailure(RemoteError.MalformedResponse)
-    val email = response.record?.email?.takeIf { it.isNotBlank() } ?: fallbackEmail
+    // Only an app account may sign in; the worker's token would be refused by every user route.
+    if (response.role != ROLE_USER) throw RemoteFailure(wrongRole)
+    val email = response.user?.email?.takeIf { it.isNotBlank() } ?: fallbackEmail
     if (email.isBlank()) throw RemoteFailure(RemoteError.MalformedResponse)
     return AuthSession(token = response.token, email = email)
   }
@@ -142,7 +178,7 @@ class OkHttpRemoteApi(
             .post(payload.toRequestBody(JSON_MEDIA_TYPE))
             .header("Accept", JSON)
             .header("User-Agent", userAgent)
-    if (token != null) builder.header("Authorization", token)
+    if (token != null) builder.header("Authorization", bearer(token))
     return builder.build()
   }
 
@@ -171,26 +207,29 @@ class OkHttpRemoteApi(
   }
 
   private companion object {
-    const val HEALTH = "/api/taiga/health"
-    const val AUTH_CHECK = "/api/taiga/auth-check"
-    const val LOGIN = "/api/collections/users/auth-with-password"
-    const val REFRESH = "/api/collections/users/auth-refresh"
+    const val VERSION = "/v1/version"
+    const val LEGACY_HEALTH = "/api/taiga/health"
+    const val ME = "/v1/me"
+    const val LOGIN = "/v1/auth/login"
+    const val REFRESH = "/v1/auth/refresh"
+    const val ROLE_USER = "user"
     const val JSON = "application/json"
     val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
   }
 }
 
 @Serializable
-private data class HealthDto(
-    val status: String = "",
+private data class VersionDto(
     val service: String = "",
     val version: String = "",
     val api: Int = 0,
 )
+
 @Serializable
 private data class AuthResponse(
     val token: String = "",
-    val record: UserDto? = null,
+    val role: String = "",
+    val user: UserDto? = null,
 )
 
 @Serializable
@@ -198,14 +237,17 @@ private data class UserDto(
     val email: String = "",
 )
 
-@Serializable private data class LoginRequest(val identity: String, val password: String)
+@Serializable private data class LoginRequest(val email: String, val password: String)
 
 @Serializable
-private data class AuthCheckDto(
-    val ok: Boolean = false,
+private data class MeDto(
     val id: String = "",
-    val collection: String = "",
+    val email: String = "",
+    val role: String = "",
 )
+
+/** The `Authorization` header value; the API wants the token as a bearer credential. */
+internal fun bearer(token: String): String = "Bearer $token"
 
 private fun defaultRemoteClient(): OkHttpClient =
     OkHttpClient.Builder()

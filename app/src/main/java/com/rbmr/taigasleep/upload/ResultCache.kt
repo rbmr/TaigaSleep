@@ -2,11 +2,16 @@ package com.rbmr.taigasleep.upload
 
 import android.content.Context
 import com.rbmr.taigasleep.remote.AnalysisDto
+import com.rbmr.taigasleep.remote.AnalysisResultDto
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * A local copy of a finished analysis. The backend remains authoritative, but History and the
@@ -74,7 +79,27 @@ class ResultCache(private val root: File) {
   private fun loadFile(key: String): AnalysisDto? {
     val file = file(key)
     if (!file.isFile) return null
-    return runCatching { json.decodeFromString<AnalysisDto>(file.readText()) }.getOrNull()
+    return runCatching { decode(file.readText()) }.getOrNull()
+  }
+
+  /**
+   * Reads an analysis as the API v1 shapes it. An older app cached the flat payload, where the
+   * fields of the result sat beside the id; such a file is the result of a finished run.
+   */
+  private fun decode(text: String): AnalysisDto {
+    val root = json.parseToJsonElement(text) as JsonObject
+    if ("result" in root || "algorithm" in root) {
+      return json.decodeFromJsonElement<AnalysisDto>(root)
+    }
+    val result = json.decodeFromJsonElement<AnalysisResultDto>(root)
+    return AnalysisDto(
+        id = root["id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        recording = root["session"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        algorithm = result.model,
+        version = result.model_version,
+        status = "succeeded",
+        result = result,
+    )
   }
 
   private fun composite(key: String, analysisId: String?): String =

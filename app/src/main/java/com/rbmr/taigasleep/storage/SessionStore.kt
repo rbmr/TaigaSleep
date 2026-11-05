@@ -9,6 +9,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlin.random.Random
 
 data class SessionInfo(
     val id: String,
@@ -34,12 +35,21 @@ class SessionStore(val root: File) {
 
   fun dir(id: String) = File(root, id)
 
-  /** Local start time as `yyyyMMdd_HHmmss`, bumped by a second until the directory is free. */
-  fun newSessionId(nowMs: Long): String {
-    val fmt = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
-    var t = nowMs
-    while (File(root, fmt.format(Date(t))).exists()) t += 1000
-    return fmt.format(Date(t))
+  /**
+   * Local start time as `yyyyMMdd_HHmmss`, a dash and four random lowercase letters or digits,
+   * for example `20261023_223000-k3f9`. The server keeps recordings under the phone's id, and ids
+   * are unique across all accounts there, so the suffix keeps two phones that start in the same
+   * second apart. A suffix whose directory exists is drawn again.
+   */
+  fun newSessionId(nowMs: Long, random: Random = Random.Default): String {
+    val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(nowMs))
+    while (true) {
+      val suffix = buildString {
+        repeat(SUFFIX_LENGTH) { append(SUFFIX_ALPHABET[random.nextInt(SUFFIX_ALPHABET.length)]) }
+      }
+      val id = "$stamp-$suffix"
+      if (!File(root, id).exists()) return id
+    }
   }
 
   /** Newest first. Directories without a readable meta.json are skipped. */
@@ -129,6 +139,9 @@ class SessionStore(val root: File) {
   }
 
   companion object {
+    private const val SUFFIX_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
+    private const val SUFFIX_LENGTH = 4
+
     /** The recorded stream files. meta.json and events.jsonl are not raw data. */
     val RAW_FILES = listOf("hr.log", "ecg.log", "acc.log")
 

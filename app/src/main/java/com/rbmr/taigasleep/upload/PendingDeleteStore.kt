@@ -17,7 +17,7 @@ data class PendingDelete(
 
 /**
  * Remote deletes that could not be completed yet. The local recording and its results are already
- * gone; this only keeps the remote session id until the server can be reached.
+ * gone; this only keeps the recording id until the server can be reached.
  */
 class PendingDeleteStore private constructor(private val prefs: SharedPreferences) {
   private val lock = Any()

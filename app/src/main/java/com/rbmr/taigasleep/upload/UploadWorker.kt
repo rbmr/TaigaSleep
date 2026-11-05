@@ -6,6 +6,7 @@ import com.rbmr.taigasleep.analysis.AnalysisSettingsStore
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.rbmr.taigasleep.recording.RecordingService
+import com.rbmr.taigasleep.remote.ApiCode
 import com.rbmr.taigasleep.remote.CheckResult
 import com.rbmr.taigasleep.remote.RemoteError
 import com.rbmr.taigasleep.remote.RemoteRepository
@@ -99,26 +100,30 @@ class UploadWorker(
 
       store.markUploading(localId, 0f)
 
-      val outcome =
-          UploadEngine(
-                  client = api,
-                  dir = dir,
-                  onProgress = { store.markUploading(localId, it) },
-                  onRemoteSession = { store.markRemote(localId, it) },
-                  compress = UploadSettings.get(context).compressUploads.value,
-                  cacheDir = File(context.filesDir, "upload-cache/$localId"),
-              )
-              .run()
+      // The recording id on the server is the phone's own id.
+      UploadEngine(
+              client = api,
+              id = localId,
+              dir = dir,
+              onProgress = { store.markUploading(localId, it) },
+              onCreated = { store.markOnServer(localId) },
+              compress = UploadSettings.get(context).compressUploads.value,
+              cacheDir = File(context.filesDir, "upload-cache/$localId"),
+          )
+          .run()
       val settings = AnalysisSettingsStore.of(context).settings.value
       val started =
-          AnalysisService.startAuto(api, outcome.remoteId, meta.config, settings)
-      store.markProcessing(
-          localId,
-          outcome.remoteId,
-          started?.analysisId,
-          started?.jobId,
-          outcome.warning,
-      )
+          try {
+            AnalysisService.startAuto(api, localId, meta.config, settings)
+          } catch (e: TaigaHttpException) {
+            // The bytes are safe on the server and only the analysis was refused, for example
+            // because no worker offers the algorithm yet. The retry asks for it again.
+            if (e.status != 422) throw e
+            store.markFailed(localId, UploadFailure.ANALYSIS, e.message)
+            RawRetention.enforce(context)
+            return Result.failure()
+          }
+      store.markProcessing(localId, started?.analysisId)
       // The server has the bytes now, so an immediate or overdue cleanup may run.
       RawRetention.enforce(context)
       if (started == null) {
@@ -128,43 +133,22 @@ class UploadWorker(
 
       val poller = AnalysisPoller(api, store, ResultCache.of(context), localId)
       try {
-        when (val polled = poller.poll(outcome.remoteId, started.analysisId, started.jobId)) {
+        when (val polled = poller.poll(localId, started.analysisId)) {
           is PollResult.Done,
           is PollResult.Failed -> Result.success()
           is PollResult.Pending -> {
-            UploadScheduler.enqueuePoll(
-                context,
-                localId,
-                outcome.remoteId,
-                polled.analysisId,
-                polled.jobId,
-                delayMs = 10_000,
-            )
+            UploadScheduler.enqueuePoll(context, localId, polled.analysisId, delayMs = 10_000)
             Result.success()
           }
         }
       } catch (e: TaigaNetworkException) {
         // The upload is safe on the server; only the first status read was missed.
-        UploadScheduler.enqueuePoll(
-            context,
-            localId,
-            outcome.remoteId,
-            started.analysisId,
-            started.jobId,
-            delayMs = 15_000,
-        )
+        UploadScheduler.enqueuePoll(context, localId, started.analysisId, delayMs = 15_000)
         Result.success()
       } catch (e: TaigaHttpException) {
         if (e.status == 401 || e.status == 403) throw e
         if (e.status == 429 || e.status >= 500) {
-          UploadScheduler.enqueuePoll(
-              context,
-              localId,
-              outcome.remoteId,
-              started.analysisId,
-              started.jobId,
-              delayMs = 30_000,
-          )
+          UploadScheduler.enqueuePoll(context, localId, started.analysisId, delayMs = 30_000)
           Result.success()
         } else {
           store.markFailed(localId, UploadFailure.ANALYSIS, e.message)
@@ -179,7 +163,7 @@ class UploadWorker(
       retryOrFail(store, localId, UploadFailure.NETWORK, e.message)
     } catch (e: TaigaHttpException) {
       when {
-        e.status == 409 && e.message.orEmpty().contains("in progress") -> {
+        e.code == ApiCode.RECORDING_IN_PROGRESS -> {
           // The backend refuses a recording that is still open. The service will enqueue again.
           store.markQueued(localId, UploadFailure.RECORDING, e.message)
           Result.success()

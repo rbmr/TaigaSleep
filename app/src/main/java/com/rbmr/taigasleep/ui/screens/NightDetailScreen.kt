@@ -84,12 +84,13 @@ import com.rbmr.taigasleep.night.NightStatus
 import com.rbmr.taigasleep.night.formatDuration
 import com.rbmr.taigasleep.night.formatNightDate
 import com.rbmr.taigasleep.night.formatNightDateAndTime
-import com.rbmr.taigasleep.night.parsePocketBaseDate
+import com.rbmr.taigasleep.night.parseApiDate
 import com.rbmr.taigasleep.remote.AlgorithmDto
 import com.rbmr.taigasleep.remote.AnalysisDto
+import com.rbmr.taigasleep.remote.AnalysisResultDto
 import com.rbmr.taigasleep.remote.QualityComponentDto
+import com.rbmr.taigasleep.remote.RecordingDto
 import com.rbmr.taigasleep.remote.RemoteStatus
-import com.rbmr.taigasleep.remote.SessionDto
 import com.rbmr.taigasleep.remote.StageSegmentDto
 import com.rbmr.taigasleep.recording.ExportSource
 import com.rbmr.taigasleep.recording.Exporter
@@ -124,11 +125,10 @@ import kotlinx.coroutines.launch
 
 private data class NightDetailState(
     val local: SessionInfo? = null,
-    val remote: SessionDto? = null,
+    val remote: RecordingDto? = null,
     val analysis: AnalysisDto? = null,
     val remoteId: String? = null,
     val analysisId: String? = null,
-    val jobId: String? = null,
     val status: NightStatus = NightStatus.LOCAL_ONLY,
     val progress: Float = 0f,
     val startUtcMs: Long = 0,
@@ -165,14 +165,13 @@ private fun Night.toDetailState(
         analysis = result,
         remoteId = remoteId,
         analysisId = analysisId,
-        jobId = jobId,
         status = status,
         progress = progress,
         startUtcMs = startUtcMs,
         endUtcMs = endUtcMs,
         durationMs = durationMs,
         remoteCreatedAtMs =
-            parsePocketBaseDate(remote?.created.orEmpty()).takeIf { it > 0 }
+            parseApiDate(remote?.created.orEmpty()).takeIf { it > 0 }
                 ?: backup.uploadedAtMs,
         segments = segments,
         epochSeconds = epochSeconds,
@@ -256,7 +255,7 @@ fun NightDetailScreen(
     repository
         .refreshNight(key, server, night?.analysisId ?: analysisId)
         .onSuccess { fresh ->
-          if (fresh != null && (fresh.status == "done" || result == null)) result = fresh
+          if (fresh != null && (fresh.isSucceeded || result == null)) result = fresh
           loginExpired = false
           offlineSaved = false
           error = null
@@ -312,31 +311,17 @@ fun NightDetailScreen(
     val id = state.local?.id ?: localId ?: state.remoteId?.let { "remote-$it" }
     val server = state.remoteId
     if (id != null && server != null) {
-      UploadScheduler.enqueuePoll(
-          context,
-          id,
-          server,
-          state.analysisId,
-          state.jobId,
-          replace = true,
-      )
+      UploadScheduler.enqueuePoll(context, id, state.analysisId, replace = true)
     }
     refreshKey++
   }
 
   fun retryAnalysis() {
     val key = state.local?.id ?: state.remoteId?.let { "remote-$it" } ?: localId ?: return
-    val server = state.remoteId ?: return
+    if (state.remoteId == null) return
     actionError = null
     scope.launch {
-      val result =
-          UploadCoordinator.retryAnalysis(
-              context,
-              key,
-              server,
-              state.analysisId,
-              state.jobId,
-          )
+      val result = UploadCoordinator.retryAnalysis(context, key, state.analysisId)
       result.onSuccess { refreshKey++ }.onFailure { actionError = it.message }
     }
   }
@@ -451,9 +436,10 @@ fun NightDetailScreen(
   ) { padding ->
     val start = startOf(state)
     val device = state.local?.sensorName ?: state.remote?.device.orEmpty()
-    val analysis = state.analysis
+    val run = state.analysis
+    val analysis = run?.result
     val sleepScore = analysis?.sleep_quality?.score
-    val processed = analysis?.status == "done"
+    val processed = run?.isSucceeded == true
     val selectedMetricSpec = metricSpec(metric.orEmpty())
 
     LazyColumn(
@@ -478,8 +464,8 @@ fun NightDetailScreen(
       }
       if (state.remoteId != null) {
         item {
-          val model = state.analysis?.model.orEmpty()
-          val version = state.analysis?.model_version.orEmpty()
+          val model = state.analysis?.algorithm.orEmpty()
+          val version = state.analysis?.version.orEmpty()
           val label =
               if (model.isNotBlank()) {
                 stringResource(R.string.night_analyzed_with, model, version) +
@@ -544,7 +530,7 @@ fun NightDetailScreen(
       }
 
       when {
-        analysis?.status == "done" -> {
+        processed && analysis != null -> {
           item {
             SleepStatsCard(
                 state = state,
@@ -574,7 +560,7 @@ fun NightDetailScreen(
                 onMetric = { metric = it.key },
             )
           }
-          state.analysis?.warnings?.takeIf { it.isNotEmpty() }?.let { warnings ->
+          analysis.warnings.takeIf { it.isNotEmpty() }?.let { warnings ->
             item {
               TaigaCard {
                 Text(
@@ -592,14 +578,14 @@ fun NightDetailScreen(
               }
             }
           }
-          state.analysis?.model?.takeIf { it.isNotBlank() }?.let { model ->
+          run?.algorithm?.takeIf { it.isNotBlank() }?.let { model ->
             item {
               Text(
                   text =
                       stringResource(
                           R.string.night_analyzed_with,
                           model,
-                          state.analysis?.model_version.orEmpty(),
+                          run.version,
                       ),
                   style = MaterialTheme.typography.bodySmall,
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -747,13 +733,13 @@ fun NightDetailScreen(
 
     if (showQuality) {
       DataQualitySheet(
-          analysis = state.analysis,
+          analysis = state.analysis?.result,
           onDismiss = { showQuality = false },
       )
     }
     if (showSleepScore) {
       SleepScoreSheet(
-          analysis = state.analysis,
+          analysis = state.analysis?.result,
           onDismiss = { showSleepScore = false },
       )
     }
@@ -771,14 +757,14 @@ fun NightDetailScreen(
                   epochSeconds = epochSecondsOf(state),
                   startUnixMs =
                       startOf(state).takeIf { it > 0 }
-                          ?: state.analysis?.stages?.start_unix_ms
+                          ?: state.analysis?.result?.stages?.start_unix_ms
                           ?: 0L,
-                  support = state.analysis?.metric_support,
+                  support = state.analysis?.result?.metric_support,
                   modifier = chartModifier,
                   fullscreen = true,
               )
           else ->
-              state.analysis?.hr?.let { series ->
+              state.analysis?.result?.hr?.let { series ->
                 HeartRateChart(series = series, modifier = chartModifier, fullscreen = true)
               }
         }
@@ -1315,7 +1301,7 @@ private fun DetailRow(label: String, value: String) {
 private fun SleepStatsCard(
     state: NightDetailState,
     start: Long,
-    analysis: AnalysisDto,
+    analysis: AnalysisResultDto,
     onMetric: (MetricSpec) -> Unit,
     onExpand: () -> Unit,
 ) {
@@ -1358,7 +1344,7 @@ private fun SleepStatsCard(
 
 @Composable
 private fun HeartRateStatsCard(
-    analysis: AnalysisDto,
+    analysis: AnalysisResultDto,
     onMetric: (MetricSpec) -> Unit,
     onExpand: () -> Unit,
 ) {
@@ -1419,7 +1405,7 @@ private fun HeartRateStatsCard(
 
 @Composable
 private fun DataQualityStatsCard(
-    analysis: AnalysisDto,
+    analysis: AnalysisResultDto,
     onOpen: () -> Unit,
     onMetric: (MetricSpec) -> Unit,
 ) {
@@ -1459,7 +1445,7 @@ private fun DataQualityStatsCard(
 
 @Composable
 private fun MovementStatsCard(
-    analysis: AnalysisDto,
+    analysis: AnalysisResultDto,
     onMetric: (MetricSpec) -> Unit,
 ) {
   TaigaCard {
@@ -1474,7 +1460,7 @@ private fun MovementStatsCard(
 
 @Composable
 private fun MetricGrid(
-    analysis: AnalysisDto,
+    analysis: AnalysisResultDto,
     keys: List<String>,
     onMetric: (MetricSpec) -> Unit,
 ) {
@@ -1593,7 +1579,7 @@ private fun MetricSheet(spec: MetricSpec, onDismiss: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DataQualitySheet(analysis: AnalysisDto?, onDismiss: () -> Unit) {
+private fun DataQualitySheet(analysis: AnalysisResultDto?, onDismiss: () -> Unit) {
   ModalBottomSheet(onDismissRequest = onDismiss) {
     Column(
         modifier =
@@ -1653,7 +1639,7 @@ private fun DataQualitySheet(analysis: AnalysisDto?, onDismiss: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SleepScoreSheet(analysis: AnalysisDto?, onDismiss: () -> Unit) {
+private fun SleepScoreSheet(analysis: AnalysisResultDto?, onDismiss: () -> Unit) {
   ModalBottomSheet(onDismissRequest = onDismiss) {
     Column(
         modifier =
@@ -1790,11 +1776,11 @@ private fun sleepComponentLabel(key: String): Int =
 
 private fun startOf(state: NightDetailState): Long =
     state.startUtcMs.takeIf { it > 0 }
-        ?: state.analysis?.stages?.start_unix_ms
+        ?: state.analysis?.result?.stages?.start_unix_ms
         ?: 0L
 
 private fun segmentsOf(state: NightDetailState): List<StageSegmentDto> =
-    state.analysis?.stages?.segments ?: state.segments
+    state.analysis?.result?.stages?.segments ?: state.segments
 
 private fun epochSecondsOf(state: NightDetailState): Int =
-    state.analysis?.stages?.epoch_seconds ?: state.epochSeconds
+    state.analysis?.result?.stages?.epoch_seconds ?: state.epochSeconds

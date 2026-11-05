@@ -89,15 +89,8 @@ fun HistoryScreen(
   LaunchedEffect(nights, remoteStatus) {
     if (remoteStatus !is RemoteStatus.Connected) return@LaunchedEffect
     for (night in nights) {
-      val server = night.remoteId ?: continue
-      if (!night.isDone || night.resultDownloaded) continue
-      UploadScheduler.enqueuePoll(
-          context,
-          night.localId ?: night.key,
-          server,
-          night.analysisId,
-          night.jobId,
-      )
+      if (night.remoteId == null || !night.isDone || night.resultDownloaded) continue
+      UploadScheduler.enqueuePoll(context, night.localId ?: night.key, night.analysisId)
     }
   }
 

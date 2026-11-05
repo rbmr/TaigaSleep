@@ -26,7 +26,7 @@ class RemoteRepositoryTest {
     val checked = runBlocking { repository().checkAddress("localhost:8090") }
 
     assertEquals(AddressCheck.Reachable("http://localhost:8090", insecure = true), checked)
-    assertEquals(listOf("health"), api.calls)
+    assertEquals(listOf("version"), api.calls)
     assertNull(store().url)
   }
 
@@ -66,17 +66,17 @@ class RemoteRepositoryTest {
 
   @Test
   fun `a wrong url is reported by the address check`() {
-    api.healthError = RemoteError.NotTaiga
+    api.versionError = RemoteError.NotTaiga
 
     val checked = runBlocking { repository().checkAddress("http://localhost:8090") }
 
     assertEquals(AddressCheck.Failure(RemoteError.NotTaiga), checked)
-    assertEquals(listOf("health"), api.calls)
+    assertEquals(listOf("version"), api.calls)
   }
 
   @Test
   fun `a server that is down is reported by the address check`() {
-    api.healthError = RemoteError.Unreachable
+    api.versionError = RemoteError.Unreachable
 
     val checked = runBlocking { repository().checkAddress("http://localhost:8090") }
 
@@ -85,7 +85,7 @@ class RemoteRepositoryTest {
 
   @Test
   fun `an unknown host is reported by the address check`() {
-    api.healthError = RemoteError.UnknownHost
+    api.versionError = RemoteError.UnknownHost
 
     val checked = runBlocking { repository().checkAddress("http://typo.localhost") }
 
@@ -236,7 +236,7 @@ class RemoteRepositoryTest {
     val repo = repository()
     login(repo)
     now += 3 * 24 * 60 * 60 * 1000L
-    api.healthError = RemoteError.Unreachable
+    api.versionError = RemoteError.Unreachable
 
     val result = runBlocking { repo.verify() }
 
@@ -255,7 +255,7 @@ class RemoteRepositoryTest {
     val repo = repository()
     login(repo)
     now += 5 * 60_000
-    api.healthError = RemoteError.Unreachable
+    api.versionError = RemoteError.Unreachable
 
     val checked = runBlocking { repo.checkStatus() }
 
@@ -269,10 +269,10 @@ class RemoteRepositoryTest {
   fun `a recovered server restores the session and advances the check time`() {
     val repo = repository()
     login(repo)
-    api.healthError = RemoteError.Unreachable
+    api.versionError = RemoteError.Unreachable
     runBlocking { repo.checkStatus() }
 
-    api.healthError = null
+    api.versionError = null
     now += 60_000
     val checked = runBlocking { repo.checkStatus() }
 
@@ -284,7 +284,7 @@ class RemoteRepositoryTest {
   }
 
   @Test
-  fun `a different address is only checked for health`() {
+  fun `a different address is only checked for its version`() {
     val repo = repository()
     login(repo)
     api.calls.clear()
@@ -292,7 +292,7 @@ class RemoteRepositoryTest {
     runBlocking { repo.checkAddress("http://other.local:8090") }
 
     // The saved token belongs to the saved address, so it is not sent anywhere else.
-    assertEquals(listOf("health"), api.calls)
+    assertEquals(listOf("version"), api.calls)
   }
 
   @Test
@@ -320,13 +320,13 @@ class RemoteRepositoryTest {
         RemoteStatus.LoginNeeded(email = null, checkedAtMs = now, reason = null),
         repo.status.value,
     )
-    assertEquals(listOf("health"), api.calls)
+    assertEquals(listOf("version"), api.calls)
   }
 
   @Test
   fun `an unreachable server without a token is still unreachable`() {
     store().url = "http://localhost:8090"
-    api.healthError = RemoteError.Unreachable
+    api.versionError = RemoteError.Unreachable
 
     val repo = repository()
     val result = runBlocking { repo.verify() }
@@ -381,7 +381,7 @@ class RemoteRepositoryTest {
   fun `a server that cannot be reached is unreachable`() {
     val repo = repository()
     login(repo)
-    api.healthError = RemoteError.Unreachable
+    api.versionError = RemoteError.Unreachable
 
     runBlocking { repo.checkStatus() }
 
@@ -427,7 +427,7 @@ class RemoteRepositoryTest {
 
     runBlocking { repo.checkAddress("http://other.local:8090") }
 
-    // The stored token belongs to the saved address, so the other server only got the health check.
+    // The stored token belongs to the saved address, so the other server only got the version check.
     assertEquals("http://other.local:8090", repo.address.value)
     assertEquals(RemoteState.NOT_LOGGED_IN, repo.state.value)
   }
@@ -440,14 +440,14 @@ class RemoteRepositoryTest {
   }
 
   @Test
-  fun `the status check without a token only asks for health`() {
+  fun `the status check without a token only asks for the version`() {
     store().url = "http://localhost:8090"
     val repo = repository()
 
     val result = runBlocking { repo.checkStatus() }
 
     assertNull(result)
-    assertEquals(listOf("health"), api.calls)
+    assertEquals(listOf("version"), api.calls)
     assertEquals(RemoteState.NOT_LOGGED_IN, repo.state.value)
   }
 
@@ -498,7 +498,7 @@ private class FakeSecretBox : SecretBox {
 }
 
 private class FakeRemoteApi : RemoteApi {
-  var healthError: RemoteError? = null
+  var versionError: RemoteError? = null
   var serverApi = BuildConfig.API_VERSION
   var serverVersion = "0.1.0"
   var loginError: RemoteError? = null
@@ -507,10 +507,10 @@ private class FakeRemoteApi : RemoteApi {
   var loginEmail = "me@example.com"
   val calls = mutableListOf<String>()
 
-  override fun health(baseUrl: String): ServerHealth {
-    calls += "health"
-    healthError?.let { throw RemoteFailure(it) }
-    return ServerHealth(version = serverVersion, api = serverApi)
+  override fun version(baseUrl: String): ServerVersion {
+    calls += "version"
+    versionError?.let { throw RemoteFailure(it) }
+    return ServerVersion(version = serverVersion, api = serverApi)
   }
 
   override fun login(baseUrl: String, email: String, password: String): AuthSession {
@@ -528,6 +528,6 @@ private class FakeRemoteApi : RemoteApi {
   override fun authCheck(baseUrl: String, token: String): AuthUser {
     calls += "auth-check:$token"
     authError?.let { throw RemoteFailure(it) }
-    return AuthUser(id = "u1", collection = "users")
+    return AuthUser(id = "u1", email = loginEmail, role = "user")
   }
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
+// AlgorithmView is the manifest of an algorithm a worker can run; see
+// docs/analysis-contract.md.
 type AlgorithmView struct {
 	ID              string         `json:"id"`
 	Version         string         `json:"version"`
@@ -26,58 +29,55 @@ type AlgorithmView struct {
 	ParamsSchema    map[string]any `json:"params_schema"`
 	Source          string         `json:"source"`
 	Workers         []string       `json:"workers,omitempty"`
-	WorkerCount     int            `json:"worker_count,omitempty"`
+
+	// lastSeen is the newest announcement of this algorithm version, in stored date
+	// format. It decides which version is the default, not what is listed.
+	lastSeen string
 }
 
-type CapabilitiesRequest struct {
-	Worker     string          `json:"worker,omitempty"`
+type AlgorithmList struct {
+	Items []AlgorithmView `json:"items"`
+}
+
+// WorkerAnnouncement is what a worker says about itself.
+type WorkerAnnouncement struct {
+	Name       string          `json:"name"`
 	Version    string          `json:"version"`
 	Algorithms []AlgorithmView `json:"algorithms"`
 }
 
-func ReportCapabilities(e *core.RequestEvent) error {
-	if e.Auth == nil || e.Auth.Collection().Name != "workers" {
-		return e.ForbiddenError("worker account required", nil)
+func PutWorker(e *core.RequestEvent) error {
+	var body WorkerAnnouncement
+	if err := json.NewDecoder(io.LimitReader(e.Request.Body, 524288)).Decode(&body); err != nil {
+		return badRequest("invalid_body", "the body must describe the worker and its algorithms")
 	}
-	var body CapabilitiesRequest
-	if err := e.BindBody(&body); err != nil {
-		return e.BadRequestError("invalid request body", err)
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		name = e.Auth.GetString("name")
 	}
-	worker := strings.TrimSpace(body.Worker)
-	if worker == "" {
-		worker = e.Auth.GetString("name")
+	if name == "" {
+		name = e.Auth.Id
 	}
-	if worker == "" {
-		worker = e.Auth.Id
-	}
-	if len(worker) > 120 {
-		worker = worker[:120]
+	if len(name) > 100 {
+		name = name[:100]
 	}
 	if len(body.Algorithms) > 100 {
-		return e.BadRequestError("too many algorithms", nil)
+		return badRequest("too_many_algorithms", "a worker offers at most 100 algorithms")
 	}
 	for _, algorithm := range body.Algorithms {
-		if !modelIDRE.MatchString(algorithm.ID) {
-			return e.BadRequestError("algorithm id is invalid", nil)
+		if !algorithmIDRE.MatchString(algorithm.ID) {
+			return badRequest("invalid_algorithm", "algorithm id is invalid")
 		}
 		if algorithm.Version == "" || algorithm.Name == "" || algorithm.License == "" {
-			return e.BadRequestError("algorithm version, name and license are required", nil)
+			return badRequest("invalid_algorithm", "algorithm version, name and license are required")
 		}
 	}
-	raw, err := json.Marshal(body.Algorithms)
-	if err != nil {
-		return e.BadRequestError("algorithm capabilities are invalid", err)
-	}
-	if len(raw) > 262144 {
-		return e.BadRequestError("algorithm capabilities are too large", nil)
-	}
-
-	err = e.App.RunInTransaction(func(txApp core.App) error {
+	err := e.App.RunInTransaction(func(txApp core.App) error {
 		record, err := txApp.FindRecordById("workers", e.Auth.Id)
 		if err != nil {
 			return err
 		}
-		record.Set("name", worker)
+		record.Set("name", name)
 		record.Set("version", body.Version)
 		record.Set("algorithms", body.Algorithms)
 		record.Set("last_seen", nowString())
@@ -86,31 +86,20 @@ func ReportCapabilities(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
-	return e.JSON(http.StatusOK, CapabilitiesResponse{
-		OK:      true,
-		Worker:  worker,
-		Version: body.Version,
-		Count:   len(body.Algorithms),
-	})
+	return e.NoContent(http.StatusNoContent)
 }
 
-func ListAlgorithms(e *core.RequestEvent) error {
-	if err := requireUser(e); err != nil {
-		return err
-	}
-	workers, err := e.App.FindAllRecords("workers")
+// registeredAlgorithms is every algorithm any registered worker has announced, one
+// entry per id and version, with the workers that offer it.
+func registeredAlgorithms(app core.App) []AlgorithmView {
+	workers, err := app.FindAllRecords("workers")
 	if err != nil {
-		return err
+		return nil
 	}
-
-	type group struct {
-		info    AlgorithmView
-		workers []string
-	}
-	groups := map[string]*group{}
+	groups := map[string]*AlgorithmView{}
 	for _, worker := range workers {
 		var algorithms []AlgorithmView
-		readJSONField(worker, "algorithms", &algorithms)
+		_ = worker.UnmarshalJSONField("algorithms", &algorithms)
 		name := worker.GetString("name")
 		if name == "" {
 			name = worker.Id
@@ -122,22 +111,17 @@ func ListAlgorithms(e *core.RequestEvent) error {
 			key := algorithm.ID + "\x00" + algorithm.Version
 			entry := groups[key]
 			if entry == nil {
-				entry = &group{info: algorithm}
+				copied := algorithm
+				copied.Workers = nil
+				entry = &copied
 				groups[key] = entry
 			}
-			found := false
-			for _, existing := range entry.workers {
-				if existing == name {
-					found = true
-					break
-				}
-			}
-			if !found {
-				entry.workers = append(entry.workers, name)
+			entry.Workers = append(entry.Workers, name)
+			if seen := worker.GetString("last_seen"); seen > entry.lastSeen {
+				entry.lastSeen = seen
 			}
 		}
 	}
-
 	keys := make([]string, 0, len(groups))
 	for key := range groups {
 		keys = append(keys, key)
@@ -145,11 +129,11 @@ func ListAlgorithms(e *core.RequestEvent) error {
 	sort.Strings(keys)
 	result := make([]AlgorithmView, 0, len(keys))
 	for _, key := range keys {
-		entry := groups[key]
-		item := entry.info
-		item.Workers = entry.workers
-		item.WorkerCount = len(entry.workers)
-		result = append(result, item)
+		result = append(result, *groups[key])
 	}
-	return e.JSON(http.StatusOK, AlgorithmsResponse{Algorithms: result})
+	return result
+}
+
+func ListAlgorithms(e *core.RequestEvent) error {
+	return e.JSON(http.StatusOK, AlgorithmList{Items: registeredAlgorithms(e.App)})
 }
