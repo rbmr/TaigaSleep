@@ -1,0 +1,165 @@
+# Architecture
+
+This document describes how Taiga Sleep is put together and which rules keep it that
+way. [`vision.md`](vision.md) says what the project is for; this says how the code is
+organised to serve it. When the two disagree, the vision wins and the code is what gets
+fixed.
+
+## One word: recording
+
+A **recording** is one run of a tracker: its metadata and its raw streams. The app, the
+backend, the worker and the docs all use this word. "Session" and "night" are not used
+for the same thing, because three names for one concept is how structure gets lost.
+
+## The three responsibilities of the app
+
+1. **Record.** Connect a tracker, configure it, keep the recording alive, store the raw
+   data on the phone.
+2. **Talk to the backend.** Move recordings to the backend, ask for analyses, receive the
+   results, manage what is stored there.
+3. **Show results.** Present analysis results as statistics a person can read.
+
+Everything in the app belongs to exactly one of these, or is shared plumbing for them.
+A feature that needs two of them talks to both through their public interfaces and owns
+no state of either.
+
+## Backend and worker
+
+```text
+   app / any client ──HTTP /v1──▶ backend (Go, PocketBase) ◀──HTTP /v1── worker (Python)
+                                       │
+                          database + recording files
+```
+
+- The **backend** owns data and state: recordings, their files, analyses. It validates
+  requests, enforces ownership and serves results. It stores bytes and does not
+  interpret them.
+- The **worker** does the analysis. It is a client of the same API with a `worker` role,
+  not a privileged second API. It reads a recording only while it holds the lease of an
+  analysis of that recording.
+- The **API** ([`api.md`](api.md)) is the whole contract. PocketBase's own record API is
+  closed; nothing in the app or the worker uses it. This keeps the backend usable by
+  other clients and independent of PocketBase's internals.
+
+Realtime is Server-Sent Events on `GET /v1/events`. A client that is connected learns at
+once that an analysis became available; a client that is not connected asks when it next
+opens. Events carry ids and statuses only, never data, so a missed event costs a refetch,
+not correctness.
+
+## What the app does with the backend
+
+The full list, and nothing else:
+
+| Action | Purpose |
+| --- | --- |
+| Create, read, update, delete a recording | the recording row and its metadata |
+| Upload, download, delete a recording's files | bulk raw storage, compressed or not, the sender decides |
+| Create, read, delete an analysis | results are created once, filled by the worker, then immutable |
+| List algorithms | so the user can choose how a recording is analysed |
+| Log in, check the token | authentication |
+| Health, version | reachability and compatibility |
+
+Anything else a user wants (complex queries, bulk export, a web UI) is a client of the
+same API and not a feature of the app.
+
+## App structure
+
+One Gradle module, one package per concern under `com.rbmr.taigasleep`:
+
+| Package | Responsibility | May depend on |
+| --- | --- | --- |
+| `tracker` | What a tracker is: its capabilities, its recording mode, its configuration. Implementations per device (`polar`), a simulated one in debug builds. | `diagnostics` |
+| `recording` | Capturing: the recording state machine, the foreground service, the on-disk format, the local store, export. | `tracker`, `diagnostics` |
+| `guard` | The preventing-shutdown flow: per-device steps, checks, the final readiness list. | `diagnostics` |
+| `backend` | A client for API v1: DTOs, requests, authentication state, the event stream. No business logic. | `diagnostics` |
+| `sync` | Moving recordings to and from the backend: upload queue, retention, deletion, analysis requests, result cache. | `recording`, `backend`, `insights`, `diagnostics` |
+| `insights` | Turning analysis results into what is displayed: statistics, series, scores, the algorithm catalogue and the user's algorithm preference. | `backend`, `diagnostics` |
+| `library` | The recordings the user owns, as one list: local state, sync state and results composed for presentation. | `recording`, `sync`, `insights`, `backend` |
+| `ui` | Screens and components. The only package that knows about Compose. | everything above |
+| `diagnostics` | Logging and crash evidence. A leaf. | nothing |
+
+The direction is strict: a package never imports one that is not in its row. An
+architecture test fails the build when it does, so the structure is enforced rather than
+remembered. A needed dependency that is not allowed is a signal to move code, not to widen
+the table.
+
+Two rules inside that:
+
+- **One type per fact.** A recording on the phone, a recording on the backend and an
+  analysis are three different types. `library` composes them for display; nothing else
+  merges them into one object.
+- **State has one owner.** Whatever stores or derives a piece of state is the only thing
+  that writes it. Screens observe; they do not decide.
+
+## The recording lifecycle
+
+### Recording mode
+
+A tracker offers one or both **recording modes** for a given configuration:
+
+- **Stream**: data flows to the phone while recording. The phone has to stay alive all
+  night, so the preventing-shutdown flow applies. The Polar H10 streams HR, ECG and ACC.
+- **OnDevice**: the tracker stores the data itself and the phone downloads it afterwards.
+  The phone does not have to stay awake, so the user is not asked to configure anything.
+  The H10 can do this only when recording just HR/RR; the Verity Sense and the Loop are
+  expected to work this way.
+
+The mode follows from the tracker and the chosen streams, not from a separate setting the
+user has to understand.
+
+### Ending a recording
+
+Three actions, whose meaning depends on the mode:
+
+| | Stream | OnDevice |
+| --- | --- | --- |
+| **Stop** | Close the streams gracefully, finish the recording. | Fetch everything from the tracker, store it, then stop the tracker safely. |
+| **Force stop** | Finish the recording one-sidedly, without waiting for the tracker. Keep what is already on the phone. | Accept the loss: keep the partial or empty recording locally and do not wait for the tracker. |
+| **Discard** | Stop gracefully, then delete everything stored locally. | Tell the tracker to stop and delete its data, do not download it, delete the recording on the phone. |
+
+These are states of one machine with explicit transitions, not flags checked in several
+places. Each mode supplies what its transitions do; the machine owns when they happen.
+
+### Start flow
+
+1. Connect a tracker.
+2. Configure it: what to record.
+3. Preventing-shutdown flow, only if the mode is Stream and the device needs it.
+4. Start.
+
+### Preventing-shutdown flow
+
+1. Select a device, defaulting to the detected one.
+2. Walk the steps for that device. Each step has an explanation and a check; a check is
+   automatic or needs the user's confirmation.
+3. The final screen lists every step with its check. When all pass, the device is trusted
+   not to shut the recording down during the night.
+
+## Syncing
+
+The phone cannot keep every recording (ECG fills storage quickly) and cannot run the
+analysis, so recordings go to the backend. Sync is a property of a recording, not a
+screen:
+
+- A recording is local only, uploading, or on the backend; the sync state is stored with
+  the recording on the phone and survives a process kill.
+- Uploading is resumable and append-only, matching the recording format.
+- Nothing starts an analysis on the backend by itself. The app may request one on the
+  user's behalf; that is an app setting, on by default, and the backend never decides it.
+- Results are small. They are fetched when they are wanted: live while the app is open
+  (events), otherwise on the next open.
+
+## Showing results
+
+Statistics come in three kinds: a single **number**, a **series** (graph) and a **score**
+(a weighted combination of percentages). Each carries what the user needs to trust it:
+what it means and where its data came from. The app renders what the analysis provides and
+hides what it does not; it does not announce what is missing. See
+[`vision.md`](vision.md#show-what-is-available-hide-what-is-not).
+
+## Tests that keep this true
+
+- The architecture test (package dependencies, above).
+- The API contract test on the backend: every registered route is in the OpenAPI
+  document and the other way round.
+- The integration suite, which runs the real backend binary with the real worker.
