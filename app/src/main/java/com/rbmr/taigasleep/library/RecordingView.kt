@@ -433,7 +433,7 @@ fun formatRecordingDateAndTime(ms: Long): String =
     else SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault()).format(Date(ms))
 
 fun formatDuration(ms: Long): String {
-  if (ms < 0) return "—"
+  if (ms <= 0) return "—"
   val totalSeconds = ms / 1000
   if (totalSeconds < 60) return "${totalSeconds}s"
   val totalMinutes = totalSeconds / 60

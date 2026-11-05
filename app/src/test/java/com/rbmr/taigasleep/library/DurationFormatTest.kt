@@ -6,9 +6,15 @@ import org.junit.Test
 class DurationFormatTest {
   @Test
   fun aDurationBelowOneMinuteIsShownInSeconds() {
-    assertEquals("0s", formatDuration(0))
+    assertEquals("1s", formatDuration(1_000))
     assertEquals("56s", formatDuration(56_000))
     assertEquals("59s", formatDuration(59_000))
+  }
+
+  @Test
+  fun noDurationAtAllIsShownAsADash() {
+    assertEquals("—", formatDuration(0))
+    assertEquals("—", formatDuration(-1))
   }
 
   @Test
