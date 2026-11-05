@@ -2,7 +2,7 @@ package com.rbmr.taigasleep.sync
 
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.AnalysisResultDto
-import com.rbmr.taigasleep.backend.SleepQualityDto
+import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.backend.StageTimelineDto
 import java.io.File
@@ -44,7 +44,17 @@ class ResultCacheTest {
                   model = "wav2sleep",
                   model_version = "0.1.0",
                   stages = StageTimelineDto(count = 2, segments = listOf(StageSegmentDto("light", 2))),
-                  sleep_quality = SleepQualityDto(score = score),
+                  items =
+                      listOf(
+                          ResultItemDto(
+                              kind = "score",
+                              id = "sleep_quality",
+                              label = "Sleep score",
+                              group = "score",
+                              unit = "%",
+                              value = score,
+                          )
+                      ),
               ),
       )
 
@@ -56,7 +66,7 @@ class ResultCacheTest {
 
     assertEquals("a1", loaded?.id)
     assertEquals("wav2sleep", loaded?.algorithm)
-    assertEquals(80.0, loaded?.result?.sleep_quality?.score ?: 0.0, 0.001)
+    assertEquals(80.0, loaded?.result?.items?.single()?.value ?: 0.0, 0.001)
     assertEquals("light", loaded?.result?.stages?.segments?.single()?.stage)
     assertTrue(cache.has("night", "a1"))
   }
@@ -66,13 +76,13 @@ class ResultCacheTest {
     cache.save("night", "a1", analysis("a1", score = 70.0))
     cache.save("night", "a2", analysis("a2", score = 90.0))
 
-    assertEquals(70.0, cache.load("night", "a1")?.result?.sleep_quality?.score ?: 0.0, 0.001)
-    assertEquals(90.0, cache.load("night", "a2")?.result?.sleep_quality?.score ?: 0.0, 0.001)
+    assertEquals(70.0, cache.load("night", "a1")?.result?.items?.single()?.value ?: 0.0, 0.001)
+    assertEquals(90.0, cache.load("night", "a2")?.result?.items?.single()?.value ?: 0.0, 0.001)
     assertFalse(cache.has("night", "a3"))
   }
 
   @Test
-  fun aPayloadCachedByAnOlderAppStillLoadsAsAFinishedRun() {
+  fun anOlderPayloadLoadsWithoutTheFiguresItNoLongerHas() {
     // The flat shape the app cached before API v1: the result's fields sit beside the id.
     File(root, "night-a1.json")
         .writeText(
@@ -93,7 +103,7 @@ class ResultCacheTest {
     assertEquals("sleep-ecg", loaded?.algorithm)
     assertEquals("1.0.0", loaded?.version)
     assertTrue(loaded?.isSucceeded == true)
-    assertEquals(77.0, loaded?.result?.sleep_quality?.score ?: 0.0, 0.001)
+    assertTrue(loaded?.result?.items?.isEmpty() == true)
     assertEquals("deep", loaded?.result?.stages?.segments?.single()?.stage)
     assertEquals(listOf("short"), loaded?.result?.warnings)
   }

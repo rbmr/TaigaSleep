@@ -3,11 +3,11 @@ package com.rbmr.taigasleep.library
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.backend.AnalysisSummaryDto
-import com.rbmr.taigasleep.backend.QualityDto
+import com.rbmr.taigasleep.backend.AnalysisSummaryScoreDto
 import com.rbmr.taigasleep.backend.RecordingDto
+import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.RecordingSummaryDto
 import com.rbmr.taigasleep.backend.RecordingSummaryListDto
-import com.rbmr.taigasleep.backend.SleepQualityDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.backend.StageSummaryDto
 import com.rbmr.taigasleep.backend.StageTimelineDto
@@ -433,7 +433,17 @@ class RecordingMergeTest {
             result =
                 AnalysisResultDto(
                     stages = StageTimelineDto(count = 3, segments = listOf(StageSegmentDto("deep", 3))),
-                    sleep_quality = SleepQualityDto(score = 75.0),
+                    items =
+                        listOf(
+                            ResultItemDto(
+                                kind = "score",
+                                id = "sleep_quality",
+                                label = "Sleep score",
+                                group = "score",
+                                unit = "%",
+                                value = 75.0,
+                            )
+                        ),
                 ),
         )
 
@@ -485,8 +495,11 @@ class RecordingMergeTest {
           status = "succeeded",
           summary =
               AnalysisSummaryDto(
-                  quality = quality?.let { QualityDto(score = it) },
-                  sleep_quality = sleepScore?.let { SleepQualityDto(score = it) },
+                  scores =
+                      buildList {
+                        sleepScore?.let { add(AnalysisSummaryScoreDto("sleep_quality", it)) }
+                        quality?.let { add(AnalysisSummaryScoreDto("data_quality", it)) }
+                      },
                   stages =
                       StageSummaryDto(
                           epoch_seconds = 30,

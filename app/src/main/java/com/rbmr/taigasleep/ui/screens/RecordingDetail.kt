@@ -67,26 +67,15 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.AnalysisResultDto
-import com.rbmr.taigasleep.backend.QualityComponentDto
 import com.rbmr.taigasleep.backend.ResultItemDto
+import com.rbmr.taigasleep.backend.ResultScoreComponentDto
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
-import com.rbmr.taigasleep.insights.DataQualityMetricKeys
-import com.rbmr.taigasleep.insights.HeartRateMetricKeys
-import com.rbmr.taigasleep.insights.MetricExplanation
 import com.rbmr.taigasleep.insights.MetricSpec
-import com.rbmr.taigasleep.insights.MetricSupportState
-import com.rbmr.taigasleep.insights.MovementMetricKeys
-import com.rbmr.taigasleep.insights.SleepMetricKeys
 import com.rbmr.taigasleep.insights.formatItemValue
-import com.rbmr.taigasleep.insights.formatMetric
-import com.rbmr.taigasleep.insights.metricNumber
-import com.rbmr.taigasleep.insights.metricSpec
 import com.rbmr.taigasleep.insights.metricSpec as itemSpec
-import com.rbmr.taigasleep.insights.splitMetricExplanation
-import com.rbmr.taigasleep.insights.supportState
 import com.rbmr.taigasleep.library.AnalysisOrigin
 import com.rbmr.taigasleep.library.Analysis
 import com.rbmr.taigasleep.library.AnalysisStatus
@@ -438,9 +427,7 @@ fun RecordingDetailScreen(
     val device = state.local?.sensorName ?: state.remote?.device.orEmpty()
     val run = state.analysis
     val analysis = run?.result
-    val sleepScore =
-        analysis?.items?.firstOrNull { it.id == "sleep_quality" }?.value
-            ?: analysis?.sleep_quality?.score
+    val sleepScore = analysis?.items?.firstOrNull { it.id == "sleep_quality" }?.value
     val processed = run?.isSucceeded == true
     val selectedMetricSpec = metric
 
@@ -542,25 +529,31 @@ fun RecordingDetailScreen(
                 onExpand = { fullscreenChart = "sleep" },
             )
           }
-          item {
-            HeartRateStatsCard(
-                analysis = analysis,
-                onMetric = { metric = it },
-                onExpand = { fullscreenChart = "heart" },
-            )
+          val heartItems = analysis.items.filter { it.group == "heart" }
+          val qualityItems = analysis.items.filter { it.group == "quality" }
+          val movementItems = analysis.items.filter { it.group == "movement" }
+          if (heartItems.any { it.kind == "series" || it.kind == "number" }) {
+            item {
+              HeartRateStatsCard(
+                  analysis = analysis,
+                  onMetric = { metric = it },
+                  onExpand = { fullscreenChart = "heart" },
+              )
+            }
           }
-          item {
-            DataQualityStatsCard(
-                analysis = analysis,
-                onOpen = { showQuality = true },
-                onMetric = { metric = it },
-            )
+          if (analysis.items.any { it.id == "data_quality" } || qualityItems.isNotEmpty()) {
+            item {
+              DataQualityStatsCard(
+                  analysis = analysis,
+                  onOpen = { showQuality = true },
+                  onMetric = { metric = it },
+              )
+            }
           }
-          item {
-            MovementStatsCard(
-                analysis = analysis,
-                onMetric = { metric = it },
-            )
+          if (movementItems.isNotEmpty()) {
+            item {
+              MovementStatsCard(items = movementItems, onMetric = { metric = it })
+            }
           }
           analysis.warnings.takeIf { it.isNotEmpty() }?.let { warnings ->
             item {
@@ -735,13 +728,13 @@ fun RecordingDetailScreen(
 
     if (showQuality) {
       DataQualitySheet(
-          analysis = state.analysis?.result,
+          item = state.analysis?.result?.items?.firstOrNull { it.id == "data_quality" },
           onDismiss = { showQuality = false },
       )
     }
     if (showSleepScore) {
       SleepScoreSheet(
-          analysis = state.analysis?.result,
+          item = state.analysis?.result?.items?.firstOrNull { it.id == "sleep_quality" },
           onDismiss = { showSleepScore = false },
       )
     }
@@ -761,14 +754,16 @@ fun RecordingDetailScreen(
                       startOf(state).takeIf { it > 0 }
                           ?: state.analysis?.result?.stages?.start_unix_ms
                           ?: 0L,
-                  support = state.analysis?.result?.metric_support,
                   modifier = chartModifier,
                   fullscreen = true,
               )
           else ->
-              state.analysis?.result?.hr?.let { series ->
-                HeartRateChart(series = series, modifier = chartModifier, fullscreen = true)
-              }
+              state.analysis?.result?.items
+                  ?.firstOrNull { it.kind == "series" && it.id == "hr" }
+                  ?.series
+                  ?.let { series ->
+                    HeartRateChart(series = series, modifier = chartModifier, fullscreen = true)
+                  }
         }
       }
     }
@@ -1348,7 +1343,6 @@ private fun SleepStatsCard(
         segments = segmentsOf(state),
         epochSeconds = epochSecondsOf(state),
         startUnixMs = start.takeIf { it > 0 } ?: analysis.stages?.start_unix_ms ?: 0L,
-        support = analysis.metric_support,
     )
     Spacer(Modifier.height(16.dp))
     Text(
@@ -1359,15 +1353,12 @@ private fun SleepStatsCard(
     StageBreakdown(
         segments = segmentsOf(state),
         epochSeconds = epochSecondsOf(state),
-        support = analysis.metric_support,
     )
-    Spacer(Modifier.height(16.dp))
-    MetricGrid(
-        analysis = analysis,
-        keys = SleepMetricKeys,
-        items = analysis.items.filter { it.kind == "number" && it.group == "sleep" },
-        onMetric = onMetric,
-    )
+    val items = analysis.items.filter { it.kind == "number" && it.group == "sleep" }
+    if (items.isNotEmpty()) {
+      Spacer(Modifier.height(16.dp))
+      MetricGrid(items = items, onMetric = onMetric)
+    }
   }
 }
 
@@ -1378,7 +1369,7 @@ private fun HeartRateStatsCard(
     onExpand: () -> Unit,
 ) {
   TaigaCard {
-    val series = analysis.hr
+    val series = analysis.items.firstOrNull { it.kind == "series" && it.id == "hr" }?.series
     val points = hrSeriesPoints(series)
     val hasSamples = points.any { it != null }
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1390,42 +1381,27 @@ private fun HeartRateStatsCard(
       if (hasSamples) ChartExpandButton(onClick = onExpand)
     }
     Spacer(Modifier.height(6.dp))
-    val support = analysis.metric_support
-    val noStream = supportState("hr_mean_bpm", support) == MetricSupportState.UNSUPPORTED_DEVICE
     when {
-      hasSamples && series != null -> {
-        HeartRateChart(series = series)
-      }
-      noStream -> {
-        Text(
-            text = stringResource(R.string.night_heart_rate_missing_stream),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-      series != null -> {
-        Text(
-            text = stringResource(R.string.night_heart_rate_no_samples),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-      else -> {
-        Text(
-            text = stringResource(R.string.night_heart_rate_no_series),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
+      hasSamples && series != null -> HeartRateChart(series = series)
+      series != null ->
+          Text(
+              text = stringResource(R.string.night_heart_rate_no_samples),
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+      else ->
+          Text(
+              text = stringResource(R.string.night_heart_rate_no_series),
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
     }
-    Spacer(Modifier.height(12.dp))
-    MetricGrid(
-        analysis = analysis,
-        keys = HeartRateMetricKeys,
-        items = analysis.items.filter { it.kind == "number" && it.group == "heart" },
-        onMetric = onMetric,
-    )
-    val rrCount = metricNumber(analysis.metrics, "hrv_rr_count")?.roundToInt()
+    val items = analysis.items.filter { it.kind == "number" && it.group == "heart" }
+    if (items.isNotEmpty()) {
+      Spacer(Modifier.height(12.dp))
+      MetricGrid(items = items, onMetric = onMetric)
+    }
+    val rrCount = analysis.items.firstOrNull { it.id == "hrv_rr_count" }?.value?.roundToInt()
     if (rrCount != null && rrCount > 0) {
       Spacer(Modifier.height(8.dp))
       Text(
@@ -1444,6 +1420,7 @@ private fun DataQualityStatsCard(
     onMetric: (MetricSpec) -> Unit,
 ) {
   TaigaCard {
+    val score = analysis.items.firstOrNull { it.id == "data_quality" }?.value
     Row(
         modifier = Modifier.clickable(onClick = onOpen),
         verticalAlignment = Alignment.CenterVertically,
@@ -1460,59 +1437,41 @@ private fun DataQualityStatsCard(
         )
         Text(
             text =
-                if ((analysis.items.firstOrNull { it.id == "data_quality" }?.value ?: analysis.quality?.score) == null)
-                    stringResource(R.string.night_data_quality_none)
+                if (score == null) stringResource(R.string.night_data_quality_none)
                 else stringResource(R.string.night_data_quality_tap),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
       ScoreRing(
-          score = analysis.items.firstOrNull { it.id == "data_quality" }?.value ?: analysis.quality?.score,
+          score = score,
           label = stringResource(R.string.night_data_quality),
           size = 88,
       )
     }
-    Spacer(Modifier.height(12.dp))
-    MetricGrid(
-        analysis = analysis,
-        keys = DataQualityMetricKeys,
-        items = analysis.items.filter { it.kind == "number" && it.group == "quality" },
-        onMetric = onMetric,
-    )
+    val items = analysis.items.filter { it.kind == "number" && it.group == "quality" }
+    if (items.isNotEmpty()) {
+      Spacer(Modifier.height(12.dp))
+      MetricGrid(items = items, onMetric = onMetric)
+    }
   }
 }
 
 @Composable
-private fun MovementStatsCard(
-    analysis: AnalysisResultDto,
-    onMetric: (MetricSpec) -> Unit,
-) {
+private fun MovementStatsCard(items: List<ResultItemDto>, onMetric: (MetricSpec) -> Unit) {
   TaigaCard {
     Text(
         text = stringResource(R.string.night_movement),
         style = MaterialTheme.typography.titleLarge,
     )
     Spacer(Modifier.height(10.dp))
-    MetricGrid(
-        analysis = analysis,
-        keys = MovementMetricKeys,
-        items = analysis.items.filter { it.kind == "number" && it.group == "movement" },
-        onMetric = onMetric,
-    )
+    MetricGrid(items = items, onMetric = onMetric)
   }
 }
 
 @Composable
-private fun MetricGrid(
-    analysis: AnalysisResultDto,
-    keys: List<String>,
-    items: List<ResultItemDto> = emptyList(),
-    onMetric: (MetricSpec) -> Unit,
-) {
-  val metrics = analysis.metrics
-  val support = analysis.metric_support
-  val specs = if (items.isNotEmpty()) items.mapNotNull { it.itemSpec() } else keys.mapNotNull { metricSpec(it) }
+private fun MetricGrid(items: List<ResultItemDto>, onMetric: (MetricSpec) -> Unit) {
+  val specs = items.mapNotNull { it.itemSpec() }
   Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
     specs.chunked(2).forEach { pair ->
       Row(
@@ -1520,29 +1479,10 @@ private fun MetricGrid(
           horizontalArrangement = Arrangement.spacedBy(10.dp),
       ) {
         pair.forEach { spec ->
-          val itemValue = spec.itemValue
-          val state =
-              if (itemValue != null) MetricSupportState.SUPPORTED
-              else supportState(spec.key, support)
-          val value =
-              if (itemValue != null) formatItemValue(spec.kind, itemValue)
-              else formatMetric(spec.kind, metrics?.get(spec.key))
+          val value = formatItemValue(spec.kind, spec.itemValue)
           MetricTile(
               spec = spec,
-              value = if (state == MetricSupportState.SUPPORTED) value ?: "—" else value ?: "—",
-              note =
-                  when (state) {
-                    MetricSupportState.UNSUPPORTED_DEVICE ->
-                        stringResource(R.string.night_metric_unsupported_device)
-                    MetricSupportState.INSUFFICIENT_DATA ->
-                        stringResource(R.string.night_metric_insufficient)
-                    MetricSupportState.UNSUPPORTED_ALGORITHM ->
-                        stringResource(R.string.night_metric_unsupported_algorithm)
-                    else -> null
-                  },
-              supported =
-                  state == MetricSupportState.SUPPORTED ||
-                      (state == MetricSupportState.MISSING && value != null),
+              value = value ?: "—",
               onClick = { onMetric(spec) },
               modifier = Modifier.weight(1f).fillMaxHeight(),
           )
@@ -1557,8 +1497,6 @@ private fun MetricGrid(
 private fun MetricTile(
     spec: MetricSpec,
     value: String,
-    note: String?,
-    supported: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1570,7 +1508,7 @@ private fun MetricTile(
   ) {
     Column(Modifier.padding(horizontal = 13.dp, vertical = 11.dp)) {
       Text(
-          text = spec.label ?: stringResource(spec.titleRes),
+          text = spec.label,
           style = MaterialTheme.typography.labelMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
           maxLines = 2,
@@ -1578,21 +1516,10 @@ private fun MetricTile(
       )
       Spacer(Modifier.height(4.dp))
       Text(
-          text = if (supported) value else "—",
+          text = value,
           style = MaterialTheme.typography.titleLarge,
-          color =
-              if (supported) MaterialTheme.colorScheme.onSurface
-              else MaterialTheme.colorScheme.onSurfaceVariant,
+          color = MaterialTheme.colorScheme.onSurface,
       )
-      if (note != null) {
-        Text(
-            text = note,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-      }
     }
   }
 }
@@ -1610,18 +1537,15 @@ private fun MetricSheet(spec: MetricSpec, onDismiss: () -> Unit) {
                 .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-      Text(spec.label ?: stringResource(spec.titleRes), style = MaterialTheme.typography.headlineSmall)
-      val explanation =
-          spec.explanation?.let { MetricExplanation(it, spec.source) }
-              ?: splitMetricExplanation(stringResource(spec.explanationRes))
+      Text(spec.label, style = MaterialTheme.typography.headlineSmall)
       Text(
-          text = explanation.body,
+          text = spec.explanation,
           style = MaterialTheme.typography.bodyLarge,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
-      explanation.source?.let { source ->
+      spec.source?.let { source ->
         Text(
-            text = source,
+            text = "Source: $source",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
         )
@@ -1632,7 +1556,7 @@ private fun MetricSheet(spec: MetricSpec, onDismiss: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DataQualitySheet(analysis: AnalysisResultDto?, onDismiss: () -> Unit) {
+private fun DataQualitySheet(item: ResultItemDto?, onDismiss: () -> Unit) {
   ModalBottomSheet(onDismissRequest = onDismiss) {
     Column(
         modifier =
@@ -1647,18 +1571,18 @@ private fun DataQualitySheet(analysis: AnalysisResultDto?, onDismiss: () -> Unit
           text = stringResource(R.string.night_data_quality_breakdown),
           style = MaterialTheme.typography.headlineSmall,
       )
-      val quality = analysis?.quality
+      val score = item?.value
       Row(verticalAlignment = Alignment.CenterVertically) {
         ScoreRing(
-            score = quality?.score,
+            score = score,
             label = stringResource(R.string.night_data_quality),
             size = 82,
         )
         Spacer(Modifier.width(16.dp))
         Text(
             text =
-                if (quality?.score == null) stringResource(R.string.night_data_quality_none)
-                else stringResource(R.string.night_data_quality_score, quality.score?.roundToInt() ?: 0),
+                if (score == null) stringResource(R.string.night_data_quality_none)
+                else stringResource(R.string.night_data_quality_score, score.roundToInt()),
             style = MaterialTheme.typography.titleMedium,
         )
       }
@@ -1673,26 +1597,14 @@ private fun DataQualitySheet(analysis: AnalysisResultDto?, onDismiss: () -> Unit
           color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
       HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-      val components = quality?.components.orEmpty()
-      val keys =
-          listOf(
-              "usable_epoch_coverage",
-              "artifact_free_rate",
-              "mean_stage_confidence",
-              "hr_coverage",
-          )
-      ScoreComponentRows(components = components, keys = keys, label = ::dataQualityComponentLabel)
-      quality?.notes?.takeIf { it.isNotEmpty() }?.let { notes ->
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        ScoreNotes(notes)
-      }
+      ScoreComponentRows(item?.components.orEmpty())
     }
   }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SleepScoreSheet(analysis: AnalysisResultDto?, onDismiss: () -> Unit) {
+private fun SleepScoreSheet(item: ResultItemDto?, onDismiss: () -> Unit) {
   ModalBottomSheet(onDismissRequest = onDismiss) {
     Column(
         modifier =
@@ -1707,22 +1619,22 @@ private fun SleepScoreSheet(analysis: AnalysisResultDto?, onDismiss: () -> Unit)
           text = stringResource(R.string.night_sleep_score_breakdown),
           style = MaterialTheme.typography.headlineSmall,
       )
-      val quality = analysis?.sleep_quality
+      val score = item?.value
       Row(verticalAlignment = Alignment.CenterVertically) {
         ScoreRing(
-            score = quality?.score,
+            score = score,
             label = stringResource(R.string.night_sleep_score),
             size = 82,
         )
         Spacer(Modifier.width(16.dp))
         Text(
             text =
-                if (quality?.score == null) stringResource(R.string.night_sleep_score_none)
-                else stringResource(R.string.night_sleep_score_value, quality.score?.roundToInt() ?: 0),
+                if (score == null) stringResource(R.string.night_sleep_score_none)
+                else stringResource(R.string.night_sleep_score_value, score.roundToInt()),
             style = MaterialTheme.typography.titleMedium,
         )
       }
-      if (quality == null) {
+      if (item == null) {
         Text(
             text = stringResource(R.string.night_sleep_score_unavailable),
             style = MaterialTheme.typography.bodyMedium,
@@ -1735,97 +1647,40 @@ private fun SleepScoreSheet(analysis: AnalysisResultDto?, onDismiss: () -> Unit)
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        val keys =
-            listOf(
-                "sleep_efficiency",
-                "waso",
-                "awakenings_per_hour",
-                "sleep_latency",
-                "restorative_sleep_share",
-            )
-        ScoreComponentRows(
-            components = quality.components,
-            keys = keys,
-            label = ::sleepComponentLabel,
-        )
-        quality.notes.takeIf { it.isNotEmpty() }?.let { notes ->
-          HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-          ScoreNotes(notes)
-        }
+        ScoreComponentRows(item.components)
       }
     }
   }
 }
 
 @Composable
-private fun ScoreComponentRows(
-    components: Map<String, QualityComponentDto>,
-    keys: List<String>,
-    label: (String) -> Int,
-) {
-  keys.forEach { key ->
-    val component = components[key] ?: return@forEach
+private fun ScoreComponentRows(components: List<ResultScoreComponentDto>) {
+  components.forEach { component ->
     Row(verticalAlignment = Alignment.CenterVertically) {
       Column(Modifier.weight(1f)) {
         Text(
-            text = stringResource(label(key)),
+            text = component.label,
             style = MaterialTheme.typography.bodyMedium,
         )
         Text(
             text =
-                if (component.available && component.value != null) {
-                  stringResource(
-                      R.string.night_quality_component_value,
-                      (component.value * 100).roundToInt(),
-                      (component.weight * 100).roundToInt(),
-                  )
-                } else {
-                  stringResource(R.string.night_quality_component_unavailable)
-                },
+                stringResource(
+                    R.string.night_quality_component_value,
+                    component.value.roundToInt(),
+                    component.weight.roundToInt(),
+                ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
-      if (component.available && component.value != null) {
-        Text(
-            text = "${(component.value * 100).roundToInt()}%",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-      }
+      Text(
+          text = "${component.value.roundToInt()}%",
+          style = MaterialTheme.typography.titleMedium,
+          color = MaterialTheme.colorScheme.onSurface,
+      )
     }
   }
 }
-
-@Composable
-private fun ScoreNotes(notes: List<String>) {
-  notes.forEach {
-    Text(
-        text = "• $it",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-  }
-}
-
-private fun dataQualityComponentLabel(key: String): Int =
-    when (key) {
-      "usable_epoch_coverage" -> R.string.night_quality_component_usable
-      "artifact_free_rate" -> R.string.night_quality_component_artifact
-      "mean_stage_confidence" -> R.string.night_quality_component_confidence
-      "hr_coverage" -> R.string.night_quality_component_hr
-      else -> R.string.night_data_quality
-    }
-
-private fun sleepComponentLabel(key: String): Int =
-    when (key) {
-      "sleep_efficiency" -> R.string.sleep_score_component_efficiency
-      "waso" -> R.string.sleep_score_component_waso
-      "awakenings_per_hour" -> R.string.sleep_score_component_awakenings
-      "sleep_latency" -> R.string.sleep_score_component_latency
-      "restorative_sleep_share" -> R.string.sleep_score_component_restorative
-      else -> R.string.night_sleep_score
-    }
 
 private fun startOf(state: RecordingDetailState): Long =
     state.startUtcMs.takeIf { it > 0 }

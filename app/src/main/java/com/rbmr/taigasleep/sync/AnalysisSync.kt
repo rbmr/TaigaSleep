@@ -84,7 +84,7 @@ class AnalysisSync(
             modelVersion = shown.version,
             epochSeconds = shown.result?.stages?.epoch_seconds ?: 30,
             segments = shown.result?.stages?.segments.orEmpty(),
-            sleepScore = shown.result?.sleep_quality?.score,
+            sleepScore = shown.result?.items?.firstOrNull { it.id == "sleep_quality" }?.value,
             resultDownloaded = saved,
         )
       }

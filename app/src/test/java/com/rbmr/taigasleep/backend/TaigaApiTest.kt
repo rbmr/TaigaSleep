@@ -5,8 +5,6 @@ import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.double
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -330,7 +328,10 @@ class TaigaApiTest {
              "result":{"contract_version":3,
                "stages":{"epoch_seconds":30,"start_unix_ms":1000,"count":3,
                          "segments":[{"stage":"wake","count":1},{"stage":"light","count":2}]},
-               "metrics":{"sleep_efficiency":0.85}}}
+               "items":[{"kind":"number","id":"sleep_efficiency","label":"Sleep efficiency",
+                          "group":"sleep","unit":"%","value":85.0,
+                          "explanation":"Share of the recording scored as sleep.",
+                          "sources":["stages"]}]}}
             """
         )
     )
@@ -342,7 +343,7 @@ class TaigaApiTest {
     assertEquals("/v1/analyses/a1", request.path)
     assertTrue(analysis.isSucceeded)
     assertEquals("light", analysis.result?.stages?.segments?.get(1)?.stage)
-    assertEquals(0.85, analysis.result?.metrics?.get("sleep_efficiency")?.jsonPrimitive?.double)
+    assertEquals(85.0, analysis.result?.items?.single()?.value ?: 0.0, 0.001)
   }
 
   @Test

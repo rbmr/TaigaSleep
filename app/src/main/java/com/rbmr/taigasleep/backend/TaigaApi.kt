@@ -415,29 +415,6 @@ data class StageTimelineDto(
     val probabilities: JsonElement? = null,
 )
 
-@Serializable
-data class QualityComponentDto(
-    val value: Double? = null,
-    val weight: Double = 0.0,
-    val available: Boolean = false,
-)
-
-@Serializable
-data class QualityDto(
-    val score: Double? = null,
-    val weights_version: Int? = null,
-    val components: Map<String, QualityComponentDto> = emptyMap(),
-    val notes: List<String> = emptyList(),
-)
-
-@Serializable
-data class SleepQualityDto(
-    val score: Double? = null,
-    val components_version: Int? = null,
-    val components: Map<String, QualityComponentDto> = emptyMap(),
-    val notes: List<String> = emptyList(),
-)
-
 /**
  * The compact, epoch-aligned heart-rate curve. A null mean marks an epoch without valid
  * samples; it stays a gap in the chart instead of being interpolated.
@@ -452,14 +429,12 @@ data class HrSeriesDto(
 )
 
 @Serializable
-data class MetricSupportDto(val status: String = "", val reason: String? = null)
+data class AnalysisSummaryScoreDto(val id: String = "", val value: Double? = null)
 
 @Serializable
 data class AnalysisSummaryDto(
-    val metrics: JsonObject? = null,
-    val quality: QualityDto? = null,
-    val sleep_quality: SleepQualityDto? = null,
     val stages: StageSummaryDto? = null,
+    val scores: List<AnalysisSummaryScoreDto> = emptyList(),
 )
 
 /** The worker's output, as documented in docs/analysis-contract.md. */
@@ -499,12 +474,7 @@ data class AnalysisResultDto(
     val params: JsonObject? = null,
     val params_hash: String = "",
     val stages: StageTimelineDto? = null,
-    val hr: HrSeriesDto? = null,
-    val metrics: JsonObject? = null,
-    val metric_support: Map<String, MetricSupportDto>? = null,
     val items: List<ResultItemDto> = emptyList(),
-    val quality: QualityDto? = null,
-    val sleep_quality: SleepQualityDto? = null,
     val capabilities: JsonObject? = null,
     val provenance: JsonObject? = null,
     val extras: JsonObject? = null,
