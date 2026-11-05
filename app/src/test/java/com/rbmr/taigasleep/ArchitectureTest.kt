@@ -193,6 +193,57 @@ class ArchitectureTest {
     assertEquals(1, Architecture.violations("A.kt", "package org.example").size)
   }
 
+  /**
+   * The screens draw. Only a `ViewModel` may reach into the stores, so every other file under `ui/`
+   * keeps exactly the number of imports from the packages that hold state that it has in the
+   * baseline. The check fails in both directions: a new import is a regression, and a removed one
+   * must lower the baseline in the same change.
+   */
+  @Test
+  fun `ui files import no more of the stores than the baseline allows`() {
+    val actual = UiImports.counts(uiSources())
+    val baseline = UiImports.read(uiBaseline())
+    val differences = UiImports.differences(actual, baseline)
+
+    assertTrue(
+        "app/src/test/resources/ui-import-baseline.txt is out of date (" +
+            "${differences.size}):\n" +
+            differences.joinToString("\n") { "  $it" } +
+            "\n\nWhat the baseline would be:\n" +
+            UiImports.lines(actual).joinToString("\n") { "  $it" },
+        differences.isEmpty(),
+    )
+  }
+
+  @Test
+  fun `the ratchet reports a file that exceeds its baseline and one that drops below it`() {
+    val baseline = mapOf("screens/Worse.kt" to 1, "screens/Better.kt" to 4, "screens/Gone.kt" to 2)
+    val actual = mapOf("screens/Worse.kt" to 3, "screens/Better.kt" to 0, "screens/New.kt" to 2)
+
+    assertEquals(
+        listOf(
+            "screens/Better.kt imports 0 of sync/backend/tracker/recording/guard, " +
+                "baseline says 4: lower it in the same change",
+            "screens/Gone.kt is in the baseline but does not exist: remove it",
+            "screens/New.kt is not in the baseline: add `screens/New.kt 2`",
+            "screens/Worse.kt imports 3 of sync/backend/tracker/recording/guard, " +
+                "baseline says 1: move the call into its view model",
+        ),
+        UiImports.differences(actual, baseline),
+    )
+  }
+
+  private fun uiBaseline(): File = File(moduleDir(), "src/test/resources/ui-import-baseline.txt")
+
+  /** Every non-view-model Kotlin file under `ui/` in the main source set, keyed by its path in `ui/`. */
+  private fun uiSources(): Map<String, String> {
+    val marker = "/ui/"
+    return appSources()
+        .filter { (path, _) -> path.startsWith("src/main/java/") && marker in path }
+        .associate { (path, source) -> path.substringAfter(marker) to source }
+        .filterKeys { !it.endsWith("ViewModel.kt") }
+  }
+
   private fun documentedTable(lines: List<String>): Map<String, Set<String>> {
     val section = lines.dropWhile { it.trim() != "## App structure" }.drop(1).takeWhile { !it.startsWith("## ") }
     val rows = section.mapNotNull { ROW.matchEntire(it.trim()) }
@@ -324,4 +375,62 @@ private object Architecture {
   private fun unknown(pkg: String) =
       "`$pkg` is not in the architecture table: decide its place in docs/architecture.md and add " +
           "it to Architecture.ALLOWED on purpose"
+}
+
+/**
+ * Counts what a screen file imports from the packages that own state. The number, not the names, is
+ * what the baseline holds: a screen either keeps its dependencies or its view model takes one over.
+ */
+private object UiImports {
+  private val PACKAGES = setOf("sync", "backend", "tracker", "recording", "guard")
+
+  /** One import of one of the packages, or a fully qualified reference to a type in one. */
+  private val IMPORT = Regex("""^\s*import\s+com\.rbmr\.taigasleep\.(\w+)[\w.*]*""")
+  private val REFERENCE = Regex("""com\.rbmr\.taigasleep\.([a-z][a-z0-9_]*)\.[A-Za-z][\w.]*""")
+
+  fun counts(sources: Map<String, String>): Map<String, Int> =
+      sources.mapValues { (_, source) -> count(source) }
+
+  fun count(source: String): Int =
+      source.lineSequence().count { line ->
+        if (line.trimStart().startsWith("package ")) {
+          false
+        } else {
+          val target =
+              IMPORT.find(line)?.groupValues?.get(1)
+                  ?: REFERENCE.find(line)?.groupValues?.get(1)
+          target != null && target in PACKAGES
+        }
+      }
+
+  /** `path count` for every file, sorted, as the baseline file holds them. */
+  fun lines(counts: Map<String, Int>): List<String> =
+      counts.keys.sorted().map { "$it ${counts.getValue(it)}" }
+
+  fun read(file: File): Map<String, Int> =
+      file.readLines()
+          .map { it.trim() }
+          .filter { it.isNotEmpty() && !it.startsWith("#") }
+          .associate { line ->
+            val at = line.lastIndexOf(' ')
+            require(at > 0) { "$file: '$line' is not 'path count'" }
+            line.substring(0, at) to line.substring(at + 1).toInt()
+          }
+
+  fun differences(actual: Map<String, Int>, baseline: Map<String, Int>): List<String> =
+      (actual.keys + baseline.keys).sorted().mapNotNull { path ->
+        val now = actual[path]
+        val allowed = baseline[path]
+        when {
+          now == null -> "$path is in the baseline but does not exist: remove it"
+          allowed == null -> "$path is not in the baseline: add `$path $now`"
+          now > allowed ->
+              "$path imports $now of ${PACKAGES.joinToString("/")}, baseline says $allowed: " +
+                  "move the call into its view model"
+          now < allowed ->
+              "$path imports $now of ${PACKAGES.joinToString("/")}, baseline says $allowed: " +
+                  "lower it in the same change"
+          else -> null
+        }
+      }
 }

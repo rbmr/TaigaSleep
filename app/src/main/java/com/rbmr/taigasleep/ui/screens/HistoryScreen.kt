@@ -21,7 +21,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,60 +28,50 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.library.RecordingView
-import com.rbmr.taigasleep.library.RecordingLibrary
 import com.rbmr.taigasleep.library.RecordingStatus
+import com.rbmr.taigasleep.library.RecordingView
 import com.rbmr.taigasleep.library.formatDuration
 import com.rbmr.taigasleep.library.formatRecordingDateAndTime
-import com.rbmr.taigasleep.recording.RecordingRepository
-import com.rbmr.taigasleep.sync.PendingDeleteStore
-import com.rbmr.taigasleep.sync.RawRetention
 import com.rbmr.taigasleep.sync.UploadFailure
-import com.rbmr.taigasleep.sync.UploadScheduler
 import com.rbmr.taigasleep.ui.components.ScoreBadge
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SectionLabel
 import com.rbmr.taigasleep.ui.components.StageBar
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.history.HistoryUiState
+import com.rbmr.taigasleep.ui.history.HistoryViewModel
 
 /**
  * The list shows what the user has: one line of status, one result summary, and nothing to operate.
  * Opening a night is the only action here; retry, export and delete live in the night screen.
+ *
+ * The screen only draws the state its view model holds (see [HistoryViewModel]).
  */
 @Composable
 fun HistoryScreen(
     onOpenNight: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
 ) {
   val context = LocalContext.current
-  val repository = remember { RecordingLibrary.of(context) }
-  val pendingDeleteStore = remember { PendingDeleteStore.of(context) }
-  val pendingDeletes by pendingDeleteStore.pending.collectAsStateWithLifecycle()
-  val remoteStatus by repository.remoteStatus.collectAsStateWithLifecycle()
-  val nights by repository.recordings.collectAsStateWithLifecycle()
+  val factory = remember { HistoryViewModel.Factory(context) }
+  val viewModel: HistoryViewModel = viewModel(factory = factory)
+  val state by viewModel.state.collectAsStateWithLifecycle()
 
-  LaunchedEffect(Unit) {
-    RecordingRepository.refreshRecordings(context)
-    UploadScheduler.resumePendingDeletes(context)
-    UploadScheduler.reconcile(context)
-    RawRetention.enforce(context)
-    repository.reload()
-  }
+  LaunchedEffect(Unit) { viewModel.onOpen() }
   LifecycleResumeEffect(Unit) {
-    RecordingRepository.refreshRecordings(context)
-    repository.reload()
+    viewModel.refresh()
     onPauseOrDispose {}
   }
-  LaunchedEffect(remoteStatus) { repository.reload() }
-  // The server's list and the results that are still missing are not fetched here: the live sync
-  // does it once per open and on every reconnect (see LiveSync), and updates the rows as events
-  // arrive.
 
-  val items =
-      remember(nights, pendingDeletes) {
-        nights.filterNot { it.localId == null && it.remoteId in pendingDeletes }
-      }
+  HistoryScreen(state = state, onOpenNight = onOpenNight)
+}
 
+@Composable
+fun HistoryScreen(
+    state: HistoryUiState,
+    onOpenNight: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
+) {
   LazyColumn(
       modifier = Modifier.fillMaxSize().statusBarsPadding(),
       contentPadding = PaddingValues(horizontal = 20.dp, vertical = 32.dp),
@@ -97,7 +86,7 @@ fun HistoryScreen(
       )
     }
 
-    if (items.isEmpty()) {
+    if (state.items.isEmpty()) {
       item {
         TaigaCard {
           Text(
@@ -114,7 +103,7 @@ fun HistoryScreen(
       }
     } else {
       item { SectionLabel(stringResource(R.string.history_nights_label)) }
-      items(items, key = { it.key }) { item ->
+      items(state.items, key = { it.key }) { item ->
         RecordingRow(
             item = item,
             onOpen = { onOpenNight(item.localId, item.remoteId, item.analysisId) },

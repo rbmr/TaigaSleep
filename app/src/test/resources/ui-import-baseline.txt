@@ -1,0 +1,24 @@
+# How many imports each screen file under ui/ takes from sync, backend, tracker, recording and
+# guard. Every file except a `*ViewModel.kt` is listed, including the ones with none: the ratchet
+# fails when a count rises and when it falls, so the line changes with the code. Paths are relative
+# to `app/src/main/java/com/rbmr/taigasleep/ui/`. See ArchitectureTest.
+TaigaApp.kt 6
+components/Buttons.kt 0
+components/Components.kt 0
+components/PreviewTheme.kt 0
+components/RecordingCharts.kt 2
+components/SegmentedProgress.kt 0
+components/Status.kt 0
+components/TaigaBottomBar.kt 0
+components/TaigaLogo.kt 0
+screens/AboutScreen.kt 0
+screens/FlowScreen.kt 11
+screens/HistoryScreen.kt 1
+screens/HomeScreen.kt 17
+screens/RecordingDetail.kt 21
+screens/RemoteScreen.kt 7
+screens/SettingsScreen.kt 8
+theme/Color.kt 0
+theme/Theme.kt 0
+theme/ThemeMode.kt 0
+theme/Type.kt 0

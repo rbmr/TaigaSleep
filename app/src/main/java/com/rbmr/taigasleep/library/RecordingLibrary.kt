@@ -45,7 +45,7 @@ import kotlinx.coroutines.withContext
  * The raw bytes and the analyses stay independent: [RecordingView.backup] says where the bytes are and
  * [RecordingView.analyses] lists every requested result. [RecordingView.status] is only a derived display summary.
  */
-class RecordingLibrary private constructor(context: Context) : LiveSyncTarget {
+class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, LibrarySource {
   private val context = context.applicationContext
   private val remote = RemoteRepository.of(this.context)
   private val uploads = UploadStore.of(this.context)
@@ -59,9 +59,9 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget {
   private val historyLock = Any()
 
   /** The one connection state, shared with the screens so they do not touch the remote store. */
-  val remoteStatus = remote.status
+  override val remoteStatus = remote.status
 
-  val recordings: StateFlow<List<RecordingView>> =
+  override val recordings: StateFlow<List<RecordingView>> =
       combine(
               RecordingRepository.sessions,
               uploads.records,
@@ -82,7 +82,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget {
   }
 
   /** Re-read the cached server list, for example after the account or the app resumed. */
-  fun reload() {
+  override fun reload() {
     val account = remote.accountKey
     if (account != loadedAccount) {
       // A fresh recording list belongs to one account; never show it after switching accounts.
