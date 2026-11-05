@@ -55,6 +55,24 @@ class ResultCache(private val root: File) {
     return file(composite(key, analysisId)).isFile || load(key)?.id == analysisId
   }
 
+  /**
+   * Every run whose full payload is on this phone for [key], one per cached file. A cache written
+   * before results were keyed per analysis kept one payload per night without the run in its name;
+   * that one is included too, so a History row can still be drawn from it.
+   */
+  fun cached(key: String): List<AnalysisDto> {
+    val prefix = "${safe(key)}-"
+    val runs =
+        root.listFiles { file ->
+              file.isFile && file.name.startsWith(prefix) && file.name.endsWith(".json")
+            }
+            .orEmpty()
+            .mapNotNull { file -> runCatching { decode(file.readText()) }.getOrNull() }
+            .filter { it.id.isNotBlank() }
+    val single = load(key)?.takeIf { it.id.isNotBlank() }
+    return if (single != null && runs.none { it.id == single.id }) runs + single else runs
+  }
+
   fun delete(key: String) {
     file(key).delete()
     val prefix = "${safe(key)}-"

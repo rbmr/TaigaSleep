@@ -10,6 +10,7 @@ import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.recordingSummaries
 import com.rbmr.taigasleep.recording.RecordingRepository
+import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingStore
@@ -58,6 +59,8 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
 
   private val remoteSummaries = MutableStateFlow<RecordingSummaryListDto?>(null)
   private val overrides = MutableStateFlow<Map<String, RemoteOverride>>(emptyMap())
+  /** The run each night shows, remembered by the cached History. */
+  private val selectedAnalyses = MutableStateFlow<Map<String, String>>(emptyMap())
   private var loadedAccount: String? = null
   private var loadedOnce = false
   private val historyLock = Any()
@@ -76,18 +79,25 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
 
   override val recordings: StateFlow<List<RecordingView>> =
       combine(
-              RecordingRepository.sessions,
-              sync.records,
-              remoteSummaries,
-              overrides,
-              hiddenRemotely,
-          ) { local, records, summary, fresh, hidden ->
+              combine(
+                  RecordingRepository.sessions,
+                  sync.records,
+                  remoteSummaries,
+                  overrides,
+                  hiddenRemotely,
+              ) { local, records, summary, fresh, hidden ->
+                HistoryInputs(local, records, summary, fresh, hidden)
+              },
+              selectedAnalyses,
+          ) { inputs, selected ->
             buildRecordings(
-                recordings = local,
-                records = records,
-                remote = summary,
-                overrides = fresh,
-                hiddenRemoteIds = hidden,
+                recordings = inputs.local,
+                records = inputs.records,
+                remote = inputs.remote,
+                overrides = inputs.overrides,
+                hiddenRemoteIds = inputs.hidden,
+                selectedAnalysisIds = selected,
+                results = results,
             )
           }
           .stateIn(scope, SharingStarted.Eagerly, emptyList())
@@ -110,6 +120,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
     if (account != loadedAccount) {
       // A fresh recording list belongs to one account; never show it after switching accounts.
       overrides.value = emptyMap()
+      selectedAnalyses.value = emptyMap()
       // A delete that completed before this process showed anything still applies to it. Only a
       // switch of account drops the removals.
       if (loadedOnce) history.resetRemoved()
@@ -123,6 +134,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
     if (account == loadedAccount) return
     loadedAccount = account
     remoteSummaries.value = history.load(account)
+    selectedAnalyses.value = history.selected(account)
   }
 
   override fun recording(key: String): RecordingView? = recordings.value.firstOrNull { it.key == key }
@@ -197,7 +209,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
 
   /** Remember which finished run the user wants to see. */
   override fun selectAnalysis(recording: RecordingView, analysisId: String) {
-    uploads.markSelectedAnalysis(recording.key, analysisId)
+    rememberSelected(recording.key, analysisId)
   }
 
   /**
@@ -220,7 +232,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
                         listOf(
                             analysisId,
                             recordings.value.firstOrNull { it.key == key }?.analysisId,
-                            uploads.record(key)?.analysisId,
+                            selectedAnalyses.value[key],
                         ),
                 )
                 .getOrElse { e ->
@@ -230,6 +242,9 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
         val runs = snapshot.analyses.map { run -> run.toRun(downloaded = results.has(key, run.id)) }
         overrides.update { it + (key to RemoteOverride(snapshot.recording, runs)) }
         rememberSummary(snapshot)
+        // The run the server says this night shows is the remembered one until the user picks
+        // another. A night with no run at all forgets it, as the record used to.
+        rememberSelected(key, snapshot.shown?.id)
         Result.success(snapshot.shown)
       }
 
@@ -254,6 +269,8 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
               remote = remoteSummaries.value,
               overrides = overrides.value,
               hiddenRemoteIds = hidden,
+              selectedAnalysisIds = selectedAnalyses.value,
+              results = results,
           )
       for (pending in pendingRecordings(current, records)) {
         if (pending.recordingId in hidden) continue
@@ -313,6 +330,19 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
   }
 
   /**
+   * The run a night shows is remembered with the cached History, not with the recording's sync
+   * state: which run to show is a property of the row, and the run itself belongs to the server.
+   */
+  private fun rememberSelected(key: String, analysisId: String?) {
+    if (selectedAnalyses.value[key] == analysisId) return
+    selectedAnalyses.update {
+      if (analysisId == null) it - key else it + (key to analysisId)
+    }
+    val account = remote.accountKey
+    if (account.isNotBlank()) history.select(account, key, analysisId)
+  }
+
+  /**
    * The server says the recording does not exist (any more). It leaves the list, in memory and in
    * the saved copy, so History cannot keep it with an error. A night that was waiting for its
    * analysis is marked failed instead of processing for ever.
@@ -360,3 +390,12 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
             }
   }
 }
+
+/** The five stores a History row is built from, taken together so the selection can join them. */
+private data class HistoryInputs(
+    val local: List<Recording>,
+    val records: Map<String, UploadRecord>,
+    val remote: RecordingSummaryListDto?,
+    val overrides: Map<String, RemoteOverride>,
+    val hidden: Set<String>,
+)

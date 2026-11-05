@@ -6,13 +6,16 @@ import com.rbmr.taigasleep.backend.RecordingSummaryDto
 import com.rbmr.taigasleep.backend.RecordingSummaryListDto
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
+import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 private fun recording(id: String = "r1", complete: Boolean = true) =
     RecordingDto(
@@ -44,6 +47,8 @@ private fun analysis(
 
 /** Which nights a reconcile reads again: everything not settled, and nothing that is. */
 class PendingRecordingsTest {
+  @get:Rule val temporary = TemporaryFolder()
+
   private fun summary(
       analyses: List<AnalysisDto>,
       id: String = "r1",
@@ -70,6 +75,7 @@ class PendingRecordingsTest {
       summaries: List<RecordingSummaryDto>,
       vararg records: UploadRecord,
       local: List<Recording> = emptyList(),
+      results: com.rbmr.taigasleep.sync.ResultCache? = null,
   ): List<PendingRecording> {
     val byKey = records.associateBy { it.id }
     val nights =
@@ -77,16 +83,26 @@ class PendingRecordingsTest {
             recordings = local,
             records = byKey,
             remote = RecordingSummaryListDto(summaries),
+            results = results,
         )
     return pendingRecordings(nights, byKey)
   }
 
   @Test
   fun `a night whose result is on the phone is settled`() {
+    val cache =
+        ResultCache(temporary.newFolder("results")).also { cache ->
+          cache.save(
+              "remote-r1",
+              "a1",
+              AnalysisDto(id = "a1", recording = "r1", status = "succeeded"),
+          )
+        }
     val result =
         pending(
             listOf(summary(listOf(analysis("a1", "succeeded")))),
-            record(phase = UploadPhase.DONE, analysisId = "a1", downloaded = true),
+            record(phase = UploadPhase.DONE, analysisId = "a1"),
+            results = cache,
         )
 
     assertTrue(result.isEmpty())
@@ -198,7 +214,8 @@ class PendingRecordingsTest {
             local = listOf(night),
         )
 
-    assertEquals(listOf(PendingRecording(id, id, "a9")), result)
+    // The list does not hold it, so the read has no run to prefer; it goes by the recording id.
+    assertEquals(listOf(PendingRecording(id, id, null)), result)
   }
 
   @Test
@@ -225,6 +242,14 @@ class PendingRecordingsTest {
 
   @Test
   fun `only the pending nights of several are returned`() {
+    val cache =
+        ResultCache(temporary.newFolder("results")).also { cache ->
+          cache.save(
+              "remote-r1",
+              "a1",
+              AnalysisDto(id = "a1", recording = "r1", status = "succeeded"),
+          )
+        }
     val result =
         pending(
             listOf(
@@ -232,7 +257,8 @@ class PendingRecordingsTest {
                 summary(listOf(analysis("a2", "running")), id = "r2"),
                 summary(listOf(analysis("a3", "failed", error = "x")), id = "r3"),
             ),
-            record(key = "remote-r1", phase = UploadPhase.DONE, analysisId = "a1", downloaded = true),
+            record(key = "remote-r1", phase = UploadPhase.DONE, analysisId = "a1"),
+            results = cache,
         )
 
     assertEquals(listOf("remote-r2"), result.map { it.key })
