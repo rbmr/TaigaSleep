@@ -1663,6 +1663,7 @@ def test_the_worker_analyses_a_recording_end_to_end(api: Backend, baseline: str)
         "hr",
         "metrics",
         "metric_support",
+        "items",
         "quality",
         "sleep_quality",
         "capabilities",

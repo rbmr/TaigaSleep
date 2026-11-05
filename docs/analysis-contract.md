@@ -17,7 +17,8 @@ recording bytes -> decode/normalize -> Recording -> [stager] -> StagingResult
                                                                       sleep score,
                                                                       support map
                                                    -> serialization -> stages,
-                                                                      HR series
+                                                                      HR series,
+                                                                      typed items
 ```
 
 - **Decode/normalize** is shared and not pluggable. It handles CRC, µV→mV,
@@ -28,6 +29,42 @@ recording bytes -> decode/normalize -> Recording -> [stager] -> StagingResult
 - **Orchestration** is shared. It loads the recording, validates required
   streams, calls the stager, validates the result, serializes the epoch-aligned
   result blocks and stores them.
+
+## Typed items
+
+Contract version 2 adds `items` to every result. An item describes itself, so a client can
+render it without knowing the algorithm or a metric catalog:
+
+```json
+{
+  "items": [
+    {"kind": "number", "id": "hr_mean_bpm", "label": "Average heart rate", "group": "heart",
+     "unit": "bpm", "value": 58.2, "explanation": "Mean of all valid heart-rate samples.",
+     "sources": ["hr"]},
+    {"kind": "series", "id": "hr", "label": "Heart rate", "group": "heart", "unit": "bpm",
+     "explanation": "Mean heart rate for each epoch.",
+     "sources": ["hr"], "series": {"epoch_seconds": 30, "count": 2, "mean_bpm": [61.0, null]}},
+    {"kind": "score", "id": "sleep_quality", "label": "Sleep score", "group": "score",
+     "unit": "%", "value": 82.4,
+     "explanation": "Weighted average of the sleep figures.",
+     "sources": ["stages"],
+     "components": [{"id": "sleep_efficiency", "label": "Sleep efficiency",
+                     "weight": 30.0, "value": 91.0}]}
+  ]
+}
+```
+
+- `kind` is `number`, `series` or `score`. A number has `value`; a series has `series`;
+  a score has `value` in 0..100 and weighted `components`, also in 0..100.
+- Every item carries `label`, `unit`, `explanation` and `sources`, so the app hides what is
+  absent instead of printing a missing-data shell.
+- `group` keeps the presentation sections: `sleep`, `heart`, `movement`, `quality` or `score`.
+- The stage timeline stays the separate top-level `stages` block; it is not an item.
+- Items are only emitted for values the run actually supports. The older `metrics`,
+  `metric_support`, `quality`, `sleep_quality` and `hr` blocks remain for compatibility and
+  for clients that want the raw figures.
+- Contract version 2 requires at least one item, unique ids, a source on every item, and
+  score values between 0 and 100. The API rejects a result that breaks those rules.
 
 ## Canonical stages and epochs
 

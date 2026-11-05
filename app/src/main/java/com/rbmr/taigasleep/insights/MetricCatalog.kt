@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.insights
 import androidx.annotation.StringRes
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.MetricSupportDto
+import com.rbmr.taigasleep.backend.ResultItemDto
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.serialization.json.JsonElement
@@ -29,9 +30,14 @@ enum class MetricSupportState {
 
 data class MetricSpec(
     val key: String,
-    @StringRes val titleRes: Int,
-    @StringRes val explanationRes: Int,
+    @StringRes val titleRes: Int = 0,
+    @StringRes val explanationRes: Int = 0,
     val kind: MetricValueKind,
+    /** Set for a typed item: the worker's own label, explanation, sources and value. */
+    val label: String? = null,
+    val explanation: String? = null,
+    val source: String? = null,
+    val itemValue: Double? = null,
 )
 
 /**
@@ -82,6 +88,46 @@ val DataQualityMetricKeys = listOf("scored_duration_s", "unscored_s")
 val MovementMetricKeys = listOf("movement_index", "movement_mean_g", "movement_epochs")
 
 fun metricSpec(key: String): MetricSpec? = MetricCatalog.firstOrNull { it.key == key }
+
+/**
+ * A typed result item as a display spec. Only numbers have a metric kind the grid can format;
+ * series are charts and scores have their own cards. An unknown unit is skipped rather than
+ * guessed.
+ */
+fun ResultItemDto.metricSpec(): MetricSpec? {
+  if (kind != "number") return null
+  val valueKind =
+      when (unit) {
+        "s" -> MetricValueKind.DURATION
+        "%" -> MetricValueKind.PERCENT
+        "bpm" -> MetricValueKind.BPM
+        "ms" -> MetricValueKind.MILLISECONDS
+        "count" -> MetricValueKind.COUNT
+        "g" -> MetricValueKind.GRAMS
+        else -> return null
+      }
+  return MetricSpec(
+      key = id,
+      kind = valueKind,
+      label = label,
+      explanation = explanation,
+      source = sources.joinToString(", ") { it.uppercase() }.takeIf { it.isNotBlank() },
+      itemValue = value,
+  )
+}
+
+/** Format a typed item's value. Items carry display units, not the fractions the old keys used. */
+fun formatItemValue(kind: MetricValueKind, value: Double?): String? {
+  val number = value ?: return null
+  return when (kind) {
+    MetricValueKind.DURATION -> formatSeconds(number)
+    MetricValueKind.PERCENT -> "${number.roundToInt()}%"
+    MetricValueKind.BPM -> "${number.roundToInt()} bpm"
+    MetricValueKind.MILLISECONDS -> "${number.roundToInt()} ms"
+    MetricValueKind.COUNT -> number.roundToInt().toString()
+    MetricValueKind.GRAMS -> String.format(Locale.US, "%.2f g", number)
+  }
+}
 
 data class MetricExplanation(val body: String, val source: String?)
 

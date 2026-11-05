@@ -463,6 +463,34 @@ data class AnalysisSummaryDto(
 )
 
 /** The worker's output, as documented in docs/analysis-contract.md. */
+/** One component of a score: its share of the total and its own 0..100 value. */
+@Serializable
+data class ResultScoreComponentDto(
+    val id: String = "",
+    val label: String = "",
+    val weight: Double = 0.0,
+    val value: Double = 0.0,
+)
+
+/**
+ * One typed result item. The worker supplies the label, unit, explanation and sources, so the app
+ * renders what is there without a metric catalog. [series] is set for `series`, [components] and
+ * [value] for `score`, and [value] alone for `number`.
+ */
+@Serializable
+data class ResultItemDto(
+    val kind: String = "",
+    val id: String = "",
+    val label: String = "",
+    val group: String = "",
+    val unit: String = "",
+    val value: Double? = null,
+    val explanation: String = "",
+    val sources: List<String> = emptyList(),
+    val series: HrSeriesDto? = null,
+    val components: List<ResultScoreComponentDto> = emptyList(),
+)
+
 @Serializable
 data class AnalysisResultDto(
     val contract_version: Int = 0,
@@ -474,6 +502,7 @@ data class AnalysisResultDto(
     val hr: HrSeriesDto? = null,
     val metrics: JsonObject? = null,
     val metric_support: Map<String, MetricSupportDto>? = null,
+    val items: List<ResultItemDto> = emptyList(),
     val quality: QualityDto? = null,
     val sleep_quality: SleepQualityDto? = null,
     val capabilities: JsonObject? = null,

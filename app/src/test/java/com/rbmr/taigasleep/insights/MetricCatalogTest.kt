@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.insights
 
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.backend.MetricSupportDto
+import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.ui.components.QualityBand
 import com.rbmr.taigasleep.ui.components.qualityBand
@@ -186,5 +187,45 @@ class MetricCatalogTest {
             StageSegmentDto("nrem", 4),
         )
     assertEquals(listOf("rem", "nrem"), applicableStages(segments, null))
+  }
+}
+
+class TypedItemTest {
+  @Test
+  fun aTypedNumberBecomesADisplaySpecWithItsOwnText() {
+    val item =
+        ResultItemDto(
+            kind = "number",
+            id = "hr_mean_bpm",
+            label = "Average heart rate",
+            group = "heart",
+            unit = "bpm",
+            value = 58.4,
+            explanation = "Mean of all valid samples.",
+            sources = listOf("hr"),
+        )
+
+    val spec = item.metricSpec()!!
+
+    assertEquals("Average heart rate", spec.label)
+    assertEquals("Mean of all valid samples.", spec.explanation)
+    assertEquals("HR", spec.source)
+    assertEquals(MetricValueKind.BPM, spec.kind)
+    assertEquals("58 bpm", formatItemValue(spec.kind, spec.itemValue))
+  }
+
+  @Test
+  fun typedPercentIsAlreadyInPercent() {
+    val item =
+        ResultItemDto(kind = "number", id = "x", label = "X", unit = "%", value = 88.0)
+
+    assertEquals("88%", formatItemValue(MetricValueKind.PERCENT, item.value))
+  }
+
+  @Test
+  fun seriesScoresAndUnknownUnitsAreNotNumberSpecs() {
+    assertNull(ResultItemDto(kind = "series", id = "hr", unit = "bpm").metricSpec())
+    assertNull(ResultItemDto(kind = "score", id = "s", unit = "%").metricSpec())
+    assertNull(ResultItemDto(kind = "number", id = "x", unit = "parsec").metricSpec())
   }
 }

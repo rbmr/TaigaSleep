@@ -28,6 +28,7 @@ from .contract import (
 )
 from .decode import load_recording
 from .derive import derive
+from .items import build_items
 from .registry import Registry, discover
 
 STAGE_ORDER: tuple[Stage, ...] = ("wake", "rem", "nrem", "light", "deep", "unknown")
@@ -43,6 +44,7 @@ class AnalysisOutput:
     hr: dict[str, Any]
     metrics: dict[str, Any]
     metric_support: dict[str, Any]
+    items: list[dict[str, Any]]
     quality: dict[str, Any]
     sleep_quality: dict[str, Any]
     capabilities: dict[str, Any]
@@ -62,6 +64,7 @@ class AnalysisOutput:
             "hr": self.hr,
             "metrics": self.metrics,
             "metric_support": self.metric_support,
+            "items": self.items,
             "quality": self.quality,
             "sleep_quality": self.sleep_quality,
             "capabilities": self.capabilities,
@@ -335,6 +338,13 @@ def run_analysis(
         hr=serialized_hr,
         metrics=derived.metrics,
         metric_support=derived.support,
+        items=build_items(
+            derived.metrics,
+            derived.support,
+            derived.quality,
+            derived.sleep_quality,
+            serialized_hr,
+        ),
         quality=derived.quality,
         sleep_quality=derived.sleep_quality,
         capabilities=capabilities,

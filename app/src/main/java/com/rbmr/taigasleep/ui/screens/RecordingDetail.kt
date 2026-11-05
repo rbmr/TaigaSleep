@@ -68,19 +68,23 @@ import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.backend.QualityComponentDto
+import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.insights.DataQualityMetricKeys
 import com.rbmr.taigasleep.insights.HeartRateMetricKeys
+import com.rbmr.taigasleep.insights.MetricExplanation
 import com.rbmr.taigasleep.insights.MetricSpec
 import com.rbmr.taigasleep.insights.MetricSupportState
 import com.rbmr.taigasleep.insights.MovementMetricKeys
 import com.rbmr.taigasleep.insights.SleepMetricKeys
+import com.rbmr.taigasleep.insights.formatItemValue
 import com.rbmr.taigasleep.insights.formatMetric
 import com.rbmr.taigasleep.insights.metricNumber
 import com.rbmr.taigasleep.insights.metricSpec
+import com.rbmr.taigasleep.insights.metricSpec as itemSpec
 import com.rbmr.taigasleep.insights.splitMetricExplanation
 import com.rbmr.taigasleep.insights.supportState
 import com.rbmr.taigasleep.library.AnalysisOrigin
@@ -212,7 +216,7 @@ fun RecordingDetailScreen(
   var showQuality by rememberSaveable { mutableStateOf(false) }
   var showSleepScore by rememberSaveable { mutableStateOf(false) }
   var fullscreenChart by rememberSaveable { mutableStateOf<String?>(null) }
-  var metric by rememberSaveable { mutableStateOf<String?>(null) }
+  var metric by remember { mutableStateOf<MetricSpec?>(null) }
   var actionError by remember { mutableStateOf<String?>(null) }
   var showDetails by remember { mutableStateOf(false) }
   var showDelete by remember { mutableStateOf(false) }
@@ -434,9 +438,11 @@ fun RecordingDetailScreen(
     val device = state.local?.sensorName ?: state.remote?.device.orEmpty()
     val run = state.analysis
     val analysis = run?.result
-    val sleepScore = analysis?.sleep_quality?.score
+    val sleepScore =
+        analysis?.items?.firstOrNull { it.id == "sleep_quality" }?.value
+            ?: analysis?.sleep_quality?.score
     val processed = run?.isSucceeded == true
-    val selectedMetricSpec = metricSpec(metric.orEmpty())
+    val selectedMetricSpec = metric
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
@@ -532,14 +538,14 @@ fun RecordingDetailScreen(
                 state = state,
                 start = start,
                 analysis = analysis,
-                onMetric = { metric = it.key },
+                onMetric = { metric = it },
                 onExpand = { fullscreenChart = "sleep" },
             )
           }
           item {
             HeartRateStatsCard(
                 analysis = analysis,
-                onMetric = { metric = it.key },
+                onMetric = { metric = it },
                 onExpand = { fullscreenChart = "heart" },
             )
           }
@@ -547,13 +553,13 @@ fun RecordingDetailScreen(
             DataQualityStatsCard(
                 analysis = analysis,
                 onOpen = { showQuality = true },
-                onMetric = { metric = it.key },
+                onMetric = { metric = it },
             )
           }
           item {
             MovementStatsCard(
                 analysis = analysis,
-                onMetric = { metric = it.key },
+                onMetric = { metric = it },
             )
           }
           analysis.warnings.takeIf { it.isNotEmpty() }?.let { warnings ->
@@ -1356,7 +1362,12 @@ private fun SleepStatsCard(
         support = analysis.metric_support,
     )
     Spacer(Modifier.height(16.dp))
-    MetricGrid(analysis = analysis, keys = SleepMetricKeys, onMetric = onMetric)
+    MetricGrid(
+        analysis = analysis,
+        keys = SleepMetricKeys,
+        items = analysis.items.filter { it.kind == "number" && it.group == "sleep" },
+        onMetric = onMetric,
+    )
   }
 }
 
@@ -1408,7 +1419,12 @@ private fun HeartRateStatsCard(
       }
     }
     Spacer(Modifier.height(12.dp))
-    MetricGrid(analysis = analysis, keys = HeartRateMetricKeys, onMetric = onMetric)
+    MetricGrid(
+        analysis = analysis,
+        keys = HeartRateMetricKeys,
+        items = analysis.items.filter { it.kind == "number" && it.group == "heart" },
+        onMetric = onMetric,
+    )
     val rrCount = metricNumber(analysis.metrics, "hrv_rr_count")?.roundToInt()
     if (rrCount != null && rrCount > 0) {
       Spacer(Modifier.height(8.dp))
@@ -1444,20 +1460,26 @@ private fun DataQualityStatsCard(
         )
         Text(
             text =
-                if (analysis.quality?.score == null) stringResource(R.string.night_data_quality_none)
+                if ((analysis.items.firstOrNull { it.id == "data_quality" }?.value ?: analysis.quality?.score) == null)
+                    stringResource(R.string.night_data_quality_none)
                 else stringResource(R.string.night_data_quality_tap),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
       ScoreRing(
-          score = analysis.quality?.score,
+          score = analysis.items.firstOrNull { it.id == "data_quality" }?.value ?: analysis.quality?.score,
           label = stringResource(R.string.night_data_quality),
           size = 88,
       )
     }
     Spacer(Modifier.height(12.dp))
-    MetricGrid(analysis = analysis, keys = DataQualityMetricKeys, onMetric = onMetric)
+    MetricGrid(
+        analysis = analysis,
+        keys = DataQualityMetricKeys,
+        items = analysis.items.filter { it.kind == "number" && it.group == "quality" },
+        onMetric = onMetric,
+    )
   }
 }
 
@@ -1472,7 +1494,12 @@ private fun MovementStatsCard(
         style = MaterialTheme.typography.titleLarge,
     )
     Spacer(Modifier.height(10.dp))
-    MetricGrid(analysis = analysis, keys = MovementMetricKeys, onMetric = onMetric)
+    MetricGrid(
+        analysis = analysis,
+        keys = MovementMetricKeys,
+        items = analysis.items.filter { it.kind == "number" && it.group == "movement" },
+        onMetric = onMetric,
+    )
   }
 }
 
@@ -1480,11 +1507,12 @@ private fun MovementStatsCard(
 private fun MetricGrid(
     analysis: AnalysisResultDto,
     keys: List<String>,
+    items: List<ResultItemDto> = emptyList(),
     onMetric: (MetricSpec) -> Unit,
 ) {
   val metrics = analysis.metrics
   val support = analysis.metric_support
-  val specs = keys.mapNotNull { metricSpec(it) }
+  val specs = if (items.isNotEmpty()) items.mapNotNull { it.itemSpec() } else keys.mapNotNull { metricSpec(it) }
   Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
     specs.chunked(2).forEach { pair ->
       Row(
@@ -1492,8 +1520,13 @@ private fun MetricGrid(
           horizontalArrangement = Arrangement.spacedBy(10.dp),
       ) {
         pair.forEach { spec ->
-          val state = supportState(spec.key, support)
-          val value = formatMetric(spec.kind, metrics?.get(spec.key))
+          val itemValue = spec.itemValue
+          val state =
+              if (itemValue != null) MetricSupportState.SUPPORTED
+              else supportState(spec.key, support)
+          val value =
+              if (itemValue != null) formatItemValue(spec.kind, itemValue)
+              else formatMetric(spec.kind, metrics?.get(spec.key))
           MetricTile(
               spec = spec,
               value = if (state == MetricSupportState.SUPPORTED) value ?: "—" else value ?: "—",
@@ -1537,7 +1570,7 @@ private fun MetricTile(
   ) {
     Column(Modifier.padding(horizontal = 13.dp, vertical = 11.dp)) {
       Text(
-          text = stringResource(spec.titleRes),
+          text = spec.label ?: stringResource(spec.titleRes),
           style = MaterialTheme.typography.labelMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
           maxLines = 2,
@@ -1577,8 +1610,10 @@ private fun MetricSheet(spec: MetricSpec, onDismiss: () -> Unit) {
                 .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-      Text(stringResource(spec.titleRes), style = MaterialTheme.typography.headlineSmall)
-      val explanation = splitMetricExplanation(stringResource(spec.explanationRes))
+      Text(spec.label ?: stringResource(spec.titleRes), style = MaterialTheme.typography.headlineSmall)
+      val explanation =
+          spec.explanation?.let { MetricExplanation(it, spec.source) }
+              ?: splitMetricExplanation(stringResource(spec.explanationRes))
       Text(
           text = explanation.body,
           style = MaterialTheme.typography.bodyLarge,
