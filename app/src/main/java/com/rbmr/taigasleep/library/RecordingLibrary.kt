@@ -13,13 +13,12 @@ import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingStore
-import com.rbmr.taigasleep.sync.AnalysisService
-import com.rbmr.taigasleep.sync.AnalysisSync
 import com.rbmr.taigasleep.sync.LiveSyncTarget
 import com.rbmr.taigasleep.sync.PendingDeleteStore
 import com.rbmr.taigasleep.sync.RecordingSnapshot
 import com.rbmr.taigasleep.sync.RemoteHistoryCache
 import com.rbmr.taigasleep.sync.ResultCache
+import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
@@ -51,6 +50,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
   private val uploads = UploadStore.of(this.context)
   private val history = RemoteHistoryCache.of(this.context)
   private val results = ResultCache.of(this.context)
+  private val sync = SyncService.of(this.context)
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
   private val remoteSummaries = MutableStateFlow<RecordingSummaryListDto?>(null)
@@ -64,7 +64,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
   override val recordings: StateFlow<List<RecordingView>> =
       combine(
               RecordingRepository.sessions,
-              uploads.records,
+              sync.records,
               remoteSummaries,
               overrides,
           ) { local, records, summary, fresh ->
@@ -158,29 +158,12 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
       withContext(Dispatchers.IO) {
         val server = recording.remoteId
             ?: return@withContext Result.failure(IllegalStateException("this night is not uploaded"))
-        val api =
-            remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
-        try {
-          val started = AnalysisService.startManual(api, server, configFor(recording), listOf(algorithmId))
-          if (started.isEmpty()) {
-            return@withContext Result.failure(
-                IllegalStateException("no compatible algorithm is installed")
-            )
-          }
-          for (run in started) {
-            uploads.markManualAnalysis(recording.key, run.analysisId)
-            uploads.markProcessing(recording.key, run.analysisId)
-          }
-          refreshRecording(recording.key, server, started.first().analysisId)
-          Result.success(Unit)
-        } catch (e: TaigaUnauthorizedException) {
-          remote.logout()
-          Result.failure(e)
-        } catch (e: CancellationException) {
-          throw e
-        } catch (e: Exception) {
-          Result.failure(e)
-        }
+        val started =
+            sync.requestAnalysis(recording.key, algorithmId).getOrElse {
+              return@withContext Result.failure(it)
+            }
+        refreshRecording(recording.key, server, started.first().analysisId)
+        Result.success(Unit)
       }
 
   /** Remember which finished run the user wants to see. */
@@ -201,36 +184,24 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
   ): Result<AnalysisDto?> =
       withContext(Dispatchers.IO) {
         val server = remoteId ?: return@withContext Result.success(null)
-        val api =
-            remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
-        try {
-          val snapshot =
-              AnalysisSync(api, uploads, results)
-                  .refresh(
-                      key = key,
-                      recordingId = server,
-                      preferred =
-                          listOf(
-                              analysisId,
-                              recordings.value.firstOrNull { it.key == key }?.analysisId,
-                              uploads.record(key)?.analysisId,
-                          ),
-                  )
-          val runs = snapshot.analyses.map { run -> run.toRun(downloaded = results.has(key, run.id)) }
-          overrides.update { it + (key to RemoteOverride(snapshot.recording, runs)) }
-          rememberSummary(snapshot)
-          Result.success(snapshot.shown)
-        } catch (e: TaigaUnauthorizedException) {
-          remote.logout()
-          Result.failure(e)
-        } catch (e: CancellationException) {
-          throw e
-        } catch (e: TaigaHttpException) {
-          if (e.status == 404) forget(key, server, e)
-          Result.failure(e)
-        } catch (e: Exception) {
-          Result.failure(e)
-        }
+        val snapshot =
+            sync.refresh(
+                    id = key,
+                    preferred =
+                        listOf(
+                            analysisId,
+                            recordings.value.firstOrNull { it.key == key }?.analysisId,
+                            uploads.record(key)?.analysisId,
+                        ),
+                )
+                .getOrElse { e ->
+                  if (e is TaigaHttpException && e.status == 404) forget(key, server, e)
+                  return@withContext Result.failure(e)
+                }
+        val runs = snapshot.analyses.map { run -> run.toRun(downloaded = results.has(key, run.id)) }
+        overrides.update { it + (key to RemoteOverride(snapshot.recording, runs)) }
+        rememberSummary(snapshot)
+        Result.success(snapshot.shown)
       }
 
   /**
@@ -244,7 +215,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
       reload()
       if (refreshList().isFailure) return@withContext
       val pendingDeletes = PendingDeleteStore.of(context).remoteIds()
-      val records = uploads.records.value
+      val records = sync.records.value
       // The nights as the screens see them now, with the list that was just fetched. The sessions
       // come from disk: the screens may not have loaded them yet when the app has just opened.
       val current =

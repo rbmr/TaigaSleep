@@ -14,20 +14,20 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+private val HR_ONLY = RecordingConfig(hr = true, ecg = false, acc = false)
+
+/**
+ * Configuration of the local recording behind [key]. A remote-only recording has no local
+ * metadata, so the safe answer is an HR-only recording, which selects the HR-based stager.
+ */
+internal fun localRecordingConfig(context: Context, key: String): RecordingConfig {
+  val localId = key.takeUnless { it.startsWith("remote-") } ?: return HR_ONLY
+  val meta = RecordingMeta.read(RecordingStore.of(context).dir(localId))
+  return meta?.config ?: HR_ONLY
+}
+
 /** User-initiated recovery actions that need a live server call. */
-object UploadCoordinator {
-  private val HR_ONLY = RecordingConfig(hr = true, ecg = false, acc = false)
-
-  /**
-   * Configuration of the local recording behind [key]. A remote-only recording has no local
-   * metadata, so the safe answer is an HR-only recording, which selects the HR-based stager.
-   */
-  private fun localConfig(context: Context, key: String): RecordingConfig {
-    val localId = key.takeUnless { it.startsWith("remote-") } ?: return HR_ONLY
-    val meta = RecordingMeta.read(RecordingStore.of(context).dir(localId))
-    return meta?.config ?: HR_ONLY
-  }
-
+internal object UploadCoordinator {
   /**
    * Retry a failed analysis. A pending analysis is left as it is; a failed one is asked for again,
    * which makes the server replace it with a fresh queued one under a new id.
@@ -64,7 +64,7 @@ object UploadCoordinator {
                   AnalysisService.startPreferred(
                           api,
                           recordingId,
-                          localConfig(context, key),
+                          localRecordingConfig(context, key),
                           settings,
                       )
                       .analysisId

@@ -52,7 +52,7 @@ sealed interface RawActionResult {
 }
 
 /** Applies the retention policy and performs the per-recording download and delete exceptions. */
-object RawRetention {
+internal object RawRetention {
   /**
    * Removes every local raw stream that the policy allows to remove. Safe to call on app start,
    * after an upload and whenever the setting changes: it is a no-op when nothing is due.

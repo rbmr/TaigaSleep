@@ -10,8 +10,7 @@ import com.rbmr.taigasleep.guard.GuidanceStore
 import com.rbmr.taigasleep.guard.Readiness
 import com.rbmr.taigasleep.guard.ReadinessState
 import com.rbmr.taigasleep.recording.RecordingHooks
-import com.rbmr.taigasleep.sync.RawRetention
-import com.rbmr.taigasleep.sync.UploadScheduler
+import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.tracker.RecordingMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,8 +28,9 @@ class TaigaApplication : Application() {
     DebugTools.install(this)
     CoroutineScope(Dispatchers.IO).launch {
       // Apply the raw-retention setting to any recording whose cleanup time has passed.
-      RawRetention.enforce(this@TaigaApplication)
-      UploadScheduler.cancelLegacyPolls(this@TaigaApplication)
+      val sync = SyncService.of(this@TaigaApplication)
+      sync.enforceRawRetention()
+      sync.cancelLegacyPolls()
     }
   }
 
@@ -106,5 +106,5 @@ private object RecordingWiring : RecordingHooks {
   override fun readinessSummary(context: Context): String = Readiness.read(context).summary()
 
   override fun onRecordingFinished(context: Context, recordingId: String) =
-      UploadScheduler.onRecordingFinished(context, recordingId)
+      SyncService.of(context).onRecordingFinished(recordingId)
 }

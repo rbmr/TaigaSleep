@@ -9,10 +9,7 @@ import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.RawActionResult
-import com.rbmr.taigasleep.sync.RawRetention
-import com.rbmr.taigasleep.sync.RecordingDeleter
-import com.rbmr.taigasleep.sync.UploadCoordinator
-import com.rbmr.taigasleep.sync.UploadScheduler
+import com.rbmr.taigasleep.sync.SyncService
 import java.io.File
 
 /**
@@ -57,6 +54,7 @@ class RecordingDetailFactory(
   override fun <T : ViewModel> create(modelClass: Class<T>): T {
     val app = context.applicationContext
     val store = RecordingStore.of(app)
+    val sync = SyncService.of(app)
     val work =
         object : NightWork {
           override suspend fun refreshRecordings() {
@@ -64,25 +62,25 @@ class RecordingDetailFactory(
           }
 
           override fun upload(localId: String) {
-            UploadScheduler.enqueueManual(app, localId)
+            sync.uploadNow(localId)
           }
 
           override suspend fun retryAnalysis(key: String, analysisId: String?) =
-              UploadCoordinator.retryAnalysis(app, key, analysisId)
+              sync.retryAnalysis(key, analysisId)
 
           override suspend fun restoreRaw(
               localId: String,
               remoteId: String,
               onProgress: (Float) -> Unit,
-          ) = RawRetention.restore(app, localId, remoteId, onProgress)
+          ) = sync.downloadRaw(localId, onProgress)
 
           override suspend fun share(localId: String, onProgress: (Float) -> Unit): Result<Unit> =
               runCatching { Exporter.share(app, localId, onProgress) }
 
-          override suspend fun deleteRaw(localId: String) = RawRetention.deleteRaw(app, localId)
+          override suspend fun deleteRaw(localId: String) = sync.deleteRaw(localId)
 
           override fun delete(localId: String?, remoteId: String?) {
-            RecordingDeleter.delete(app, localId, remoteId)
+            sync.delete(localId, remoteId)
           }
 
           override fun rawSize(localId: String): Long =

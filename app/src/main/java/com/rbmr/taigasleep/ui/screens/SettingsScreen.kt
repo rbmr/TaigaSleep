@@ -44,10 +44,8 @@ import com.rbmr.taigasleep.insights.AnalysisSettingsStore
 import com.rbmr.taigasleep.insights.compareVersions
 import com.rbmr.taigasleep.insights.effectiveOrder
 import com.rbmr.taigasleep.insights.movePreference
-import com.rbmr.taigasleep.sync.AnalysisService
-import com.rbmr.taigasleep.sync.RawRetention
 import com.rbmr.taigasleep.sync.RawRetentionMode
-import com.rbmr.taigasleep.sync.UploadScheduler
+import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.sync.UploadSettings
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SettingsCheckboxRow
@@ -68,6 +66,7 @@ fun SettingsScreen(
 ) {
   val context = LocalContext.current
   val remoteRepository = remember { RemoteRepository.of(context) }
+  val sync = remember { SyncService.of(context) }
   val remoteStatus by remoteRepository.status.collectAsStateWithLifecycle()
   val uploadSettings = remember { UploadSettings.get(context) }
   val autoUpload by uploadSettings.autoUpload.collectAsStateWithLifecycle()
@@ -101,7 +100,7 @@ fun SettingsScreen(
     }
     installedLoading = true
     installedError = null
-    AnalysisService.installedAlgorithms(api)
+    sync.installedAlgorithms()
         .onSuccess { installedAlgorithms = it }
         .onFailure { installedError = it.message }
     installedLoading = false
@@ -197,7 +196,7 @@ fun SettingsScreen(
             checked = autoUpload.enabled,
             onCheckedChange = {
               uploadSettings.setEnabled(it)
-              UploadScheduler.rescheduleAll(context)
+              sync.rescheduleAll()
             },
         )
         if (autoUpload.enabled) {
@@ -207,7 +206,7 @@ fun SettingsScreen(
               checked = autoUpload.wifiOnly,
               onCheckedChange = {
                 uploadSettings.setWifiOnly(it)
-                UploadScheduler.rescheduleAll(context)
+                sync.rescheduleAll()
               },
           )
           SettingsDivider()
@@ -216,7 +215,7 @@ fun SettingsScreen(
               checked = autoUpload.chargingOnly,
               onCheckedChange = {
                 uploadSettings.setChargingOnly(it)
-                UploadScheduler.rescheduleAll(context)
+                sync.rescheduleAll()
               },
           )
         }
@@ -278,7 +277,7 @@ fun SettingsScreen(
                           .clickable {
                             uploadSettings.setRawRetention(mode)
                             showRetention = false
-                            scope.launch { RawRetention.enforce(context) }
+                            scope.launch { sync.enforceRawRetention() }
                           }
                           .padding(vertical = 10.dp),
                   verticalAlignment = Alignment.CenterVertically,

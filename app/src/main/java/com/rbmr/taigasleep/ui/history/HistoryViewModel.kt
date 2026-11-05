@@ -9,9 +9,7 @@ import com.rbmr.taigasleep.library.RecordingView
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.sync.PendingDelete
 import com.rbmr.taigasleep.sync.PendingDeleteStore
-import com.rbmr.taigasleep.sync.RawRetention
-import com.rbmr.taigasleep.sync.RecordingDeleter
-import com.rbmr.taigasleep.sync.UploadScheduler
+import com.rbmr.taigasleep.sync.SyncService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -118,13 +116,13 @@ class HistoryViewModel(
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
       val library = RecordingLibrary.of(context)
+      val sync = SyncService.of(context)
       val work =
           object : HistoryWork {
             override suspend fun onOpen() {
               RecordingRepository.refreshRecordings(context)
-              UploadScheduler.resumePendingDeletes(context)
-              UploadScheduler.reconcile(context)
-              RawRetention.enforce(context)
+              sync.reconcileAll()
+              sync.enforceRawRetention()
               library.reload()
             }
 
@@ -134,7 +132,7 @@ class HistoryViewModel(
             }
 
             override fun delete(view: RecordingView) {
-              RecordingDeleter.delete(context, view.localId, view.remoteId)
+              sync.delete(view.localId, view.remoteId)
             }
           }
       return HistoryViewModel(

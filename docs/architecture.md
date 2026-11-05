@@ -72,7 +72,7 @@ One Gradle module, one package per concern under `com.rbmr.taigasleep`:
 | `recording` | Capturing: the selected tracker, the recording state machine, the foreground service, the on-disk format, the local store, export. | `tracker`, `diagnostics` |
 | `guard` | The preventing-shutdown flow: per-device steps, checks, the final readiness list. | `tracker`, `diagnostics` |
 | `backend` | A client for API v1: DTOs, requests, authentication state, the event stream. No business logic. | `diagnostics` |
-| `sync` | Moving recordings to and from the backend: upload queue, retention, deletion, analysis requests, result cache. | `recording`, `backend`, `insights`, `diagnostics` |
+| `sync` | Moving recordings to and from the backend: upload queue, retention, deletion, analysis requests, result cache. `SyncService` is its entry point, and the only thing outside the package calls. | `recording`, `backend`, `insights`, `diagnostics` |
 | `insights` | Turning analysis results into what is displayed: statistics, series, scores, the algorithm catalogue and the user's algorithm preference. | `backend`, `diagnostics` |
 | `library` | The recordings the user owns, as one list: local state, sync state and results composed for presentation. | `recording`, `sync`, `insights`, `backend`, `diagnostics` |
 | `ui` | Screens and components. The only package that knows about Compose. | every other package |
