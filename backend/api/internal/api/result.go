@@ -34,6 +34,28 @@ type sleepQuality struct {
 	Score *float64 `json:"score"`
 }
 
+type scoreComponent struct {
+	ID     string  `json:"id"`
+	Label  string  `json:"label"`
+	Weight float64 `json:"weight"`
+	Value  float64 `json:"value"`
+}
+
+// resultItem is one typed output: a number, a series or a score. Every item describes itself,
+// so a client can render it without knowing the algorithm's metric keys.
+type resultItem struct {
+	Kind        string           `json:"kind"`
+	ID          string           `json:"id"`
+	Label       string           `json:"label"`
+	Group       string           `json:"group"`
+	Unit        string           `json:"unit"`
+	Value       *float64         `json:"value,omitempty"`
+	Explanation string           `json:"explanation"`
+	Sources     []string         `json:"sources"`
+	Series      json.RawMessage  `json:"series,omitempty"`
+	Components  []scoreComponent `json:"components,omitempty"`
+}
+
 type resultEnvelope struct {
 	ContractVersion int            `json:"contract_version"`
 	Model           string         `json:"model"`
@@ -41,6 +63,8 @@ type resultEnvelope struct {
 	Stages          stageTimeline  `json:"stages"`
 	Hr              *hrSeries      `json:"hr"`
 	Metrics         map[string]any `json:"metrics"`
+	MetricSupport   map[string]any `json:"metric_support"`
+	Items           []resultItem   `json:"items"`
 	Quality         map[string]any `json:"quality"`
 	SleepQuality    *sleepQuality  `json:"sleep_quality"`
 	Capabilities    map[string]any `json:"capabilities"`
@@ -93,7 +117,59 @@ func parseResult(raw json.RawMessage) (resultEnvelope, error) {
 	if result.Metrics == nil || result.Quality == nil || result.Capabilities == nil || result.Provenance == nil {
 		return result, fmt.Errorf("analysis result is missing metrics, quality, capabilities or provenance")
 	}
+	if result.ContractVersion >= 2 {
+		if err := validateItems(result.Items); err != nil {
+			return result, err
+		}
+	}
 	return result, nil
+}
+
+func validateItems(items []resultItem) error {
+	if len(items) == 0 {
+		return fmt.Errorf("analysis result has no typed items")
+	}
+	seen := make(map[string]bool, len(items))
+	for _, item := range items {
+		if item.ID == "" || item.Label == "" {
+			return fmt.Errorf("analysis result has an item without id or label")
+		}
+		if seen[item.ID] {
+			return fmt.Errorf("analysis result repeats item %q", item.ID)
+		}
+		seen[item.ID] = true
+		if len(item.Sources) == 0 {
+			return fmt.Errorf("analysis result item %q has no data source", item.ID)
+		}
+		switch item.Kind {
+		case "number":
+			if item.Value == nil {
+				return fmt.Errorf("analysis result number %q has no value", item.ID)
+			}
+		case "series":
+			if len(item.Series) == 0 {
+				return fmt.Errorf("analysis result series %q has no data", item.ID)
+			}
+		case "score":
+			if item.Value == nil || *item.Value < 0 || *item.Value > 100 {
+				return fmt.Errorf("analysis result score %q must be between 0 and 100", item.ID)
+			}
+			if len(item.Components) == 0 {
+				return fmt.Errorf("analysis result score %q has no components", item.ID)
+			}
+			for _, component := range item.Components {
+				if component.ID == "" || component.Weight <= 0 {
+					return fmt.Errorf("analysis result score %q has an invalid component", item.ID)
+				}
+				if component.Value < 0 || component.Value > 100 {
+					return fmt.Errorf("analysis result component %q must be between 0 and 100", component.ID)
+				}
+			}
+		default:
+			return fmt.Errorf("analysis result item %q has unknown kind %q", item.ID, item.Kind)
+		}
+	}
+	return nil
 }
 
 // summaryOf derives the small headline stored next to a result: what a list of

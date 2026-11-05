@@ -97,3 +97,41 @@ def test_unknown_algorithm_fails_clearly(tmp_path: Path) -> None:
     with pytest.raises(AnalysisError) as context:
         run_analysis(tmp_path, "no-such-algorithm", {})
     assert context.value.code == "unknown_algorithm"
+
+
+def test_typed_items_carry_their_own_labels_units_and_sources(tmp_path: Path) -> None:
+    fx.write_recording(tmp_path, duration_s=240)
+    payload = run_analysis(tmp_path, "baseline", {}).to_dict()
+    items = payload["items"]
+
+    numbers = [item for item in items if item["kind"] == "number"]
+    assert numbers
+    for item in numbers:
+        assert item["id"] and item["label"] and item["unit"] and item["explanation"]
+        assert item["sources"]
+        assert isinstance(item["value"], (int, float))
+    assert {item["group"] for item in numbers} >= {"sleep", "heart", "quality"}
+
+    scores = {item["id"]: item for item in items if item["kind"] == "score"}
+    assert scores["sleep_quality"]["value"] is not None
+    assert scores["sleep_quality"]["components"]
+    assert all(0 <= item["value"] <= 100 for item in scores.values() if item["value"] is not None)
+
+    series = [item for item in items if item["kind"] == "series"]
+    assert len(series) == 1
+    assert series[0]["id"] == "hr"
+    assert series[0]["series"]["count"] == payload["hr"]["count"]
+
+
+def test_items_omit_metrics_the_algorithm_does_not_support() -> None:
+    from taiga_worker.analysis.items import number_items
+
+    items = number_items(
+        {"hr_mean_bpm": 58.0, "time_in_deep_s": None},
+        {
+            "hr_mean_bpm": {"status": "supported"},
+            "time_in_deep_s": {"status": "unsupported_algorithm"},
+        },
+    )
+
+    assert [item["id"] for item in items] == ["hr_mean_bpm"]

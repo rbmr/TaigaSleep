@@ -60,6 +60,19 @@ class AnalysisDtoTest {
                                            {"value": 0.9, "weight": 0.35, "available": true}},
                             "notes": []},
                 "sleep_quality": {"score": 79.0, "components_version": 1},
+                "items": [
+                  {"kind": "number", "id": "total_sleep_s", "label": "Total asleep",
+                   "group": "sleep", "unit": "s", "value": 60.0,
+                   "explanation": "Time scored as sleep.", "sources": ["stages"]},
+                  {"kind": "score", "id": "sleep_quality", "label": "Sleep score",
+                   "group": "score", "unit": "%", "value": 79.0,
+                   "explanation": "Weighted sleep figures.", "sources": ["stages"],
+                   "components": [{"id": "sleep_efficiency", "label": "Sleep efficiency",
+                                   "weight": 100.0, "value": 79.0}]},
+                  {"kind": "series", "id": "hr", "label": "Heart rate", "group": "heart",
+                   "unit": "bpm", "explanation": "Mean heart rate per epoch.", "sources": ["hr"],
+                   "series": {"epoch_seconds": 30, "count": 1, "mean_bpm": [58.0]}}
+                ],
                 "warnings": ["short night"]
               }
             }
@@ -89,6 +102,15 @@ class AnalysisDtoTest {
         0.001,
     )
     assertEquals(listOf("short night"), result?.warnings)
+    assertEquals(3, result?.items?.size)
+    val number = result?.items?.first { it.kind == "number" }
+    assertEquals("Total asleep", number?.label)
+    assertEquals(60.0, number?.value ?: 0.0, 0.001)
+    assertEquals(listOf("stages"), number?.sources)
+    val score = result?.items?.first { it.kind == "score" }
+    assertEquals("Sleep efficiency", score?.components?.single()?.label)
+    assertEquals(79.0, score?.value ?: 0.0, 0.001)
+    assertEquals(58.0, result?.items?.first { it.kind == "series" }?.series?.mean_bpm?.single() ?: 0.0, 0.001)
   }
 
   @Test
