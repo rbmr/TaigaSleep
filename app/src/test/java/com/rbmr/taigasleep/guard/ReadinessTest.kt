@@ -1,11 +1,24 @@
 package com.rbmr.taigasleep.guard
 
+import com.rbmr.taigasleep.tracker.RecordingMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReadinessTest {
+  @Test
+  fun onDeviceRecordingDoesNotNeedTheBatteryFlow() {
+    assertEquals(
+        HomeState.NOT_NEEDED,
+        ReadinessState.state(GenericFlow, RecordingMode.ON_DEVICE) { false },
+    )
+    assertEquals(
+        HomeState.NEEDS_SETTINGS,
+        ReadinessState.state(GenericFlow, RecordingMode.STREAM) { false },
+    )
+  }
+
   private val good =
       Readiness(
           ignoringBatteryOptimizations = true,

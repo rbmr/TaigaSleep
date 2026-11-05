@@ -124,12 +124,6 @@ class RecordingService : Service() {
 
   private suspend fun start(intent: Intent) {
     if (live != null) return
-    // The same answer Home shows, from the flow the user picked: the app wiring supplies it.
-    if (!hooks.mayStart(this)) {
-      Log.w(TAG, "start refused: ${hooks.readinessSummary(this)}")
-      leave(getString(R.string.rec_error_not_ready))
-      return
-    }
     val kind = SensorKind.fromWire(intent.getStringExtra(EXTRA_SENSOR_KIND))
     val sensorId = intent.getStringExtra(EXTRA_SENSOR_ID)
     if (kind == null || sensorId == null) {
@@ -160,6 +154,13 @@ class RecordingService : Service() {
           RecordingMode.STREAM in modes -> RecordingMode.STREAM
           else -> modes.first()
         }
+    // The same answer Home shows, from the flow the user picked: the app wiring supplies it. An
+    // on-device recording skips the battery steps because the phone may sleep.
+    if (!hooks.mayStart(this, mode)) {
+      Log.w(TAG, "start refused: ${hooks.readinessSummary(this)}")
+      leave(getString(R.string.rec_error_not_ready))
+      return
+    }
     val now = System.currentTimeMillis()
     val meta =
         RecordingMeta(

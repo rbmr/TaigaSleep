@@ -112,8 +112,15 @@ fun HomeScreen(onGuidanceClick: () -> Unit) {
 
   // The debug-only preview of another OS, honoured by the card exactly as the flow honours it.
   fun stateNow() =
-      ReadinessState.state(context, guidanceStore, GuidanceFlows.previewOf(guidanceStore))
+      ReadinessState.state(
+          context,
+          guidanceStore,
+          GuidanceFlows.previewOf(guidanceStore),
+          selectedMode(sensor, prefs),
+      )
   var tonight by remember { mutableStateOf(stateNow()) }
+  val mode = selectedMode(sensor, prefs)
+  LaunchedEffect(mode) { tonight = stateNow() }
   var showScan by remember { mutableStateOf(false) }
   var showData by remember { mutableStateOf(false) }
   var showPreviewPicker by remember { mutableStateOf(false) }
@@ -200,7 +207,18 @@ fun HomeScreen(onGuidanceClick: () -> Unit) {
   }
 
   if (showScan) ScanSheet(onDismiss = { showScan = false })
-  if (showData) sensor?.let { DataDialog(it, prefs, onDismiss = { showData = false }) }
+  if (showData) {
+    sensor?.let {
+      DataDialog(
+          it,
+          prefs,
+          onDismiss = {
+            showData = false
+            tonight = stateNow()
+          },
+      )
+    }
+  }
   if (showPreviewPicker) {
     GuidancePreviewPicker(
         store = guidanceStore,
@@ -244,7 +262,9 @@ private fun InactiveHome(
     onStart: () -> Unit,
 ) {
   val connected = sensor?.connection?.collectAsStateWithLifecycle()?.value
-  val canStart = connected == ConnectionState.CONNECTED && tonight == HomeState.READY
+  val canStart =
+      connected == ConnectionState.CONNECTED &&
+          (tonight == HomeState.READY || tonight == HomeState.NOT_NEEDED)
   LazyColumn(
       modifier = Modifier.fillMaxSize().statusBarsPadding(),
       contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
@@ -259,7 +279,8 @@ private fun InactiveHome(
     }
     item {
       HomeLogo(
-          if (tonight == HomeState.READY) LogoVariant.Sleeping else LogoVariant.Awake,
+          if (tonight == HomeState.READY || tonight == HomeState.NOT_NEEDED) LogoVariant.Sleeping
+          else LogoVariant.Awake,
           glow = false,
       )
     }
@@ -573,6 +594,23 @@ private fun SensorCard(
   }
 }
 
+/** The mode the start button will use, from the tracker, the streams and the remembered choice. */
+private fun selectedMode(sensor: SleepSensor?, prefs: RecordingPrefs): RecordingMode {
+  sensor ?: return RecordingMode.STREAM
+  val config =
+      StreamConfig(
+          ecg = sensor.capabilities.ecg && prefs.ecgEnabled(sensor.id),
+          acc = sensor.capabilities.acc && prefs.accEnabled(sensor.id),
+      )
+  val modes = sensor.recordingModes(config)
+  val saved = prefs.mode(sensor.id)
+  return when {
+    saved in modes -> saved
+    RecordingMode.STREAM in modes -> RecordingMode.STREAM
+    else -> modes.firstOrNull() ?: RecordingMode.STREAM
+  }
+}
+
 private fun startRecording(context: Context, sensor: SleepSensor?, prefs: RecordingPrefs) {
   sensor ?: return
   RecordingRepository.setIdle()
@@ -634,10 +672,25 @@ private fun ToggleRow(label: String, checked: Boolean, enabled: Boolean = true, 
 @Composable
 private fun ReadinessCard(tonight: HomeState, onClick: () -> Unit, onLongClick: (() -> Unit)?) {
   val ready = tonight == HomeState.READY
+  val notNeeded = tonight == HomeState.NOT_NEEDED
   StatusBanner(
-      kind = if (ready) StatusKind.Ok else StatusKind.Warn,
-      title = stringResource(if (ready) R.string.rec_ready_title else R.string.rec_not_ready_title),
-      body = stringResource(if (ready) R.string.rec_ready_body else R.string.rec_not_ready_body),
+      kind = if (ready || notNeeded) StatusKind.Ok else StatusKind.Warn,
+      title =
+          stringResource(
+              when {
+                notNeeded -> R.string.rec_guard_not_needed_title
+                ready -> R.string.rec_ready_title
+                else -> R.string.rec_not_ready_title
+              }
+          ),
+      body =
+          stringResource(
+              when {
+                notNeeded -> R.string.rec_guard_not_needed_body
+                ready -> R.string.rec_ready_body
+                else -> R.string.rec_not_ready_body
+              }
+          ),
       onClick = onClick,
       onLongClick = onLongClick,
   )
