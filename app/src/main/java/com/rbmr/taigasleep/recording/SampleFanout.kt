@@ -1,10 +1,10 @@
 package com.rbmr.taigasleep.recording
 
-import com.rbmr.taigasleep.sensor.AccBatch
-import com.rbmr.taigasleep.sensor.EcgBatch
-import com.rbmr.taigasleep.sensor.HrSample
-import com.rbmr.taigasleep.sensor.SampleListener
-import com.rbmr.taigasleep.sensor.Stamp
+import com.rbmr.taigasleep.tracker.AccBatch
+import com.rbmr.taigasleep.tracker.EcgBatch
+import com.rbmr.taigasleep.tracker.HrSample
+import com.rbmr.taigasleep.tracker.SampleListener
+import com.rbmr.taigasleep.tracker.Stamp
 
 /**
  * The service's one sample listener: it hands each sample to the writer first, then to the

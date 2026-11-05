@@ -1,15 +1,10 @@
 package com.rbmr.taigasleep
 
 import android.content.Context
+import com.rbmr.taigasleep.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-
-enum class ThemeMode {
-  SYSTEM,
-  LIGHT,
-  DARK,
-}
 
 class AppSettings(context: Context) {
   private val prefs =

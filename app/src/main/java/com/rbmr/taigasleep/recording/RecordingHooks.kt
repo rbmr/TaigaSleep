@@ -1,0 +1,43 @@
+package com.rbmr.taigasleep.recording
+
+import android.content.Context
+
+/**
+ * What [RecordingService] needs to know or tell the rest of the app without depending on it. The
+ * app wiring supplies the implementation once, in `Application.onCreate` ([install]), so recording
+ * never imports the packages that decide these things: the preventing-shutdown flow (`guard`) and
+ * the upload queue (`sync`).
+ */
+interface RecordingHooks {
+  /**
+   * Whether a recording may start. False refuses the start, and the service tells the user that the
+   * phone is not ready.
+   */
+  fun mayStart(context: Context): Boolean
+
+  /**
+   * One line naming the phone settings that decide whether a night survives (battery optimisation,
+   * standby bucket, background restriction). It is written to the recording's events when they
+   * change, so two equal lines mean equal settings.
+   */
+  fun readinessSummary(context: Context): String
+
+  /**
+   * A recording ended and was kept: stopped, force stopped or interrupted, but not discarded.
+   * [sessionId] is its id in the local store.
+   */
+  fun onRecordingFinished(context: Context, sessionId: String)
+
+  companion object {
+    @Volatile private var installed: RecordingHooks? = null
+
+    /** Sets the hooks every recording uses. Call before any recording can start. */
+    fun install(hooks: RecordingHooks) {
+      installed = hooks
+    }
+
+    /** The installed hooks. A missing installation is a wiring bug, so it fails loudly. */
+    fun current(): RecordingHooks =
+        checkNotNull(installed) { "RecordingHooks.install was not called by the app wiring" }
+  }
+}

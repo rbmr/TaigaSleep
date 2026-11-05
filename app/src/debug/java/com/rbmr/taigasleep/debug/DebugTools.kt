@@ -8,10 +8,10 @@ import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
-import com.rbmr.taigasleep.sensor.FoundSensor
-import com.rbmr.taigasleep.sensor.SensorKind
-import com.rbmr.taigasleep.sensor.SimulatedSensor
-import com.rbmr.taigasleep.sensor.SleepSensor
+import com.rbmr.taigasleep.tracker.FoundSensor
+import com.rbmr.taigasleep.tracker.SensorKind
+import com.rbmr.taigasleep.tracker.SimulatedSensor
+import com.rbmr.taigasleep.tracker.SleepSensor
 
 /**
  * Tools that only exist in debug builds. `src/release` has a twin with the same API that does

@@ -30,21 +30,21 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.night.Night
-import com.rbmr.taigasleep.night.NightRepository
-import com.rbmr.taigasleep.night.NightStatus
-import com.rbmr.taigasleep.night.formatDuration
-import com.rbmr.taigasleep.night.formatNightDateAndTime
+import com.rbmr.taigasleep.library.Night
+import com.rbmr.taigasleep.library.NightRepository
+import com.rbmr.taigasleep.library.NightStatus
+import com.rbmr.taigasleep.library.formatDuration
+import com.rbmr.taigasleep.library.formatNightDateAndTime
 import com.rbmr.taigasleep.recording.RecordingRepository
+import com.rbmr.taigasleep.sync.PendingDeleteStore
+import com.rbmr.taigasleep.sync.RawRetention
+import com.rbmr.taigasleep.sync.UploadFailure
+import com.rbmr.taigasleep.sync.UploadScheduler
 import com.rbmr.taigasleep.ui.components.ScoreBadge
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SectionLabel
 import com.rbmr.taigasleep.ui.components.StageBar
 import com.rbmr.taigasleep.ui.components.TaigaCard
-import com.rbmr.taigasleep.upload.PendingDeleteStore
-import com.rbmr.taigasleep.upload.RawRetention
-import com.rbmr.taigasleep.upload.UploadFailure
-import com.rbmr.taigasleep.upload.UploadScheduler
 
 /**
  * The list shows what the user has: one line of status, one result summary, and nothing to operate.

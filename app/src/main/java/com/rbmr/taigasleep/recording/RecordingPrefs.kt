@@ -2,7 +2,7 @@ package com.rbmr.taigasleep.recording
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.rbmr.taigasleep.sensor.SensorKind
+import com.rbmr.taigasleep.tracker.SensorKind
 
 /** The sensor the user picked last, so it can be reconnected without scanning again. */
 data class SavedSensor(val kind: SensorKind, val id: String, val name: String)

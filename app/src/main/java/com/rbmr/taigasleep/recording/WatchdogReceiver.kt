@@ -8,9 +8,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
-import com.rbmr.taigasleep.sensor.SystemClockSource
-import com.rbmr.taigasleep.storage.EventLog
-import com.rbmr.taigasleep.storage.SessionStore
+import com.rbmr.taigasleep.recording.store.EventLog
+import com.rbmr.taigasleep.recording.store.SessionStore
+import com.rbmr.taigasleep.tracker.SystemClockSource
 
 /**
  * Fires every few minutes while a session is active and restarts the service if it, or its

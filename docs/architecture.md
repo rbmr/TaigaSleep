@@ -69,21 +69,36 @@ One Gradle module, one package per concern under `com.rbmr.taigasleep`:
 | Package | Responsibility | May depend on |
 | --- | --- | --- |
 | `tracker` | What a tracker is: its capabilities, its recording mode, its configuration. Implementations per device (`polar`), a simulated one in debug builds. | `diagnostics` |
-| `recording` | Capturing: the recording state machine, the foreground service, the on-disk format, the local store, export. | `tracker`, `diagnostics` |
+| `recording` | Capturing: the selected tracker, the recording state machine, the foreground service, the on-disk format, the local store, export. | `tracker`, `diagnostics` |
 | `guard` | The preventing-shutdown flow: per-device steps, checks, the final readiness list. | `diagnostics` |
 | `backend` | A client for API v1: DTOs, requests, authentication state, the event stream. No business logic. | `diagnostics` |
 | `sync` | Moving recordings to and from the backend: upload queue, retention, deletion, analysis requests, result cache. | `recording`, `backend`, `insights`, `diagnostics` |
 | `insights` | Turning analysis results into what is displayed: statistics, series, scores, the algorithm catalogue and the user's algorithm preference. | `backend`, `diagnostics` |
-| `library` | The recordings the user owns, as one list: local state, sync state and results composed for presentation. | `recording`, `sync`, `insights`, `backend` |
-| `ui` | Screens and components. The only package that knows about Compose. | everything above |
+| `library` | The recordings the user owns, as one list: local state, sync state and results composed for presentation. | `recording`, `sync`, `insights`, `backend`, `diagnostics` |
+| `ui` | Screens and components. The only package that knows about Compose. | every other package |
 | `diagnostics` | Logging and crash evidence. A leaf. | nothing |
 
 The direction is strict: a package never imports one that is not in its row. An
 architecture test fails the build when it does, so the structure is enforced rather than
 remembered. A needed dependency that is not allowed is a signal to move code, not to widen
-the table.
+the table. A new package needs a row first: the test also fails for a package that is not
+in the table.
 
-Two rules inside that:
+Two things sit outside the table:
+
+- **The root package is the app's wiring**: `TaigaApplication`, `MainActivity`,
+  `AppSettings`. It may depend on everything and nothing else may depend on it, apart from
+  the generated `R` and `BuildConfig`. This is where packages that must not know each
+  other are connected: `recording` defines what it needs from the rest of the app
+  (`RecordingHooks`: may it start, what are the phone's readiness settings, a recording
+  ended) and the wiring answers with `guard` and `sync`.
+- **`debug` is a build-variant seam, not a package of the app.** `src/debug` holds the
+  debug-only tools and `src/release` an empty twin with the same API (see
+  [`debug-build.md`](debug-build.md)), so any package may use `debug`. It stands in for
+  types of `tracker` (the simulated sensor) and `guard` (the guidance preview picker, a
+  Compose dialog), and may use those two and nothing else.
+
+Two rules inside the packages:
 
 - **One type per fact.** A recording on the phone, a recording on the backend and an
   analysis are three different types. `library` composes them for display; nothing else

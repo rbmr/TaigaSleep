@@ -1,6 +1,6 @@
 package com.rbmr.taigasleep.ui.components
 
-import com.rbmr.taigasleep.remote.HrSeriesDto
+import com.rbmr.taigasleep.backend.HrSeriesDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
