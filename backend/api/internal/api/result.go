@@ -23,17 +23,6 @@ type stageTimeline struct {
 	Segments     []stageSegment `json:"segments"`
 }
 
-type hrSeries struct {
-	EpochSeconds int        `json:"epoch_seconds"`
-	Count        int        `json:"count"`
-	MeanBPM      []*float64 `json:"mean_bpm"`
-	SampleCount  []int      `json:"sample_count,omitempty"`
-}
-
-type sleepQuality struct {
-	Score *float64 `json:"score"`
-}
-
 type scoreComponent struct {
 	ID     string  `json:"id"`
 	Label  string  `json:"label"`
@@ -61,12 +50,7 @@ type resultEnvelope struct {
 	Model           string         `json:"model"`
 	ModelVersion    string         `json:"model_version"`
 	Stages          stageTimeline  `json:"stages"`
-	Hr              *hrSeries      `json:"hr"`
-	Metrics         map[string]any `json:"metrics"`
-	MetricSupport   map[string]any `json:"metric_support"`
 	Items           []resultItem   `json:"items"`
-	Quality         map[string]any `json:"quality"`
-	SleepQuality    *sleepQuality  `json:"sleep_quality"`
 	Capabilities    map[string]any `json:"capabilities"`
 	Provenance      map[string]any `json:"provenance"`
 }
@@ -100,27 +84,14 @@ func parseResult(raw json.RawMessage) (resultEnvelope, error) {
 	if covered != result.Stages.Count {
 		return result, fmt.Errorf("stage segments do not cover every epoch")
 	}
-	if hr := result.Hr; hr != nil {
-		if hr.EpochSeconds <= 0 || hr.Count < 1 {
-			return result, fmt.Errorf("analysis result has an invalid heart-rate series")
-		}
-		if len(hr.MeanBPM) != hr.Count {
-			return result, fmt.Errorf("heart-rate means do not cover every epoch")
-		}
-		if hr.SampleCount != nil && len(hr.SampleCount) != hr.Count {
-			return result, fmt.Errorf("heart-rate sample counts do not cover every epoch")
-		}
+	if result.ContractVersion < 3 {
+		return result, fmt.Errorf("analysis result uses contract version %d, want 3", result.ContractVersion)
 	}
-	if score := result.SleepQuality; score != nil && score.Score != nil && (*score.Score < 0 || *score.Score > 100) {
-		return result, fmt.Errorf("sleep score must be between 0 and 100")
+	if result.Capabilities == nil || result.Provenance == nil {
+		return result, fmt.Errorf("analysis result is missing capabilities or provenance")
 	}
-	if result.Metrics == nil || result.Quality == nil || result.Capabilities == nil || result.Provenance == nil {
-		return result, fmt.Errorf("analysis result is missing metrics, quality, capabilities or provenance")
-	}
-	if result.ContractVersion >= 2 {
-		if err := validateItems(result.Items); err != nil {
-			return result, err
-		}
+	if err := validateItems(result.Items); err != nil {
+		return result, err
 	}
 	return result, nil
 }
@@ -173,18 +144,14 @@ func validateItems(items []resultItem) error {
 }
 
 // summaryOf derives the small headline stored next to a result: what a list of
-// recordings shows without loading the full result.
+// recordings shows without loading the full result. The stage timeline stays
+// compact, and the scores are the id and value of each score item.
 func summaryOf(raw json.RawMessage) map[string]any {
 	var full map[string]any
 	if err := json.Unmarshal(raw, &full); err != nil {
 		return map[string]any{}
 	}
 	summary := map[string]any{}
-	for _, name := range []string{"metrics", "quality", "sleep_quality"} {
-		if value, ok := full[name]; ok {
-			summary[name] = value
-		}
-	}
 	if stages, ok := full["stages"].(map[string]any); ok {
 		summary["stages"] = map[string]any{
 			"epoch_seconds": stages["epoch_seconds"],
@@ -192,6 +159,19 @@ func summaryOf(raw json.RawMessage) map[string]any {
 			"count":         stages["count"],
 			"segments":      stages["segments"],
 		}
+	}
+	scores := []map[string]any{}
+	if items, ok := full["items"].([]any); ok {
+		for _, entry := range items {
+			item, ok := entry.(map[string]any)
+			if !ok || item["kind"] != "score" {
+				continue
+			}
+			scores = append(scores, map[string]any{"id": item["id"], "value": item["value"]})
+		}
+	}
+	if len(scores) > 0 {
+		summary["scores"] = scores
 	}
 	return summary
 }

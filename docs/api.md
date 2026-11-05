@@ -133,7 +133,7 @@ not update.
   "updated": "2026-10-24T05:58:03Z",
   "finished_at": "2026-10-24T05:58:03Z",
   "summary": { "...": "headline figures, small" },
-  "result": { "contract_version": 2, "...": "see analysis-contract.md" }
+  "result": { "contract_version": 3, "...": "see analysis-contract.md" }
 }
 ```
 

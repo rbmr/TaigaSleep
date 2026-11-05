@@ -26,15 +26,10 @@ def test_full_result_is_json_serializable_and_model_agnostic(tmp_path: Path) -> 
     assert sum(item["count"] for item in payload["stages"]["segments"]) == 4
     assert len(payload["stages"]["confidence"]) == 4
     assert len(payload["stages"]["artifacts"]) == 4
-    assert payload["hr"]["epoch_seconds"] == 30
-    assert payload["hr"]["count"] == 4
-    assert len(payload["hr"]["mean_bpm"]) == 4
-    assert payload["hr"]["mean_bpm"][0] == pytest.approx(60.0, abs=0.2)
-    assert len(payload["hr"]["sample_count"]) == 4
-    assert "metrics" in payload
-    assert "metric_support" in payload
-    assert "quality" in payload
-    assert payload["sleep_quality"]["score"] is not None
+    assert "items" in payload and payload["items"]
+    assert "hr" not in payload
+    assert "metrics" not in payload
+    assert "quality" not in payload
     assert "capabilities" in payload
     assert "provenance" in payload
     assert payload["capabilities"]["stages"]
@@ -120,7 +115,7 @@ def test_typed_items_carry_their_own_labels_units_and_sources(tmp_path: Path) ->
     series = [item for item in items if item["kind"] == "series"]
     assert len(series) == 1
     assert series[0]["id"] == "hr"
-    assert series[0]["series"]["count"] == payload["hr"]["count"]
+    assert series[0]["series"]["count"] == payload["stages"]["count"]
 
 
 def test_items_omit_metrics_the_algorithm_does_not_support() -> None:

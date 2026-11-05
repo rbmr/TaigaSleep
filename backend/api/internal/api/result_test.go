@@ -1,6 +1,9 @@
 package api
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func item(kind, id string) resultItem {
 	value := 50.0
@@ -40,5 +43,37 @@ func TestValidateItems(t *testing.T) {
 		if err := validateItems(mutate(items)); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+func TestSummaryHasStagesAndScoresOnly(t *testing.T) {
+	result := map[string]any{
+		"stages": map[string]any{
+			"epoch_seconds": 30.0, "start_unix_ms": 1.0, "count": 2.0,
+			"segments": []any{map[string]any{"stage": "light", "count": 2.0}},
+		},
+		"items": []any{
+			map[string]any{"kind": "number", "id": "total_duration_s", "value": 60.0},
+			map[string]any{"kind": "score", "id": "sleep_quality", "value": 78.0},
+			map[string]any{"kind": "score", "id": "data_quality", "value": 91.0},
+		},
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary := summaryOf(raw)
+	if _, ok := summary["metrics"]; ok {
+		t.Fatal("summary kept metrics")
+	}
+	scores, ok := summary["scores"].([]map[string]any)
+	if !ok || len(scores) != 2 {
+		t.Fatalf("scores = %#v", summary["scores"])
+	}
+	if scores[0]["id"] != "sleep_quality" || scores[0]["value"] != 78.0 {
+		t.Fatalf("score = %#v", scores[0])
+	}
+	if _, ok := summary["stages"]; !ok {
+		t.Fatal("summary lost stages")
 	}
 }

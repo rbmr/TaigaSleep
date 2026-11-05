@@ -4,7 +4,7 @@ import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.AnalysisListDto
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.backend.RecordingDto
-import com.rbmr.taigasleep.backend.SleepQualityDto
+import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.backend.StageTimelineDto
 import com.rbmr.taigasleep.backend.StubTaigaClient
@@ -73,7 +73,17 @@ private fun withResult(analysis: AnalysisDto, score: Double = 81.0) =
                 model = "baseline",
                 model_version = "1.0.0",
                 stages = StageTimelineDto(count = 2, segments = listOf(StageSegmentDto("light", 2))),
-                sleep_quality = SleepQualityDto(score = score),
+                items =
+                    listOf(
+                        ResultItemDto(
+                            kind = "score",
+                            id = "sleep_quality",
+                            label = "Sleep score",
+                            group = "score",
+                            unit = "%",
+                            value = score,
+                        )
+                    ),
             )
     )
 
@@ -111,7 +121,7 @@ class AnalysisSyncTest {
     val snapshot = refresh(client)
 
     assertEquals("a1", snapshot.shown?.id)
-    assertEquals(81.0, snapshot.shown?.result?.sleep_quality?.score ?: 0.0, 0.001)
+    assertEquals(81.0, snapshot.shown?.result?.items?.single()?.value ?: 0.0, 0.001)
     val record = store.record("r1")!!
     assertEquals(UploadPhase.DONE, record.phase)
     assertEquals("a1", record.analysisId)
@@ -133,7 +143,7 @@ class AnalysisSyncTest {
     val again = refresh(client)
 
     assertTrue(client.fetched.isEmpty())
-    assertEquals(81.0, again.shown?.result?.sleep_quality?.score ?: 0.0, 0.001)
+    assertEquals(81.0, again.shown?.result?.items?.single()?.value ?: 0.0, 0.001)
     assertEquals(UploadPhase.DONE, store.record("r1")?.phase)
   }
 

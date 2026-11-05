@@ -270,7 +270,7 @@ def derive(
     hrv_metrics, hrv_support = _hrv_metrics(recording, beats_s)
     movement_metrics, movement_support = _movement_metrics(recording, grid)
 
-    stage_metric_support = "supported" if scored_count > 0 else "insufficient_data"
+    stage_support_status = "supported" if scored_count > 0 else "insufficient_data"
     metrics: dict[str, Any] = {
         "total_duration_s": total_duration,
         "scored_duration_s": scored_duration,
@@ -299,8 +299,8 @@ def derive(
         "final_awakening_s",
     ):
         support[key] = _support(
-            stage_metric_support,
-            None if stage_metric_support == "supported" else "no_scored_epochs",
+            stage_support_status,
+            None if stage_support_status == "supported" else "no_scored_epochs",
         )
     support.update(stage_support)
     support.update(hr_support)

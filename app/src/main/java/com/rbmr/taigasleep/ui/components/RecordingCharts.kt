@@ -73,13 +73,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.HrSeriesDto
-import com.rbmr.taigasleep.backend.MetricSupportDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.insights.applicableStages
 import com.rbmr.taigasleep.insights.formatSeconds
 import com.rbmr.taigasleep.insights.stageLabelRes
 import com.rbmr.taigasleep.insights.stageSeconds
 import com.rbmr.taigasleep.ui.theme.taiga
+import kotlinx.serialization.json.JsonObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -555,10 +555,10 @@ fun SleepStagesChart(
     startUnixMs: Long,
     modifier: Modifier = Modifier,
     chartHeight: Int = 176,
-    support: Map<String, MetricSupportDto>? = null,
+    capabilities: JsonObject? = null,
     fullscreen: Boolean = false,
 ) {
-  val lanes = applicableStages(segments, support).ifEmpty { listOf("unknown") }
+  val lanes = applicableStages(segments, capabilities).ifEmpty { listOf("unknown") }
   val total = segments.sumOf { it.count }.coerceAtLeast(1)
   val totalSeconds = total.toLong() * epochSeconds.coerceAtLeast(1)
   val endUnixMs = if (startUnixMs > 0) startUnixMs + totalSeconds * 1000L else 0L
@@ -726,12 +726,12 @@ fun HeartRateChart(
 fun StageBreakdown(
     segments: List<StageSegmentDto>,
     epochSeconds: Int,
-    support: Map<String, MetricSupportDto>?,
     modifier: Modifier = Modifier,
+    capabilities: JsonObject? = null,
 ) {
   val durations = stageSeconds(segments, epochSeconds)
   val total = durations.values.sum().coerceAtLeast(1)
-  val stages = applicableStages(segments, support)
+  val stages = applicableStages(segments, capabilities)
   Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
     for (stage in stages) {
       val seconds = durations[stage] ?: 0L
@@ -788,17 +788,6 @@ private fun RecordingChartsPreview() {
           StageSegmentDto("light", 5),
           StageSegmentDto("unknown", 1),
       )
-  val support =
-      listOf("wake", "rem", "light", "deep").associate {
-        "time_in_${it}_s" to com.rbmr.taigasleep.backend.MetricSupportDto("supported")
-      } +
-          listOf("nrem", "sleep").associate {
-            "time_in_${it}_s" to
-                com.rbmr.taigasleep.backend.MetricSupportDto(
-                    "unsupported_algorithm",
-                    "algorithm_does_not_distinguish_$it",
-                )
-          }
   PreviewTheme {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
       ScoreBadge(82.0, "Sleep score", "No sleep score")
@@ -810,9 +799,8 @@ private fun RecordingChartsPreview() {
         epochSeconds = 30,
         startUnixMs = 1_790_000_000_000,
         chartHeight = 140,
-        support = support,
     )
-    StageBreakdown(segments = segments, epochSeconds = 30, support = support)
+    StageBreakdown(segments = segments, epochSeconds = 30)
     HeartRateChart(
         series =
             HrSeriesDto(

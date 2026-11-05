@@ -1097,7 +1097,14 @@ def test_analyses_are_listed_without_their_result_unless_asked(api: Backend) -> 
     assert (plain["total"], plain["limit"], plain["offset"]) == (2, 50, 0)
     assert [item["id"] for item in plain["items"]] == [waiting["id"], done["id"]]  # newest first
     assert all("result" not in item for item in plain["items"])
-    assert plain["items"][1]["summary"]["metrics"] == sent["metrics"]
+    assert (
+        plain["items"][1]["summary"]["scores"]
+        == [
+            {"id": item["id"], "value": item["value"]}
+            for item in sent["items"]
+            if item["kind"] == "score"
+        ]
+    )
     assert plain["items"][0]["summary"] is None
 
     expanded = api.get(f"{path}?expand=result", token=user, expect=200).json()["items"]
@@ -1265,9 +1272,11 @@ def test_a_worker_completes_what_it_claimed(api: Backend) -> None:
     assert stored["result"] == sent
     assert stored["result"]["extras"] == {"anything": [1, {"else": True}]}
     assert stored["summary"] == {
-        "metrics": sent["metrics"],
-        "quality": sent["quality"],
-        "sleep_quality": sent["sleep_quality"],
+        "scores": [
+            {"id": item["id"], "value": item["value"]}
+            for item in sent["items"]
+            if item["kind"] == "score"
+        ],
         "stages": {
             "epoch_seconds": 30,
             "start_unix_ms": sent["stages"]["start_unix_ms"],
@@ -1542,9 +1551,17 @@ INVALID_RESULTS = {
             "segments": [{"stage": "wake", "count": 2}],
         },
     ),
-    "an hr series of the wrong length": lambda a: result(a, hr={"epoch_seconds": 30, "count": 4, "mean_bpm": [60.0]}),
-    "a score above 100": lambda a: result(a, sleep_quality={"score": 101}),
-    "no metrics": lambda a: {k: v for k, v in result(a).items() if k != "metrics"},
+    "no items": lambda a: result(a, items=[]),
+    "an unknown item kind": lambda a: result(a, items=[{**result(a)["items"][0], "kind": "other"}]),
+    "a score above 100": lambda a: result(
+        a, items=[{**result(a)["items"][1], "value": 101.0}]
+    ),
+    "a duplicate item": lambda a: result(
+        a, items=[result(a)["items"][0], result(a)["items"][0]]
+    ),
+    "an item without a source": lambda a: result(
+        a, items=[{**result(a)["items"][0], "sources": []}]
+    ),
     "no provenance": lambda a: {k: v for k, v in result(a).items() if k != "provenance"},
     "a result that is no object": lambda a: "a string",
 }
@@ -1578,9 +1595,7 @@ def test_a_valid_result_may_leave_out_the_optional_parts(api: Backend) -> None:
     algorithm, _, analysis = queued_analysis(api)
     api.claim(api.worker, algorithm, expect=200)
     minimal = {
-        k: v
-        for k, v in result(algorithm, hr=None, sleep_quality=None).items()
-        if k not in ("extras", "warnings", "metric_support")
+        k: v for k, v in result(algorithm).items() if k not in ("extras", "warnings")
     }
 
     api.post(
@@ -1660,12 +1675,7 @@ def test_the_worker_analyses_a_recording_end_to_end(api: Backend, baseline: str)
         "params",
         "params_hash",
         "stages",
-        "hr",
-        "metrics",
-        "metric_support",
         "items",
-        "quality",
-        "sleep_quality",
         "capabilities",
         "provenance",
         "extras",
@@ -1675,12 +1685,22 @@ def test_the_worker_analyses_a_recording_end_to_end(api: Backend, baseline: str)
     assert sent["model"] == "baseline" and sent["model_version"] == baseline
     assert sent["stages"]["count"] == 4 and sent["stages"]["epoch_seconds"] == 30
     assert sum(segment["count"] for segment in sent["stages"]["segments"]) == 4
-    assert sent["hr"]["count"] == 4
-    assert sent["quality"]["score"] is not None
+    assert set(sent) == {
+        "contract_version", "model", "model_version", "params", "params_hash",
+        "stages", "items", "capabilities", "provenance", "extras", "warnings",
+    }
+    assert {item["kind"] for item in sent["items"]} >= {"number", "series", "score"}
     assert sent["provenance"]["worker"] == "integration-worker"
     assert sent["provenance"]["recording"]["session_id"] == recording
     assert analysis["summary"]["stages"]["segments"] == sent["stages"]["segments"]
-    assert analysis["summary"]["metrics"] == sent["metrics"]
+    assert {
+        score["id"]: score["value"]
+        for score in analysis["summary"]["scores"]
+    } == {
+        item["id"]: item["value"]
+        for item in sent["items"]
+        if item["kind"] == "score"
+    }
     # The worker read the recording through its lease, which it no longer holds.
     assert_error(api.get(f"/v1/recordings/{recording}", token=api.workers["real"]), 404, "not_found")
     # And the result is what comes back for the same request.
@@ -1702,7 +1722,7 @@ def test_plain_and_compressed_uploads_give_the_same_analysis(api: Backend, basel
 
     first, second = (finished(api, analysis_id) for analysis_id in ids)
     assert first["status"] == second["status"] == "succeeded", (first["error"], second["error"])
-    for key in ("stages", "hr", "metrics", "quality", "sleep_quality"):
+    for key in ("stages", "items"):
         assert first["result"][key] == second["result"][key], key
     source = first["result"]["provenance"]["recording"]["source"]
     assert source["encoding"] == "identity"

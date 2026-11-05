@@ -393,7 +393,9 @@ fun AnalysisDto.toRun(downloaded: Boolean = false): Analysis {
       error = error.takeIf { it.isNotBlank() },
       epochSeconds = stages?.epoch_seconds ?: summarized?.epoch_seconds ?: 30,
       segments = stages?.segments ?: summarized?.segments.orEmpty(),
-      sleepScore = result?.sleep_quality?.score ?: summary?.sleep_quality?.score,
+      sleepScore =
+          result?.items?.firstOrNull { it.id == "sleep_quality" }?.value
+              ?: summary?.scores?.firstOrNull { it.id == "sleep_quality" }?.value,
       createdAtMs = parseApiDate(created),
       updatedAtMs = parseApiDate(updated),
       resultDownloaded = downloaded,

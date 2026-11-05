@@ -39,10 +39,13 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _stage_seconds(metrics: dict) -> dict:
+def _stage_seconds(stages: dict) -> dict:
     names = ("wake", "rem", "nrem", "light", "deep", "sleep")
-    result = {name: metrics.get(f"time_in_{name}_s") for name in names}
-    result["unscored"] = metrics.get("unscored_s")
+    result = {name: 0 for name in names}
+    epoch_seconds = stages.get("epoch_seconds") or 0
+    for segment in stages.get("segments") or []:
+        if segment.get("stage") in result:
+            result[segment["stage"]] += segment.get("count", 0) * epoch_seconds
     return result
 
 
@@ -96,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     provenance = analysis.get("provenance") or {}
-    metrics = analysis.get("metrics") or {}
+    stages = analysis.get("stages") or {}
     input_bytes = sum(
         path.stat().st_size for path in recording.iterdir() if path.is_file()
     )
@@ -109,10 +112,13 @@ def main(argv: list[str] | None = None) -> int:
         "analysis_runtime_s": provenance.get("runtime_s"),
         "wall_time_s": round(wall_time, 3),
         "peak_rss_mb": provenance.get("peak_rss_mb"),
-        "stage_seconds": _stage_seconds(metrics),
-        "quality": analysis.get("quality"),
+        "stage_seconds": _stage_seconds(stages),
+        "scores": {
+            item.get("id"): item.get("value")
+            for item in analysis.get("items") or []
+            if item.get("kind") == "score"
+        },
         "warnings": analysis.get("warnings"),
-        "metric_support": analysis.get("metric_support"),
     }
     print(json.dumps(summary, indent=2))
     return 0

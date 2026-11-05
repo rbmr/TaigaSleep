@@ -1,8 +1,6 @@
 package com.rbmr.taigasleep.backend
 
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.double
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -34,11 +32,9 @@ class AnalysisDtoTest {
               "updated": "2026-10-24T05:58:03Z",
               "finished_at": "2026-10-24T05:58:03Z",
               "summary": {
-                "metrics": {"total_sleep_s": 25000.0},
-                "quality": {"score": 83.4},
-                "sleep_quality": {"score": 79.0},
                 "stages": {"epoch_seconds": 30, "start_unix_ms": 1000, "count": 3,
-                           "segments": [{"stage": "wake", "count": 1}, {"stage": "light", "count": 2}]}
+                           "segments": [{"stage": "wake", "count": 1}, {"stage": "light", "count": 2}]},
+                "scores": [{"id": "sleep_quality", "value": 79.0}]
               },
               "result": {
                 "contract_version": 3,
@@ -49,17 +45,6 @@ class AnalysisDtoTest {
                 "stages": {"epoch_seconds": 30, "start_unix_ms": 1000, "count": 3,
                            "segments": [{"stage": "wake", "count": 1}, {"stage": "light", "count": 2}],
                            "confidence": [0.9, 0.8, 0.7], "artifacts": [false, false, false]},
-                "metrics": {"total_sleep_s": 60.0, "sleep_efficiency": 0.85, "hrv_rmssd_ms": null},
-                "metric_support": {
-                  "total_sleep_s": {"status": "supported"},
-                  "hrv_rmssd_ms": {"status": "insufficient_data",
-                                   "reason": "need_at_least_120_rr_intervals"}
-                },
-                "quality": {"score": 83.4, "weights_version": 1,
-                            "components": {"usable_epoch_coverage":
-                                           {"value": 0.9, "weight": 0.35, "available": true}},
-                            "notes": []},
-                "sleep_quality": {"score": 79.0, "components_version": 1},
                 "items": [
                   {"kind": "number", "id": "total_sleep_s", "label": "Total asleep",
                    "group": "sleep", "unit": "s", "value": 60.0,
@@ -73,6 +58,8 @@ class AnalysisDtoTest {
                    "unit": "bpm", "explanation": "Mean heart rate per epoch.", "sources": ["hr"],
                    "series": {"epoch_seconds": 30, "count": 1, "mean_bpm": [58.0]}}
                 ],
+                "capabilities": {"stages": true},
+                "provenance": {"worker": "test"},
                 "warnings": ["short night"]
               }
             }
@@ -86,21 +73,13 @@ class AnalysisDtoTest {
     assertFalse(analysis.isFailed)
     assertEquals(1, analysis.attempts)
     assertEquals("2026-10-24T05:58:03Z", analysis.finished_at)
-    assertEquals(79.0, analysis.summary?.sleep_quality?.score ?: 0.0, 0.001)
+    assertEquals(79.0, analysis.summary?.scores?.single()?.value ?: 0.0, 0.001)
     assertEquals(3, analysis.summary?.stages?.count)
 
     val result = analysis.result
     assertEquals(3, result?.contract_version)
     assertEquals(3, result?.stages?.count)
     assertEquals("light", result?.stages?.segments?.get(1)?.stage)
-    assertEquals(0.85, result?.metrics?.get("sleep_efficiency")?.jsonPrimitive?.double)
-    assertEquals("insufficient_data", result?.metric_support?.get("hrv_rmssd_ms")?.status)
-    assertEquals(83.4, result?.quality?.score ?: 0.0, 0.001)
-    assertEquals(
-        0.9,
-        result?.quality?.components?.get("usable_epoch_coverage")?.value ?: 0.0,
-        0.001,
-    )
     assertEquals(listOf("short night"), result?.warnings)
     assertEquals(3, result?.items?.size)
     val number = result?.items?.first { it.kind == "number" }
@@ -123,7 +102,7 @@ class AnalysisDtoTest {
               "params": {}, "status": "succeeded", "error": "", "attempts": 1,
               "created": "2026-10-24T05:52:40Z", "updated": "2026-10-24T05:58:03Z",
               "finished_at": "2026-10-24T05:58:03Z",
-              "summary": {"quality": {"score": 80},
+              "summary": {"scores": [{"id": "data_quality", "value": 80.0}],
                           "stages": {"epoch_seconds": 30, "count": 1,
                                      "segments": [{"stage": "light", "count": 1}]}}
             }
@@ -131,7 +110,7 @@ class AnalysisDtoTest {
         )
 
     assertNull(analysis.result)
-    assertEquals(80.0, analysis.summary?.quality?.score ?: 0.0, 0.001)
+    assertEquals(80.0, analysis.summary?.scores?.single()?.value ?: 0.0, 0.001)
     assertEquals("light", analysis.summary?.stages?.segments?.get(0)?.stage)
   }
 
@@ -165,51 +144,30 @@ class AnalysisDtoTest {
   }
 
   @Test
-  fun anOldResultWithoutASleepScoreOrHrSeriesStillLoads() {
-    val result =
-        json.decodeFromString<AnalysisResultDto>(
-            """
-            {
-              "contract_version": 2,
-              "quality": {"score": 88.0, "components": {}, "notes": []},
-              "stages": {"epoch_seconds": 30, "count": 1, "segments": [{"stage": "light", "count": 1}]},
-              "metrics": {"hr_mean_bpm": 60.0}
-            }
-            """
-        )
-
-    assertNull(result.sleep_quality)
-    assertNull(result.hr)
-    assertEquals(88.0, result.quality?.score ?: 0.0, 0.001)
-  }
-
-  @Test
-  fun aNewResultKeepsTheSleepScoreAndHrGaps() {
+  fun theHeartRateSeriesKeepsItsGaps() {
     val result =
         json.decodeFromString<AnalysisResultDto>(
             """
             {
               "contract_version": 3,
-              "sleep_quality": {
-                "score": 79.0,
-                "components_version": 1,
-                "components": {},
-                "notes": []
-              },
-              "hr": {
-                "epoch_seconds": 30,
-                "start_unix_ms": 1790000000000,
-                "count": 3,
-                "mean_bpm": [60.0, null, 58.0],
-                "sample_count": [30, 0, 30]
-              }
+              "items": [
+                {"kind": "series", "id": "hr", "label": "Heart rate", "group": "heart",
+                 "unit": "bpm", "explanation": "Mean heart rate per epoch.", "sources": ["hr"],
+                 "series": {
+                   "epoch_seconds": 30,
+                   "start_unix_ms": 1790000000000,
+                   "count": 3,
+                   "mean_bpm": [60.0, null, 58.0],
+                   "sample_count": [30, 0, 30]
+                 }}
+              ]
             }
             """
         )
 
-    assertEquals(79.0, result.sleep_quality?.score ?: 0.0, 0.001)
-    assertEquals(listOf(60.0, null, 58.0), result.hr?.mean_bpm)
-    assertEquals(3, result.hr?.count)
+    val series = result.items.single().series
+    assertEquals(listOf(60.0, null, 58.0), series?.mean_bpm)
+    assertEquals(3, series?.count)
   }
 
   @Test
