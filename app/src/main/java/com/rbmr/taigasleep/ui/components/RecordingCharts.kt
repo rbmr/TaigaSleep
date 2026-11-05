@@ -778,7 +778,7 @@ private fun clock(ms: Long): String =
 @Preview(name = "Light", widthDp = 360)
 @Preview(name = "Dark", widthDp = 360, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
 @Composable
-private fun NightChartsPreview() {
+private fun RecordingChartsPreview() {
   val segments =
       listOf(
           StageSegmentDto("wake", 2),

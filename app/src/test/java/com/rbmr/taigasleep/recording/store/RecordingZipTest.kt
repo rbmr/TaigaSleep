@@ -7,7 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class SessionZipTest {
+class RecordingZipTest {
   @Test
   fun zippingReportsProgressForEveryChunkAndEndsAtOne() {
     val root = Files.createTempDirectory("taiga-zip").toFile()
@@ -17,7 +17,7 @@ class SessionZipTest {
     val out = File(root, "night.zip")
     val progress = mutableListOf<Float>()
 
-    SessionStore(root).zip("night", out) { progress += it }
+    RecordingStore(root).zip("night", out) { progress += it }
 
     assertTrue(progress.isNotEmpty())
     assertTrue(progress.all { it in 0f..1f })

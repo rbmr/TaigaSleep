@@ -3,7 +3,7 @@ package com.rbmr.taigasleep.sync
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.TaigaClient
 import com.rbmr.taigasleep.insights.AnalysisSettings
-import com.rbmr.taigasleep.recording.store.SessionConfig
+import com.rbmr.taigasleep.recording.store.RecordingConfig
 import kotlinx.coroutines.CancellationException
 
 /** The server's newly requested run. */
@@ -14,7 +14,7 @@ data class StartedAnalysis(
 
 /** The automatic choice is null when automatic analysis is off. */
 fun autoChoice(
-    config: SessionConfig,
+    config: RecordingConfig,
     algorithms: List<AlgorithmDto>,
     settings: AnalysisSettings,
 ): StagerChoice? =
@@ -22,7 +22,7 @@ fun autoChoice(
 
 /** Manual choices ignore the automatic setting and the configured order. */
 fun manualChoices(
-    config: SessionConfig,
+    config: RecordingConfig,
     algorithms: List<AlgorithmDto>,
     ids: List<String>,
 ): List<StagerChoice> = selectStagers(config, algorithms, ids)
@@ -36,7 +36,7 @@ object AnalysisService {
   suspend fun startAuto(
       client: TaigaClient,
       recordingId: String,
-      config: SessionConfig,
+      config: RecordingConfig,
       settings: AnalysisSettings,
   ): StartedAnalysis? {
     if (!settings.auto) return null
@@ -48,7 +48,7 @@ object AnalysisService {
   suspend fun startPreferred(
       client: TaigaClient,
       recordingId: String,
-      config: SessionConfig,
+      config: RecordingConfig,
       settings: AnalysisSettings,
   ): StartedAnalysis {
     val choice = selectStager(config, installed(client), settings.preferenceOrder)
@@ -59,7 +59,7 @@ object AnalysisService {
   suspend fun startManual(
       client: TaigaClient,
       recordingId: String,
-      config: SessionConfig,
+      config: RecordingConfig,
       ids: List<String>,
   ): List<StartedAnalysis> {
     val choices = manualChoices(config, installed(client), ids)

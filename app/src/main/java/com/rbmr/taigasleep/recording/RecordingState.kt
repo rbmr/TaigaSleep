@@ -4,14 +4,14 @@ package com.rbmr.taigasleep.recording
  * Immutable snapshot of one live recording. Owned and derived only by [RecordingMonitor]; the UI,
  * the notification and the repository only format it.
  *
- * Times are milliseconds. [Session.observedAtElapsedMs] and every `sinceElapsedMs`, `ageMs` and
- * [Session.elapsedMs] are on the monotonic elapsed-realtime clock; [Session.observedAtUtcMs] and
- * [Session.startUtcMs] are wall clock. Consumers must not compute ages from a mixture of the two.
+ * Times are milliseconds. [Capture.observedAtElapsedMs] and every `sinceElapsedMs`, `ageMs` and
+ * [Capture.elapsedMs] are on the monotonic elapsed-realtime clock; [Capture.observedAtUtcMs] and
+ * [Capture.startUtcMs] are wall clock. Consumers must not compute ages from a mixture of the two.
  *
  * No Android types: a backend or a reader can serialise the same fields.
  */
 data class RecordingState(
-    val session: Session = Session(),
+    val capture: Capture = Capture(),
     val link: Link = Link(),
     val contact: Contact = Contact(),
     /** Only the streams enabled in the session config. */
@@ -28,7 +28,7 @@ data class RecordingState(
     STOPPING,
   }
 
-  data class Session(
+  data class Capture(
       val id: String = "",
       val sensorId: String = "",
       val sensorName: String = "",

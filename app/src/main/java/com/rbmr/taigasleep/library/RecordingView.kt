@@ -6,9 +6,11 @@ import com.rbmr.taigasleep.backend.RecordingSummaryDto
 import com.rbmr.taigasleep.backend.RecordingSummaryListDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.insights.StagerPreference
-import com.rbmr.taigasleep.recording.store.SessionInfo
-import com.rbmr.taigasleep.recording.store.SessionState
+import com.rbmr.taigasleep.recording.store.Recording
+import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.sync.UploadFailure
+import com.rbmr.taigasleep.sync.UploadPhase
+import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.recordingIdOf
 import com.rbmr.taigasleep.sync.remoteKey
 import java.text.SimpleDateFormat
@@ -18,16 +20,16 @@ import java.util.Locale
 
 /**
  * The one display state of a night. It is derived from the two independent layers below:
- * where the bytes are ([BackupState]) and which analyses exist ([AnalysisRun]).
+ * where the bytes are ([BackupState]) and which analyses exist ([Analysis]).
  */
-enum class NightStatus {
+enum class RecordingStatus {
   /** The recorder is still writing this night. */
   RECORDING,
   /** No server copy exists. */
   LOCAL_ONLY,
   /** An upload is queued or waiting for its network conditions. */
   QUEUED,
-  /** Bytes are moving; see [Night.progress]. */
+  /** Bytes are moving; see [RecordingView.progress]. */
   UPLOADING,
   /** The night is on the server and an analysis is queued, running or not requested yet. */
   PROCESSING,
@@ -72,7 +74,7 @@ enum class AnalysisOrigin {
 }
 
 /** One requested result. It corresponds to exactly one result once it finishes. */
-data class AnalysisRun(
+data class Analysis(
     val id: String,
     val algorithm: String,
     val version: String,
@@ -87,21 +89,8 @@ data class AnalysisRun(
     val resultDownloaded: Boolean = false,
 )
 
-/** The durable part of a night that the app owns. Raw bytes live beside it as files. */
-data class NightRecord(
-    val id: String,
-    /** The server has a copy of this recording, so it exists there under [id]. */
-    val onServer: Boolean = false,
-    val backup: BackupState = BackupState(),
-    val analyses: List<AnalysisRun> = emptyList(),
-    val selectedAnalysisId: String? = null,
-    val keepRawOnPhone: Boolean = false,
-    val manualAnalysisIds: List<String> = emptyList(),
-    val updatedAtMs: Long = 0,
-)
-
 /** A snapshot served to the UI. The server copy is never required to draw a night. */
-data class Night(
+data class RecordingView(
     val key: String,
     val localId: String?,
     val remoteId: String?,
@@ -109,20 +98,20 @@ data class Night(
     val endUtcMs: Long?,
     val durationMs: Long,
     val device: String,
-    val status: NightStatus,
+    val status: RecordingStatus,
     val progress: Float,
     val failure: UploadFailure?,
     val errorDetail: String?,
     val warning: String?,
-    val analyses: List<AnalysisRun>,
+    val analyses: List<Analysis>,
     val selectedAnalysisId: String?,
     val backup: BackupState,
-    val local: SessionInfo?,
+    val local: Recording?,
     val remote: RecordingDto?,
     /** True only when the full payload of the selected analysis is cached on this phone. */
     val resultDownloaded: Boolean,
 ) {
-  val selectedAnalysis: AnalysisRun?
+  val selectedAnalysis: Analysis?
     get() = analyses.firstOrNull { it.id == selectedAnalysisId }
 
   val analysisId: String?
@@ -144,10 +133,10 @@ data class Night(
     get() = selectedAnalysis?.version?.takeIf { it.isNotBlank() }
 
   val isDone: Boolean
-    get() = status == NightStatus.READY
+    get() = status == RecordingStatus.READY
 
   val isRecording: Boolean
-    get() = local?.state == SessionState.RECORDING
+    get() = local?.state == RecordingPhase.RECORDING
 
   val onServer: Boolean
     get() = remoteId != null
@@ -170,23 +159,23 @@ data class Night(
  * The phone's recording id is the server's recording id, so a local night and its server copy are
  * matched by id.
  */
-fun buildNights(
-    localSessions: List<SessionInfo>,
-    records: Map<String, NightRecord>,
+fun buildRecordings(
+    recordings: List<Recording>,
+    records: Map<String, UploadRecord>,
     remote: RecordingSummaryListDto?,
-    overrides: Map<String, NightRemoteOverride> = emptyMap(),
-): List<Night> {
+    overrides: Map<String, RemoteOverride> = emptyMap(),
+): List<RecordingView> {
   val byId = remote?.items?.associateBy { it.recording.id }.orEmpty()
-  val localIds = localSessions.map { it.id }.toSet()
-  val nights = mutableListOf<Night>()
-  for (session in localSessions) {
+  val localIds = recordings.map { it.id }.toSet()
+  val nights = mutableListOf<RecordingView>()
+  for (recording in recordings) {
     nights +=
         buildNight(
-            key = session.id,
-            local = session,
-            summary = byId[session.id],
-            record = records[session.id],
-            override = overrides[session.id],
+            key = recording.id,
+            local = recording,
+            summary = byId[recording.id],
+            record = records[recording.id],
+            override = overrides[recording.id],
         )
   }
   for (summary in remote?.items.orEmpty()) {
@@ -207,22 +196,22 @@ fun buildNights(
       nights += buildNight(key, null, null, records[key], override)
     }
   }
-  return nights.sortedWith(compareByDescending<Night> { it.startUtcMs }.thenBy { it.device })
+  return nights.sortedWith(compareByDescending<RecordingView> { it.startUtcMs }.thenBy { it.device })
 }
 
 /** A fresh recording and analysis list from the server, kept only for the current process. */
-data class NightRemoteOverride(
+data class RemoteOverride(
     val recording: RecordingDto,
-    val runs: List<AnalysisRun>,
+    val runs: List<Analysis>,
 )
 
 private fun buildNight(
     key: String,
-    local: SessionInfo?,
+    local: Recording?,
     summary: RecordingSummaryDto?,
-    record: NightRecord?,
-    override: NightRemoteOverride?,
-): Night {
+    record: UploadRecord?,
+    override: RemoteOverride?,
+): RecordingView {
   val remoteSession = override?.recording ?: summary?.recording
   val start = local?.startUtcMs ?: parseApiDate(remoteSession?.started_at.orEmpty())
   val end =
@@ -236,12 +225,12 @@ private fun buildNight(
       local?.sensorName?.takeIf { it.isNotBlank() }
           ?: remoteSession?.device?.takeIf { it.isNotBlank() }
           ?: ""
-  val backupFromRecord = record?.backup ?: backupFromRemote(remoteSession)
+  val backupFromRecord = record?.backupState() ?: backupFromRemote(remoteSession)
   val remoteRuns =
       override?.runs
           ?: summary?.analyses?.map { it.toRun() }.orEmpty()
   val runs =
-      mergeRuns(record?.analyses.orEmpty(), remoteRuns).map { run ->
+      mergeRuns(listOfNotNull(record?.localAnalysis()), remoteRuns).map { run ->
         if (record?.manualAnalysisIds?.contains(run.id) == true) {
           run.copy(origin = AnalysisOrigin.MANUAL)
         } else {
@@ -261,7 +250,7 @@ private fun buildNight(
         backupFromRecord
       }
   val explicitId =
-      record?.selectedAnalysisId?.takeIf { id -> runs.any { it.id == id } }
+      record?.analysisId?.takeIf { id -> runs.any { it.id == id } }
   // A selected run that is still working or failed must not hide a finished result.
   val selectedId =
       explicitId?.takeIf { id -> runs.first { it.id == id }.status == AnalysisStatus.DONE }
@@ -273,12 +262,12 @@ private fun buildNight(
   val failure =
       backup.failure ?: if (hasDone) null else failedRun?.let { UploadFailure.ANALYSIS }
   val errorDetail = backup.detail ?: failedRun?.error?.takeIf { it.isNotBlank() }
-  return Night(
+  return RecordingView(
       key = key,
       localId = local?.id,
       remoteId =
           remoteSession?.id?.takeIf { it.isNotBlank() }
-              ?: recordingIdOf(key).takeIf { record?.onServer == true },
+              ?: recordingIdOf(key).takeIf { record?.hasServerCopy() == true },
       startUtcMs = start,
       endUtcMs = end,
       durationMs = duration,
@@ -298,35 +287,35 @@ private fun buildNight(
 }
 
 private fun deriveStatus(
-    local: SessionInfo?,
+    local: Recording?,
     backup: BackupState,
-    runs: List<AnalysisRun>,
+    runs: List<Analysis>,
     remote: RecordingDto?,
-): NightStatus {
-  if (local?.state == SessionState.RECORDING) return NightStatus.RECORDING
+): RecordingStatus {
+  if (local?.state == RecordingPhase.RECORDING) return RecordingStatus.RECORDING
   return when (backup.phase) {
-    BackupPhase.QUEUED -> NightStatus.QUEUED
-    BackupPhase.UPLOADING -> NightStatus.UPLOADING
-    BackupPhase.FAILED -> NightStatus.FAILED
+    BackupPhase.QUEUED -> RecordingStatus.QUEUED
+    BackupPhase.UPLOADING -> RecordingStatus.UPLOADING
+    BackupPhase.FAILED -> RecordingStatus.FAILED
     BackupPhase.NOT_BACKED_UP ->
         when {
-          remote == null -> NightStatus.LOCAL_ONLY
+          remote == null -> RecordingStatus.LOCAL_ONLY
           remote.complete -> deriveFromRuns(runs)
           // The recording exists on the server but is not sealed yet: its files are still moving.
-          else -> NightStatus.UPLOADING
+          else -> RecordingStatus.UPLOADING
         }
     BackupPhase.BACKED_UP -> deriveFromRuns(runs)
   }
 }
 
-private fun deriveFromRuns(runs: List<AnalysisRun>): NightStatus =
+private fun deriveFromRuns(runs: List<Analysis>): RecordingStatus =
     when {
-      runs.any { it.status == AnalysisStatus.DONE } -> NightStatus.READY
+      runs.any { it.status == AnalysisStatus.DONE } -> RecordingStatus.READY
       runs.any { it.status == AnalysisStatus.QUEUED || it.status == AnalysisStatus.RUNNING } ->
-          NightStatus.PROCESSING
-      runs.any { it.status == AnalysisStatus.FAILED } -> NightStatus.FAILED
+          RecordingStatus.PROCESSING
+      runs.any { it.status == AnalysisStatus.FAILED } -> RecordingStatus.FAILED
       // The upload is done; the analysis has either not been requested yet or is about to be.
-      else -> NightStatus.PROCESSING
+      else -> RecordingStatus.PROCESSING
     }
 
 private fun backupFromRemote(remote: RecordingDto?): BackupState =
@@ -342,10 +331,10 @@ private fun backupFromRemote(remote: RecordingDto?): BackupState =
       else -> BackupState(phase = BackupPhase.UPLOADING)
     }
 
-private fun mergeRuns(base: List<AnalysisRun>, fresh: List<AnalysisRun>): List<AnalysisRun> {
+private fun mergeRuns(base: List<Analysis>, fresh: List<Analysis>): List<Analysis> {
   if (base.isEmpty()) return fresh.sortedBy { it.createdAtMs }
   if (fresh.isEmpty()) return base.sortedBy { it.createdAtMs }
-  val byId = LinkedHashMap<String, AnalysisRun>()
+  val byId = LinkedHashMap<String, Analysis>()
   base.forEach { byId[it.id] = it }
   fresh.forEach { incoming ->
     val existing = byId[incoming.id]
@@ -372,12 +361,12 @@ private fun mergeRuns(base: List<AnalysisRun>, fresh: List<AnalysisRun>): List<A
   return byId.values.sortedBy { it.createdAtMs }
 }
 
-private fun defaultRun(runs: List<AnalysisRun>): AnalysisRun? {
+private fun defaultRun(runs: List<Analysis>): Analysis? {
   if (runs.isEmpty()) return null
   val done = runs.filter { it.status == AnalysisStatus.DONE }
   if (done.isNotEmpty()) {
     return done.sortedWith(
-            compareBy<AnalysisRun> { if (it.origin == AnalysisOrigin.MANUAL) 0 else 1 }
+            compareBy<Analysis> { if (it.origin == AnalysisOrigin.MANUAL) 0 else 1 }
                 .thenBy { run ->
                   StagerPreference.indexOf(run.algorithm).let { if (it < 0) StagerPreference.size else it }
                 }
@@ -393,10 +382,10 @@ private fun defaultRun(runs: List<AnalysisRun>): AnalysisRun? {
  * it is present and from the summary a list carries otherwise; the server derives the second from
  * the first.
  */
-fun AnalysisDto.toRun(downloaded: Boolean = false): AnalysisRun {
+fun AnalysisDto.toRun(downloaded: Boolean = false): Analysis {
   val stages = result?.stages
   val summarized = summary?.stages
-  return AnalysisRun(
+  return Analysis(
       id = id,
       algorithm = algorithm,
       version = version,
@@ -425,11 +414,11 @@ fun parseApiDate(value: String): Long {
   return runCatching { OffsetDateTime.parse(value).toInstant().toEpochMilli() }.getOrDefault(0)
 }
 
-fun formatNightDate(ms: Long): String =
+fun formatRecordingDate(ms: Long): String =
     if (ms <= 0) "—"
     else SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(ms))
 
-fun formatNightDateAndTime(ms: Long): String =
+fun formatRecordingDateAndTime(ms: Long): String =
     if (ms <= 0) "—"
     else SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault()).format(Date(ms))
 
@@ -442,4 +431,78 @@ fun formatDuration(ms: Long): String {
     hours > 0 && minutes > 0 -> "${hours}h ${minutes}m"
     else -> if (hours > 0) "${hours}h" else "${minutes}m"
   }
+}
+
+/**
+ * Where the bytes are according to the sync store. This is the only place that reads the upload
+ * phase for display; the recording view then treats the phone and the server as two copies.
+ */
+internal fun UploadRecord.hasServerCopy(): Boolean =
+    onServer || phase == UploadPhase.PROCESSING || phase == UploadPhase.DONE || analysisId != null
+
+internal fun UploadRecord.backupState(): BackupState =
+    when (phase) {
+      UploadPhase.LOCAL -> BackupState()
+      UploadPhase.QUEUED ->
+          BackupState(phase = BackupPhase.QUEUED, failure = failure, detail = errorDetail)
+      UploadPhase.UPLOADING ->
+          BackupState(
+              phase = BackupPhase.UPLOADING,
+              progress = progress,
+              failure = failure,
+              detail = errorDetail,
+          )
+      UploadPhase.PROCESSING,
+      UploadPhase.DONE ->
+          BackupState(
+              phase = BackupPhase.BACKED_UP,
+              progress = 1f,
+              warning = warning,
+              uploadedAtMs = uploadedAtMs ?: updatedAtMs,
+          )
+      UploadPhase.FAILED ->
+          if (failure == UploadFailure.ANALYSIS && analysisId != null) {
+            BackupState(
+                phase = BackupPhase.BACKED_UP,
+                progress = 1f,
+                warning = warning,
+                uploadedAtMs = uploadedAtMs ?: updatedAtMs,
+            )
+          } else {
+            BackupState(
+                phase = BackupPhase.FAILED,
+                failure = failure ?: UploadFailure.SERVER,
+                detail = errorDetail,
+                warning = warning,
+            )
+          }
+    }
+
+/**
+ * The one run the sync store remembers locally, enough for a History row before the server is read.
+ * The full list comes from the server; [backupState] and this are the two adapters that keep the
+ * legacy record from leaking into the view.
+ */
+internal fun UploadRecord.localAnalysis(): Analysis? {
+  val runStatus =
+      when (phase) {
+        UploadPhase.DONE -> AnalysisStatus.DONE
+        UploadPhase.FAILED -> if (failure == UploadFailure.ANALYSIS) AnalysisStatus.FAILED else null
+        UploadPhase.PROCESSING -> AnalysisStatus.RUNNING
+        else -> null
+      }
+  val id = analysisId ?: return null
+  val status = runStatus ?: return null
+  return Analysis(
+      id = id,
+      algorithm = model.orEmpty(),
+      version = modelVersion.orEmpty(),
+      status = status,
+      error = errorDetail.takeIf { failure == UploadFailure.ANALYSIS },
+      epochSeconds = epochSeconds,
+      segments = segments,
+      sleepScore = sleepScore,
+      updatedAtMs = updatedAtMs,
+      resultDownloaded = resultDownloaded,
+  )
 }

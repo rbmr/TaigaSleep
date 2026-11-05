@@ -1,9 +1,9 @@
 package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.TestClock
-import com.rbmr.taigasleep.recording.store.SessionConfig
-import com.rbmr.taigasleep.recording.store.SessionMeta
-import com.rbmr.taigasleep.recording.store.SessionState
+import com.rbmr.taigasleep.recording.store.RecordingConfig
+import com.rbmr.taigasleep.recording.store.RecordingMeta
+import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.EcgBatch
@@ -19,10 +19,10 @@ class RecordingMonitorTest {
   private val events = mutableListOf<Pair<String, String>>()
   private var health = StorageHealth()
 
-  private fun meta(config: SessionConfig = SessionConfig(ecg = true, acc = true)) =
-      SessionMeta(
-          sessionId = "20261024_031138",
-          state = SessionState.RECORDING,
+  private fun meta(config: RecordingConfig = RecordingConfig(ecg = true, acc = true)) =
+      RecordingMeta(
+          recordingId = "20261024_031138",
+          state = RecordingPhase.RECORDING,
           startUtcMs = clock.phoneNs / 1_000_000L,
           endUtcMs = null,
           timezone = "UTC",

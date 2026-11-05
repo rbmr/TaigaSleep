@@ -10,9 +10,9 @@ import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.recordingSummaries
 import com.rbmr.taigasleep.recording.RecordingRepository
-import com.rbmr.taigasleep.recording.store.SessionConfig
-import com.rbmr.taigasleep.recording.store.SessionMeta
-import com.rbmr.taigasleep.recording.store.SessionStore
+import com.rbmr.taigasleep.recording.store.RecordingConfig
+import com.rbmr.taigasleep.recording.store.RecordingMeta
+import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.AnalysisService
 import com.rbmr.taigasleep.sync.AnalysisSync
 import com.rbmr.taigasleep.sync.LiveSyncTarget
@@ -40,12 +40,12 @@ import kotlinx.coroutines.withContext
 
 /**
  * The one place that turns local recordings, the app's durable night state and the cached server
- * summaries into [Night] snapshots. The UI reads this and never merges the stores itself.
+ * summaries into [RecordingView] snapshots. The UI reads this and never merges the stores itself.
  *
- * The raw bytes and the analyses stay independent: [Night.backup] says where the bytes are and
- * [Night.analyses] lists every requested result. [Night.status] is only a derived display summary.
+ * The raw bytes and the analyses stay independent: [RecordingView.backup] says where the bytes are and
+ * [RecordingView.analyses] lists every requested result. [RecordingView.status] is only a derived display summary.
  */
-class NightRepository private constructor(context: Context) : LiveSyncTarget {
+class RecordingLibrary private constructor(context: Context) : LiveSyncTarget {
   private val context = context.applicationContext
   private val remote = RemoteRepository.of(this.context)
   private val uploads = UploadStore.of(this.context)
@@ -54,23 +54,23 @@ class NightRepository private constructor(context: Context) : LiveSyncTarget {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
   private val remoteSummaries = MutableStateFlow<RecordingSummaryListDto?>(null)
-  private val overrides = MutableStateFlow<Map<String, NightRemoteOverride>>(emptyMap())
+  private val overrides = MutableStateFlow<Map<String, RemoteOverride>>(emptyMap())
   private var loadedAccount: String? = null
   private val historyLock = Any()
 
   /** The one connection state, shared with the screens so they do not touch the remote store. */
   val remoteStatus = remote.status
 
-  val nights: StateFlow<List<Night>> =
+  val recordings: StateFlow<List<RecordingView>> =
       combine(
               RecordingRepository.sessions,
               uploads.records,
               remoteSummaries,
               overrides,
           ) { local, records, summary, fresh ->
-            buildNights(
-                localSessions = local,
-                records = records.mapValues { it.value.toNightRecord() },
+            buildRecordings(
+                recordings = local,
+                records = records,
                 remote = summary,
                 overrides = fresh,
             )
@@ -98,7 +98,7 @@ class NightRepository private constructor(context: Context) : LiveSyncTarget {
     remoteSummaries.value = history.load(account)
   }
 
-  fun night(key: String): Night? = nights.value.firstOrNull { it.key == key }
+  fun recording(key: String): RecordingView? = recordings.value.firstOrNull { it.key == key }
 
   /** The full cached payload for one analysis, if it is on this phone. */
   fun cachedResult(key: String, analysisId: String?): AnalysisDto? =
@@ -127,18 +127,18 @@ class NightRepository private constructor(context: Context) : LiveSyncTarget {
       }
 
   /** The stream configuration behind a local night; a remote-only night is treated as HR-only. */
-  fun configFor(night: Night): SessionConfig {
-    val local = night.local ?: return HR_ONLY
-    return SessionMeta.read(local.dir)?.config ?: HR_ONLY
+  fun configFor(recording: RecordingView): RecordingConfig {
+    val local = recording.local ?: return HR_ONLY
+    return RecordingMeta.read(local.dir)?.config ?: HR_ONLY
   }
 
   /** Installed algorithms the server reports that this recording can actually feed. */
-  suspend fun compatibleAlgorithms(night: Night): Result<List<AlgorithmDto>> =
+  suspend fun compatibleAlgorithms(recording: RecordingView): Result<List<AlgorithmDto>> =
       withContext(Dispatchers.IO) {
         val api =
             remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
         try {
-          val config = configFor(night)
+          val config = configFor(recording)
           Result.success(api.getAlgorithms().items.filter { compatible(it, config) })
         } catch (e: TaigaUnauthorizedException) {
           remote.logout()
@@ -154,24 +154,24 @@ class NightRepository private constructor(context: Context) : LiveSyncTarget {
    * Request one explicit analysis and remember that it was manual. Nothing waits for it: the event
    * stream reports it while the app is open, and the next open reads it otherwise.
    */
-  suspend fun requestManual(night: Night, algorithmId: String): Result<Unit> =
+  suspend fun requestManual(recording: RecordingView, algorithmId: String): Result<Unit> =
       withContext(Dispatchers.IO) {
-        val server = night.remoteId
+        val server = recording.remoteId
             ?: return@withContext Result.failure(IllegalStateException("this night is not uploaded"))
         val api =
             remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
         try {
-          val started = AnalysisService.startManual(api, server, configFor(night), listOf(algorithmId))
+          val started = AnalysisService.startManual(api, server, configFor(recording), listOf(algorithmId))
           if (started.isEmpty()) {
             return@withContext Result.failure(
                 IllegalStateException("no compatible algorithm is installed")
             )
           }
           for (run in started) {
-            uploads.markManualAnalysis(night.key, run.analysisId)
-            uploads.markProcessing(night.key, run.analysisId)
+            uploads.markManualAnalysis(recording.key, run.analysisId)
+            uploads.markProcessing(recording.key, run.analysisId)
           }
-          refreshNight(night.key, server, started.first().analysisId)
+          refreshRecording(recording.key, server, started.first().analysisId)
           Result.success(Unit)
         } catch (e: TaigaUnauthorizedException) {
           remote.logout()
@@ -184,8 +184,8 @@ class NightRepository private constructor(context: Context) : LiveSyncTarget {
       }
 
   /** Remember which finished run the user wants to see. */
-  fun selectAnalysis(night: Night, analysisId: String) {
-    uploads.markSelectedAnalysis(night.key, analysisId)
+  fun selectAnalysis(recording: RecordingView, analysisId: String) {
+    uploads.markSelectedAnalysis(recording.key, analysisId)
   }
 
   /**
@@ -194,7 +194,7 @@ class NightRepository private constructor(context: Context) : LiveSyncTarget {
    * night's stored state, the result cache and the cached History list follow what the server says
    * (see [AnalysisSync]). The selected analysis is read when it is still listed.
    */
-  suspend fun refreshNight(
+  suspend fun refreshRecording(
       key: String,
       remoteId: String?,
       analysisId: String?,
@@ -212,12 +212,12 @@ class NightRepository private constructor(context: Context) : LiveSyncTarget {
                       preferred =
                           listOf(
                               analysisId,
-                              nights.value.firstOrNull { it.key == key }?.analysisId,
+                              recordings.value.firstOrNull { it.key == key }?.analysisId,
                               uploads.record(key)?.analysisId,
                           ),
                   )
           val runs = snapshot.analyses.map { run -> run.toRun(downloaded = results.has(key, run.id)) }
-          overrides.update { it + (key to NightRemoteOverride(snapshot.recording, runs)) }
+          overrides.update { it + (key to RemoteOverride(snapshot.recording, runs)) }
           rememberSummary(snapshot)
           Result.success(snapshot.shown)
         } catch (e: TaigaUnauthorizedException) {
@@ -248,15 +248,15 @@ class NightRepository private constructor(context: Context) : LiveSyncTarget {
       // The nights as the screens see them now, with the list that was just fetched. The sessions
       // come from disk: the screens may not have loaded them yet when the app has just opened.
       val current =
-          buildNights(
-              localSessions = SessionStore.of(context).list(),
-              records = records.mapValues { it.value.toNightRecord() },
+          buildRecordings(
+              recordings = RecordingStore.of(context).list(),
+              records = records,
               remote = remoteSummaries.value,
               overrides = overrides.value,
           )
-      for (night in pendingRecordings(current, records)) {
-        if (night.recordingId in pendingDeletes) continue
-        refreshNight(night.key, night.recordingId, night.analysisId)
+      for (pending in pendingRecordings(current, records)) {
+        if (pending.recordingId in pendingDeletes) continue
+        refreshRecording(pending.key, pending.recordingId, pending.analysisId)
       }
     }
   }
@@ -266,13 +266,13 @@ class NightRepository private constructor(context: Context) : LiveSyncTarget {
     withContext(Dispatchers.IO) {
       // A recording the user deleted is only waiting for the server to say so.
       if (recordingId in PendingDeleteStore.of(context).remoteIds()) return@withContext
-      refreshNight(keyFor(recordingId), recordingId, null)
+      refreshRecording(keyFor(recordingId), recordingId, null)
     }
   }
 
   /** The night key of a recording: the phone's own id when it has the recording, else the remote key. */
   private fun keyFor(recordingId: String): String =
-      if (SessionStore.of(context).dir(recordingId).isDirectory) recordingId
+      if (RecordingStore.of(context).dir(recordingId).isDirectory) recordingId
       else remoteKey(recordingId)
 
   /**
@@ -323,104 +323,14 @@ class NightRepository private constructor(context: Context) : LiveSyncTarget {
   }
 
   companion object {
-    private val HR_ONLY = SessionConfig(hr = true, ecg = false, acc = false)
+    private val HR_ONLY = RecordingConfig(hr = true, ecg = false, acc = false)
 
-    @Volatile private var instance: NightRepository? = null
+    @Volatile private var instance: RecordingLibrary? = null
 
-    fun of(context: Context): NightRepository =
+    fun of(context: Context): RecordingLibrary =
         instance
             ?: synchronized(this) {
-              instance ?: NightRepository(context).also { instance = it }
+              instance ?: RecordingLibrary(context).also { instance = it }
             }
   }
-}
-
-/**
- * The legacy upload record still persists the app state. This adapter is the only place that knows
- * about it; replacing the store later must not change the UI or [Night].
- */
-internal fun UploadRecord.toNightRecord(): NightRecord {
-  val backup =
-      when (phase) {
-        UploadPhase.LOCAL -> BackupState()
-        UploadPhase.QUEUED ->
-            BackupState(
-                phase = BackupPhase.QUEUED,
-                failure = failure,
-                detail = errorDetail,
-            )
-        UploadPhase.UPLOADING ->
-            BackupState(
-                phase = BackupPhase.UPLOADING,
-                progress = progress,
-                failure = failure,
-                detail = errorDetail,
-            )
-        UploadPhase.PROCESSING,
-        UploadPhase.DONE ->
-            BackupState(
-                phase = BackupPhase.BACKED_UP,
-                progress = 1f,
-                warning = warning,
-                uploadedAtMs = uploadedAtMs ?: updatedAtMs,
-            )
-        UploadPhase.FAILED ->
-            if (failure == UploadFailure.ANALYSIS && analysisId != null) {
-              BackupState(
-                  phase = BackupPhase.BACKED_UP,
-                  progress = 1f,
-                  warning = warning,
-                  uploadedAtMs = uploadedAtMs ?: updatedAtMs,
-              )
-            } else {
-              BackupState(
-                  phase = BackupPhase.FAILED,
-                  failure = failure ?: UploadFailure.SERVER,
-                  detail = errorDetail,
-                  warning = warning,
-              )
-            }
-      }
-  val runStatus =
-      when (phase) {
-        UploadPhase.DONE -> AnalysisStatus.DONE
-        UploadPhase.FAILED -> if (failure == UploadFailure.ANALYSIS) AnalysisStatus.FAILED else null
-        UploadPhase.PROCESSING -> AnalysisStatus.RUNNING
-        else -> null
-      }
-  val runs =
-      if (analysisId != null && runStatus != null) {
-        listOf(
-            AnalysisRun(
-                id = analysisId,
-                algorithm = model.orEmpty(),
-                version = modelVersion.orEmpty(),
-                status = runStatus,
-                error = errorDetail.takeIf { failure == UploadFailure.ANALYSIS },
-                epochSeconds = epochSeconds,
-                segments = segments,
-                sleepScore = sleepScore,
-                updatedAtMs = updatedAtMs,
-                resultDownloaded = resultDownloaded,
-            )
-        )
-      } else {
-        emptyList()
-      }
-  return NightRecord(
-      id = id,
-      // Records written before the id was shared with the server have no flag, but a night that
-      // reached processing or has an analysis was uploaded.
-      onServer =
-          onServer ||
-              phase == UploadPhase.PROCESSING ||
-              phase == UploadPhase.DONE ||
-              analysisId != null,
-      backup = backup,
-      analyses = runs,
-      selectedAnalysisId = analysisId,
-      keepRawOnPhone = keepRawOnPhone,
-      manualAnalysisIds = manualAnalysisIds,
-      updatedAtMs = updatedAtMs,
-  )
 }

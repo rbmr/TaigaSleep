@@ -70,7 +70,7 @@ class ArchitectureTest {
             import com.rbmr.taigasleep.BuildConfig
             import com.rbmr.taigasleep.R
             import com.rbmr.taigasleep.backend.RemoteRepository
-            import com.rbmr.taigasleep.recording.store.SessionStore
+            import com.rbmr.taigasleep.recording.store.RecordingStore
             import com.rbmr.taigasleep.sync.UploadStore
             """
                 .trimIndent(),
@@ -178,7 +178,7 @@ class ArchitectureTest {
             """
             package com.rbmr.taigasleep.insights
 
-            fun f(x: com.rbmr.taigasleep.recording.store.SessionConfig) = x
+            fun f(x: com.rbmr.taigasleep.recording.store.RecordingConfig) = x
             """
                 .trimIndent(),
         )

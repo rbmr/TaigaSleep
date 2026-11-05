@@ -2,9 +2,9 @@ package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.TestClock
 import com.rbmr.taigasleep.recording.store.FrameLog
-import com.rbmr.taigasleep.recording.store.SessionConfig
-import com.rbmr.taigasleep.recording.store.SessionMeta
-import com.rbmr.taigasleep.recording.store.SessionState
+import com.rbmr.taigasleep.recording.store.RecordingConfig
+import com.rbmr.taigasleep.recording.store.RecordingMeta
+import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.EcgBatch
 import com.rbmr.taigasleep.tracker.HrSample
@@ -21,9 +21,9 @@ class SampleFanoutTest {
   private val clock = TestClock()
 
   private fun meta() =
-      SessionMeta(
-          sessionId = "20261024_031138",
-          state = SessionState.RECORDING,
+      RecordingMeta(
+          recordingId = "20261024_031138",
+          state = RecordingPhase.RECORDING,
           startUtcMs = clock.phoneNs / 1_000_000L,
           endUtcMs = null,
           timezone = "UTC",
@@ -38,7 +38,7 @@ class SampleFanoutTest {
           sensorName = "Simulated sensor",
           sensorFirmware = null,
           sensorBatteryAtStart = 87,
-          config = SessionConfig(ecg = true, acc = true),
+          config = RecordingConfig(ecg = true, acc = true),
       )
 
   private fun frames(file: File): Int {
@@ -49,7 +49,7 @@ class SampleFanoutTest {
 
   @Test
   fun bothReceiveEverySampleAndTheSameInstances() {
-    val writer = SessionWriter.create(tmp.newFolder("rec"), meta(), clock)
+    val writer = RecordingWriter.create(tmp.newFolder("rec"), meta(), clock)
     val seen = mutableListOf<Any>()
     var seenStamp: Stamp? = null
     val monitor =
@@ -78,7 +78,7 @@ class SampleFanoutTest {
     fanout.onHr(stamp, hr)
     fanout.onEcg(stamp, ecg)
     fanout.onAcc(stamp, acc)
-    writer.finish(SessionState.STOPPED, "done")
+    writer.finish(RecordingPhase.STOPPED, "done")
 
     assertEquals(listOf(hr, ecg, acc), seen)
     assertSame(hr, seen[0])
@@ -92,7 +92,7 @@ class SampleFanoutTest {
 
   @Test
   fun aMonitorFailureIsReportedOnceAndNeverStopsTheWriter() {
-    val writer = SessionWriter.create(tmp.newFolder("rec"), meta(), clock)
+    val writer = RecordingWriter.create(tmp.newFolder("rec"), meta(), clock)
     val failures = mutableListOf<String>()
     val monitor =
         object : SampleMonitor {
@@ -108,7 +108,7 @@ class SampleFanoutTest {
     fanout.onHr(stamp, HrSample(61, true, true, true, intArrayOf(1000)))
     fanout.onEcg(stamp, EcgBatch(LongArray(3) { it * 7_692_307L }, intArrayOf(1, -2, 3)))
     fanout.onAcc(stamp, AccBatch(LongArray(2) { it * 20_000_000L }, intArrayOf(1, 2, 3, 4, 5, 6)))
-    writer.finish(SessionState.STOPPED, "done")
+    writer.finish(RecordingPhase.STOPPED, "done")
 
     assertEquals(1, failures.size)
     assertEquals(true, failures.single().contains("boom"))

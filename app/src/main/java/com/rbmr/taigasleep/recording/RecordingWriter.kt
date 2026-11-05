@@ -4,8 +4,8 @@ import android.util.Log
 import com.rbmr.taigasleep.recording.store.EventLog
 import com.rbmr.taigasleep.recording.store.FrameLogWriter
 import com.rbmr.taigasleep.recording.store.Payloads
-import com.rbmr.taigasleep.recording.store.SessionMeta
-import com.rbmr.taigasleep.recording.store.SessionState
+import com.rbmr.taigasleep.recording.store.RecordingMeta
+import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.StreamId
 import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.Clock
@@ -30,13 +30,13 @@ data class StorageHealth(
  *
  * All methods are safe to call from any thread.
  */
-class SessionWriter
+class RecordingWriter
 private constructor(
     val dir: File,
-    meta: SessionMeta,
+    meta: RecordingMeta,
     private val clock: Clock,
 ) {
-  var meta: SessionMeta = meta
+  var meta: RecordingMeta = meta
     private set
 
   private val logs = HashMap<Int, FrameLogWriter>()
@@ -170,11 +170,11 @@ private constructor(
 
   /** Closes the logs and rewrites meta.json with the final state. Idempotent. */
   @Synchronized
-  fun finish(state: SessionState, message: String) {
+  fun finish(state: RecordingPhase, message: String) {
     if (closed) return
     val type =
         when (state) {
-          SessionState.FORCED_STOP -> "force_stop"
+          RecordingPhase.FORCED_STOP -> "force_stop"
           else -> "stop"
         }
     event(type, message)
@@ -184,7 +184,7 @@ private constructor(
   }
 
   companion object {
-    private const val TAG = "SessionWriter"
+    private const val TAG = "RecordingWriter"
     const val HR_LOG = "hr.log"
     const val ECG_LOG = "ecg.log"
     const val ACC_LOG = "acc.log"
@@ -192,11 +192,11 @@ private constructor(
     private const val MAX_ERROR_EVENTS = 50
 
     /** Starts a new session directory under [root]; meta.json is written with state recording. */
-    fun create(root: File, meta: SessionMeta, clock: Clock): SessionWriter {
-      val dir = File(root, meta.sessionId)
-      check(dir.mkdirs()) { "session dir exists: ${meta.sessionId}" }
+    fun create(root: File, meta: RecordingMeta, clock: Clock): RecordingWriter {
+      val dir = File(root, meta.recordingId)
+      check(dir.mkdirs()) { "session dir exists: ${meta.recordingId}" }
       meta.write(dir)
-      return SessionWriter(dir, meta, clock).also {
+      return RecordingWriter(dir, meta, clock).also {
         it.openLogs()
         it.event("start", "recording started")
       }
@@ -206,11 +206,11 @@ private constructor(
      * Reopens an unfinished session: truncates each log to its last valid frame and flips the state
      * back to recording. Returns null if the directory has no readable meta.json.
      */
-    fun resume(dir: File, clock: Clock, message: String): SessionWriter? {
-      val meta = SessionMeta.read(dir) ?: return null
-      val resumed = meta.copy(state = SessionState.RECORDING, endUtcMs = null)
+    fun resume(dir: File, clock: Clock, message: String): RecordingWriter? {
+      val meta = RecordingMeta.read(dir) ?: return null
+      val resumed = meta.copy(state = RecordingPhase.RECORDING, endUtcMs = null)
       resumed.write(dir)
-      return SessionWriter(dir, resumed, clock).also {
+      return RecordingWriter(dir, resumed, clock).also {
         it.openLogs()
         it.event("service_restart", message)
       }

@@ -42,7 +42,7 @@ import com.rbmr.taigasleep.ui.screens.AboutScreen
 import com.rbmr.taigasleep.ui.screens.FlowScreen
 import com.rbmr.taigasleep.ui.screens.HistoryScreen
 import com.rbmr.taigasleep.ui.screens.HomeScreen
-import com.rbmr.taigasleep.ui.screens.NightDetailScreen
+import com.rbmr.taigasleep.ui.screens.RecordingDetailScreen
 import com.rbmr.taigasleep.ui.screens.RemoteScreen
 import com.rbmr.taigasleep.ui.screens.SettingsScreen
 import com.rbmr.taigasleep.ui.theme.ThemeMode
@@ -123,7 +123,7 @@ fun TaigaApp(
   when {
     showRemote -> RemoteScreen(onBack = { showRemote = false })
     detailLocal != null || detailRemote != null ->
-        NightDetailScreen(
+        RecordingDetailScreen(
             localId = detailLocal,
             remoteId = detailRemote,
             analysisId = detailAnalysis,

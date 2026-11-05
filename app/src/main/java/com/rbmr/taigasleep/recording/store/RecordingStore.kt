@@ -11,10 +11,10 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.random.Random
 
-data class SessionInfo(
+data class Recording(
     val id: String,
     val dir: File,
-    val state: SessionState,
+    val state: RecordingPhase,
     val startUtcMs: Long,
     /** End time for finished sessions; for unfinished ones the time of the last HR frame. */
     val endUtcMs: Long?,
@@ -28,7 +28,7 @@ data class SessionInfo(
 }
 
 /** Lists and manages the session directories under `<external files>/recordings/`. */
-class SessionStore(val root: File) {
+class RecordingStore(val root: File) {
   init {
     root.mkdirs()
   }
@@ -41,7 +41,7 @@ class SessionStore(val root: File) {
    * are unique across all accounts there, so the suffix keeps two phones that start in the same
    * second apart. A suffix whose directory exists is drawn again.
    */
-  fun newSessionId(nowMs: Long, random: Random = Random.Default): String {
+  fun newRecordingId(nowMs: Long, random: Random = Random.Default): String {
     val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(nowMs))
     while (true) {
       val suffix = buildString {
@@ -53,16 +53,16 @@ class SessionStore(val root: File) {
   }
 
   /** Newest first. Directories without a readable meta.json are skipped. */
-  fun list(): List<SessionInfo> =
+  fun list(): List<Recording> =
       (root.listFiles { f -> f.isDirectory } ?: emptyArray())
           .mapNotNull { info(it) }
           .sortedByDescending { it.startUtcMs }
 
-  fun info(dir: File): SessionInfo? {
-    val meta = SessionMeta.read(dir) ?: return null
+  fun info(dir: File): Recording? {
+    val meta = RecordingMeta.read(dir) ?: return null
     val end = meta.endUtcMs ?: lastFrameMs(dir)
-    return SessionInfo(
-        id = meta.sessionId,
+    return Recording(
+        id = meta.recordingId,
         dir = dir,
         state = meta.state,
         startUtcMs = meta.startUtcMs,
@@ -94,14 +94,14 @@ class SessionStore(val root: File) {
   fun markOrphans(liveId: String?): List<String> {
     val changed = mutableListOf<String>()
     for (dir in root.listFiles { f -> f.isDirectory } ?: emptyArray()) {
-      val meta = SessionMeta.read(dir) ?: continue
-      if (meta.state != SessionState.RECORDING || meta.sessionId == liveId) continue
+      val meta = RecordingMeta.read(dir) ?: continue
+      if (meta.state != RecordingPhase.RECORDING || meta.recordingId == liveId) continue
       val end = lastFrameMs(dir) ?: meta.startUtcMs
       try {
         val now = System.currentTimeMillis() * 1_000_000L
         EventLog.append(dir, now, 0, "error", "unfinished session found on app start")
-        meta.copy(state = SessionState.INTERRUPTED, endUtcMs = end).write(dir)
-        changed += meta.sessionId
+        meta.copy(state = RecordingPhase.INTERRUPTED, endUtcMs = end).write(dir)
+        changed += meta.recordingId
       } catch (_: java.io.IOException) {}
     }
     return changed
@@ -145,9 +145,9 @@ class SessionStore(val root: File) {
     /** The recorded stream files. meta.json and events.jsonl are not raw data. */
     val RAW_FILES = listOf("hr.log", "ecg.log", "acc.log")
 
-    fun of(context: Context): SessionStore {
+    fun of(context: Context): RecordingStore {
       val base = context.getExternalFilesDir(null) ?: context.filesDir
-      return SessionStore(File(base, "recordings"))
+      return RecordingStore(File(base, "recordings"))
     }
   }
 }

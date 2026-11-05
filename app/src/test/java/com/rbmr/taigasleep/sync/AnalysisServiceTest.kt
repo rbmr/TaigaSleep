@@ -6,7 +6,7 @@ import com.rbmr.taigasleep.backend.AlgorithmNeedDto
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.StubTaigaClient
 import com.rbmr.taigasleep.insights.AnalysisSettings
-import com.rbmr.taigasleep.recording.store.SessionConfig
+import com.rbmr.taigasleep.recording.store.RecordingConfig
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
@@ -16,7 +16,7 @@ import org.junit.Test
 
 class AnalysisServiceTest {
   private val ecg =
-      SessionConfig(
+      RecordingConfig(
           hr = true,
           ecg = true,
           acc = true,

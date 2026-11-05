@@ -4,8 +4,8 @@ import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.RecordingSummaryDto
 import com.rbmr.taigasleep.backend.RecordingSummaryListDto
-import com.rbmr.taigasleep.recording.store.SessionInfo
-import com.rbmr.taigasleep.recording.store.SessionState
+import com.rbmr.taigasleep.recording.store.Recording
+import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 import java.io.File
@@ -69,13 +69,13 @@ class PendingRecordingsTest {
   private fun pending(
       summaries: List<RecordingSummaryDto>,
       vararg records: UploadRecord,
-      local: List<SessionInfo> = emptyList(),
+      local: List<Recording> = emptyList(),
   ): List<PendingRecording> {
     val byKey = records.associateBy { it.id }
     val nights =
-        buildNights(
-            localSessions = local,
-            records = byKey.mapValues { it.value.toNightRecord() },
+        buildRecordings(
+            recordings = local,
+            records = byKey,
             remote = RecordingSummaryListDto(summaries),
         )
     return pendingRecordings(nights, byKey)
@@ -181,10 +181,10 @@ class PendingRecordingsTest {
     // On the phone, uploaded, and past the 100 recordings the History list reaches.
     val id = "20261001_223000-k3f9"
     val night =
-        SessionInfo(
+        Recording(
             id = id,
             dir = File("/tmp/$id"),
-            state = SessionState.STOPPED,
+            state = RecordingPhase.STOPPED,
             startUtcMs = 1_790_000_000_000,
             endUtcMs = 1_790_003_600_000,
             sizeBytes = 10,

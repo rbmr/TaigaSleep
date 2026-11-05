@@ -3,7 +3,7 @@ package com.rbmr.taigasleep.sync
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.insights.StagerPreference
 import com.rbmr.taigasleep.insights.compareVersions
-import com.rbmr.taigasleep.recording.store.SessionConfig
+import com.rbmr.taigasleep.recording.store.RecordingConfig
 
 data class StagerChoice(val id: String, val version: String)
 
@@ -12,7 +12,7 @@ data class StagerChoice(val id: String, val version: String)
  * final say: it refuses an algorithm or version that no worker offers.
  */
 fun selectStager(
-    config: SessionConfig,
+    config: RecordingConfig,
     algorithms: List<AlgorithmDto>,
     preference: List<String> = StagerPreference,
 ): StagerChoice {
@@ -32,7 +32,7 @@ fun selectStager(
  * order of [ids] is preserved.
  */
 fun selectStagers(
-    config: SessionConfig,
+    config: RecordingConfig,
     algorithms: List<AlgorithmDto>,
     ids: List<String>,
 ): List<StagerChoice> =
@@ -40,7 +40,7 @@ fun selectStagers(
 
 private fun selectOne(
     id: String,
-    config: SessionConfig,
+    config: RecordingConfig,
     algorithms: List<AlgorithmDto>,
 ): StagerChoice? {
   val candidate =
@@ -50,7 +50,7 @@ private fun selectOne(
   return candidate?.takeIf { compatible(it, config) }?.let { StagerChoice(it.id, it.version) }
 }
 
-fun compatible(algorithm: AlgorithmDto, config: SessionConfig): Boolean =
+fun compatible(algorithm: AlgorithmDto, config: RecordingConfig): Boolean =
     algorithm.needs
         .filter { it.required }
         .all { need ->

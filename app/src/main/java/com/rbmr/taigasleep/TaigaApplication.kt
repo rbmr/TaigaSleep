@@ -104,6 +104,6 @@ private object RecordingWiring : RecordingHooks {
 
   override fun readinessSummary(context: Context): String = Readiness.read(context).summary()
 
-  override fun onRecordingFinished(context: Context, sessionId: String) =
-      UploadScheduler.onRecordingFinished(context, sessionId)
+  override fun onRecordingFinished(context: Context, recordingId: String) =
+      UploadScheduler.onRecordingFinished(context, recordingId)
 }

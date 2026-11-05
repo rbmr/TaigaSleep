@@ -2,7 +2,7 @@ package com.rbmr.taigasleep.ui.screens
 
 import android.content.Context
 import android.text.format.Formatter
-import com.rbmr.taigasleep.recording.store.SessionStore
+import com.rbmr.taigasleep.recording.store.RecordingStore
 import java.io.File
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -84,20 +84,20 @@ import com.rbmr.taigasleep.insights.metricSpec
 import com.rbmr.taigasleep.insights.splitMetricExplanation
 import com.rbmr.taigasleep.insights.supportState
 import com.rbmr.taigasleep.library.AnalysisOrigin
-import com.rbmr.taigasleep.library.AnalysisRun
+import com.rbmr.taigasleep.library.Analysis
 import com.rbmr.taigasleep.library.AnalysisStatus
-import com.rbmr.taigasleep.library.Night
-import com.rbmr.taigasleep.library.NightRepository
-import com.rbmr.taigasleep.library.NightStatus
+import com.rbmr.taigasleep.library.RecordingView
+import com.rbmr.taigasleep.library.RecordingLibrary
+import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.library.formatDuration
-import com.rbmr.taigasleep.library.formatNightDate
-import com.rbmr.taigasleep.library.formatNightDateAndTime
+import com.rbmr.taigasleep.library.formatRecordingDate
+import com.rbmr.taigasleep.library.formatRecordingDateAndTime
 import com.rbmr.taigasleep.library.parseApiDate
 import com.rbmr.taigasleep.recording.ExportSource
 import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.exportSource
-import com.rbmr.taigasleep.recording.store.SessionInfo
+import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.sync.RawActionResult
 import com.rbmr.taigasleep.sync.RawRetention
 import com.rbmr.taigasleep.sync.RecordingDeleter
@@ -123,13 +123,13 @@ import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-private data class NightDetailState(
-    val local: SessionInfo? = null,
+private data class RecordingDetailState(
+    val local: Recording? = null,
     val remote: RecordingDto? = null,
     val analysis: AnalysisDto? = null,
     val remoteId: String? = null,
     val analysisId: String? = null,
-    val status: NightStatus = NightStatus.LOCAL_ONLY,
+    val status: RecordingStatus = RecordingStatus.LOCAL_ONLY,
     val progress: Float = 0f,
     val startUtcMs: Long = 0,
     val endUtcMs: Long? = null,
@@ -137,7 +137,7 @@ private data class NightDetailState(
     val remoteCreatedAtMs: Long? = null,
     val segments: List<StageSegmentDto> = emptyList(),
     val epochSeconds: Int = 30,
-    val analyses: List<AnalysisRun> = emptyList(),
+    val analyses: List<Analysis> = emptyList(),
     val failure: UploadFailure? = null,
     val errorDetail: String? = null,
     val warning: String? = null,
@@ -151,15 +151,15 @@ private enum class ExportPhase {
   ZIPPING,
 }
 
-private fun Night.toDetailState(
+private fun RecordingView.toDetailState(
     result: AnalysisDto?,
     loading: Boolean,
     offlineSaved: Boolean,
     error: String?,
     loginExpired: Boolean,
     loginError: String,
-): NightDetailState =
-    NightDetailState(
+): RecordingDetailState =
+    RecordingDetailState(
         local = local,
         remote = remote,
         analysis = result,
@@ -186,7 +186,7 @@ private fun Night.toDetailState(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NightDetailScreen(
+fun RecordingDetailScreen(
     localId: String?,
     remoteId: String?,
     analysisId: String?,
@@ -195,14 +195,14 @@ fun NightDetailScreen(
 ) {
   BackHandler(onBack = onBack)
   val context = LocalContext.current
-  val repository = remember { NightRepository.of(context) }
+  val repository = remember { RecordingLibrary.of(context) }
   val remoteStatus by repository.remoteStatus.collectAsStateWithLifecycle()
-  val nights by repository.nights.collectAsStateWithLifecycle()
+  val nights by repository.recordings.collectAsStateWithLifecycle()
   val key = localId ?: remoteId?.let { "remote-$it" } ?: analysisId ?: "night"
   val scope = rememberCoroutineScope()
 
   var result by remember(key) {
-    mutableStateOf(repository.night(key)?.let { repository.cachedResult(key, it.analysisId) })
+    mutableStateOf(repository.recording(key)?.let { repository.cachedResult(key, it.analysisId) })
   }
   var loading by remember(key) { mutableStateOf(result == null) }
   var offlineSaved by remember(key) { mutableStateOf(false) }
@@ -236,9 +236,9 @@ fun NightDetailScreen(
           ?: localId?.let { id -> nights.firstOrNull { it.localId == id } }
 
   LaunchedEffect(key, refreshKey, remoteStatus, night?.analysisId) {
-    RecordingRepository.refreshSessions(context)
+    RecordingRepository.refreshRecordings(context)
     repository.reload()
-    val current = repository.night(key)
+    val current = repository.recording(key)
     result = repository.cachedResult(key, current?.analysisId) ?: result
     loading = false
     val server = current?.remoteId ?: remoteId
@@ -253,7 +253,7 @@ fun NightDetailScreen(
       return@LaunchedEffect
     }
     repository
-        .refreshNight(key, server, night?.analysisId ?: analysisId)
+        .refreshRecording(key, server, night?.analysisId ?: analysisId)
         .onSuccess { fresh ->
           if (fresh != null && (fresh.isSucceeded || result == null)) result = fresh
           loginExpired = false
@@ -295,7 +295,7 @@ fun NightDetailScreen(
 
   val state =
       night?.toDetailState(result, loading, offlineSaved, error, loginExpired, loginError)
-          ?: NightDetailState(loading = loading, error = error)
+          ?: RecordingDetailState(loading = loading, error = error)
 
   fun upload() {
     val id = state.local?.id ?: localId ?: return
@@ -446,13 +446,13 @@ fun NightDetailScreen(
       item {
         ScreenHeader(
             kicker = stringResource(R.string.night_kicker),
-            title = formatNightDate(start),
+            title = formatRecordingDate(start),
             subtitle = device.ifBlank { stringResource(R.string.night_device_unknown) },
             modifier = Modifier.padding(horizontal = 4.dp),
         )
       }
       item {
-        NightHeaderCard(
+        RecordingHeaderCard(
             sleepScore = sleepScore,
             processed = processed,
             onScoreClick = { if (state.analysis != null) showSleepScore = true },
@@ -590,7 +590,7 @@ fun NightDetailScreen(
             }
           }
         }
-        state.status == NightStatus.PROCESSING -> {
+        state.status == RecordingStatus.PROCESSING -> {
           item {
             TaigaCard {
               Text(
@@ -613,7 +613,7 @@ fun NightDetailScreen(
             }
           }
         }
-        state.status == NightStatus.QUEUED || state.status == NightStatus.UPLOADING -> {
+        state.status == RecordingStatus.QUEUED || state.status == RecordingStatus.UPLOADING -> {
           item {
             TaigaCard {
               Text(
@@ -623,7 +623,7 @@ fun NightDetailScreen(
               Spacer(Modifier.height(6.dp))
               Text(
                   text =
-                      if (state.status == NightStatus.UPLOADING) {
+                      if (state.status == RecordingStatus.UPLOADING) {
                         stringResource(
                             R.string.night_uploading_progress,
                             ((state.progress) * 100)
@@ -637,7 +637,7 @@ fun NightDetailScreen(
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
               )
               Spacer(Modifier.height(12.dp))
-              if (state.status == NightStatus.UPLOADING) {
+              if (state.status == RecordingStatus.UPLOADING) {
                 LinearProgressIndicator(
                     progress = { state.progress },
                     modifier = Modifier.fillMaxWidth(),
@@ -655,7 +655,7 @@ fun NightDetailScreen(
             }
           }
         }
-        state.status == NightStatus.FAILED -> {
+        state.status == RecordingStatus.FAILED -> {
           item {
             StatusBanner(
                 kind = StatusKind.Bad,
@@ -796,7 +796,7 @@ fun NightDetailScreen(
       )
     }
     if (showDetails) {
-      NightDetailsSheet(
+      RecordingDetailsSheet(
           state = state,
           exportBusy = exportBusy,
           exportPhase = exportPhase.value,
@@ -910,8 +910,8 @@ private suspend fun prepareAndShare(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NightDetailsSheet(
-    state: NightDetailState,
+private fun RecordingDetailsSheet(
+    state: RecordingDetailState,
     exportBusy: Boolean,
     exportPhase: ExportPhase?,
     exportProgress: Float?,
@@ -944,12 +944,12 @@ private fun NightDetailsSheet(
       )
       DetailRow(
           label = stringResource(R.string.night_details_started),
-          value = formatNightDateAndTime(state.startUtcMs),
+          value = formatRecordingDateAndTime(state.startUtcMs),
       )
       DetailRow(
           label = stringResource(R.string.night_details_stopped),
           value =
-              state.endUtcMs?.takeIf { it > 0 }?.let { formatNightDateAndTime(it) }
+              state.endUtcMs?.takeIf { it > 0 }?.let { formatRecordingDateAndTime(it) }
                   ?: "—",
       )
       DetailRow(
@@ -969,7 +969,7 @@ private fun NightDetailsSheet(
                         R.string.night_details_raw_on_phone,
                         Formatter.formatShortFileSize(
                             context,
-                            SessionStore.RAW_FILES.sumOf { File(local.dir, it).length() },
+                            RecordingStore.RAW_FILES.sumOf { File(local.dir, it).length() },
                         ),
                     )
                 else -> stringResource(R.string.night_details_not_on_phone)
@@ -1026,7 +1026,7 @@ private fun NightDetailsSheet(
               when {
                 state.remoteId == null -> stringResource(R.string.night_details_not_uploaded)
                 state.remoteCreatedAtMs != null && state.remoteCreatedAtMs > 0 ->
-                    formatNightDateAndTime(state.remoteCreatedAtMs)
+                    formatRecordingDateAndTime(state.remoteCreatedAtMs)
                 else -> "—"
               },
       )
@@ -1058,7 +1058,7 @@ private fun NightDetailsSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AnalysisSheet(
-    runs: List<AnalysisRun>,
+    runs: List<Analysis>,
     selectedId: String?,
     algorithms: List<AlgorithmDto>,
     loading: Boolean,
@@ -1088,7 +1088,7 @@ private fun AnalysisSheet(
             style = MaterialTheme.typography.titleMedium,
         )
         runs.forEach { run ->
-          AnalysisRunRow(run = run, selectedId = selectedId, busy = busy, onSelect = onSelect)
+          AnalysisRow(run = run, selectedId = selectedId, busy = busy, onSelect = onSelect)
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
       }
@@ -1139,8 +1139,8 @@ private fun AnalysisSheet(
 }
 
 @Composable
-private fun AnalysisRunRow(
-    run: AnalysisRun,
+private fun AnalysisRow(
+    run: Analysis,
     selectedId: String?,
     busy: Boolean,
     onSelect: (String) -> Unit,
@@ -1238,7 +1238,7 @@ private fun analysisStatus(status: AnalysisStatus): String =
     )
 
 @Composable
-private fun NightHeaderCard(
+private fun RecordingHeaderCard(
     sleepScore: Double?,
     processed: Boolean,
     onScoreClick: () -> Unit,
@@ -1295,7 +1295,7 @@ private fun DetailRow(label: String, value: String) {
 
 @Composable
 private fun SleepStatsCard(
-    state: NightDetailState,
+    state: RecordingDetailState,
     start: Long,
     analysis: AnalysisResultDto,
     onMetric: (MetricSpec) -> Unit,
@@ -1770,13 +1770,13 @@ private fun sleepComponentLabel(key: String): Int =
       else -> R.string.night_sleep_score
     }
 
-private fun startOf(state: NightDetailState): Long =
+private fun startOf(state: RecordingDetailState): Long =
     state.startUtcMs.takeIf { it > 0 }
         ?: state.analysis?.result?.stages?.start_unix_ms
         ?: 0L
 
-private fun segmentsOf(state: NightDetailState): List<StageSegmentDto> =
+private fun segmentsOf(state: RecordingDetailState): List<StageSegmentDto> =
     state.analysis?.result?.stages?.segments ?: state.segments
 
-private fun epochSecondsOf(state: NightDetailState): Int =
+private fun epochSecondsOf(state: RecordingDetailState): Int =
     state.analysis?.result?.stages?.epoch_seconds ?: state.epochSeconds

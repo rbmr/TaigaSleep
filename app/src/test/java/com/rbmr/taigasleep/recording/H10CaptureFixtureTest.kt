@@ -1,9 +1,9 @@
 package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.TestClock
-import com.rbmr.taigasleep.recording.store.SessionConfig
-import com.rbmr.taigasleep.recording.store.SessionMeta
-import com.rbmr.taigasleep.recording.store.SessionState
+import com.rbmr.taigasleep.recording.store.RecordingConfig
+import com.rbmr.taigasleep.recording.store.RecordingMeta
+import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.tracker.HrSample
 import com.rbmr.taigasleep.tracker.Stamp
 import org.json.JSONObject
@@ -23,9 +23,9 @@ class H10CaptureFixtureTest {
       JSONObject(requireNotNull(javaClass.getResource("/h10/$name")) { "$name not found" }.readText())
 
   private fun meta() =
-      SessionMeta(
-          sessionId = "fixture",
-          state = SessionState.RECORDING,
+      RecordingMeta(
+          recordingId = "fixture",
+          state = RecordingPhase.RECORDING,
           startUtcMs = clock.phoneNs / 1_000_000L,
           endUtcMs = null,
           timezone = "UTC",
@@ -40,7 +40,7 @@ class H10CaptureFixtureTest {
           sensorName = "Polar H10",
           sensorFirmware = null,
           sensorBatteryAtStart = 80,
-          config = SessionConfig(hr = true, ecg = false, acc = false),
+          config = RecordingConfig(hr = true, ecg = false, acc = false),
       )
 
   private data class Replay(

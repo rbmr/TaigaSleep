@@ -13,9 +13,9 @@ import com.rbmr.taigasleep.backend.TaigaNetworkException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.label
 import com.rbmr.taigasleep.recording.RecordingService
-import com.rbmr.taigasleep.recording.store.SessionMeta
-import com.rbmr.taigasleep.recording.store.SessionState
-import com.rbmr.taigasleep.recording.store.SessionStore
+import com.rbmr.taigasleep.recording.store.RecordingMeta
+import com.rbmr.taigasleep.recording.store.RecordingPhase
+import com.rbmr.taigasleep.recording.store.RecordingStore
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
@@ -73,19 +73,19 @@ class UploadWorker(
             }
 
     return try {
-      val sessions = SessionStore.of(context)
+      val sessions = RecordingStore.of(context)
       val dir = sessions.dir(localId)
       if (!dir.isDirectory) {
         store.markFailed(localId, UploadFailure.STORAGE, "recording directory is missing")
         return Result.failure()
       }
-      val meta = SessionMeta.read(dir)
+      val meta = RecordingMeta.read(dir)
       if (meta == null) {
         store.markFailed(localId, UploadFailure.STORAGE, "meta.json is missing or invalid")
         return Result.failure()
       }
 
-      if (meta.state == SessionState.RECORDING) {
+      if (meta.state == RecordingPhase.RECORDING) {
         if (RecordingService.running) {
           // The service schedules a fresh worker when it finishes. Never upload an open file.
           store.markQueued(localId, UploadFailure.RECORDING, "recording is still in progress")
@@ -94,7 +94,7 @@ class UploadWorker(
         // A crash left the state as recording. Close the local metadata the same way app start
         // does, using the last frame as the end time.
         val end = sessions.lastFrameMs(dir) ?: meta.startUtcMs
-        meta.copy(state = SessionState.INTERRUPTED, endUtcMs = end).write(dir)
+        meta.copy(state = RecordingPhase.INTERRUPTED, endUtcMs = end).write(dir)
       }
 
       store.markUploading(localId, 0f)

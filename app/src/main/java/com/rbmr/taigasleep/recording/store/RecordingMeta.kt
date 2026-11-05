@@ -6,19 +6,19 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import org.json.JSONObject
 
-enum class SessionState(val wire: String) {
+enum class RecordingPhase(val wire: String) {
   RECORDING("recording"),
   STOPPED("stopped"),
   FORCED_STOP("forced_stop"),
   INTERRUPTED("interrupted");
 
   companion object {
-    fun fromWire(value: String?): SessionState =
+    fun fromWire(value: String?): RecordingPhase =
         entries.firstOrNull { it.wire == value } ?: INTERRUPTED
   }
 }
 
-data class SessionConfig(
+data class RecordingConfig(
     val hr: Boolean = true,
     val ecg: Boolean,
     val acc: Boolean,
@@ -34,9 +34,9 @@ data class SessionConfig(
       }
 }
 
-data class SessionMeta(
-    val sessionId: String,
-    val state: SessionState,
+data class RecordingMeta(
+    val recordingId: String,
+    val state: RecordingPhase,
     val startUtcMs: Long,
     val endUtcMs: Long?,
     val timezone: String,
@@ -51,13 +51,13 @@ data class SessionMeta(
     val sensorName: String,
     val sensorFirmware: String?,
     val sensorBatteryAtStart: Int?,
-    val config: SessionConfig,
+    val config: RecordingConfig,
 ) {
   fun toJson(): JSONObject =
       JSONObject()
           .put("format", "taiga-recording")
           .put("version", 1)
-          .put("session_id", sessionId)
+          .put("session_id", recordingId)
           .put("state", state.wire)
           .put("start_utc_ms", startUtcMs)
           .put("end_utc_ms", endUtcMs ?: JSONObject.NULL)
@@ -95,14 +95,14 @@ data class SessionMeta(
           )
 
   companion object {
-    fun fromJson(o: JSONObject): SessionMeta {
+    fun fromJson(o: JSONObject): RecordingMeta {
       val app = o.getJSONObject("app")
       val phone = o.getJSONObject("phone")
       val sensor = o.getJSONObject("sensor")
       val config = o.getJSONObject("config")
-      return SessionMeta(
-          sessionId = o.getString("session_id"),
-          state = SessionState.fromWire(o.optString("state")),
+      return RecordingMeta(
+          recordingId = o.getString("session_id"),
+          state = RecordingPhase.fromWire(o.optString("state")),
           startUtcMs = o.getLong("start_utc_ms"),
           endUtcMs = if (o.isNull("end_utc_ms")) null else o.getLong("end_utc_ms"),
           timezone = o.optString("timezone"),
@@ -120,7 +120,7 @@ data class SessionMeta(
               if (sensor.isNull("battery_percent_at_start")) null
               else sensor.getInt("battery_percent_at_start"),
           config =
-              SessionConfig(
+              RecordingConfig(
                   hr = config.optBoolean("hr", true),
                   ecg = config.optBoolean("ecg"),
                   acc = config.optBoolean("acc"),
@@ -133,7 +133,7 @@ data class SessionMeta(
 
     const val FILE_NAME = "meta.json"
 
-    fun read(dir: File): SessionMeta? =
+    fun read(dir: File): RecordingMeta? =
         try {
           fromJson(JSONObject(File(dir, FILE_NAME).readText()))
         } catch (_: Exception) {

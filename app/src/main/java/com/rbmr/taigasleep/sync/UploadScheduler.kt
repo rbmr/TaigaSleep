@@ -11,8 +11,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.recording.RecordingService
-import com.rbmr.taigasleep.recording.store.SessionState
-import com.rbmr.taigasleep.recording.store.SessionStore
+import com.rbmr.taigasleep.recording.store.RecordingPhase
+import com.rbmr.taigasleep.recording.store.RecordingStore
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,7 +30,7 @@ object UploadScheduler {
     val settings = UploadSettings.get(context)
     if (!settings.autoUpload.value.enabled) return
     if (!RemoteRepository.of(context).hasSession) return
-    val dir = SessionStore.of(context).dir(localId)
+    val dir = RecordingStore.of(context).dir(localId)
     if (!dir.isDirectory) return
     enqueueAuto(context, localId)
   }
@@ -90,7 +90,7 @@ object UploadScheduler {
 
   /** After an automatic-upload checkbox changes, apply it to the queued uploads. */
   fun rescheduleAll(context: Context) {
-    val local = SessionStore.of(context).list()
+    val local = RecordingStore.of(context).list()
     val manager = WorkManager.getInstance(context)
     val store = UploadStore.of(context)
     val settings = UploadSettings.get(context).autoUpload.value
@@ -102,7 +102,7 @@ object UploadScheduler {
     }
     if (!RemoteRepository.of(context).hasSession) return
     local.forEach { session ->
-      if (session.state == SessionState.RECORDING) return@forEach
+      if (session.state == RecordingPhase.RECORDING) return@forEach
       // A night that is processing is on the server already; its result comes from the live stream.
       if (store.record(session.id)?.phase == UploadPhase.PROCESSING) return@forEach
       if (settings.enabled) enqueueAuto(context, session.id)
@@ -118,8 +118,8 @@ object UploadScheduler {
         if (!RemoteRepository.of(context).hasSession) return@withContext
         val settings = UploadSettings.get(context).autoUpload.value
         val store = UploadStore.of(context)
-        for (session in SessionStore.of(context).list()) {
-          if (session.state == SessionState.RECORDING &&
+        for (session in RecordingStore.of(context).list()) {
+          if (session.state == RecordingPhase.RECORDING &&
               RecordingService.running) {
             continue
           }

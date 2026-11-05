@@ -4,7 +4,7 @@ import android.content.Context
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.sync.LiveSync
 
-/** The backend's live event stream wired to refresh [NightRepository]; one per process. */
+/** The backend's live event stream wired to refresh [RecordingLibrary]; one per process. */
 object LibraryLiveSync {
   @Volatile private var instance: LiveSync? = null
 
@@ -19,7 +19,7 @@ object LibraryLiveSync {
     return LiveSync(
         gate = remote.streamAccount,
         events = remote.events(),
-        target = NightRepository.of(context),
+        target = RecordingLibrary.of(context),
     )
   }
 }
