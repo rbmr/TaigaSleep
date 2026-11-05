@@ -434,7 +434,9 @@ fun formatRecordingDateAndTime(ms: Long): String =
 
 fun formatDuration(ms: Long): String {
   if (ms <= 0) return "—"
-  val totalMinutes = ms / 60_000
+  val totalSeconds = ms / 1000
+  if (totalSeconds < 60) return "${totalSeconds}s"
+  val totalMinutes = totalSeconds / 60
   val hours = totalMinutes / 60
   val minutes = totalMinutes % 60
   return when {
