@@ -88,6 +88,9 @@ private class FakeWork : NightWork {
   var deleteRaw: RawActionResult = RawActionResult.Done
   var retry: Result<Unit> = Result.success(Unit)
 
+  /** What restoring the files does to the phone, such as writing them and restoring the night. */
+  var restores: () -> Unit = {}
+
   override suspend fun refreshRecordings() {
     calls += "refreshRecordings"
   }
@@ -108,6 +111,7 @@ private class FakeWork : NightWork {
   ): Result<Unit> {
     calls += "restore:$localId:$remoteId"
     onProgress(1f)
+    if (restore.isSuccess) restores()
     return restore
   }
 
@@ -432,6 +436,24 @@ class RecordingDetailViewModelTest {
     model.downloadRaw()
 
     assertTrue("restore:local:r1" in work.calls)
+    assertTrue(model.state.value.showDetails)
+  }
+
+  @Test
+  fun `a finished download shows the size of the files it restored`() {
+    library.recordings.value = listOf(night(hasRaw = false))
+    work.rawSize = 0
+    val model = viewModel()
+    model.openDetails()
+    assertEquals(0L, model.state.value.rawSizeBytes)
+
+    work.restores = {
+      work.rawSize = 229_000
+      library.recordings.value = listOf(night(hasRaw = true))
+    }
+    model.downloadRaw()
+
+    assertEquals(229_000L, model.state.value.rawSizeBytes)
     assertTrue(model.state.value.showDetails)
   }
 
