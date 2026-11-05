@@ -25,7 +25,13 @@ recordings to Parquet.
   ecg.log        append-only frame log, stream 2
   acc.log        append-only frame log, stream 3
   events.jsonl   append-only, one JSON object per line
+  sync.json      app-private sync state; not part of the recording, never exported
 ```
+
+`sync.json` lives beside the recording so the upload state is a property of that
+recording: it survives a process kill and is deleted with the recording. It is
+excluded from exports, because it describes this phone's transfer, not the
+recorded night.
 
 `session_id` is the local start time, `yyyyMMdd_HHmmss`, a dash and four random
 lowercase letters or digits (`20261023_223000-k3f9`). The server stores the

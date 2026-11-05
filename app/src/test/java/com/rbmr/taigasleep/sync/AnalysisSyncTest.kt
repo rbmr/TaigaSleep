@@ -22,12 +22,18 @@ import org.junit.Before
 import org.junit.Test
 
 private class MemoryRecords : UploadRecordsStorage {
-  var json: String? = null
+  val documents = mutableMapOf<String, String>()
 
-  override fun read(): String? = json
+  override fun ids(): Set<String> = documents.keys
 
-  override fun write(json: String) {
-    this.json = json
+  override fun read(id: String): String? = documents[id]
+
+  override fun write(id: String, json: String) {
+    documents[id] = json
+  }
+
+  override fun delete(id: String) {
+    documents.remove(id)
   }
 }
 

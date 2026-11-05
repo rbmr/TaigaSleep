@@ -3,6 +3,8 @@ package com.rbmr.taigasleep.sync
 import android.content.Context
 import android.content.SharedPreferences
 import com.rbmr.taigasleep.backend.StageSegmentDto
+import com.rbmr.taigasleep.recording.store.RecordingStore
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -81,22 +83,71 @@ data class UploadRecord(
             phase == UploadPhase.FAILED
 }
 
-/** Where the records are kept: one JSON document. Preferences in the app, memory in unit tests. */
+/**
+ * Where sync state is kept: one `sync.json` inside each recording directory, so it lives and dies
+ * with the recording. A remote-only key has no directory, so its session-only state is not written.
+ */
 interface UploadRecordsStorage {
-  fun read(): String?
+  fun ids(): Set<String>
 
-  fun write(json: String)
-}
+  fun read(id: String): String?
 
-private class PreferencesRecords(private val prefs: SharedPreferences) : UploadRecordsStorage {
-  override fun read(): String? = prefs.getString(KEY_RECORDS, null)
+  fun write(id: String, json: String)
 
-  override fun write(json: String) {
-    prefs.edit().putString(KEY_RECORDS, json).apply()
-  }
+  fun delete(id: String)
+
+  /** Whether this id is a recording on this phone, and can therefore hold its own sync file. */
+  fun hasRecording(id: String): Boolean = true
+
+  /** The old single-document format, read once so an upgrade does not lose queued uploads. */
+  fun legacy(): String? = null
+
+  fun clearLegacy() {}
 }
 
 private const val KEY_RECORDS = "records"
+private const val SYNC_FILE_TMP_SUFFIX = ".tmp"
+
+internal class RecordingDirectoryStorage(
+    private val root: File,
+    private val prefs: SharedPreferences? = null,
+) : UploadRecordsStorage {
+  override fun ids(): Set<String> =
+      root.listFiles { file -> file.isDirectory && File(file, RecordingStore.SYNC_FILE).isFile }
+          ?.map { it.name }
+          ?.toSet()
+          .orEmpty()
+
+  override fun read(id: String): String? {
+    val file = File(root, "$id/${RecordingStore.SYNC_FILE}")
+    return if (file.isFile) file.readText() else null
+  }
+
+  override fun write(id: String, json: String) {
+    val dir = File(root, id)
+    // Remote-only recordings are not local recordings; their view comes from the server cache.
+    if (!dir.isDirectory) return
+    val file = File(dir, RecordingStore.SYNC_FILE)
+    val tmp = File(dir, RecordingStore.SYNC_FILE + SYNC_FILE_TMP_SUFFIX)
+    tmp.writeText(json)
+    if (!tmp.renameTo(file)) {
+      file.writeText(json)
+      tmp.delete()
+    }
+  }
+
+  override fun delete(id: String) {
+    File(root, "$id/${RecordingStore.SYNC_FILE}").delete()
+  }
+
+  override fun hasRecording(id: String): Boolean = File(root, id).isDirectory
+
+  override fun legacy(): String? = prefs?.getString(KEY_RECORDS, null)
+
+  override fun clearLegacy() {
+    prefs?.edit()?.remove(KEY_RECORDS)?.apply()
+  }
+}
 
 /**
  * Persisted status for every local recording. The backend is authoritative for the bytes and the
@@ -114,6 +165,10 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
 
   private val _records = MutableStateFlow(load())
   val records: StateFlow<Map<String, UploadRecord>> = _records.asStateFlow()
+
+  init {
+    migrateLegacy()
+  }
 
   fun record(id: String): UploadRecord? = _records.value[id]
 
@@ -247,29 +302,47 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
 
   fun clear(id: String) {
     synchronized(lock) {
-      val next = _records.value - id
-      persist(next)
-      _records.value = next
+      storage.delete(id)
+      _records.value = _records.value - id
     }
   }
 
   private fun update(id: String, transform: (UploadRecord) -> UploadRecord) {
     synchronized(lock) {
       val current = _records.value[id] ?: UploadRecord(id = id)
-      val next = _records.value + (id to transform(current))
-      persist(next)
-      _records.value = next
+      val next = transform(current)
+      storage.write(id, json.encodeToString(next))
+      _records.value = _records.value + (id to next)
     }
   }
 
-  private fun persist(records: Map<String, UploadRecord>) {
-    storage.write(json.encodeToString<Map<String, UploadRecord>>(records))
+  private fun load(): Map<String, UploadRecord> =
+      storage.ids().mapNotNull { id ->
+        val raw = storage.read(id) ?: return@mapNotNull null
+        runCatching { id to json.decodeFromString<UploadRecord>(raw) }.getOrNull()
+      }.toMap()
+
+  /** Move the records of the old shared document next to their recordings, once. */
+  private fun migrateLegacy() {
+    val raw = storage.legacy() ?: return
+    synchronized(lock) {
+      val old =
+          runCatching { json.decodeFromString<Map<String, UploadRecord>>(raw) }.getOrDefault(emptyMap())
+      val next = _records.value.toMutableMap()
+      for ((id, record) in old) {
+        // Only a recording on this phone can hold its state there now.
+        if (!storage.hasRecording(id)) continue
+        val merged = next[id]?.let { current -> current.copyFrom(record) } ?: record
+        storage.write(id, json.encodeToString(merged))
+        next[id] = merged
+      }
+      _records.value = next
+      storage.clearLegacy()
+    }
   }
 
-  private fun load(): Map<String, UploadRecord> {
-    val raw = storage.read() ?: return emptyMap()
-    return runCatching { json.decodeFromString<Map<String, UploadRecord>>(raw) }.getOrDefault(emptyMap())
-  }
+  private fun UploadRecord.copyFrom(old: UploadRecord): UploadRecord =
+      if (updatedAtMs >= old.updatedAtMs) this else old
 
   private fun now(): Long = System.currentTimeMillis()
 
@@ -281,11 +354,12 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
             ?: synchronized(this) {
               instance
                   ?: UploadStore(
-                          PreferencesRecords(
+                          RecordingDirectoryStorage(
+                              RecordingStore.of(context).root,
                               context.applicationContext.getSharedPreferences(
                                   "uploads",
                                   Context.MODE_PRIVATE,
-                              )
+                              ),
                           )
                       )
                       .also { instance = it }
