@@ -30,11 +30,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.library.Night
-import com.rbmr.taigasleep.library.NightRepository
-import com.rbmr.taigasleep.library.NightStatus
+import com.rbmr.taigasleep.library.RecordingView
+import com.rbmr.taigasleep.library.RecordingLibrary
+import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.library.formatDuration
-import com.rbmr.taigasleep.library.formatNightDateAndTime
+import com.rbmr.taigasleep.library.formatRecordingDateAndTime
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.sync.PendingDeleteStore
 import com.rbmr.taigasleep.sync.RawRetention
@@ -55,21 +55,21 @@ fun HistoryScreen(
     onOpenNight: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
 ) {
   val context = LocalContext.current
-  val repository = remember { NightRepository.of(context) }
+  val repository = remember { RecordingLibrary.of(context) }
   val pendingDeleteStore = remember { PendingDeleteStore.of(context) }
   val pendingDeletes by pendingDeleteStore.pending.collectAsStateWithLifecycle()
   val remoteStatus by repository.remoteStatus.collectAsStateWithLifecycle()
-  val nights by repository.nights.collectAsStateWithLifecycle()
+  val nights by repository.recordings.collectAsStateWithLifecycle()
 
   LaunchedEffect(Unit) {
-    RecordingRepository.refreshSessions(context)
+    RecordingRepository.refreshRecordings(context)
     UploadScheduler.resumePendingDeletes(context)
     UploadScheduler.reconcile(context)
     RawRetention.enforce(context)
     repository.reload()
   }
   LifecycleResumeEffect(Unit) {
-    RecordingRepository.refreshSessions(context)
+    RecordingRepository.refreshRecordings(context)
     repository.reload()
     onPauseOrDispose {}
   }
@@ -115,7 +115,7 @@ fun HistoryScreen(
     } else {
       item { SectionLabel(stringResource(R.string.history_nights_label)) }
       items(items, key = { it.key }) { item ->
-        NightRow(
+        RecordingRow(
             item = item,
             onOpen = { onOpenNight(item.localId, item.remoteId, item.analysisId) },
         )
@@ -125,7 +125,7 @@ fun HistoryScreen(
 }
 
 @Composable
-private fun NightRow(item: Night, onOpen: () -> Unit) {
+private fun RecordingRow(item: RecordingView, onOpen: () -> Unit) {
   val titleMs =
       if (item.isRecording) item.startUtcMs else item.endUtcMs ?: item.startUtcMs
   val device = item.device.ifBlank { stringResource(R.string.night_device_unknown) }
@@ -136,7 +136,7 @@ private fun NightRow(item: Night, onOpen: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
       Column(Modifier.weight(1f)) {
         Text(
-            text = formatNightDateAndTime(titleMs),
+            text = formatRecordingDateAndTime(titleMs),
             style = MaterialTheme.typography.titleMedium,
         )
         Text(
@@ -145,7 +145,7 @@ private fun NightRow(item: Night, onOpen: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
-      if (item.status == NightStatus.READY) {
+      if (item.status == RecordingStatus.READY) {
         ScoreBadge(
             score = item.sleepScore,
             label = stringResource(R.string.history_sleep_score_label),
@@ -157,7 +157,7 @@ private fun NightRow(item: Night, onOpen: () -> Unit) {
             style = MaterialTheme.typography.labelMedium,
             color =
                 when {
-                  item.status == NightStatus.FAILED -> MaterialTheme.colorScheme.error
+                  item.status == RecordingStatus.FAILED -> MaterialTheme.colorScheme.error
                   item.isRecording -> MaterialTheme.colorScheme.primary
                   else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
@@ -165,18 +165,18 @@ private fun NightRow(item: Night, onOpen: () -> Unit) {
       }
     }
 
-    if (item.status == NightStatus.READY) {
+    if (item.status == RecordingStatus.READY) {
       if (item.segments.isNotEmpty()) {
         Spacer(Modifier.height(12.dp))
         StageBar(item.segments)
       }
-    } else if (item.status == NightStatus.UPLOADING) {
+    } else if (item.status == RecordingStatus.UPLOADING) {
       Spacer(Modifier.height(10.dp))
       LinearProgressIndicator(
           progress = { item.progress },
           modifier = Modifier.fillMaxWidth().height(5.dp),
       )
-    } else if (item.status == NightStatus.QUEUED || item.status == NightStatus.PROCESSING) {
+    } else if (item.status == RecordingStatus.QUEUED || item.status == RecordingStatus.PROCESSING) {
       Spacer(Modifier.height(10.dp))
       LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(5.dp))
     }
@@ -184,15 +184,15 @@ private fun NightRow(item: Night, onOpen: () -> Unit) {
 }
 
 @Composable
-private fun rowStatus(item: Night): String =
+private fun rowStatus(item: RecordingView): String =
     when (item.status) {
-      NightStatus.RECORDING -> stringResource(R.string.history_recording)
-      NightStatus.LOCAL_ONLY -> stringResource(R.string.history_local_only)
-      NightStatus.QUEUED -> stringResource(R.string.history_queued)
-      NightStatus.UPLOADING ->
+      RecordingStatus.RECORDING -> stringResource(R.string.history_recording)
+      RecordingStatus.LOCAL_ONLY -> stringResource(R.string.history_local_only)
+      RecordingStatus.QUEUED -> stringResource(R.string.history_queued)
+      RecordingStatus.UPLOADING ->
           stringResource(R.string.history_uploading, (item.progress * 100).toInt().coerceIn(0, 100))
-      NightStatus.PROCESSING -> stringResource(R.string.history_processing)
-      NightStatus.FAILED ->
+      RecordingStatus.PROCESSING -> stringResource(R.string.history_processing)
+      RecordingStatus.FAILED ->
           stringResource(
               when (item.failure) {
                 UploadFailure.ANALYSIS -> R.string.history_status_analysis_failed
@@ -201,5 +201,5 @@ private fun rowStatus(item: Night): String =
                 else -> R.string.history_status_upload_failed
               }
           )
-      NightStatus.READY -> stringResource(R.string.history_status_ready)
+      RecordingStatus.READY -> stringResource(R.string.history_status_ready)
     }

@@ -1,6 +1,6 @@
 package com.rbmr.taigasleep.recording
 
-import com.rbmr.taigasleep.recording.store.SessionMeta
+import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.Clock
 import com.rbmr.taigasleep.tracker.ConnectionState
@@ -32,7 +32,7 @@ interface SampleMonitor {
  * on link, battery and phase changes.
  */
 class RecordingMonitor(
-    private val meta: SessionMeta,
+    private val meta: RecordingMeta,
     private val clock: Clock,
     /** The writer's `event`; transition events are rare, samples never log. */
     private val event: (type: String, message: String) -> Unit,
@@ -357,9 +357,9 @@ class RecordingMonitor(
         )
     _state.value =
         RecordingState(
-            session =
-                RecordingState.Session(
-                    id = meta.sessionId,
+            capture =
+                RecordingState.Capture(
+                    id = meta.recordingId,
                     sensorId = meta.sensorId,
                     sensorName = meta.sensorName,
                     phase = phase,

@@ -4,9 +4,9 @@ import android.content.Context
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.recording.RecordingRepository
-import com.rbmr.taigasleep.recording.store.SessionMeta
-import com.rbmr.taigasleep.recording.store.SessionState
-import com.rbmr.taigasleep.recording.store.SessionStore
+import com.rbmr.taigasleep.recording.store.RecordingMeta
+import com.rbmr.taigasleep.recording.store.RecordingPhase
+import com.rbmr.taigasleep.recording.store.RecordingStore
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
@@ -62,10 +62,10 @@ object RawRetention {
         val mode = UploadSettings.get(context).rawRetention.value
         if (mode == RawRetentionMode.NEVER) return@withContext
         val store = UploadStore.of(context)
-        val sessions = SessionStore.of(context)
+        val sessions = RecordingStore.of(context)
         var changed = false
         for (session in sessions.list()) {
-          if (session.state == SessionState.RECORDING) continue
+          if (session.state == RecordingPhase.RECORDING) continue
           val record = store.record(session.id) ?: continue
           if (record.keepRawOnPhone) continue
           val confirmedAt = record.uploadConfirmedAt() ?: continue
@@ -78,7 +78,7 @@ object RawRetention {
                   .getOrDefault(false)
           if (trimmed) changed = true
         }
-        if (changed) RecordingRepository.refreshSessions(context)
+        if (changed) RecordingRepository.refreshRecordings(context)
       }
 
   /**
@@ -88,16 +88,16 @@ object RawRetention {
    */
   suspend fun deleteRaw(context: Context, localId: String): RawActionResult =
       withContext(Dispatchers.IO) {
-        val sessions = SessionStore.of(context)
+        val sessions = RecordingStore.of(context)
         val dir = sessions.dir(localId)
-        val meta = SessionMeta.read(dir) ?: return@withContext RawActionResult.NothingToDelete
-        if (meta.state == SessionState.RECORDING) return@withContext RawActionResult.Recording
+        val meta = RecordingMeta.read(dir) ?: return@withContext RawActionResult.NothingToDelete
+        if (meta.state == RecordingPhase.RECORDING) return@withContext RawActionResult.Recording
         val record = UploadStore.of(context).record(localId)
         if (record?.uploadConfirmedAt() == null) return@withContext RawActionResult.NotUploaded
         if (!hasStreams(dir)) return@withContext RawActionResult.NothingToDelete
         try {
           trim(dir, sessions.lastFrameMs(dir))
-          RecordingRepository.refreshSessions(context)
+          RecordingRepository.refreshRecordings(context)
           RawActionResult.Done
         } catch (e: IOException) {
           RawActionResult.Failed(e.message)
@@ -116,15 +116,15 @@ object RawRetention {
       onProgress: (Float) -> Unit = {},
   ): Result<Unit> =
       withContext(Dispatchers.IO) {
-        val sessions = SessionStore.of(context)
+        val sessions = RecordingStore.of(context)
         val dir = sessions.dir(localId)
-        val meta = SessionMeta.read(dir)
+        val meta = RecordingMeta.read(dir)
         if (meta == null) {
           return@withContext Result.failure(
               IllegalStateException("the recording metadata is missing")
           )
         }
-        if (meta.state == SessionState.RECORDING) {
+        if (meta.state == RecordingPhase.RECORDING) {
           return@withContext Result.failure(
               IllegalStateException("the recording is still in progress")
           )
@@ -137,7 +137,7 @@ object RawRetention {
         try {
           val available =
               api.listFiles(recordingId).items.filter {
-                it.name in SessionStore.RAW_FILES && it.size > 0
+                it.name in RecordingStore.RAW_FILES && it.size > 0
               }
           if (available.isEmpty()) {
             return@withContext Result.failure(
@@ -162,7 +162,7 @@ object RawRetention {
             onProgress((index + 1).toFloat() / available.size)
           }
           UploadStore.of(context).markKeepRaw(localId)
-          RecordingRepository.refreshSessions(context)
+          RecordingRepository.refreshRecordings(context)
           Result.success(Unit)
         } catch (e: CancellationException) {
           restored.forEach { it.delete() }
@@ -189,18 +189,18 @@ object RawRetention {
   }
 
   private fun hasStreams(dir: File): Boolean =
-      SessionStore.RAW_FILES.any { name -> File(dir, name).let { it.isFile && it.length() > 0 } }
+      RecordingStore.RAW_FILES.any { name -> File(dir, name).let { it.isFile && it.length() > 0 } }
 
   /**
    * Deletes the raw streams after making sure the end time is in meta.json, because the last HR
    * frame is where an unfinished night used to get its end time from.
    */
   private fun trim(dir: File, lastFrameMs: Long?) {
-    val meta = SessionMeta.read(dir)
+    val meta = RecordingMeta.read(dir)
     if (meta != null && meta.endUtcMs == null) {
       meta.copy(endUtcMs = lastFrameMs ?: meta.startUtcMs).write(dir)
     }
-    for (name in SessionStore.RAW_FILES) {
+    for (name in RecordingStore.RAW_FILES) {
       val file = File(dir, name)
       if (!file.isFile) continue
       if (!file.delete()) throw IOException("could not delete ${file.name}")

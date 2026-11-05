@@ -15,7 +15,7 @@ import com.rbmr.taigasleep.tracker.Stamp
  * keep going straight to the writer's `events.jsonl`.
  */
 class SampleFanout(
-    private val writer: SessionWriter,
+    private val writer: RecordingWriter,
     private val monitor: SampleMonitor,
     /** Called once per session if the monitor throws; the service records it as an event. */
     private val onMonitorFailure: (String) -> Unit,

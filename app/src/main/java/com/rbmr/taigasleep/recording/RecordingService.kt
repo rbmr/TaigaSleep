@@ -16,10 +16,10 @@ import android.os.SystemClock
 import android.util.Log
 import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.recording.store.SessionConfig
-import com.rbmr.taigasleep.recording.store.SessionMeta
-import com.rbmr.taigasleep.recording.store.SessionState
-import com.rbmr.taigasleep.recording.store.SessionStore
+import com.rbmr.taigasleep.recording.store.RecordingConfig
+import com.rbmr.taigasleep.recording.store.RecordingMeta
+import com.rbmr.taigasleep.recording.store.RecordingPhase
+import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.tracker.SleepSensor
@@ -49,12 +49,12 @@ class RecordingService : Service() {
   private val control = Executors.newSingleThreadExecutor { Thread(it, "recording-control") }
   private val scope = CoroutineScope(SupervisorJob() + control.asCoroutineDispatcher())
 
-  private lateinit var store: SessionStore
+  private lateinit var store: RecordingStore
   private lateinit var prefs: RecordingPrefs
   private lateinit var hooks: RecordingHooks
 
   private class Live(
-      val writer: SessionWriter,
+      val writer: RecordingWriter,
       val sensor: SleepSensor,
       val wakeLock: PowerManager.WakeLock,
       val monitor: RecordingMonitor,
@@ -66,7 +66,7 @@ class RecordingService : Service() {
 
   override fun onCreate() {
     super.onCreate()
-    store = SessionStore.of(this)
+    store = RecordingStore.of(this)
     prefs = RecordingPrefs.get(this)
     hooks = RecordingHooks.current()
     getSystemService(NotificationManager::class.java)
@@ -139,15 +139,15 @@ class RecordingService : Service() {
           return
         }
     val config =
-        SessionConfig(
+        RecordingConfig(
             ecg = intent.getBooleanExtra(EXTRA_ECG, false) && sensor.capabilities.ecg,
             acc = intent.getBooleanExtra(EXTRA_ACC, false) && sensor.capabilities.acc,
         )
     val now = System.currentTimeMillis()
     val meta =
-        SessionMeta(
-            sessionId = store.newSessionId(now),
-            state = SessionState.RECORDING,
+        RecordingMeta(
+            recordingId = store.newRecordingId(now),
+            state = RecordingPhase.RECORDING,
             startUtcMs = now,
             endUtcMs = null,
             timezone = TimeZone.getDefault().id,
@@ -166,7 +166,7 @@ class RecordingService : Service() {
         )
     val writer =
         try {
-          SessionWriter.create(store.root, meta, SystemClockSource)
+          RecordingWriter.create(store.root, meta, SystemClockSource)
         } catch (e: Exception) {
           Log.e(TAG, "cannot create session", e)
           leave(getString(R.string.rec_error_storage))
@@ -181,16 +181,16 @@ class RecordingService : Service() {
     if (live != null) return
     val id = prefs.activeSessionId
     val dir = id?.let { store.dir(it) }
-    val meta = dir?.let { SessionMeta.read(it) }
+    val meta = dir?.let { RecordingMeta.read(it) }
     val kind = SensorKind.fromWire(meta?.sensorKind)
-    if (dir == null || meta == null || kind == null || meta.state == SessionState.STOPPED ||
-        meta.state == SessionState.FORCED_STOP) {
+    if (dir == null || meta == null || kind == null || meta.state == RecordingPhase.STOPPED ||
+        meta.state == RecordingPhase.FORCED_STOP) {
       prefs.activeSessionId = null
       WatchdogReceiver.cancel(this)
       leave(null)
       return
     }
-    val writer = SessionWriter.resume(dir, SystemClockSource, "service resumed session") ?: run {
+    val writer = RecordingWriter.resume(dir, SystemClockSource, "service resumed session") ?: run {
       leave(null)
       return
     }
@@ -200,7 +200,7 @@ class RecordingService : Service() {
           SensorHub.obtain(this, kind, meta.sensorId, meta.sensorName)
         } catch (e: IllegalStateException) {
           writer.event("error", e.message ?: "sensor unavailable")
-          writer.finish(SessionState.INTERRUPTED, "cannot resume")
+          writer.finish(RecordingPhase.INTERRUPTED, "cannot resume")
           prefs.activeSessionId = null
           leave(null)
           return
@@ -208,7 +208,7 @@ class RecordingService : Service() {
     attach(writer, sensor)
   }
 
-  private fun attach(writer: SessionWriter, sensor: SleepSensor) {
+  private fun attach(writer: RecordingWriter, sensor: SleepSensor) {
     val pm = getSystemService(PowerManager::class.java)
     val wakeLock =
         pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TaigaSleep::recording").apply {
@@ -228,7 +228,7 @@ class RecordingService : Service() {
     live = s
     running = true
     lastNotificationText = null
-    prefs.activeSessionId = writer.meta.sessionId
+    prefs.activeSessionId = writer.meta.recordingId
     prefs.heartbeatMs = System.currentTimeMillis()
     WatchdogReceiver.schedule(this)
     Diagnostics.markRunning()
@@ -236,9 +236,9 @@ class RecordingService : Service() {
 
     val cfg = writer.meta.config
     RecordingRepository.update {
-      RecordingStatus(
+      CaptureStatus(
           phase = Phase.RECORDING,
-          sessionId = writer.meta.sessionId,
+          recordingId = writer.meta.recordingId,
           startUtcMs = writer.meta.startUtcMs,
           config = cfg,
           sensorName = sensor.name,
@@ -263,7 +263,7 @@ class RecordingService : Service() {
             scope.launch { watchConnection(s) },
             scope.launch { tickLoop(s) },
         )
-    RecordingRepository.refreshSessions(this)
+    RecordingRepository.refreshRecordings(this)
   }
 
   private suspend fun stop(forced: Boolean) {
@@ -277,13 +277,13 @@ class RecordingService : Service() {
     s.jobs.forEach { it.cancel() }
     if (forced) {
       // One-sided: the data is closed first and the sensor is told afterwards, if at all.
-      s.writer.finish(SessionState.FORCED_STOP, "forced stop")
+      s.writer.finish(RecordingPhase.FORCED_STOP, "forced stop")
       Thread { runCatching { s.sensor.stopStreams() } }.start()
     } else {
       withTimeoutOrNull(STOP_STREAMS_TIMEOUT_MS) {
         withContext(Dispatchers.IO) { runCatching { s.sensor.stopStreams() } }
       }
-      s.writer.finish(SessionState.STOPPED, "stopped by user")
+      s.writer.finish(RecordingPhase.STOPPED, "stopped by user")
     }
     end(s)
   }
@@ -297,7 +297,7 @@ class RecordingService : Service() {
     s.jobs.forEach { it.cancel() }
     Thread { runCatching { s.sensor.stopStreams() } }.start()
     s.writer.close()
-    store.delete(s.writer.meta.sessionId)
+    store.delete(s.writer.meta.recordingId)
     end(s)
   }
 
@@ -311,9 +311,9 @@ class RecordingService : Service() {
     WatchdogReceiver.cancel(this)
     releaseWakeLock(s)
     RecordingRepository.setIdle()
-    RecordingRepository.refreshSessions(this)
-    if (s.writer.meta.state != SessionState.RECORDING) {
-      hooks.onRecordingFinished(this, s.writer.meta.sessionId)
+    RecordingRepository.refreshRecordings(this)
+    if (s.writer.meta.state != RecordingPhase.RECORDING) {
+      hooks.onRecordingFinished(this, s.writer.meta.recordingId)
     }
     stopForeground(STOP_FOREGROUND_REMOVE)
     stopSelf()
@@ -386,11 +386,11 @@ class RecordingService : Service() {
     if (text == lastNotificationText) return
     lastNotificationText = text
     getSystemService(NotificationManager::class.java)
-        .notify(NOTIFICATION_ID, notification(text, state.session.startUtcMs))
+        .notify(NOTIFICATION_ID, notification(text, state.capture.startUtcMs))
   }
 
   private fun notificationText(s: RecordingState): String {
-    val name = s.session.sensorName.ifBlank { getString(R.string.rec_notification_title) }
+    val name = s.capture.sensorName.ifBlank { getString(R.string.rec_notification_title) }
     return when (s.overall.reason) {
       RecordingState.Reason.STORAGE_ERROR ->
           getString(R.string.rec_notification_storage_error, name)

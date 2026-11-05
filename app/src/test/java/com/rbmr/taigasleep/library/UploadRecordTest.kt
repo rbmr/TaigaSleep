@@ -1,0 +1,141 @@
+package com.rbmr.taigasleep.library
+
+import com.rbmr.taigasleep.backend.StageSegmentDto
+import com.rbmr.taigasleep.sync.UploadFailure
+import com.rbmr.taigasleep.sync.UploadPhase
+import com.rbmr.taigasleep.sync.UploadRecord
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/** The sync record is the only stored state; these adapters are what the library may read from it. */
+class UploadRecordTest {
+  @Test
+  fun aLocalRecordingHasNoServerCopy() {
+    val record = UploadRecord(id = "n", phase = UploadPhase.LOCAL)
+
+    assertEquals(BackupPhase.NOT_BACKED_UP, record.backupState().phase)
+    assertFalse(record.hasServerCopy())
+    assertNull(record.localAnalysis())
+  }
+
+  @Test
+  fun anUploadStartedByThisAppMarksTheServerCopy() {
+    val record = UploadRecord(id = "n", onServer = true, phase = UploadPhase.UPLOADING)
+
+    assertTrue(record.hasServerCopy())
+  }
+
+  @Test
+  fun aRecordFromBeforeTheSharedIdStillKnowsItsRecordingWasUploaded() {
+    // Older records have no flag; the phases after a finished upload imply a server copy.
+    for (phase in listOf(UploadPhase.PROCESSING, UploadPhase.DONE)) {
+      assertTrue(UploadRecord(id = "n", phase = phase).hasServerCopy())
+    }
+    assertTrue(UploadRecord(id = "n", analysisId = "a1", phase = UploadPhase.FAILED).hasServerCopy())
+    assertFalse(UploadRecord(id = "n", phase = UploadPhase.QUEUED).hasServerCopy())
+  }
+
+  @Test
+  fun aQueuedUploadKeepsItsReason() {
+    val backup =
+        UploadRecord(
+                id = "n",
+                phase = UploadPhase.QUEUED,
+                failure = UploadFailure.RECORDING,
+                errorDetail = "still recording",
+            )
+            .backupState()
+
+    assertEquals(BackupPhase.QUEUED, backup.phase)
+    assertEquals(UploadFailure.RECORDING, backup.failure)
+    assertEquals("still recording", backup.detail)
+  }
+
+  @Test
+  fun anUploadingRecordingKeepsItsProgress() {
+    val backup = UploadRecord(id = "n", phase = UploadPhase.UPLOADING, progress = 0.4f).backupState()
+
+    assertEquals(BackupPhase.UPLOADING, backup.phase)
+    assertEquals(0.4f, backup.progress, 0.001f)
+  }
+
+  @Test
+  fun anUploadedRecordingWaitingForAnalysisHasNoRunYet() {
+    val record = UploadRecord(id = "n", phase = UploadPhase.PROCESSING, uploadedAtMs = 100)
+
+    assertEquals(BackupPhase.BACKED_UP, record.backupState().phase)
+    assertEquals(100L, record.backupState().uploadedAtMs)
+    assertNull(record.localAnalysis())
+  }
+
+  @Test
+  fun aFinishedAnalysisBecomesOneDoneRun() {
+    val record =
+        UploadRecord(
+            id = "n",
+            analysisId = "a1",
+            phase = UploadPhase.DONE,
+            model = "wav2sleep",
+            modelVersion = "1.1.0",
+            segments = listOf(StageSegmentDto("light", 4)),
+            sleepScore = 81.0,
+            resultDownloaded = true,
+        )
+
+    assertEquals(BackupPhase.BACKED_UP, record.backupState().phase)
+    val run = record.localAnalysis()!!
+    assertEquals("a1", run.id)
+    assertEquals("wav2sleep", run.algorithm)
+    assertEquals("1.1.0", run.version)
+    assertEquals(AnalysisStatus.DONE, run.status)
+    assertEquals(81.0, run.sleepScore ?: 0.0, 0.001)
+    assertTrue(run.resultDownloaded)
+  }
+
+  @Test
+  fun aFailedUploadStaysAFailedCopy() {
+    val backup =
+        UploadRecord(
+                id = "n",
+                onServer = true,
+                phase = UploadPhase.FAILED,
+                failure = UploadFailure.NETWORK,
+                errorDetail = "offline",
+            )
+            .backupState()
+
+    assertEquals(BackupPhase.FAILED, backup.phase)
+    assertEquals(UploadFailure.NETWORK, backup.failure)
+    assertEquals("offline", backup.detail)
+  }
+
+  @Test
+  fun aFailedAnalysisLeavesTheServerCopyIntact() {
+    val record =
+        UploadRecord(
+            id = "n",
+            analysisId = "a1",
+            phase = UploadPhase.FAILED,
+            failure = UploadFailure.ANALYSIS,
+            errorDetail = "worker failed",
+        )
+
+    assertEquals(BackupPhase.BACKED_UP, record.backupState().phase)
+    val run = record.localAnalysis()!!
+    assertEquals(AnalysisStatus.FAILED, run.status)
+    assertEquals("worker failed", run.error)
+  }
+
+  @Test
+  fun aFailedAnalysisWithoutAnIdIsStillAFailedRecording() {
+    val record =
+        UploadRecord(id = "n", phase = UploadPhase.FAILED, failure = UploadFailure.ANALYSIS)
+
+    assertEquals(BackupPhase.FAILED, record.backupState().phase)
+    assertNull(record.localAnalysis())
+    assertFalse(record.hasServerCopy())
+  }
+}

@@ -100,9 +100,10 @@ Two things sit outside the table:
 
 Two rules inside the packages:
 
-- **One type per fact.** A recording on the phone, a recording on the backend and an
-  analysis are three different types. `library` composes them for display; nothing else
-  merges them into one object.
+- **One type per fact.** `recording.store.Recording` is a recording on the phone,
+  `backend.RecordingDto` is the server's copy, `library.Analysis` is one analysis, and
+  `sync.UploadRecord` is the sync state. `library` composes them into `RecordingView` for
+  the screens; nothing else merges them into one object.
 - **State has one owner.** Whatever stores or derives a piece of state is the only thing
   that writes it. Screens observe; they do not decide.
 

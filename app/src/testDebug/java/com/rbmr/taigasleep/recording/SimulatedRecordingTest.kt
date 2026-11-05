@@ -2,9 +2,9 @@ package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.TestClock
 import com.rbmr.taigasleep.recording.store.FrameLog
-import com.rbmr.taigasleep.recording.store.SessionConfig
-import com.rbmr.taigasleep.recording.store.SessionMeta
-import com.rbmr.taigasleep.recording.store.SessionState
+import com.rbmr.taigasleep.recording.store.RecordingConfig
+import com.rbmr.taigasleep.recording.store.RecordingMeta
+import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.SimulatedSensor
 import com.rbmr.taigasleep.tracker.StreamConfig
@@ -16,16 +16,16 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /**
- * Runs the real [SessionWriter] and [RecordingMonitor] behind one [SampleFanout] against the
+ * Runs the real [RecordingWriter] and [RecordingMonitor] behind one [SampleFanout] against the
  * [SimulatedSensor] on a fake clock for two minutes, leaves the session under build/fixtures/ and,
  * if python3 is installed, has tools/read_recording.py validate the raw files. It also asserts the
  * published state: the raw bytes and the live state must describe the same run.
  */
 class SimulatedRecordingTest {
   private fun meta(clock: TestClock) =
-      SessionMeta(
-          sessionId = "20261023_223000",
-          state = SessionState.RECORDING,
+      RecordingMeta(
+          recordingId = "20261023_223000",
+          state = RecordingPhase.RECORDING,
           startUtcMs = clock.phoneNs / 1_000_000L,
           endUtcMs = null,
           timezone = "UTC",
@@ -40,14 +40,14 @@ class SimulatedRecordingTest {
           sensorName = "Simulated sensor",
           sensorFirmware = null,
           sensorBatteryAtStart = 87,
-          config = SessionConfig(ecg = true, acc = true),
+          config = RecordingConfig(ecg = true, acc = true),
       )
 
   @Test
   fun simulatedNightValidatesWithPythonReader() {
     val clock = TestClock()
     val root = File("build/fixtures").apply { deleteRecursively(); mkdirs() }
-    val writer = SessionWriter.create(root, meta(clock), clock)
+    val writer = RecordingWriter.create(root, meta(clock), clock)
     lateinit var monitor: RecordingMonitor
     monitor =
         RecordingMonitor(
@@ -78,7 +78,7 @@ class SimulatedRecordingTest {
     }
     sensor.stopStreams()
     val live = monitor.state.value
-    writer.finish(SessionState.STOPPED, "test stop")
+    writer.finish(RecordingPhase.STOPPED, "test stop")
 
     // The raw side: the same frames as before this refactor.
     val hrFrames = frames(File(writer.dir, "hr.log"))

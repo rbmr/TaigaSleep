@@ -11,9 +11,9 @@ import org.junit.Before
 import org.junit.Test
 
 /** The server keeps a recording under the phone's id, which has to be unique across accounts. */
-class SessionIdTest {
+class RecordingIdTest {
   private lateinit var root: File
-  private lateinit var store: SessionStore
+  private lateinit var store: RecordingStore
 
   // What the server accepts as a recording id: 1 to 40 letters, digits, underscore or dash.
   private val serverId = Regex("[A-Za-z0-9_-]{1,40}")
@@ -22,7 +22,7 @@ class SessionIdTest {
   @Before
   fun setUp() {
     root = Files.createTempDirectory("taiga-ids").toFile()
-    store = SessionStore(root)
+    store = RecordingStore(root)
   }
 
   @After
@@ -32,7 +32,7 @@ class SessionIdTest {
 
   @Test
   fun aNewIdIsTheStartTimeAndAFourCharacterSuffix() {
-    val id = store.newSessionId(1_792_798_200_000)
+    val id = store.newRecordingId(1_792_798_200_000)
 
     assertTrue(id, newId.matches(id))
     assertTrue(id, serverId.matches(id))
@@ -42,7 +42,7 @@ class SessionIdTest {
   fun theSuffixIsDrawnFromLowercaseLettersAndDigits() {
     val random = Random(1)
     repeat(200) {
-      val suffix = store.newSessionId(1_792_798_200_000, random).substringAfter('-')
+      val suffix = store.newRecordingId(1_792_798_200_000, random).substringAfter('-')
       assertTrue(suffix, suffix.all { it in 'a'..'z' || it in '0'..'9' })
     }
   }
@@ -50,7 +50,7 @@ class SessionIdTest {
   @Test
   fun twoIdsInTheSameSecondDiffer() {
     val random = Random(2)
-    val ids = (1..50).map { store.newSessionId(1_792_798_200_000, random) }
+    val ids = (1..50).map { store.newRecordingId(1_792_798_200_000, random) }
 
     assertEquals(ids.size, ids.toSet().size)
     assertEquals(1, ids.map { it.substringBefore('-') }.toSet().size)
@@ -58,11 +58,11 @@ class SessionIdTest {
 
   @Test
   fun anIdWhoseDirectoryExistsIsDrawnAgain() {
-    val taken = store.newSessionId(1_792_798_200_000, Random(3))
+    val taken = store.newRecordingId(1_792_798_200_000, Random(3))
     File(root, taken).mkdirs()
 
     // The same seed would propose the same suffix first.
-    val next = store.newSessionId(1_792_798_200_000, Random(3))
+    val next = store.newRecordingId(1_792_798_200_000, Random(3))
 
     assertNotEquals(taken, next)
     assertTrue(next, newId.matches(next))
@@ -76,6 +76,6 @@ class SessionIdTest {
 
     assertTrue(serverId.matches(old))
     assertEquals(File(root, old), store.dir(old))
-    assertNotEquals(old, store.newSessionId(1_792_798_200_000))
+    assertNotEquals(old, store.newRecordingId(1_792_798_200_000))
   }
 }

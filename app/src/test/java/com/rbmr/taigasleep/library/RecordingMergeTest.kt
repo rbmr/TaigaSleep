@@ -11,8 +11,11 @@ import com.rbmr.taigasleep.backend.SleepQualityDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.backend.StageSummaryDto
 import com.rbmr.taigasleep.backend.StageTimelineDto
-import com.rbmr.taigasleep.recording.store.SessionInfo
-import com.rbmr.taigasleep.recording.store.SessionState
+import com.rbmr.taigasleep.recording.store.Recording
+import com.rbmr.taigasleep.recording.store.RecordingPhase
+import com.rbmr.taigasleep.sync.UploadFailure
+import com.rbmr.taigasleep.sync.UploadPhase
+import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.recordingIdOf
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -21,12 +24,12 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class NightMergeTest {
+class RecordingMergeTest {
   private val local =
-      SessionInfo(
+      Recording(
           id = "local",
           dir = File("/tmp/local"),
-          state = SessionState.STOPPED,
+          state = RecordingPhase.STOPPED,
           startUtcMs = 1_790_000_000_000,
           endUtcMs = 1_790_003_600_000,
           sizeBytes = 10,
@@ -36,31 +39,24 @@ class NightMergeTest {
   @Test
   fun aFinishedLocalResultSurvivesWithoutTheServer() {
     val record =
-        NightRecord(
+        UploadRecord(
             id = "local",
             onServer = true,
-            backup = BackupState(phase = BackupPhase.BACKED_UP, progress = 1f),
-            analyses =
-                listOf(
-                    AnalysisRun(
-                        id = "a1",
-                        algorithm = "baseline",
-                        version = "1.0.0",
-                        status = AnalysisStatus.DONE,
-                        segments = segmentSeconds(),
-                        sleepScore = 81.0,
-                    )
-                ),
-            selectedAnalysisId = "a1",
+            analysisId = "a1",
+            phase = UploadPhase.DONE,
+            model = "baseline",
+            modelVersion = "1.0.0",
+            segments = segmentSeconds(),
+            sleepScore = 81.0,
         )
 
-    val night = buildNights(listOf(local), mapOf("local" to record), null).single()
+    val night = buildRecordings(listOf(local), mapOf("local" to record), null).single()
 
     assertEquals("local", night.localId)
     // The recording keeps the phone's id on the server.
     assertEquals("local", night.remoteId)
     assertEquals("a1", night.analysisId)
-    assertEquals(NightStatus.READY, night.status)
+    assertEquals(RecordingStatus.READY, night.status)
     assertEquals(81.0, night.sleepScore ?: 0.0, 0.001)
     assertEquals(2, night.segments.size)
   }
@@ -88,9 +84,9 @@ class NightMergeTest {
             )
         )
 
-    val night = buildNights(listOf(local), emptyMap(), remote).single()
+    val night = buildRecordings(listOf(local), emptyMap(), remote).single()
 
-    assertEquals(NightStatus.READY, night.status)
+    assertEquals(RecordingStatus.READY, night.status)
     assertEquals("local", night.remoteId)
     assertEquals("a1", night.analysisId)
     assertEquals(92.0, night.sleepScore ?: 0.0, 0.001)
@@ -107,9 +103,9 @@ class NightMergeTest {
             )
         )
 
-    val night = buildNights(listOf(local), emptyMap(), remote).single()
+    val night = buildRecordings(listOf(local), emptyMap(), remote).single()
 
-    assertEquals(NightStatus.READY, night.status)
+    assertEquals(RecordingStatus.READY, night.status)
     assertNull(night.sleepScore)
   }
 
@@ -117,9 +113,9 @@ class NightMergeTest {
   fun anUploadedNightWithoutAResultIsProcessing() {
     val remote = summaries(RecordingSummaryDto(recording = recording(), analyses = emptyList()))
 
-    val night = buildNights(listOf(local), emptyMap(), remote).single()
+    val night = buildRecordings(listOf(local), emptyMap(), remote).single()
 
-    assertEquals(NightStatus.PROCESSING, night.status)
+    assertEquals(RecordingStatus.PROCESSING, night.status)
   }
 
   @Test
@@ -127,18 +123,18 @@ class NightMergeTest {
     val remote =
         summaries(RecordingSummaryDto(recording = recording(complete = false), analyses = emptyList()))
 
-    val night = buildNights(listOf(local), emptyMap(), remote).single()
+    val night = buildRecordings(listOf(local), emptyMap(), remote).single()
 
-    assertEquals(NightStatus.UPLOADING, night.status)
+    assertEquals(RecordingStatus.UPLOADING, night.status)
     assertEquals(BackupPhase.UPLOADING, night.backup.phase)
   }
 
   @Test
   fun aLocalNightWithoutAServerCopyHasNoRemoteId() {
-    val night = buildNights(listOf(local), emptyMap(), null).single()
+    val night = buildRecordings(listOf(local), emptyMap(), null).single()
 
     assertNull(night.remoteId)
-    assertEquals(NightStatus.LOCAL_ONLY, night.status)
+    assertEquals(RecordingStatus.LOCAL_ONLY, night.status)
   }
 
   @Test
@@ -149,7 +145,7 @@ class NightMergeTest {
             RecordingSummaryDto(recording = recording(id = "other")),
         )
 
-    val nights = buildNights(listOf(local), emptyMap(), remote)
+    val nights = buildRecordings(listOf(local), emptyMap(), remote)
 
     assertEquals(listOf("local", "remote-other"), nights.map { it.key })
     assertEquals("local", nights.first { it.key == "local" }.localId)
@@ -171,7 +167,7 @@ class NightMergeTest {
             )
         )
 
-    val night = buildNights(emptyList(), emptyMap(), remote).single()
+    val night = buildRecordings(emptyList(), emptyMap(), remote).single()
 
     assertEquals("remote-20261025_140000-ab12", night.key)
     assertNull(night.localId)
@@ -206,10 +202,10 @@ class NightMergeTest {
             )
         )
 
-    val night = buildNights(listOf(local), emptyMap(), remote).single()
+    val night = buildRecordings(listOf(local), emptyMap(), remote).single()
 
     assertEquals(3, night.analyses.size)
-    assertEquals(NightStatus.READY, night.status)
+    assertEquals(RecordingStatus.READY, night.status)
     // SleepECG is preferred over the baseline fallback, and the running wav2sleep is not selected.
     assertEquals("better", night.analysisId)
   }
@@ -217,28 +213,25 @@ class NightMergeTest {
   @Test
   fun aManualResultWinsTheDefaultSelection() {
     val record =
-        NightRecord(
+        UploadRecord(
             id = "local",
-            backup = BackupState(phase = BackupPhase.BACKED_UP, progress = 1f),
-            analyses =
-                listOf(
-                    AnalysisRun(
-                        id = "auto",
-                        algorithm = "wav2sleep",
-                        version = "1.1.0",
-                        status = AnalysisStatus.DONE,
+            onServer = true,
+            phase = UploadPhase.PROCESSING,
+            manualAnalysisIds = listOf("manual"),
+        )
+    val remote =
+        summaries(
+            RecordingSummaryDto(
+                recording = recording(),
+                analyses =
+                    listOf(
+                        succeeded("auto", algorithm = "wav2sleep", version = "1.1.0"),
+                        succeeded("manual", algorithm = "baseline", version = "1.0.0"),
                     ),
-                    AnalysisRun(
-                        id = "manual",
-                        algorithm = "baseline",
-                        version = "1.0.0",
-                        status = AnalysisStatus.DONE,
-                        origin = AnalysisOrigin.MANUAL,
-                    ),
-                ),
+            )
         )
 
-    val night = buildNights(listOf(local), mapOf("local" to record), null).single()
+    val night = buildRecordings(listOf(local), mapOf("local" to record), remote).single()
 
     assertEquals("manual", night.analysisId)
   }
@@ -247,126 +240,112 @@ class NightMergeTest {
   fun removedRawDataStillLeavesAUsableNight() {
     val trimmed = local.copy(hasRaw = false)
     val record =
-        NightRecord(
+        UploadRecord(
             id = "local",
             onServer = true,
-            backup = BackupState(phase = BackupPhase.BACKED_UP, progress = 1f),
-            analyses =
-                listOf(
-                    AnalysisRun(
-                        id = "a1",
-                        algorithm = "baseline",
-                        version = "1.0.0",
-                        status = AnalysisStatus.DONE,
-                    )
-                ),
+            analysisId = "a1",
+            phase = UploadPhase.DONE,
+            model = "baseline",
+            modelVersion = "1.0.0",
         )
 
-    val night = buildNights(listOf(trimmed), mapOf("local" to record), null).single()
+    val night = buildRecordings(listOf(trimmed), mapOf("local" to record), null).single()
 
     assertFalse(night.hasRaw)
-    assertEquals(NightStatus.READY, night.status)
+    assertEquals(RecordingStatus.READY, night.status)
     assertTrue(night.onServer)
   }
 
   @Test
   fun aLiveSessionIsRecordingRegardlessOfItsServerCopy() {
-    val recording = local.copy(state = SessionState.RECORDING)
+    val recording = local.copy(state = RecordingPhase.RECORDING)
     val record =
-        NightRecord(
-            id = "local",
-            onServer = true,
-            backup = BackupState(phase = BackupPhase.QUEUED),
-            analyses = emptyList(),
-        )
+        UploadRecord(id = "local", onServer = true, phase = UploadPhase.QUEUED)
 
-    val night = buildNights(listOf(recording), mapOf("local" to record), null).single()
+    val night = buildRecordings(listOf(recording), mapOf("local" to record), null).single()
 
-    assertEquals(NightStatus.RECORDING, night.status)
+    assertEquals(RecordingStatus.RECORDING, night.status)
     assertTrue(night.isRecording)
   }
 
   @Test
   fun aSelectedFailedRunDoesNotHideAFinishedResult() {
     val record =
-        NightRecord(
+        UploadRecord(
             id = "local",
-            backup = BackupState(phase = BackupPhase.BACKED_UP, progress = 1f),
-            analyses =
-                listOf(
-                    AnalysisRun(
-                        id = "done",
-                        algorithm = "wav2sleep",
-                        version = "1.1.0",
-                        status = AnalysisStatus.DONE,
+            onServer = true,
+            analysisId = "failed",
+            phase = UploadPhase.FAILED,
+            failure = UploadFailure.ANALYSIS,
+            errorDetail = "worker failed",
+        )
+    val remote =
+        summaries(
+            RecordingSummaryDto(
+                recording = recording(),
+                analyses =
+                    listOf(
+                        succeeded("done", algorithm = "wav2sleep", version = "1.1.0"),
+                        AnalysisDto(
+                            id = "failed",
+                            algorithm = "sleep-ecg",
+                            version = "1.0.0",
+                            status = "failed",
+                        ),
                     ),
-                    AnalysisRun(
-                        id = "failed",
-                        algorithm = "sleep-ecg",
-                        version = "1.0.0",
-                        status = AnalysisStatus.FAILED,
-                        origin = AnalysisOrigin.MANUAL,
-                    ),
-                ),
-            selectedAnalysisId = "failed",
+            )
         )
 
-    val night = buildNights(listOf(local), mapOf("local" to record), null).single()
+    val night = buildRecordings(listOf(local), mapOf("local" to record), remote).single()
 
-    assertEquals(NightStatus.READY, night.status)
+    assertEquals(RecordingStatus.READY, night.status)
     assertEquals("done", night.analysisId)
   }
 
   @Test
   fun aSelectedRunningRunDoesNotHideAFinishedResult() {
     val record =
-        NightRecord(
+        UploadRecord(
             id = "local",
-            backup = BackupState(phase = BackupPhase.BACKED_UP, progress = 1f),
-            analyses =
-                listOf(
-                    AnalysisRun(
-                        id = "done",
-                        algorithm = "baseline",
-                        version = "1.0.0",
-                        status = AnalysisStatus.DONE,
+            onServer = true,
+            analysisId = "running",
+            phase = UploadPhase.PROCESSING,
+        )
+    val remote =
+        summaries(
+            RecordingSummaryDto(
+                recording = recording(),
+                analyses =
+                    listOf(
+                        succeeded("done", algorithm = "baseline", version = "1.0.0"),
+                        AnalysisDto(
+                            id = "running",
+                            algorithm = "wav2sleep",
+                            version = "1.1.0",
+                            status = "running",
+                        ),
                     ),
-                    AnalysisRun(
-                        id = "running",
-                        algorithm = "wav2sleep",
-                        version = "1.1.0",
-                        status = AnalysisStatus.RUNNING,
-                        origin = AnalysisOrigin.MANUAL,
-                    ),
-                ),
-            selectedAnalysisId = "running",
+            )
         )
 
-    val night = buildNights(listOf(local), mapOf("local" to record), null).single()
+    val night = buildRecordings(listOf(local), mapOf("local" to record), remote).single()
 
-    assertEquals(NightStatus.READY, night.status)
+    assertEquals(RecordingStatus.READY, night.status)
     assertEquals("done", night.analysisId)
   }
 
   @Test
   fun aCachedResultStaysDownloadedWhenTheServerSummaryArrives() {
     val record =
-        NightRecord(
+        UploadRecord(
             id = "local",
             onServer = true,
-            backup = BackupState(phase = BackupPhase.BACKED_UP, progress = 1f),
-            analyses =
-                listOf(
-                    AnalysisRun(
-                        id = "a1",
-                        algorithm = "baseline",
-                        version = "1.1.0",
-                        status = AnalysisStatus.DONE,
-                        origin = AnalysisOrigin.MANUAL,
-                        resultDownloaded = true,
-                    )
-                ),
-            selectedAnalysisId = "a1",
+            analysisId = "a1",
+            phase = UploadPhase.DONE,
+            model = "baseline",
+            modelVersion = "1.1.0",
+            resultDownloaded = true,
+            manualAnalysisIds = listOf("a1"),
         )
     val remote =
         summaries(
@@ -376,7 +355,7 @@ class NightMergeTest {
             )
         )
 
-    val night = buildNights(listOf(local), mapOf("local" to record), remote).single()
+    val night = buildRecordings(listOf(local), mapOf("local" to record), remote).single()
 
     assertTrue(night.resultDownloaded)
     assertEquals(AnalysisOrigin.MANUAL, night.selectedAnalysis?.origin)
@@ -385,23 +364,16 @@ class NightMergeTest {
   @Test
   fun aManualRunIsMarkedAsManual() {
     val record =
-        NightRecord(
+        UploadRecord(
             id = "local",
-            backup = BackupState(phase = BackupPhase.BACKED_UP, progress = 1f),
-            analyses =
-                listOf(
-                    AnalysisRun(
-                        id = "a1",
-                        algorithm = "sleep-ecg",
-                        version = "1.0.0",
-                        status = AnalysisStatus.DONE,
-                    )
-                ),
-            selectedAnalysisId = "a1",
+            analysisId = "a1",
+            phase = UploadPhase.DONE,
+            model = "sleep-ecg",
+            modelVersion = "1.0.0",
             manualAnalysisIds = listOf("a1"),
         )
 
-    val night = buildNights(listOf(local), mapOf("local" to record), null).single()
+    val night = buildRecordings(listOf(local), mapOf("local" to record), null).single()
 
     assertEquals(AnalysisOrigin.MANUAL, night.selectedAnalysis?.origin)
   }
@@ -409,10 +381,10 @@ class NightMergeTest {
   @Test
   fun aManualIdMarksTheSameRemoteRunAsManual() {
     val record =
-        NightRecord(
+        UploadRecord(
             id = "local",
             onServer = true,
-            backup = BackupState(phase = BackupPhase.BACKED_UP, progress = 1f),
+            phase = UploadPhase.PROCESSING,
             manualAnalysisIds = listOf("a1"),
         )
     val remote =
@@ -431,7 +403,7 @@ class NightMergeTest {
             )
         )
 
-    val night = buildNights(listOf(local), mapOf("local" to record), remote).single()
+    val night = buildRecordings(listOf(local), mapOf("local" to record), remote).single()
 
     assertEquals("a1", night.analysisId)
     assertEquals(AnalysisOrigin.MANUAL, night.selectedAnalysis?.origin)
@@ -442,7 +414,7 @@ class NightMergeTest {
     assertEquals(1_792_938_601_000L, parseApiDate("2026-10-25T14:30:01Z"))
     assertEquals(1_792_938_601_250L, parseApiDate("2026-10-25T14:30:01.250Z"))
     assertEquals(1_792_938_601_000L, parseApiDate("2026-10-25T16:30:01+02:00"))
-    assertTrue(formatNightDate(parseApiDate("2026-10-25T14:00:00Z")) != "—")
+    assertTrue(formatRecordingDate(parseApiDate("2026-10-25T14:00:00Z")) != "—")
   }
 
   @Test

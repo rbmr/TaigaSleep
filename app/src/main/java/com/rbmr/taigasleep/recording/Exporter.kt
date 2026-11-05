@@ -3,7 +3,7 @@ package com.rbmr.taigasleep.recording
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
-import com.rbmr.taigasleep.recording.store.SessionStore
+import com.rbmr.taigasleep.recording.store.RecordingStore
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -29,7 +29,7 @@ fun exportSource(hasRaw: Boolean, onServer: Boolean): ExportSource =
 object Exporter {
   suspend fun share(
       context: Context,
-      sessionId: String,
+      recordingId: String,
       onProgress: (Float) -> Unit = {},
   ) {
     val zip =
@@ -37,8 +37,8 @@ object Exporter {
           val dir = File(context.cacheDir, "export")
           dir.deleteRecursively()
           dir.mkdirs()
-          File(dir, "taiga-$sessionId.zip").also {
-            SessionStore.of(context).zip(sessionId, it, onProgress)
+          File(dir, "taiga-$recordingId.zip").also {
+            RecordingStore.of(context).zip(recordingId, it, onProgress)
           }
         }
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", zip)

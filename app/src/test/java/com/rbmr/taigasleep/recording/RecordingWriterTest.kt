@@ -3,10 +3,10 @@ package com.rbmr.taigasleep.recording
 import com.rbmr.taigasleep.TestClock
 import com.rbmr.taigasleep.recording.store.FrameLog
 import com.rbmr.taigasleep.recording.store.Payloads
-import com.rbmr.taigasleep.recording.store.SessionConfig
-import com.rbmr.taigasleep.recording.store.SessionMeta
-import com.rbmr.taigasleep.recording.store.SessionState
-import com.rbmr.taigasleep.recording.store.SessionStore
+import com.rbmr.taigasleep.recording.store.RecordingConfig
+import com.rbmr.taigasleep.recording.store.RecordingMeta
+import com.rbmr.taigasleep.recording.store.RecordingPhase
+import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.EcgBatch
 import com.rbmr.taigasleep.tracker.HrSample
@@ -22,14 +22,14 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
-class SessionWriterTest {
+class RecordingWriterTest {
   @get:Rule val tmp = TemporaryFolder()
   private val clock = TestClock()
 
   private fun meta(id: String = "20261023_223000") =
-      SessionMeta(
-          sessionId = id,
-          state = SessionState.RECORDING,
+      RecordingMeta(
+          recordingId = id,
+          state = RecordingPhase.RECORDING,
           startUtcMs = clock.phoneNs / 1_000_000L,
           endUtcMs = null,
           timezone = "Europe/Amsterdam",
@@ -44,7 +44,7 @@ class SessionWriterTest {
           sensorName = "Polar H10 069A4737",
           sensorFirmware = "3.0.35",
           sensorBatteryAtStart = 87,
-          config = SessionConfig(ecg = true, acc = true),
+          config = RecordingConfig(ecg = true, acc = true),
       )
 
   private fun stamp() = Stamp.now(clock)
@@ -55,43 +55,43 @@ class SessionWriterTest {
   @Test
   fun metaIsAtomicallyRewrittenAndRoundTrips() {
     val root = tmp.newFolder("rec")
-    val w = SessionWriter.create(root, meta(), clock)
-    val first = SessionMeta.read(w.dir)!!
-    assertEquals(SessionState.RECORDING, first.state)
+    val w = RecordingWriter.create(root, meta(), clock)
+    val first = RecordingMeta.read(w.dir)!!
+    assertEquals(RecordingPhase.RECORDING, first.state)
     assertNull(first.endUtcMs)
     assertEquals(87, first.sensorBatteryAtStart)
     assertTrue(File(w.dir, "meta.json").readText().contains("\"end_utc_ms\": null"))
 
     clock.advanceMs(60_000)
-    w.finish(SessionState.STOPPED, "stopped by user")
-    val done = SessionMeta.read(w.dir)!!
-    assertEquals(SessionState.STOPPED, done.state)
+    w.finish(RecordingPhase.STOPPED, "stopped by user")
+    val done = RecordingMeta.read(w.dir)!!
+    assertEquals(RecordingPhase.STOPPED, done.state)
     assertEquals(clock.phoneNs / 1_000_000L, done.endUtcMs)
-    assertEquals(first.copy(state = SessionState.STOPPED, endUtcMs = done.endUtcMs), done)
+    assertEquals(first.copy(state = RecordingPhase.STOPPED, endUtcMs = done.endUtcMs), done)
     // No temp file left behind, and a second finish changes nothing.
     assertFalse(File(w.dir, "meta.json.tmp").exists())
-    w.finish(SessionState.FORCED_STOP, "late")
-    assertEquals(SessionState.STOPPED, SessionMeta.read(w.dir)!!.state)
+    w.finish(RecordingPhase.FORCED_STOP, "late")
+    assertEquals(RecordingPhase.STOPPED, RecordingMeta.read(w.dir)!!.state)
   }
 
   @Test
   fun leftoverTempFileDoesNotAffectTheCurrentMeta() {
     val root = tmp.newFolder("rec")
-    val w = SessionWriter.create(root, meta(), clock)
+    val w = RecordingWriter.create(root, meta(), clock)
     File(w.dir, "meta.json.tmp").writeText("{ half written")
-    w.finish(SessionState.STOPPED, "ok")
-    assertEquals(SessionState.STOPPED, SessionMeta.read(w.dir)!!.state)
+    w.finish(RecordingPhase.STOPPED, "ok")
+    assertEquals(RecordingPhase.STOPPED, RecordingMeta.read(w.dir)!!.state)
   }
 
   @Test
   fun writesAllStreamsAndEventsInOrder() {
     val root = tmp.newFolder("rec")
-    val w = SessionWriter.create(root, meta(), clock)
+    val w = RecordingWriter.create(root, meta(), clock)
     w.writeHr(stamp(), HrSample(60, true, true, true, intArrayOf(1000)))
     w.writeEcg(stamp(), EcgBatch(LongArray(3) { it * 7_692_307L }, intArrayOf(1, -2, 3)))
     w.writeAcc(stamp(), AccBatch(LongArray(2) { it * 20_000_000L }, intArrayOf(1, 2, 3, 4, 5, 6)))
     val health = w.storageHealth()
-    w.finish(SessionState.STOPPED, "done")
+    w.finish(RecordingPhase.STOPPED, "done")
 
     val hr = mutableListOf<ByteArray>()
     FrameLog.scan(File(w.dir, "hr.log")) { hr += it }
@@ -113,7 +113,7 @@ class SessionWriterTest {
   @Test
   fun syncRecordsWhenStorageWasLastFlushed() {
     val root = tmp.newFolder("rec")
-    val w = SessionWriter.create(root, meta(), clock)
+    val w = RecordingWriter.create(root, meta(), clock)
     assertEquals(0L, w.storageHealth().lastSyncNs)
     clock.advanceMs(30_000)
     w.sync()
@@ -123,9 +123,9 @@ class SessionWriterTest {
   @Test
   fun i16OverflowIsClampedAndLoggedAsError() {
     val root = tmp.newFolder("rec")
-    val w = SessionWriter.create(root, meta(), clock)
+    val w = RecordingWriter.create(root, meta(), clock)
     w.writeAcc(stamp(), AccBatch(longArrayOf(0), intArrayOf(40000, 0, -40000)))
-    w.finish(SessionState.STOPPED, "done")
+    w.finish(RecordingPhase.STOPPED, "done")
     val errors = events(w.dir).filter { it.getString("type") == "error" }
     assertEquals(1, errors.size)
     assertTrue(errors[0].getString("message").contains("clamped"))
@@ -137,17 +137,17 @@ class SessionWriterTest {
   @Test
   fun resumeTruncatesTornTailAndKeepsAppending() {
     val root = tmp.newFolder("rec")
-    val w = SessionWriter.create(root, meta(), clock)
+    val w = RecordingWriter.create(root, meta(), clock)
     repeat(10) { w.writeHr(stamp(), HrSample(60 + it, true, true, false, IntArray(0))) }
     w.close() // process "dies": meta stays at recording
     val hrLog = File(w.dir, "hr.log")
     hrLog.appendBytes(byteArrayOf(30, 0, 0, 0, 1, 2, 3)) // torn frame
 
-    assertEquals(SessionState.RECORDING, SessionMeta.read(w.dir)!!.state)
-    val r = SessionWriter.resume(w.dir, clock, "service resumed session")
+    assertEquals(RecordingPhase.RECORDING, RecordingMeta.read(w.dir)!!.state)
+    val r = RecordingWriter.resume(w.dir, clock, "service resumed session")
     assertNotNull(r)
     r!!.writeHr(stamp(), HrSample(99, true, true, false, IntArray(0)))
-    r.finish(SessionState.STOPPED, "done")
+    r.finish(RecordingPhase.STOPPED, "done")
 
     val hr = mutableListOf<ByteArray>()
     val scan = FrameLog.scan(hrLog) { hr += it }
@@ -160,19 +160,19 @@ class SessionWriterTest {
   @Test
   fun orphanedRecordingSessionsBecomeInterrupted() {
     val root = tmp.newFolder("rec")
-    val store = SessionStore(root)
-    val w = SessionWriter.create(root, meta(), clock)
+    val store = RecordingStore(root)
+    val w = RecordingWriter.create(root, meta(), clock)
     clock.advanceMs(1000)
     w.writeHr(stamp(), HrSample(60, true, true, false, IntArray(0)))
     w.close()
-    val done = SessionWriter.create(root, meta("20261022_220000"), clock)
-    done.finish(SessionState.STOPPED, "done")
+    val done = RecordingWriter.create(root, meta("20261022_220000"), clock)
+    done.finish(RecordingPhase.STOPPED, "done")
 
     assertEquals(listOf("20261023_223000"), store.markOrphans(liveId = null))
     val info = store.list().first { it.id == "20261023_223000" }
-    assertEquals(SessionState.INTERRUPTED, info.state)
+    assertEquals(RecordingPhase.INTERRUPTED, info.state)
     // The duration estimate comes from the last HR frame, about one second after the start.
     assertEquals(1000L, info.durationMs)
-    assertEquals(SessionState.STOPPED, store.list().first { it.id == "20261022_220000" }.state)
+    assertEquals(RecordingPhase.STOPPED, store.list().first { it.id == "20261022_220000" }.state)
   }
 }

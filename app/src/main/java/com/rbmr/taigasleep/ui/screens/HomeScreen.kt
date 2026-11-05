@@ -69,7 +69,7 @@ import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.RecordingService
 import com.rbmr.taigasleep.recording.RecordingState
-import com.rbmr.taigasleep.recording.RecordingStatus
+import com.rbmr.taigasleep.recording.CaptureStatus
 import com.rbmr.taigasleep.recording.SensorHub
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.SensorKind
@@ -307,7 +307,7 @@ private fun InactiveHome(
 /** Recording: the live numbers and the three ways to end it. Nothing else. */
 @Composable
 private fun ActiveHome(
-    status: RecordingStatus,
+    status: CaptureStatus,
     onStop: () -> Unit,
     onForceStop: () -> Unit,
     onDiscard: () -> Unit,
@@ -589,7 +589,7 @@ private fun ReadinessCard(tonight: HomeState, onClick: () -> Unit, onLongClick: 
 }
 
 @Composable
-private fun ActiveCard(status: RecordingStatus) {
+private fun ActiveCard(status: CaptureStatus) {
   val state = status.state
   TaigaCard {
     Text(
@@ -602,7 +602,7 @@ private fun ActiveCard(status: RecordingStatus) {
         color = MaterialTheme.colorScheme.primary,
     )
     Text(
-        text = RecordingFormat.elapsed(state.session.elapsedMs),
+        text = RecordingFormat.elapsed(state.capture.elapsedMs),
         style = MaterialTheme.typography.displayLarge,
     )
     Spacer(Modifier.height(8.dp))

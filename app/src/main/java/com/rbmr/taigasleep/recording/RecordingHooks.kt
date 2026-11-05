@@ -24,9 +24,9 @@ interface RecordingHooks {
 
   /**
    * A recording ended and was kept: stopped, force stopped or interrupted, but not discarded.
-   * [sessionId] is its id in the local store.
+   * [recordingId] is its id in the local store.
    */
-  fun onRecordingFinished(context: Context, sessionId: String)
+  fun onRecordingFinished(context: Context, recordingId: String)
 
   companion object {
     @Volatile private var installed: RecordingHooks? = null

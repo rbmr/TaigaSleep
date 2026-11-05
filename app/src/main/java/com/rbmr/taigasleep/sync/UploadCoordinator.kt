@@ -7,24 +7,24 @@ import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.label
 import com.rbmr.taigasleep.insights.AnalysisSettingsStore
-import com.rbmr.taigasleep.recording.store.SessionConfig
-import com.rbmr.taigasleep.recording.store.SessionMeta
-import com.rbmr.taigasleep.recording.store.SessionStore
+import com.rbmr.taigasleep.recording.store.RecordingConfig
+import com.rbmr.taigasleep.recording.store.RecordingMeta
+import com.rbmr.taigasleep.recording.store.RecordingStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** User-initiated recovery actions that need a live server call. */
 object UploadCoordinator {
-  private val HR_ONLY = SessionConfig(hr = true, ecg = false, acc = false)
+  private val HR_ONLY = RecordingConfig(hr = true, ecg = false, acc = false)
 
   /**
    * Configuration of the local recording behind [key]. A remote-only recording has no local
    * metadata, so the safe answer is an HR-only recording, which selects the HR-based stager.
    */
-  private fun localConfig(context: Context, key: String): SessionConfig {
+  private fun localConfig(context: Context, key: String): RecordingConfig {
     val localId = key.takeUnless { it.startsWith("remote-") } ?: return HR_ONLY
-    val meta = SessionMeta.read(SessionStore.of(context).dir(localId))
+    val meta = RecordingMeta.read(RecordingStore.of(context).dir(localId))
     return meta?.config ?: HR_ONLY
   }
 

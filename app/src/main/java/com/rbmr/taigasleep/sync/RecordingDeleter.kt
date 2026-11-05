@@ -2,7 +2,7 @@ package com.rbmr.taigasleep.sync
 
 import android.content.Context
 import com.rbmr.taigasleep.recording.RecordingRepository
-import com.rbmr.taigasleep.recording.store.SessionStore
+import com.rbmr.taigasleep.recording.store.RecordingStore
 import java.io.File
 
 /**
@@ -20,7 +20,7 @@ object RecordingDeleter {
 
     if (localId != null) {
       UploadScheduler.cancelRecordingWork(context, localId)
-      SessionStore.of(context).delete(localId)
+      RecordingStore.of(context).delete(localId)
       ResultCache.of(context).delete(localId)
       UploadStore.of(context).clear(localId)
       File(context.filesDir, "upload-cache/$localId").deleteRecursively()
@@ -30,6 +30,6 @@ object RecordingDeleter {
       UploadStore.of(context).clear("remote-$remoteId")
       UploadScheduler.enqueueDelete(context, remoteId)
     }
-    RecordingRepository.refreshSessions(context)
+    RecordingRepository.refreshRecordings(context)
   }
 }

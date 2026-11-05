@@ -24,7 +24,7 @@ internal data class PendingRecording(
  * A night the server has not sealed is still uploading and is not read.
  */
 internal fun pendingRecordings(
-    nights: List<Night>,
+    nights: List<RecordingView>,
     records: Map<String, UploadRecord>,
 ): List<PendingRecording> =
     nights.mapNotNull { night ->

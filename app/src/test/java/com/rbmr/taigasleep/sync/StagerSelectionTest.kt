@@ -2,14 +2,14 @@ package com.rbmr.taigasleep.sync
 
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.AlgorithmNeedDto
-import com.rbmr.taigasleep.recording.store.SessionConfig
+import com.rbmr.taigasleep.recording.store.RecordingConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StagerSelectionTest {
   private val fullConfig =
-      SessionConfig(
+      RecordingConfig(
           hr = true,
           ecg = true,
           acc = true,
