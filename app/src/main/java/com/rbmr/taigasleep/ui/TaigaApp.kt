@@ -41,9 +41,9 @@ import com.rbmr.taigasleep.ui.components.TaigaBottomBar
 import com.rbmr.taigasleep.ui.screens.AboutScreen
 import com.rbmr.taigasleep.ui.screens.FlowScreen
 import com.rbmr.taigasleep.ui.screens.HistoryScreen
-import com.rbmr.taigasleep.ui.screens.HomeScreen
 import com.rbmr.taigasleep.ui.screens.RemoteScreen
 import com.rbmr.taigasleep.ui.screens.SettingsScreen
+import com.rbmr.taigasleep.ui.home.HomeScreen
 import com.rbmr.taigasleep.ui.recording.RecordingDetailScreen
 import com.rbmr.taigasleep.ui.theme.ThemeMode
 import kotlinx.coroutines.launch

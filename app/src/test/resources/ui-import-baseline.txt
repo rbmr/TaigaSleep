@@ -11,6 +11,14 @@ components/SegmentedProgress.kt 0
 components/Status.kt 0
 components/TaigaBottomBar.kt 0
 components/TaigaLogo.kt 0
+home/ActiveHome.kt 0
+home/DataSheet.kt 1
+home/GuardCard.kt 1
+home/HomeFactory.kt 12
+home/HomeScreen.kt 3
+home/HomeUiState.kt 6
+home/RecordingCard.kt 4
+home/SensorPickerSheet.kt 3
 recording/AnalysisSheet.kt 1
 recording/DataQualitySection.kt 2
 recording/DetailsSheet.kt 0
@@ -28,7 +36,6 @@ recording/StatusCards.kt 1
 screens/AboutScreen.kt 0
 screens/FlowScreen.kt 11
 screens/HistoryScreen.kt 1
-screens/HomeScreen.kt 17
 screens/RemoteScreen.kt 7
 screens/SettingsScreen.kt 8
 theme/Color.kt 0
