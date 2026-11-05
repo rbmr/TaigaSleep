@@ -30,12 +30,12 @@ class DeleteWorker(
 
     return try {
       api.deleteRecording(recordingId)
-      PendingDeleteStore.of(applicationContext).remove(recordingId)
+      complete(recordingId)
       Result.success()
     } catch (e: TaigaHttpException) {
       if (e.status == 404) {
         // Already gone, or not visible to this account. Either way there is nothing left to do.
-        PendingDeleteStore.of(applicationContext).remove(recordingId)
+        complete(recordingId)
         Result.success()
       } else if (e.status == 401 || e.status == 403) {
         Result.retry()
@@ -49,5 +49,15 @@ class DeleteWorker(
     } catch (_: Exception) {
       Result.retry()
     }
+  }
+
+  /**
+   * The server no longer has the recording. Taken out of the cached list first, so a History that
+   * reads it while the queue empties cannot show it again, and only then out of the queue.
+   */
+  private fun complete(recordingId: String) {
+    RemoteHistoryCache.of(applicationContext)
+        .remove(RemoteRepository.of(applicationContext).accountKey, recordingId)
+    PendingDeleteStore.of(applicationContext).remove(recordingId)
   }
 }
