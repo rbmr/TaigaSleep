@@ -1,5 +1,7 @@
 package com.rbmr.taigasleep.library
 
+import com.rbmr.taigasleep.backend.AlgorithmDto
+import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RemoteStatus
 import kotlinx.coroutines.flow.StateFlow
 
@@ -15,4 +17,29 @@ interface LibrarySource {
 
   /** Re-read the cached server list, for example after the account or the app resumed. */
   fun reload()
+}
+
+/** One night, for the screen that shows it: its stored copy, its result and its pending runs. */
+interface NightSource : LibrarySource {
+  /** The night with this key, or null when the list does not hold it (yet). */
+  fun recording(key: String): RecordingView?
+
+  /** The full cached payload for one analysis, if it is on this phone. */
+  fun cachedResult(key: String, analysisId: String?): AnalysisDto?
+
+  /** Refresh one night's recording and its analyses, once. */
+  suspend fun refreshRecording(
+      key: String,
+      remoteId: String?,
+      analysisId: String?,
+  ): Result<AnalysisDto?>
+
+  /** Installed algorithms the server reports that this recording can actually feed. */
+  suspend fun compatibleAlgorithms(recording: RecordingView): Result<List<AlgorithmDto>>
+
+  /** Request one explicit analysis for a night. */
+  suspend fun requestManual(recording: RecordingView, algorithmId: String): Result<Unit>
+
+  /** Remember which finished run the user wants to see. */
+  fun selectAnalysis(recording: RecordingView, analysisId: String)
 }

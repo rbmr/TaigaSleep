@@ -1,0 +1,230 @@
+package com.rbmr.taigasleep.ui.recording
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.backend.AnalysisDto
+import com.rbmr.taigasleep.backend.AnalysisResultDto
+import com.rbmr.taigasleep.insights.MetricSpec
+import com.rbmr.taigasleep.library.formatRecordingDate
+import com.rbmr.taigasleep.ui.components.ScreenHeader
+import com.rbmr.taigasleep.ui.components.SecondaryButton
+import com.rbmr.taigasleep.ui.components.StatusBanner
+import com.rbmr.taigasleep.ui.components.StatusKind
+import com.rbmr.taigasleep.ui.components.TaigaCard
+
+/**
+ * The scrolling body of the night screen: the header, what the screen has to report, and the parts
+ * that belong to the night's state. Nothing here decides anything.
+ */
+@Composable
+internal fun NightBody(
+    state: RecordingDetailUiState,
+    padding: PaddingValues,
+    onUpload: () -> Unit,
+    onRefresh: () -> Unit,
+    onRetryAnalysis: () -> Unit,
+    onLogin: () -> Unit,
+    onOpenAnalysis: () -> Unit,
+    onOpenQuality: () -> Unit,
+    onOpenSleepScore: () -> Unit,
+    onMetric: (MetricSpec) -> Unit,
+    onExpand: (String) -> Unit,
+) {
+  val device = state.device
+  val run = state.result
+  val analysis = run?.result
+  val processed = run?.isSucceeded == true
+
+  LazyColumn(
+      modifier = Modifier.fillMaxSize().padding(padding),
+      contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
+      verticalArrangement = Arrangement.spacedBy(14.dp),
+  ) {
+    item {
+      ScreenHeader(
+          kicker = stringResource(R.string.night_kicker),
+          title = formatRecordingDate(state.start),
+          subtitle = device.ifBlank { stringResource(R.string.night_device_unknown) },
+          modifier = Modifier.padding(horizontal = 4.dp),
+      )
+    }
+    item {
+      RecordingHeaderCard(
+          sleepScore = analysis?.items?.firstOrNull { it.id == "sleep_quality" }?.value,
+          processed = processed,
+          onScoreClick = { if (run != null) onOpenSleepScore() },
+      )
+    }
+    if (state.remoteId != null) {
+      item {
+        val model = run?.algorithm.orEmpty()
+        val version = run?.version.orEmpty()
+        val label =
+            if (model.isNotBlank()) {
+              stringResource(R.string.night_analyzed_with, model, version) +
+                  " · " +
+                  stringResource(R.string.night_analysis_change)
+            } else {
+              stringResource(R.string.night_analysis_choose)
+            }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 4.dp).clickable { onOpenAnalysis() },
+        )
+      }
+    }
+
+    state.error?.takeIf { !state.offlineSaved }?.let { message ->
+      item {
+        StatusBanner(
+            kind = StatusKind.Warn,
+            title = stringResource(R.string.night_load_failed),
+            body = message,
+            actions = {
+              SecondaryButton(
+                  text = stringResource(R.string.night_retry),
+                  onClick = onRefresh,
+                  modifier = Modifier.weight(1f),
+              )
+            },
+        )
+      }
+    }
+    if (state.offlineSaved) {
+      item {
+        Text(
+            text = stringResource(R.string.night_offline_saved),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+      }
+    }
+    state.actionError?.let { message ->
+      item {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+      }
+    }
+
+    if (state.loading && analysis == null) {
+      item {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+          CircularProgressIndicator(modifier = Modifier.height(32.dp))
+        }
+      }
+    }
+
+    when {
+      processed && analysis != null ->
+          processedNight(
+              state = state,
+              run = run,
+              analysis = analysis,
+              onMetric = onMetric,
+              onExpand = onExpand,
+              onOpenQuality = onOpenQuality,
+          )
+      else ->
+          statusCards(
+              state = state,
+              onUpload = onUpload,
+              onRefresh = onRefresh,
+              onRetryAnalysis = onRetryAnalysis,
+              onLogin = onLogin,
+          )
+    }
+    item { Spacer(Modifier.height(12.dp)) }
+  }
+}
+
+/** The cards of a night whose result is here and can be shown. */
+private fun LazyListScope.processedNight(
+    state: RecordingDetailUiState,
+    run: AnalysisDto,
+    analysis: AnalysisResultDto,
+    onMetric: (MetricSpec) -> Unit,
+    onExpand: (String) -> Unit,
+    onOpenQuality: () -> Unit,
+) {
+  item {
+    SleepStatsCard(
+        state = state,
+        analysis = analysis,
+        onMetric = onMetric,
+        onExpand = { onExpand("sleep") },
+    )
+  }
+  val heartItems = analysis.items.filter { it.group == "heart" }
+  val qualityItems = analysis.items.filter { it.group == "quality" }
+  val movementItems = analysis.items.filter { it.group == "movement" }
+  if (heartItems.any { it.kind == "series" || it.kind == "number" }) {
+    item {
+      HeartRateStatsCard(
+          analysis = analysis,
+          onMetric = onMetric,
+          onExpand = { onExpand("heart") },
+      )
+    }
+  }
+  if (analysis.items.any { it.id == "data_quality" } || qualityItems.isNotEmpty()) {
+    item { DataQualityStatsCard(analysis = analysis, onOpen = onOpenQuality, onMetric = onMetric) }
+  }
+  if (movementItems.isNotEmpty()) {
+    item { MovementStatsCard(items = movementItems, onMetric = onMetric) }
+  }
+  analysis.warnings.takeIf { it.isNotEmpty() }?.let { warnings ->
+    item { WarningCard(warnings) }
+  }
+  run.algorithm.takeIf { it.isNotBlank() }?.let { model ->
+    item {
+      Text(
+          text = stringResource(R.string.night_analyzed_with, model, run.version),
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(horizontal = 4.dp),
+      )
+    }
+  }
+}
+
+@Composable
+private fun WarningCard(warnings: List<String>) {
+  TaigaCard {
+    Text(
+        text = stringResource(R.string.night_warnings),
+        style = MaterialTheme.typography.titleLarge,
+    )
+    Spacer(Modifier.height(8.dp))
+    warnings.forEach {
+      Text(
+          text = "• $it",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+  }
+}

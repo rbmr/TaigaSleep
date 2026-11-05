@@ -3,7 +3,6 @@ package com.rbmr.taigasleep.ui.history
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.viewModelScope
 import com.rbmr.taigasleep.library.LibrarySource
 import com.rbmr.taigasleep.library.RecordingLibrary
 import com.rbmr.taigasleep.library.RecordingView
