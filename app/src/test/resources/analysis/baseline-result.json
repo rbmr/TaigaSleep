@@ -1,0 +1,496 @@
+{
+  "capabilities": {
+    "artifacts": true,
+    "beats": false,
+    "confidence": true,
+    "needs": [
+      "hr",
+      "acc"
+    ],
+    "no_deep": false,
+    "probabilities": false,
+    "stage_scheme": "aasm4",
+    "stages": true,
+    "supported_stages": [
+      "wake",
+      "rem",
+      "light",
+      "deep",
+      "unknown"
+    ]
+  },
+  "contract_version": 3,
+  "extras": {
+    "has_acc": true,
+    "night_median_hr_bpm": 60.0,
+    "params": {
+      "deep_hr_ratio": 0.9,
+      "min_contact_fraction": 0.5,
+      "min_hr_coverage": 0.5,
+      "rem_hr_std_bpm": 3.0,
+      "rem_movement_g": 0.04,
+      "smooth_window_epochs": 7,
+      "wake_movement_g": 0.08
+    },
+    "smooth_window_epochs": 7
+  },
+  "items": [
+    {
+      "explanation": "Time scored as sleep across REM, light and deep epochs. It excludes wake and unscored time.",
+      "group": "sleep",
+      "id": "total_sleep_s",
+      "kind": "number",
+      "label": "Total asleep",
+      "sources": [
+        "stages"
+      ],
+      "unit": "s",
+      "value": 240.0
+    },
+    {
+      "explanation": "Time from the start of the recording to the first sleep epoch.",
+      "group": "sleep",
+      "id": "sleep_latency_s",
+      "kind": "number",
+      "label": "Time to fall asleep",
+      "sources": [
+        "stages"
+      ],
+      "unit": "s",
+      "value": 0.0
+    },
+    {
+      "explanation": "Share of the whole recording that was scored as sleep. Total sleep divided by total duration.",
+      "group": "sleep",
+      "id": "sleep_efficiency",
+      "kind": "number",
+      "label": "Sleep efficiency",
+      "sources": [
+        "stages"
+      ],
+      "unit": "%",
+      "value": 100.0
+    },
+    {
+      "explanation": "Number of wake periods longer than 2 minutes between sleep onset and the final awakening.",
+      "group": "sleep",
+      "id": "awakenings",
+      "kind": "number",
+      "label": "Awakenings",
+      "sources": [
+        "stages"
+      ],
+      "unit": "count",
+      "value": 0.0
+    },
+    {
+      "explanation": "Wake time after sleep onset and before the final awakening.",
+      "group": "sleep",
+      "id": "waso_s",
+      "kind": "number",
+      "label": "Wake after sleep onset",
+      "sources": [
+        "stages"
+      ],
+      "unit": "s",
+      "value": 0.0
+    },
+    {
+      "explanation": "Wake time at the end of the recording after the last sleep epoch.",
+      "group": "sleep",
+      "id": "final_awakening_s",
+      "kind": "number",
+      "label": "Final awakening",
+      "sources": [
+        "stages"
+      ],
+      "unit": "s",
+      "value": 0.0
+    },
+    {
+      "explanation": "Mean of all valid heart-rate samples.",
+      "group": "heart",
+      "id": "hr_mean_bpm",
+      "kind": "number",
+      "label": "Average heart rate",
+      "sources": [
+        "hr"
+      ],
+      "unit": "bpm",
+      "value": 60.0
+    },
+    {
+      "explanation": "Lowest valid heart-rate sample.",
+      "group": "heart",
+      "id": "hr_min_bpm",
+      "kind": "number",
+      "label": "Lowest heart rate",
+      "sources": [
+        "hr"
+      ],
+      "unit": "bpm",
+      "value": 60.0
+    },
+    {
+      "explanation": "Highest valid heart-rate sample.",
+      "group": "heart",
+      "id": "hr_max_bpm",
+      "kind": "number",
+      "label": "Highest heart rate",
+      "sources": [
+        "hr"
+      ],
+      "unit": "bpm",
+      "value": 60.0
+    },
+    {
+      "explanation": "Beat-to-beat variation: the root mean square of successive RR-interval differences.",
+      "group": "heart",
+      "id": "hrv_rmssd_ms",
+      "kind": "number",
+      "label": "HRV RMSSD",
+      "sources": [
+        "hr"
+      ],
+      "unit": "ms",
+      "value": 28.3
+    },
+    {
+      "explanation": "Overall heart-rate variability: the standard deviation of the RR intervals.",
+      "group": "heart",
+      "id": "hrv_sdnn_ms",
+      "kind": "number",
+      "label": "HRV SDNN",
+      "sources": [
+        "hr"
+      ],
+      "unit": "ms",
+      "value": 16.3
+    },
+    {
+      "explanation": "Number of clean RR intervals used for HRV after filtering.",
+      "group": "heart_support",
+      "id": "hrv_rr_count",
+      "kind": "number",
+      "label": "RR intervals used",
+      "sources": [
+        "hr"
+      ],
+      "unit": "count",
+      "value": 720.0
+    },
+    {
+      "explanation": "Share of epochs with movement above 0.08 g.",
+      "group": "movement",
+      "id": "movement_index",
+      "kind": "number",
+      "label": "Movement index",
+      "sources": [
+        "acc"
+      ],
+      "unit": "%",
+      "value": 12.5
+    },
+    {
+      "explanation": "Average movement magnitude per epoch.",
+      "group": "movement",
+      "id": "movement_mean_g",
+      "kind": "number",
+      "label": "Average movement",
+      "sources": [
+        "acc"
+      ],
+      "unit": "g",
+      "value": 0.025
+    },
+    {
+      "explanation": "Number of epochs with movement above 0.08 g.",
+      "group": "movement",
+      "id": "movement_epochs",
+      "kind": "number",
+      "label": "Epochs with movement",
+      "sources": [
+        "acc"
+      ],
+      "unit": "count",
+      "value": 1.0
+    },
+    {
+      "explanation": "Time covered by a scored sleep stage.",
+      "group": "quality",
+      "id": "scored_duration_s",
+      "kind": "number",
+      "label": "Scored time",
+      "sources": [
+        "stages"
+      ],
+      "unit": "s",
+      "value": 240.0
+    },
+    {
+      "explanation": "Time the algorithm could not score.",
+      "group": "quality",
+      "id": "unscored_s",
+      "kind": "number",
+      "label": "Unscored time",
+      "sources": [
+        "stages"
+      ],
+      "unit": "s",
+      "value": 0.0
+    },
+    {
+      "explanation": "Length of the analyzed recording.",
+      "group": "quality",
+      "id": "total_duration_s",
+      "kind": "number",
+      "label": "Recording length",
+      "sources": [
+        "meta",
+        "stages"
+      ],
+      "unit": "s",
+      "value": 240.0
+    },
+    {
+      "components": [
+        {
+          "id": "usable_epoch_coverage",
+          "label": "Usable epoch coverage",
+          "value": 100.0,
+          "weight": 35.0
+        },
+        {
+          "id": "artifact_free_rate",
+          "label": "Artifact-free epochs",
+          "value": 100.0,
+          "weight": 25.0
+        },
+        {
+          "id": "mean_stage_confidence",
+          "label": "Mean stage confidence",
+          "value": 54.1,
+          "weight": 25.0
+        },
+        {
+          "id": "hr_coverage",
+          "label": "Heart-rate coverage",
+          "value": 100.0,
+          "weight": 15.0
+        }
+      ],
+      "explanation": "How much of the recording could be used for staging: epoch coverage, artifact-free time, stage confidence and heart-rate coverage, each weighted.",
+      "group": "score",
+      "id": "data_quality",
+      "kind": "score",
+      "label": "Data quality",
+      "sources": [
+        "stages",
+        "hr"
+      ],
+      "unit": "%",
+      "value": 88.5
+    },
+    {
+      "components": [
+        {
+          "id": "sleep_efficiency",
+          "label": "Sleep efficiency",
+          "value": 100.0,
+          "weight": 30.0
+        },
+        {
+          "id": "waso",
+          "label": "Wake after sleep onset",
+          "value": 100.0,
+          "weight": 20.0
+        },
+        {
+          "id": "awakenings_per_hour",
+          "label": "Awakenings per hour",
+          "value": 100.0,
+          "weight": 20.0
+        },
+        {
+          "id": "sleep_latency",
+          "label": "Time to fall asleep",
+          "value": 100.0,
+          "weight": 15.0
+        },
+        {
+          "id": "restorative_sleep_share",
+          "label": "Restorative sleep share",
+          "value": 0.0,
+          "weight": 15.0
+        }
+      ],
+      "explanation": "Weighted average of the sleep figures below. A component whose data is unavailable is removed and the remaining weights are renormalised.",
+      "group": "score",
+      "id": "sleep_quality",
+      "kind": "score",
+      "label": "Sleep score",
+      "sources": [
+        "stages"
+      ],
+      "unit": "%",
+      "value": 85.0
+    },
+    {
+      "explanation": "Mean heart rate for each epoch. Gaps are epochs without a valid sample.",
+      "group": "heart",
+      "id": "hr",
+      "kind": "series",
+      "label": "Heart rate",
+      "series": {
+        "count": 8,
+        "epoch_seconds": 30,
+        "mean_bpm": [
+          60.0,
+          60.0,
+          60.0,
+          60.0,
+          60.0,
+          60.0,
+          60.0,
+          60.0
+        ],
+        "sample_count": [
+          30,
+          30,
+          30,
+          30,
+          30,
+          30,
+          30,
+          30
+        ],
+        "start_unix_ms": 1792798200000
+      },
+      "sources": [
+        "hr"
+      ],
+      "unit": "bpm"
+    }
+  ],
+  "model": "baseline",
+  "model_version": "1.1.0",
+  "params": {},
+  "params_hash": "44136fa355b3678a",
+  "provenance": {
+    "algorithm": {
+      "id": "baseline",
+      "version": "1.1.0"
+    },
+    "algorithm_source": "builtin",
+    "citation": null,
+    "contract_version": 3,
+    "homepage": "https://github.com/rbmr/TaigaSleep",
+    "input_quality": {
+      "clock_jumps": [],
+      "clock_syncs": [],
+      "ecg_saturated_fraction": 0.0,
+      "gaps": [],
+      "hr_contact_fraction": 1.0,
+      "streams": {
+        "acc": {
+          "coverage": 1.0,
+          "error": null,
+          "frames": 1,
+          "present": true,
+          "rate_hz": 49.99999999997442,
+          "samples": 12000,
+          "truncated_tail": false,
+          "valid_bytes": 72047
+        },
+        "ecg": {
+          "coverage": 1.0,
+          "error": null,
+          "frames": 1,
+          "present": true,
+          "rate_hz": 130.0003328005913,
+          "samples": 31200,
+          "truncated_tail": false,
+          "valid_bytes": 124847
+        },
+        "hr": {
+          "coverage": 1.0,
+          "error": null,
+          "frames": 240,
+          "present": true,
+          "rate_hz": 1.0,
+          "samples": 240,
+          "truncated_tail": false,
+          "valid_bytes": 8164
+        }
+      },
+      "warnings": []
+    },
+    "license": "GPL-3.0-or-later",
+    "numpy": "2.5.4",
+    "peak_rss_mb": 41.4,
+    "python": "3.14.0",
+    "recording": {
+      "duration_s": 240.0,
+      "end_unix_ms": 1792798440000,
+      "session_id": "20261023_223000-fixture",
+      "start_unix_ms": 1792798200000,
+      "state": "stopped",
+      "streams": {
+        "acc": {
+          "coverage": 1.0,
+          "rate_hz": 50.0,
+          "samples": 12000,
+          "truncated_tail": false
+        },
+        "ecg": {
+          "coverage": 1.0,
+          "rate_hz": 130.0,
+          "samples": 31200,
+          "truncated_tail": false
+        },
+        "hr": {
+          "coverage": 1.0,
+          "rate_hz": 1.0,
+          "samples": 240,
+          "truncated_tail": false
+        }
+      }
+    },
+    "registry_errors": [],
+    "runtime_s": 0.029,
+    "worker": null
+  },
+  "stages": {
+    "artifacts": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "confidence": [
+      0.555,
+      0.555,
+      0.555,
+      0.555,
+      0.555,
+      0.555,
+      0.5,
+      0.5
+    ],
+    "count": 8,
+    "epoch_seconds": 30,
+    "probabilities": null,
+    "segments": [
+      {
+        "count": 8,
+        "stage": "light"
+      }
+    ],
+    "start_unix_ms": 1792798200000
+  },
+  "warnings": []
+}
