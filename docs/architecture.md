@@ -107,6 +107,21 @@ Two rules inside the packages:
 - **State has one owner.** Whatever stores or derives a piece of state is the only thing
   that writes it. Screens observe; they do not decide.
 
+### Analyses and results
+
+An analysis and its result are owned by what the server said, and the two caches that keep it
+on the phone:
+
+- `sync.ResultCache` keeps the full payload of a finished analysis that was downloaded.
+- `sync.RemoteHistoryCache` keeps the server's recording list with its analysis summaries, and
+  the run each night shows. The choice of run is a property of the row, not of the analysis.
+
+`library` derives what a History row shows about an analysis — the score, the stage bar, the
+model, the selected run, whether the payload is cached — from those two caches alone. It keeps
+no copy of those facts. `sync.UploadRecord` is therefore only the sync state of one night: where
+its bytes are, how far they got, why an attempt failed, when the upload finished, and the
+retention flags. A score never lives in `sync.json`.
+
 ## The recording lifecycle
 
 ### Recording mode

@@ -135,5 +135,21 @@ class ResultCacheTest {
     assertNull(cache.load("night", "a1"))
     assertNull(cache.load("night", "a2"))
     assertNotNull(cache.load("other", "a3"))
+    assertTrue(cache.cached("night").isEmpty())
+  }
+
+  @Test
+  fun everyCachedRunOfNightComesBackForTheHistoryRow() {
+    cache.save("night", "a1", analysis("a1", score = 70.0))
+    cache.save("night", "a2", analysis("a2", score = 90.0))
+    // The single payload an older app kept for a night is one more run.
+    File(root, "night.json")
+        .writeText("""{"id":"old","model":"sleep-ecg","model_version":"1.0.0","status":"done"}""")
+
+    val runs = cache.cached("night").associateBy { it.id }
+
+    assertEquals(setOf("a1", "a2", "old"), runs.keys)
+    assertEquals(90.0, runs.getValue("a2").result?.items?.single()?.value ?: 0.0, 0.001)
+    assertTrue(cache.cached("other").isEmpty())
   }
 }

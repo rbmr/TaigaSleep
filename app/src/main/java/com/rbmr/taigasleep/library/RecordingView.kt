@@ -257,13 +257,16 @@ private fun buildNight(
   val backupFromRecord = record?.backupState() ?: backupFromRemote(remoteSession)
   val remoteRuns =
       override?.runs
-          ?: summary?.analyses?.map { run -> run.toRun(downloaded = results?.has(key, run.id) == true) }
+          ?: summary?.analyses
+              ?.map { run -> run.toRun(downloaded = results?.has(key, run.id) == true) }
               .orEmpty()
-  // The server's list has the runs. A night whose list is not on this phone yet is drawn from the
-  // result cache instead, so an upgrade does not lose a result it already had.
+  // The server's list has the runs. A night whose list is not on this phone at all is drawn from
+  // the result cache instead, so an upgrade or a logged-out start does not lose a result it had.
+  // A night the server does list is never filled in from the cache: a run it no longer lists is
+  // gone, not hidden.
   val cachedRuns =
-      if (remoteRuns.isEmpty() && results != null) {
-        results.cached(key).map { run -> run.toRun(downloaded = true) }
+      if (summary == null && override == null) {
+        results?.cached(key).orEmpty().map { run -> run.toRun(downloaded = true) }
       } else {
         remoteRuns
       }
@@ -293,7 +296,9 @@ private fun buildNight(
       record?.takeIf {
         it.phase == UploadPhase.FAILED &&
             it.failure == UploadFailure.ANALYSIS &&
-            runs.none { run -> run.status == AnalysisStatus.DONE || run.status == AnalysisStatus.FAILED }
+            runs.none { run ->
+              run.status == AnalysisStatus.DONE || run.status == AnalysisStatus.FAILED
+            }
       }
   val explicitId =
       selectedAnalysisId?.takeIf { id -> runs.any { it.id == id } }

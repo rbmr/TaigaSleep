@@ -20,10 +20,7 @@ import com.rbmr.taigasleep.sync.RecordingSnapshot
 import com.rbmr.taigasleep.sync.RemoteHistoryCache
 import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.SyncService
-import com.rbmr.taigasleep.sync.UploadFailure
-import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
-import com.rbmr.taigasleep.sync.UploadStore
 import com.rbmr.taigasleep.sync.compatible
 import com.rbmr.taigasleep.sync.remoteKey
 import com.rbmr.taigasleep.sync.withoutRecordings
@@ -50,7 +47,6 @@ import kotlinx.coroutines.withContext
 class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, NightSource {
   private val context = context.applicationContext
   private val remote = RemoteRepository.of(this.context)
-  private val uploads = UploadStore.of(this.context)
   private val history = RemoteHistoryCache.of(this.context)
   private val results = ResultCache.of(this.context)
   private val sync = SyncService.of(this.context)
@@ -350,9 +346,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
   private fun forget(key: String, recordingId: String, cause: TaigaHttpException) {
     overrides.update { it - key }
     dropRemote(recordingId)
-    if (uploads.record(key)?.phase == UploadPhase.PROCESSING) {
-      uploads.markFailed(key, UploadFailure.ANALYSIS, cause.message)
-    }
+    sync.recordingGone(key, cause.message)
   }
 
   /**

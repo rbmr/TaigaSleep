@@ -13,10 +13,13 @@ import com.rbmr.taigasleep.backend.StageSummaryDto
 import com.rbmr.taigasleep.backend.StageTimelineDto
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
+import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
 import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
+import com.rbmr.taigasleep.sync.UploadStore
 import com.rbmr.taigasleep.sync.recordingIdOf
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -73,6 +76,53 @@ class RecordingMergeTest {
     assertEquals(RecordingStatus.READY, night.status)
     assertEquals(81.0, night.sleepScore ?: 0.0, 0.001)
     assertEquals(2, night.segments.size)
+  }
+
+  @Test
+  fun anOldSyncFileStillShowsTheCachedResultAfterTheUpgrade() {
+    val root = temporary.newFolder("recordings")
+    val dir = File(root, "local").apply { mkdirs() }
+    // The file an older app left on the phone: sync state plus a copy of the analysis facts. The
+    // row must come from the cache below, not from the copy in the file.
+    File(dir, RecordingStore.SYNC_FILE)
+        .writeText(
+            """
+            {"id":"local","onServer":true,"analysisId":"a1","phase":"DONE","progress":1.0,
+             "epochSeconds":30,"segments":[{"stage":"deep","count":9}],"sleepScore":55.0,
+             "model":"baseline","modelVersion":"1.0.0","resultDownloaded":true,
+             "updatedAtMs":10,"uploadedAtMs":9}
+            """
+        )
+    val store = UploadStore(RecordingDirectoryStorage(root))
+    val cache =
+        cacheWith(
+            succeeded("a1", algorithm = "baseline", version = "1.0.0")
+                .full(segments = segmentSeconds(), sleepScore = 81.0)
+        )
+
+    val night =
+        buildRecordings(listOf(local), store.records.value, null, results = cache).single()
+
+    assertEquals(RecordingStatus.READY, night.status)
+    assertEquals("a1", night.analysisId)
+    assertEquals(81.0, night.sleepScore ?: 0.0, 0.001)
+    assertEquals(2, night.segments.size)
+  }
+
+  @Test
+  fun aCachedResultDoesNotBringBackARunTheServerNoLongerLists() {
+    val record =
+        UploadRecord(id = "local", onServer = true, phase = UploadPhase.PROCESSING)
+    val remote = summaries(RecordingSummaryDto(recording = recording(), analyses = emptyList()))
+    val cache = cacheWith(succeeded("a1", algorithm = "baseline", version = "1.0.0").full())
+
+    val night =
+        buildRecordings(listOf(local), mapOf("local" to record), remote, results = cache)
+            .single()
+
+    // The server lists no run for this night any more, so its old payload is not shown as the row.
+    assertEquals(RecordingStatus.PROCESSING, night.status)
+    assertNull(night.analysisId)
   }
 
   @Test

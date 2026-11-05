@@ -183,6 +183,26 @@ class SyncServiceTest {
     assertEquals(listOf("installedAlgorithms"), environment.calls)
   }
 
+  @Test
+  fun `a recording gone from the server fails the night waiting for its analysis`() {
+    val environment = FakeEnvironment()
+    environment.state["r1"] = UploadRecord(id = "r1", onServer = true, phase = UploadPhase.PROCESSING)
+
+    SyncService(environment).recordingGone("r1", "recording not found")
+
+    assertEquals(listOf("markAnalysisFailed r1 recording not found"), environment.calls)
+  }
+
+  @Test
+  fun `a recording gone from the server leaves a finished night alone`() {
+    val environment = FakeEnvironment()
+    environment.state["r1"] = UploadRecord(id = "r1", onServer = true, phase = UploadPhase.DONE)
+
+    SyncService(environment).recordingGone("r1")
+
+    assertEquals(emptyList<String>(), environment.calls)
+  }
+
   private class FakeEnvironment : SyncEnvironment {
     val calls = mutableListOf<String>()
     val state = mutableMapOf<String, UploadRecord>()
@@ -209,6 +229,11 @@ class SyncServiceTest {
     override fun markProcessing(id: String) {
       calls += "markProcessing $id"
       state[id] = (state[id] ?: UploadRecord(id = id)).copy(phase = UploadPhase.PROCESSING)
+    }
+
+    override fun markAnalysisFailed(id: String, detail: String?) {
+      calls += "markAnalysisFailed $id $detail"
+      state[id] = (state[id] ?: UploadRecord(id = id)).copy(phase = UploadPhase.FAILED)
     }
 
     override fun markManualAnalysis(id: String, analysisId: String) {

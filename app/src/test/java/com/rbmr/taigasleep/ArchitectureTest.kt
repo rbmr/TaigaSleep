@@ -522,7 +522,6 @@ private object SyncSurface {
           "PendingDelete",
           "RecordingSnapshot",
           // Where that state is kept, and the live stream the library drives.
-          "UploadStore",
           "ResultCache",
           "RemoteHistoryCache",
           "PendingDeleteStore",

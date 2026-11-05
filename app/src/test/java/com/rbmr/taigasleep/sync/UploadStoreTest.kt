@@ -45,8 +45,34 @@ class UploadStoreTest {
   }
 
   @Test
-  fun clearingOneRecordingLeavesTheOthers() {
+  fun aSyncFileWithAnalysisFactsStillLoads() {
+    // What an older app wrote: the sync state beside a copy of the analysis facts. The unknown keys
+    // are ignored, and the next write drops them.
     val storage = MemoryStorage()
+    storage.documents["r1"] =
+        """
+        {"id":"r1","onServer":true,"analysisId":"a1","phase":"DONE","progress":1.0,
+         "epochSeconds":30,"segments":[{"stage":"light","count":4}],"sleepScore":81.0,
+         "model":"baseline","modelVersion":"1.0.0","resultDownloaded":true,
+         "updatedAtMs":10,"uploadedAtMs":9,"keepRawOnPhone":true}
+        """
+    val store = UploadStore(storage)
+
+    val record = store.record("r1")!!
+
+    assertEquals(UploadPhase.DONE, record.phase)
+    assertTrue(record.onServer)
+    assertTrue(record.keepRawOnPhone)
+    assertEquals(9L, record.uploadedAtMs)
+
+    store.markQueued("r1")
+
+    assertFalse("analysisId" in storage.documents.getValue("r1"))
+    assertFalse("sleepScore" in storage.documents.getValue("r1"))
+  }
+
+  @Test
+  fun clearingOneRecordingLeavesTheOthers() {    val storage = MemoryStorage()
     val store = UploadStore(storage)
     store.markQueued("r1")
     store.markQueued("r2")
