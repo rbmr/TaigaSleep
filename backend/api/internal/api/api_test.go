@@ -197,7 +197,6 @@ func validResult(algorithm, version string) map[string]any {
 			{"kind": "number", "id": "total_duration_s", "label": "Recording length", "group": "quality", "unit": "s", "value": 60.0, "explanation": "Length of the analyzed recording.", "sources": []string{"meta"}},
 			{"kind": "score", "id": "sleep_quality", "label": "Sleep score", "group": "score", "unit": "%", "value": 78.0, "explanation": "Weighted sleep figures.", "sources": []string{"stages"}, "components": []map[string]any{{"id": "sleep_efficiency", "label": "Sleep efficiency", "weight": 100.0, "value": 78.0}}},
 		},
-		"quality":      map[string]any{},
 		"capabilities": map[string]any{},
 		"provenance":   map[string]any{},
 	}

@@ -239,8 +239,7 @@ func readOldData(app core.App) ([]oldRecording, []oldAnalysis) {
 				"params_hash":      a.hash,
 			}
 			for _, name := range []string{
-				"stages", "hr", "metrics", "metric_support", "quality", "sleep_quality",
-				"capabilities", "provenance", "extras", "warnings",
+				"stages", "capabilities", "provenance", "extras", "warnings",
 			} {
 				var value any
 				if err := r.UnmarshalJSONField(name, &value); err == nil && value != nil {
@@ -357,11 +356,6 @@ func restoreRecordings(app core.App, rec, an *core.Collection, recordings []oldR
 // It mirrors what the API derives for a new result.
 func summaryOf(result map[string]any) map[string]any {
 	summary := map[string]any{}
-	for _, name := range []string{"metrics", "quality", "sleep_quality"} {
-		if value, ok := result[name]; ok {
-			summary[name] = value
-		}
-	}
 	if stages, ok := result["stages"].(map[string]any); ok {
 		summary["stages"] = map[string]any{
 			"epoch_seconds": stages["epoch_seconds"],

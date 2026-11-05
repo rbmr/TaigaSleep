@@ -12,28 +12,25 @@ versioned by `CONTRACT_VERSION` in
 
 ```text
 recording bytes -> decode/normalize -> Recording -> [stager] -> StagingResult
-                                                   -> shared derive -> metrics,
-                                                                      quality,
-                                                                      sleep score,
-                                                                      support map
+                                                   -> shared derive -> figures,
+                                                                      scores
                                                    -> serialization -> stages,
-                                                                      HR series,
                                                                       typed items
 ```
 
 - **Decode/normalize** is shared and not pluggable. It handles CRC, µV→mV,
   mG→g, Polar/phone/strap clocks, contact, ECG saturation, gaps and coverage.
 - **Stager** is the plugin. It is a pure function over `Recording`.
-- **Derive** is shared. It computes metrics, data quality, the sleep score and
-  explicit unsupported states. A stager cannot override the standard metrics.
+- **Derive** is shared. It computes the figures, the data-quality score, the
+  sleep score and their explicit support. A stager cannot override them.
 - **Orchestration** is shared. It loads the recording, validates required
   streams, calls the stager, validates the result, serializes the epoch-aligned
   result blocks and stores them.
 
 ## Typed items
 
-Contract version 2 adds `items` to every result. An item describes itself, so a client can
-render it without knowing the algorithm or a metric catalog:
+Contract version 3 has exactly one place for figures: `items`. An item describes itself, so a
+client renders it without knowing the algorithm or a local catalog:
 
 ```json
 {
@@ -60,11 +57,14 @@ render it without knowing the algorithm or a metric catalog:
   absent instead of printing a missing-data shell.
 - `group` keeps the presentation sections: `sleep`, `heart`, `movement`, `quality` or `score`.
 - The stage timeline stays the separate top-level `stages` block; it is not an item.
-- Items are only emitted for values the run actually supports. The older `metrics`,
-  `metric_support`, `quality`, `sleep_quality` and `hr` blocks remain for compatibility and
-  for clients that want the raw figures.
-- Contract version 2 requires at least one item, unique ids, a source on every item, and
-  score values between 0 and 100. The API rejects a result that breaks those rules.
+- Items are only emitted for values the run actually supports. There are no parallel result
+  keys: a client that wants a figure reads its item, and a figure the run cannot produce is
+  absent instead of present with a null value.
+- Contract version 3 requires at least one item, unique ids, a source on every item, and
+  score values between 0 and 100. The API rejects a result that breaks those rules. The
+  stage timeline stays the separate top-level `stages` block.
+- The data-quality score and the sleep score are `score` items. Their components carry the
+  same id, label, weight and value the app shows in the breakdown.
 
 ## Canonical stages and epochs
 
@@ -162,8 +162,8 @@ StagingResult(
 - `supported_stages` is optional. A stager whose manifest supports several
   modes (for example SleepECG's three-class and two-class classifiers) can
   narrow the stages for this run. The set must be a subset of the manifest and
-  changes the metrics support map; for example a wake/rem/nrem run marks
-  `time_in_sleep_s` unsupported instead of reporting zero.
+  decides which stage figures are emitted; for example a wake/rem/nrem run has
+  no sleep-stage item instead of reporting zero.
 - `confidence` and `artifacts` are optional; the shared quality score accounts
   for missing confidence by renormalizing its weight. `unknown` means the epoch
   could not be scored; an epoch may still carry a stage while being flagged as
@@ -172,7 +172,7 @@ StagingResult(
 - `probabilities` is optional. If confidence is absent, it is derived from the
   maximum probability.
 - `beats_s` is optional and lets an ECG algorithm improve HRV without changing
-  the metrics layer. If absent, HRV uses the H10 RR intervals.
+  the shared figures. If absent, HRV uses the H10 RR intervals.
 - `provenance` is optional algorithm-specific provenance (checkpoint path,
   model revision, hashes). The worker merges it into the result under
   `provenance.algorithm`; it cannot replace the standard licence, citation or
@@ -182,20 +182,23 @@ StagingResult(
 - A stager must not read files, call the API, write results or depend on the
   host environment.
 
-## Metrics, quality and scores are shared
+## Figures and scores are shared
 
-The shared layer derives:
+The shared layer derives, and then emits as items:
 
 - total duration, scored/unscored duration, total sleep, efficiency, sleep
   latency, WASO, awakenings (wake periods longer than two minutes), final
   awakening, time per stage;
 - HR mean/min/max, HRV RMSSD/SDNN, movement index/mean/epochs;
-- an epoch-aligned heart-rate series, serialized by the pipeline as the separate `hr` block;
-- explicit support per metric: `supported`, `unsupported_device`,
-  `insufficient_data`, or `unsupported_algorithm`, with a reason.
+- an epoch-aligned heart-rate series, as a `series` item;
+- explicit support per figure: `supported`, `unsupported_device`,
+  `insufficient_data`, or `unsupported_algorithm`, with a reason. Only
+  supported figures become items.
 
-Data quality uses the tunable formula from issue #10 and is returned as
-`quality`:
+### Data-quality score
+
+The data-quality score is a `score` item with id `data_quality`. It uses the
+tunable formula from issue #10:
 
 ```text
 100 * (0.35 * usable epoch coverage
@@ -205,13 +208,12 @@ Data quality uses the tunable formula from issue #10 and is returned as
 ```
 
 Unavailable components are removed and the remaining weights are renormalized.
-The breakdown is returned so the app can explain the score. `quality` describes
-the recording and the analysis; it is not a sleep-quality score.
+The item carries the surviving components, so the app can explain the score.
 
 ### Sleep score
 
-The sleep score is returned as the separate `sleep_quality` block. It is a
-transparent, versioned product policy over the sleep figures:
+The sleep score is a `score` item with id `sleep_quality`. It is a transparent,
+versioned product policy over the sleep figures:
 
 ```text
 100 * (0.30 * sleep efficiency
@@ -224,37 +226,43 @@ transparent, versioned product policy over the sleep figures:
 Every term is clamped to 0..1, so a lower WASO, awakening rate or latency scores
 higher. A component is unavailable when the data or algorithm cannot produce it,
 for example when an algorithm cannot split deep and REM. Unavailable components
-are removed and the remaining weights are renormalized. `components_version`
-versions the policy. The score deliberately has no target sleep duration:
-duration is reported as its own figure.
+are removed and the remaining weights are renormalized. The score deliberately
+has no target sleep duration: duration is reported as its own item.
 
 ```json
 {
-  "sleep_quality": {
-    "score": 82.4,
-    "components_version": 1,
-    "components": {
-      "sleep_efficiency": {"value": 0.91, "weight": 0.3, "available": true},
-      "waso": {"value": 0.88, "weight": 0.2, "available": true}
-    },
-    "notes": ["restorative_sleep_share unavailable; its weight was renormalized"]
-  }
+  "kind": "score",
+  "id": "sleep_quality",
+  "label": "Sleep score",
+  "group": "score",
+  "unit": "%",
+  "value": 82.4,
+  "explanation": "Weighted average of the sleep figures.",
+  "sources": ["stages"],
+  "components": [
+    {"id": "sleep_efficiency", "label": "Sleep efficiency", "weight": 30.0, "value": 91.0},
+    {"id": "waso", "label": "Wake after sleep onset", "weight": 20.0, "value": 88.0}
+  ]
 }
 ```
-
-A result stored before `sleep_quality` existed has no block and the app shows no
-sleep score rather than reusing the data-quality value.
 
 ### Heart-rate series
 
 The worker serializes the per-epoch heart rate it already computes in
-`EpochGrid` as the `hr` block. It uses the same epoch grid as `stages`, so a
-night stays compact (about 960 numbers for 8 hours instead of hundreds of
-thousands of raw samples):
+`EpochGrid` as a `series` item with id `hr`. It uses the same epoch grid as
+`stages`, so a night stays compact (about 960 numbers for 8 hours instead of
+hundreds of thousands of raw samples):
 
 ```json
 {
-  "hr": {
+  "kind": "series",
+  "id": "hr",
+  "label": "Heart rate",
+  "group": "heart",
+  "unit": "bpm",
+  "explanation": "Mean heart rate for each epoch. Gaps are epochs without a valid sample.",
+  "sources": ["hr"],
+  "series": {
     "epoch_seconds": 30,
     "start_unix_ms": 1790000000000,
     "count": 960,
@@ -266,8 +274,7 @@ thousands of raw samples):
 
 `mean_bpm` is `null` for an epoch without valid samples, and `sample_count` is
 the number of valid samples behind each mean. Gaps stay gaps: clients must not
-interpolate across a null. The block is optional, so results stored before it
-existed still load and simply have no chart.
+interpolate across a null.
 
 ## Discovery and versioning
 

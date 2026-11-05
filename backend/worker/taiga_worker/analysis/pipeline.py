@@ -43,7 +43,7 @@ class AnalysisOutput:
     stages: dict[str, Any]
     hr: dict[str, Any]
     metrics: dict[str, Any]
-    metric_support: dict[str, Any]
+    support: dict[str, Any]
     items: list[dict[str, Any]]
     quality: dict[str, Any]
     sleep_quality: dict[str, Any]
@@ -61,12 +61,7 @@ class AnalysisOutput:
             "params": self.params,
             "params_hash": self.params_hash,
             "stages": self.stages,
-            "hr": self.hr,
-            "metrics": self.metrics,
-            "metric_support": self.metric_support,
             "items": self.items,
-            "quality": self.quality,
-            "sleep_quality": self.sleep_quality,
             "capabilities": self.capabilities,
             "provenance": self.provenance,
             "extras": self.extras,
@@ -337,7 +332,7 @@ def run_analysis(
         stages=serialized_stages,
         hr=serialized_hr,
         metrics=derived.metrics,
-        metric_support=derived.support,
+        support=derived.support,
         items=build_items(
             derived.metrics,
             derived.support,

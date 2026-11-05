@@ -99,7 +99,6 @@ func up(app core.App) error {
 		&core.NumberField{Name: "contract_version"},
 		&core.JSONField{Name: "stages", MaxSize: 1048576},
 		&core.JSONField{Name: "metrics", MaxSize: 1048576},
-		&core.JSONField{Name: "metric_support", MaxSize: 1048576},
 		&core.JSONField{Name: "quality", MaxSize: 262144},
 		&core.JSONField{Name: "capabilities", MaxSize: 65536},
 		&core.JSONField{Name: "provenance", MaxSize: 262144},
