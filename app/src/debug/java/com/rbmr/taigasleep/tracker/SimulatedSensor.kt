@@ -24,7 +24,7 @@ class SimulatedSensor(
     private val autoRun: Boolean = true,
     private val disconnectEveryMs: Long = 3 * 60_000L,
     private val disconnectForMs: Long = 8_000L,
-) : SleepSensor {
+) : SleepSensor, OnDeviceTracker {
   override val kind = SensorKind.SIMULATED
   override val id = "SIM00001"
   override val name = "Simulated sensor"
@@ -42,6 +42,19 @@ class SimulatedSensor(
   private var executor: ScheduledExecutorService? = null
   private var config: StreamConfig? = null
   private var listener: SampleListener? = null
+  private var onDevice = false
+  private val stored = mutableListOf<StoredSample>()
+
+  private sealed interface StoredSample {
+    data class Hr(val stamp: Stamp, val sample: HrSample) : StoredSample
+
+    data class Ecg(val stamp: Stamp, val batch: EcgBatch) : StoredSample
+
+    data class Acc(val stamp: Stamp, val batch: AccBatch) : StoredSample
+  }
+
+  override fun recordingModes(config: StreamConfig): Set<RecordingMode> =
+      setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE)
 
   // Next batch due, in elapsed-realtime ns; 0 means "start from the next pump".
   private var hrDue = 0L
@@ -82,7 +95,42 @@ class SimulatedSensor(
   @Synchronized
   override fun stopStreams() {
     config = null
-    listener = null
+    this.listener = null
+    onDevice = false
+  }
+
+  @Synchronized
+  override fun startOnDevice(config: StreamConfig, listener: SampleListener) {
+    this.config = config
+    this.listener = listener
+    onDevice = true
+    stored.clear()
+    resetSchedule()
+  }
+
+  @Synchronized
+  override fun fetchOnDevice(listener: SampleListener): Boolean {
+    if (stored.isEmpty()) return false
+    for (sample in stored) {
+      when (sample) {
+        is StoredSample.Hr -> listener.onHr(sample.stamp, sample.sample)
+        is StoredSample.Ecg -> listener.onEcg(sample.stamp, sample.batch)
+        is StoredSample.Acc -> listener.onAcc(sample.stamp, sample.batch)
+      }
+    }
+    stored.clear()
+    onDevice = false
+    config = null
+    this.listener = null
+    return true
+  }
+
+  @Synchronized
+  override fun discardOnDevice() {
+    stored.clear()
+    onDevice = false
+    config = null
+    this.listener = null
   }
 
   private fun resetSchedule() {
@@ -103,7 +151,7 @@ class SimulatedSensor(
         resetSchedule()
       }
       ConnectionState.CONNECTED ->
-          if (nowNs >= nextDropNs && disconnectEveryMs > 0) {
+          if (!onDevice && nowNs >= nextDropNs && disconnectEveryMs > 0) {
             // Simulated link loss: the streams stop and resume from "now" after the gap.
             dropUntilNs = nowNs + disconnectForMs * 1_000_000L
             nextDropNs = dropUntilNs + disconnectEveryMs * 1_000_000L
@@ -121,15 +169,21 @@ class SimulatedSensor(
     // Phone clock offset to elapsed time, so batches carry consistent timestamps.
     val phoneMinusElapsed = clock.phoneNs() - clock.elapsedNs()
     while (hrDue <= nowNs) {
-      l.onHr(stamp(hrDue, phoneMinusElapsed), nextHr())
+      val stamp = stamp(hrDue, phoneMinusElapsed)
+      val sample = nextHr()
+      if (onDevice) stored += StoredSample.Hr(stamp, sample) else l.onHr(stamp, sample)
       hrDue += HR_PERIOD_NS
     }
     while (c.ecg && ecgDue <= nowNs) {
-      l.onEcg(stamp(ecgDue, phoneMinusElapsed), nextEcg(ecgDue + phoneMinusElapsed))
+      val stamp = stamp(ecgDue, phoneMinusElapsed)
+      val batch = nextEcg(ecgDue + phoneMinusElapsed)
+      if (onDevice) stored += StoredSample.Ecg(stamp, batch) else l.onEcg(stamp, batch)
       ecgDue += ECG_PERIOD_NS
     }
     while (c.acc && accDue <= nowNs) {
-      l.onAcc(stamp(accDue, phoneMinusElapsed), nextAcc(accDue + phoneMinusElapsed))
+      val stamp = stamp(accDue, phoneMinusElapsed)
+      val batch = nextAcc(accDue + phoneMinusElapsed)
+      if (onDevice) stored += StoredSample.Acc(stamp, batch) else l.onAcc(stamp, batch)
       accDue += ACC_PERIOD_NS
     }
   }

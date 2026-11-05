@@ -834,10 +834,23 @@ fun RecordingDetailScreen(
       )
     }
     if (showDelete) {
+      val uploaded = state.remoteId != null
       AlertDialog(
           onDismissRequest = { showDelete = false },
-          title = { Text(stringResource(R.string.night_delete_title)) },
-          text = { Text(stringResource(R.string.night_delete_body)) },
+          title = {
+            Text(
+                stringResource(
+                    if (uploaded) R.string.night_delete_title else R.string.night_discard_title
+                )
+            )
+          },
+          text = {
+            Text(
+                stringResource(
+                    if (uploaded) R.string.night_delete_body else R.string.night_discard_body
+                )
+            )
+          },
           confirmButton = {
             TextButton(
                 onClick = {
@@ -850,7 +863,12 @@ fun RecordingDetailScreen(
                   onBack()
                 }
             ) {
-              Text(stringResource(R.string.night_delete_confirm))
+              Text(
+                  stringResource(
+                      if (uploaded) R.string.night_delete_confirm
+                      else R.string.night_discard_confirm
+                  )
+              )
             }
           },
           dismissButton = {
@@ -1045,7 +1063,11 @@ private fun RecordingDetailsSheet(
             modifier = Modifier.weight(1f),
         )
         DestructiveButton(
-            text = stringResource(R.string.night_delete_action),
+            text =
+                stringResource(
+                    if (state.remoteId == null) R.string.night_discard_action
+                    else R.string.night_delete_action
+                ),
             onClick = onDelete,
             enabled = !exportBusy,
             modifier = Modifier.weight(1f),

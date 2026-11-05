@@ -102,6 +102,14 @@ interface SleepSensor {
 
   val firmware: StateFlow<String?>
 
+  /**
+   * The recording modes this configuration can use. A live-only sensor streams; a sensor without
+   * live output records on itself. A sensor that can do both narrows the set by configuration, for
+   * example the H10 can store only HR/RR on the device.
+   */
+  fun recordingModes(config: StreamConfig): Set<RecordingMode> =
+      if (capabilities.live) setOf(RecordingMode.STREAM) else setOf(RecordingMode.ON_DEVICE)
+
   /** Starts connecting. Reconnection after a drop is handled by the sensor itself. */
   fun connect()
 
