@@ -67,7 +67,7 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
           }
           for (run in started) {
             environment.markManualAnalysis(id, run.analysisId)
-            environment.markProcessing(id, run.analysisId)
+            environment.markProcessing(id)
           }
           Result.success(started)
         } catch (e: TaigaUnauthorizedException) {

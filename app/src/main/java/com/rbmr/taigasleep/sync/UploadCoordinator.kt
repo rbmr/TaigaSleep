@@ -57,33 +57,27 @@ internal object UploadCoordinator {
                   ?: analyses.firstOrNull { it.isFailed }
                   ?: analyses.maxByOrNull { it.created }
 
-          val targetId =
-              when {
-                target == null -> {
-                  val settings = AnalysisSettingsStore.of(context).settings.value
-                  AnalysisService.startPreferred(
-                          api,
-                          recordingId,
-                          localRecordingConfig(context, key),
-                          settings,
-                      )
-                      .analysisId
-                }
-                target.isFailed -> {
-                  val again =
-                      api.requestAnalysis(
-                          recordingId,
-                          target.algorithm,
-                          target.version,
-                          target.params,
-                      )
-                  again.id
-                }
-                else -> target.id
-              }
+          when {
+            target == null -> {
+              val settings = AnalysisSettingsStore.of(context).settings.value
+              AnalysisService.startPreferred(
+                  api,
+                  recordingId,
+                  localRecordingConfig(context, key),
+                  settings,
+              )
+            }
+            target.isFailed ->
+                api.requestAnalysis(
+                    recordingId,
+                    target.algorithm,
+                    target.version,
+                    target.params,
+                )
+          }
 
           // The result arrives through the event stream while the app is open, or at the next open.
-          store.markProcessing(key, targetId)
+          store.markProcessing(key)
           Result.success(Unit)
         } catch (e: TaigaUnauthorizedException) {
           remote.logout()

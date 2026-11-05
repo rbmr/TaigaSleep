@@ -105,7 +105,7 @@ class SyncServiceTest {
 
     assertTrue(result.isSuccess)
     assertEquals(
-        listOf("startManual r1 baseline", "markManualAnalysis r1 a-baseline", "markProcessing r1 a-baseline"),
+        listOf("startManual r1 baseline", "markManualAnalysis r1 a-baseline", "markProcessing r1"),
         environment.calls,
     )
   }
@@ -206,8 +206,8 @@ class SyncServiceTest {
       state[id] = UploadRecord(id = id, phase = UploadPhase.LOCAL)
     }
 
-    override fun markProcessing(id: String, analysisId: String?) {
-      calls += "markProcessing $id $analysisId"
+    override fun markProcessing(id: String) {
+      calls += "markProcessing $id"
       state[id] = (state[id] ?: UploadRecord(id = id)).copy(phase = UploadPhase.PROCESSING)
     }
 

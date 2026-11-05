@@ -122,7 +122,7 @@ class UploadWorker(
             RawRetention.enforce(context)
             return Result.failure()
           }
-      store.markProcessing(localId, started?.analysisId)
+      store.markProcessing(localId)
       // The server has the bytes now, so an immediate or overdue cleanup may run.
       RawRetention.enforce(context)
       // The night stays in the processing state and nothing waits for it: while the app is open the

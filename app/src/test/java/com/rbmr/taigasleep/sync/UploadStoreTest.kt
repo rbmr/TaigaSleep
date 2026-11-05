@@ -35,23 +35,13 @@ class UploadStoreTest {
   @Test
   fun stateSurvivesANewStoreInstance() {
     val storage = MemoryStorage()
-    UploadStore(storage).markDone(
-        id = "r1",
-        analysisId = "a1",
-        model = "baseline",
-        modelVersion = "1.0.0",
-        epochSeconds = 30,
-        segments = emptyList(),
-        sleepScore = 80.0,
-        resultDownloaded = true,
-    )
+    UploadStore(storage).markDone("r1")
 
     val restarted = UploadStore(storage).record("r1")!!
 
     assertEquals(UploadPhase.DONE, restarted.phase)
-    assertEquals("a1", restarted.analysisId)
-    assertEquals(80.0, restarted.sleepScore ?: 0.0, 0.001)
-    assertTrue(restarted.resultDownloaded)
+    assertTrue(restarted.onServer)
+    assertTrue(restarted.uploadedAtMs != null)
   }
 
   @Test

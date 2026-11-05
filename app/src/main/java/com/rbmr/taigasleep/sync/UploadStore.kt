@@ -205,13 +205,12 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
     }
   }
 
-  fun markProcessing(id: String, analysisId: String?) {
+  fun markProcessing(id: String) {
     val confirmedAt = now()
     update(id) {
       it.copy(
           phase = UploadPhase.PROCESSING,
           onServer = true,
-          analysisId = analysisId,
           progress = 1f,
           failure = null,
           errorDetail = null,
@@ -222,33 +221,17 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
     }
   }
 
-  fun markDone(
-      id: String,
-      analysisId: String?,
-      model: String?,
-      modelVersion: String?,
-      epochSeconds: Int,
-      segments: List<StageSegmentDto>,
-      sleepScore: Double?,
-      resultDownloaded: Boolean,
-  ) {
+  fun markDone(id: String) {
     val doneAt = now()
     update(id) {
       it.copy(
           phase = UploadPhase.DONE,
           onServer = true,
-          analysisId = analysisId,
           progress = 1f,
           failure = null,
           errorDetail = null,
           warning = null,
           updatedAtMs = doneAt,
-          model = model,
-          modelVersion = modelVersion,
-          epochSeconds = epochSeconds,
-          segments = segments,
-          sleepScore = sleepScore,
-          resultDownloaded = resultDownloaded,
           uploadedAtMs = it.uploadedAtMs ?: doneAt,
       )
     }
@@ -287,11 +270,6 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
           updatedAtMs = now(),
       )
     }
-  }
-
-  /** Remember which finished run the user wants to see for this night. */
-  fun markSelectedAnalysis(id: String, analysisId: String) {
-    update(id) { it.copy(analysisId = analysisId, updatedAtMs = now()) }
   }
 
   /** The user downloaded this night's raw files again; keep them out of automatic cleanup. */

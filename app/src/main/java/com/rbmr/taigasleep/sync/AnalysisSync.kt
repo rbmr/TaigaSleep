@@ -73,24 +73,16 @@ class AnalysisSync(
     when {
       shown == null -> {
         // A sealed recording without an analysis is waiting for one to be requested.
-        if (recording.complete) store.markProcessing(key, null)
+        if (recording.complete) store.markProcessing(key)
       }
       shown.isSucceeded -> {
-        val saved = cached || results.save(key, shown.id, shown)
-        store.markDone(
-            id = key,
-            analysisId = shown.id,
-            model = shown.algorithm,
-            modelVersion = shown.version,
-            epochSeconds = shown.result?.stages?.epoch_seconds ?: 30,
-            segments = shown.result?.stages?.segments.orEmpty(),
-            sleepScore = shown.result?.items?.firstOrNull { it.id == "sleep_quality" }?.value,
-            resultDownloaded = saved,
-        )
+        // A result never changes once it succeeded, so one already on this phone is not saved again.
+        if (!cached) results.save(key, shown.id, shown)
+        store.markDone(key)
       }
       shown.isFailed ->
           store.markFailed(key, UploadFailure.ANALYSIS, shown.error.takeIf { it.isNotBlank() })
-      else -> if (recording.complete) store.markProcessing(key, shown.id)
+      else -> if (recording.complete) store.markProcessing(key)
     }
     return RecordingSnapshot(recording, analyses, shown)
   }
