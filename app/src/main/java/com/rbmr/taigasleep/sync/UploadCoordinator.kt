@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.sync
 
 import android.content.Context
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.CheckResult
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.TaigaHttpException
@@ -22,7 +23,7 @@ private val HR_ONLY = RecordingConfig(hr = true, ecg = false, acc = false)
  */
 internal fun localRecordingConfig(context: Context, key: String): RecordingConfig {
   val localId = key.takeUnless { it.startsWith("remote-") } ?: return HR_ONLY
-  val meta = RecordingMeta.read(RecordingStore.of(context).dir(localId))
+  val meta = RecordingMeta.read(context.appContainer.recordingStore.dir(localId))
   return meta?.config ?: HR_ONLY
 }
 

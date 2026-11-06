@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.library
 
 import android.content.Context
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingSummaryDto
@@ -260,7 +261,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
       // come from disk: the screens may not have loaded them yet when the app has just opened.
       val current =
           buildRecordings(
-              recordings = RecordingStore.of(context).list(),
+              recordings = context.appContainer.recordingStore.list(),
               records = records,
               remote = remoteSummaries.value,
               overrides = overrides.value,
@@ -298,7 +299,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
 
   /** The night key of a recording: the phone's own id when it has the recording, else the remote key. */
   private fun keyFor(recordingId: String): String =
-      if (RecordingStore.of(context).dir(recordingId).isDirectory) recordingId
+      if (context.appContainer.recordingStore.dir(recordingId).isDirectory) recordingId
       else remoteKey(recordingId)
 
   /**
@@ -356,7 +357,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
    */
   private fun dropRemote(recordingId: String) {
     remoteSummaries.update { it?.withoutRecordings(setOf(recordingId)) }
-    val onPhone = RecordingStore.of(context).dir(recordingId).isDirectory
+    val onPhone = context.appContainer.recordingStore.dir(recordingId).isDirectory
     history.remove(remote.accountKey, recordingId, keepOut = !onPhone)
   }
 

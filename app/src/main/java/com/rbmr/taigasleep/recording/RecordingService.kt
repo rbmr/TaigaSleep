@@ -1,6 +1,5 @@
 package com.rbmr.taigasleep.recording
 
-import com.rbmr.taigasleep.diagnostics.Diagnostics
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -16,6 +15,8 @@ import android.os.SystemClock
 import android.util.Log
 import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.appContainer
+import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
@@ -71,7 +72,7 @@ class RecordingService : Service() {
 
   override fun onCreate() {
     super.onCreate()
-    store = RecordingStore.of(this)
+    store = appContainer.recordingStore
     prefs = RecordingPrefs.get(this)
     hooks = RecordingHooks.current()
     getSystemService(NotificationManager::class.java)

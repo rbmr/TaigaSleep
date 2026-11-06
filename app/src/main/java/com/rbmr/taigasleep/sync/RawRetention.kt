@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.sync
 
 import android.content.Context
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.recording.RecordingRepository
@@ -62,7 +63,7 @@ internal object RawRetention {
         val mode = UploadSettings.get(context).rawRetention.value
         if (mode == RawRetentionMode.NEVER) return@withContext
         val store = UploadStore.of(context)
-        val sessions = RecordingStore.of(context)
+        val sessions = context.appContainer.recordingStore
         var changed = false
         for (session in sessions.list()) {
           if (session.state == RecordingPhase.RECORDING) continue
@@ -88,7 +89,7 @@ internal object RawRetention {
    */
   suspend fun deleteRaw(context: Context, localId: String): RawActionResult =
       withContext(Dispatchers.IO) {
-        val sessions = RecordingStore.of(context)
+        val sessions = context.appContainer.recordingStore
         val dir = sessions.dir(localId)
         val meta = RecordingMeta.read(dir) ?: return@withContext RawActionResult.NothingToDelete
         if (meta.state == RecordingPhase.RECORDING) return@withContext RawActionResult.Recording
@@ -116,7 +117,7 @@ internal object RawRetention {
       onProgress: (Float) -> Unit = {},
   ): Result<Unit> =
       withContext(Dispatchers.IO) {
-        val sessions = RecordingStore.of(context)
+        val sessions = context.appContainer.recordingStore
         val dir = sessions.dir(localId)
         val meta = RecordingMeta.read(dir)
         if (meta == null) {

@@ -1,6 +1,5 @@
 package com.rbmr.taigasleep.recording
 
-import com.rbmr.taigasleep.diagnostics.Diagnostics
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -8,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
+import com.rbmr.taigasleep.appContainer
+import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.recording.store.EventLog
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.tracker.SystemClockSource
@@ -31,7 +32,7 @@ class WatchdogReceiver : BroadcastReceiver() {
     Log.w(TAG, "service missing or stale (heartbeat ${age / 1000}s), restarting")
     try {
       EventLog.append(
-          RecordingStore.of(context).dir(id),
+          context.appContainer.recordingStore.dir(id),
           SystemClockSource.phoneNs(),
           SystemClockSource.elapsedNs(),
           "watchdog",

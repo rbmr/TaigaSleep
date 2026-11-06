@@ -9,6 +9,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.recording.RecordingService
 import com.rbmr.taigasleep.recording.store.RecordingPhase
@@ -81,7 +82,7 @@ internal object UploadScheduler {
 
   /** After an automatic-upload checkbox changes, apply it to the queued uploads. */
   fun rescheduleAll(context: Context) {
-    val local = RecordingStore.of(context).list()
+    val local = context.appContainer.recordingStore.list()
     val manager = WorkManager.getInstance(context)
     val store = UploadStore.of(context)
     val settings = UploadSettings.get(context).autoUpload.value
@@ -109,7 +110,7 @@ internal object UploadScheduler {
         if (!RemoteRepository.of(context).hasSession) return@withContext
         val settings = UploadSettings.get(context).autoUpload.value
         val store = UploadStore.of(context)
-        for (session in RecordingStore.of(context).list()) {
+        for (session in context.appContainer.recordingStore.list()) {
           if (session.state == RecordingPhase.RECORDING &&
               RecordingService.running) {
             continue

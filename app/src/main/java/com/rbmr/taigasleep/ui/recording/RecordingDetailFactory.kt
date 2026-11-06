@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.library.RecordingLibrary
 import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.RecordingRepository
@@ -53,7 +54,7 @@ class RecordingDetailFactory(
   @Suppress("UNCHECKED_CAST")
   override fun <T : ViewModel> create(modelClass: Class<T>): T {
     val app = context.applicationContext
-    val store = RecordingStore.of(app)
+    val store = app.appContainer.recordingStore
     val sync = SyncService.of(app)
     val work =
         object : NightWork {

@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.sync
 
 import android.content.Context
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.TaigaClient
@@ -126,7 +127,7 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
 
   override fun logout() = remote.logout()
 
-  override fun hasRecording(id: String): Boolean = RecordingStore.of(app).dir(id).isDirectory
+  override fun hasRecording(id: String): Boolean = app.appContainer.recordingStore.dir(id).isDirectory
 
   override fun config(id: String): RecordingConfig = localRecordingConfig(app, id)
 

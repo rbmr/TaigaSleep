@@ -1,8 +1,9 @@
 package com.rbmr.taigasleep.recording
 
 import android.content.Context
-import com.rbmr.taigasleep.recording.store.RecordingConfig
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.recording.store.Recording
+import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,14 +46,14 @@ object RecordingRepository {
 
   /** Re-reads the session list from disk (cheap for the handful of nights kept on the phone). */
   fun refreshRecordings(context: Context) {
-    _sessions.value = RecordingStore.of(context).list()
+    _sessions.value = context.appContainer.recordingStore.list()
   }
 
   /** On app start: sessions left in `recording` with no live service become `interrupted`. */
   fun reconcile(context: Context) {
     if (RecordingService.running) return
     val prefs = RecordingPrefs.get(context)
-    val changed = RecordingStore.of(context).markOrphans(liveId = null)
+    val changed = context.appContainer.recordingStore.markOrphans(liveId = null)
     if (changed.isNotEmpty() || prefs.activeSessionId != null) {
       prefs.activeSessionId = null
       WatchdogReceiver.cancel(context)
