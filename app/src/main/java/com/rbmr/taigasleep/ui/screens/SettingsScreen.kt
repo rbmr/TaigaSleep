@@ -84,7 +84,7 @@ fun SettingsScreen(
             ThemeMode.DARK -> R.string.settings_appearance_body_dark
           }
       )
-  val analysisSettingsStore = remember { AnalysisSettingsStore.of(context) }
+  val analysisSettingsStore = remember { context.appContainer.analysisSettingsStore }
   val analysisSettings by analysisSettingsStore.settings.collectAsStateWithLifecycle()
   var installedAlgorithms by remember { mutableStateOf<List<AlgorithmDto>>(emptyList()) }
   var installedLoading by remember { mutableStateOf(false) }

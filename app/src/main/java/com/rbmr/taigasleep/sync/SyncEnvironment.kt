@@ -174,7 +174,7 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
           api,
           recordingId,
           config,
-          AnalysisSettingsStore.of(app).settings.value,
+          app.appContainer.analysisSettingsStore.settings.value,
       )
 
   override suspend fun installedAlgorithms(api: TaigaClient): Result<List<AlgorithmDto>> =

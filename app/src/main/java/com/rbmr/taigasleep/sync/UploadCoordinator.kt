@@ -60,7 +60,7 @@ internal object UploadCoordinator {
 
           when {
             target == null -> {
-              val settings = AnalysisSettingsStore.of(context).settings.value
+              val settings = context.appContainer.analysisSettingsStore.settings.value
               AnalysisService.startPreferred(
                   api,
                   recordingId,

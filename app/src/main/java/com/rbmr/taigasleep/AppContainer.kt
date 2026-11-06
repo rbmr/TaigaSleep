@@ -5,6 +5,7 @@ import android.content.Context
 import com.rbmr.taigasleep.backend.OkHttpRemoteApi
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.remoteStore
+import com.rbmr.taigasleep.insights.AnalysisSettingsStore
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.PendingDeleteStore
 import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
@@ -47,6 +48,10 @@ class AppContainer(private val application: Application) {
     // The list of an older app holds session summaries this version cannot read.
     File(application.filesDir, "history/remote-sessions.json").delete()
     RemoteHistoryCache(File(application.filesDir, "history/remote-recordings.json"))
+  }
+
+  val analysisSettingsStore: AnalysisSettingsStore by lazy {
+    AnalysisSettingsStore(application)
   }
 }
 

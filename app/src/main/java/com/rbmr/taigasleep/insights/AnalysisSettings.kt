@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.insights
 
 import android.content.Context
+import com.rbmr.taigasleep.appContainer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,7 +41,7 @@ fun movePreference(order: List<String>, id: String, delta: Int): List<String> {
   return order.toMutableList().also { it.add(target, it.removeAt(index)) }
 }
 
-class AnalysisSettingsStore private constructor(context: Context) {
+class AnalysisSettingsStore internal constructor(context: Context) {
   private val prefs =
       context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
@@ -69,12 +70,6 @@ class AnalysisSettingsStore private constructor(context: Context) {
     private const val KEY_AUTO = "analysis_auto"
     private const val KEY_ORDER = "analysis_preference_order"
 
-    @Volatile private var instance: AnalysisSettingsStore? = null
-
-    fun of(context: Context): AnalysisSettingsStore =
-        instance
-            ?: synchronized(this) {
-              instance ?: AnalysisSettingsStore(context).also { instance = it }
-            }
+    fun of(context: Context): AnalysisSettingsStore = context.appContainer.analysisSettingsStore
   }
 }
