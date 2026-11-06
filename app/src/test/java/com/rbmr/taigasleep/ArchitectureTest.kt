@@ -546,6 +546,7 @@ private object SyncSurface {
           // What the app wiring builds the shared stores from.
           "UploadStore",
           "RecordingDirectoryStorage",
+          "AppSyncEnvironment",
           // A night's key, which installed algorithm a recording can feed, and the server's list
           // without the recordings the app deleted.
           "remoteKey",

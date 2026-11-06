@@ -89,7 +89,7 @@ fun TaigaApp(
     scope.launch {
       remote.verify()
       if (remote.status.value is RemoteStatus.Connected) {
-        SyncService.of(context).reconcileAll()
+        context.appContainer.syncService.reconcileAll()
       }
     }
     onPauseOrDispose {}

@@ -33,7 +33,7 @@ class TaigaApplication : Application() {
     DebugTools.install(this)
     CoroutineScope(Dispatchers.IO).launch {
       // Apply the raw-retention setting to any recording whose cleanup time has passed.
-      val sync = SyncService.of(this@TaigaApplication)
+      val sync = container.syncService
       sync.enforceRawRetention()
       sync.cancelLegacyPolls()
     }
@@ -111,5 +111,5 @@ private object RecordingWiring : RecordingHooks {
   override fun readinessSummary(context: Context): String = Readiness.read(context).summary()
 
   override fun onRecordingFinished(context: Context, recordingId: String) =
-      SyncService.of(context).onRecordingFinished(recordingId)
+      context.appContainer.syncService.onRecordingFinished(recordingId)
 }

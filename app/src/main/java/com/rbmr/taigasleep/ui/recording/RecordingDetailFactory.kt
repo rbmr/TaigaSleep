@@ -55,7 +55,7 @@ class RecordingDetailFactory(
   override fun <T : ViewModel> create(modelClass: Class<T>): T {
     val app = context.applicationContext
     val store = app.appContainer.recordingStore
-    val sync = SyncService.of(app)
+    val sync = app.appContainer.syncService
     val work =
         object : NightWork {
           override suspend fun refreshRecordings() {

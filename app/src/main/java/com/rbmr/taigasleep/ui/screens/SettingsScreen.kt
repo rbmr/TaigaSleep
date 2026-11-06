@@ -67,7 +67,7 @@ fun SettingsScreen(
 ) {
   val context = LocalContext.current
   val remoteRepository = remember { context.appContainer.remoteRepository }
-  val sync = remember { SyncService.of(context) }
+  val sync = remember { context.appContainer.syncService }
   val remoteStatus by remoteRepository.status.collectAsStateWithLifecycle()
   val uploadSettings = remember { UploadSettings.get(context) }
   val autoUpload by uploadSettings.autoUpload.collectAsStateWithLifecycle()

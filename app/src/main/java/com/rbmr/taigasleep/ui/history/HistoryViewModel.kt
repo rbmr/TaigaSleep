@@ -117,7 +117,7 @@ class HistoryViewModel(
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
       val library = context.appContainer.recordingLibrary
-      val sync = SyncService.of(context)
+      val sync = context.appContainer.syncService
       val work =
           object : HistoryWork {
             override suspend fun onOpen() {

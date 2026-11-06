@@ -1,6 +1,5 @@
 package com.rbmr.taigasleep.sync
 
-import android.content.Context
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import kotlinx.coroutines.CancellationException
@@ -158,16 +157,4 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
 
   /** Drop the polling work an earlier version left in the work queue under a tag nothing reads. */
   fun cancelLegacyPolls() = environment.cancelLegacyPolls()
-
-  companion object {
-    @Volatile private var instance: SyncService? = null
-
-    fun of(context: Context): SyncService =
-        instance
-            ?: synchronized(this) {
-              instance
-                  ?: SyncService(AppSyncEnvironment(context.applicationContext))
-                      .also { instance = it }
-            }
-  }
 }

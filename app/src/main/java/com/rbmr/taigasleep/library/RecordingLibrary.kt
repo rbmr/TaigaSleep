@@ -50,7 +50,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   private val remote = context.appContainer.remoteRepository
   private val history = context.appContainer.remoteHistoryCache
   private val results = context.appContainer.resultCache
-  private val sync = SyncService.of(this.context)
+  private val sync = context.appContainer.syncService
   private val deletes = context.appContainer.pendingDeleteStore
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
