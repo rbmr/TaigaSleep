@@ -8,6 +8,7 @@ import com.rbmr.taigasleep.library.RecordingView
 import com.rbmr.taigasleep.recording.ExportSource
 import com.rbmr.taigasleep.recording.exportSource
 import com.rbmr.taigasleep.sync.RawActionResult
+import com.rbmr.taigasleep.sync.RecordingNotOnServerException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -256,11 +257,17 @@ class RecordingDetailViewModel(
               }
               .onFailure { failure ->
                 _state.update {
-                  it.copy(
-                      loginExpired = failure is TaigaUnauthorizedException,
-                      offlineSaved = it.result != null,
-                      error = failure.message,
-                  )
+                  if (failure is RecordingNotOnServerException) {
+                    // The server does not have this night; that is no connectivity problem. The
+                    // saved result stays and the night's sync state now says it is phone-only.
+                    it.copy(loginExpired = false, offlineSaved = false, error = null)
+                  } else {
+                    it.copy(
+                        loginExpired = failure is TaigaUnauthorizedException,
+                        offlineSaved = it.result != null,
+                        error = failure.message,
+                    )
+                  }
                 }
               }
         }

@@ -6,7 +6,6 @@ import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingSummaryDto
 import com.rbmr.taigasleep.backend.RecordingSummaryListDto
-import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.recordingSummaries
 import com.rbmr.taigasleep.recording.RecordingRepository
@@ -14,6 +13,7 @@ import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.sync.LiveSyncTarget
+import com.rbmr.taigasleep.sync.RecordingNotOnServerException
 import com.rbmr.taigasleep.sync.RecordingSnapshot
 import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.compatible
@@ -227,7 +227,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
                         ),
                 )
                 .getOrElse { e ->
-                  if (e is TaigaHttpException && e.status == 404) forget(key, server, e)
+                  if (e is RecordingNotOnServerException) forget(key, server)
                   return@withContext Result.failure(e)
                 }
         val runs = snapshot.analyses.map { run -> run.toRun(downloaded = results.has(key, run.id)) }
@@ -335,13 +335,12 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
 
   /**
    * The server says the recording does not exist (any more). It leaves the list, in memory and in
-   * the saved copy, so History cannot keep it with an error. A recording that was waiting for its
-   * analysis is marked failed instead of processing for ever.
+   * the saved copy, so History cannot keep it with an error. Its sync state says it is only on this
+   * phone when the phone still has the recording.
    */
-  private fun forget(key: String, recordingId: String, cause: TaigaHttpException) {
+  private fun forget(key: String, recordingId: String) {
     overrides.update { it - key }
     dropRemote(recordingId)
-    sync.recordingGone(key, cause.message)
   }
 
   /**

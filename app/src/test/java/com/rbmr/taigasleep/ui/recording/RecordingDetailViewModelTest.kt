@@ -6,6 +6,7 @@ import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.backend.StageSegmentDto
+import com.rbmr.taigasleep.backend.TaigaNetworkException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.library.Analysis
 import com.rbmr.taigasleep.library.AnalysisStatus
@@ -16,8 +17,10 @@ import com.rbmr.taigasleep.library.RecordingView
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.sync.RawActionResult
+import com.rbmr.taigasleep.sync.RecordingNotOnServerException
 import com.rbmr.taigasleep.sync.UploadFailure
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
@@ -266,6 +269,33 @@ class RecordingDetailViewModelTest {
 
     assertEquals("could not load", model.state.value.error)
     assertFalse(model.state.value.offlineSaved)
+  }
+
+  @Test
+  fun `a network failure keeps the saved result and the connectivity message`() {
+    library.cached = payload("a1")
+    library.fresh = Result.failure(TaigaNetworkException(IOException("offline")))
+    val model = viewModel()
+
+    assertEquals("a1", model.state.value.result?.id)
+    assertTrue(model.state.value.offlineSaved)
+    assertEquals("network unavailable", model.state.value.error)
+  }
+
+  @Test
+  fun `a night the server does not have shows its saved result without a connectivity message`() {
+    library.cached = payload("a1")
+    library.fresh = Result.failure(RecordingNotOnServerException("recording not found"))
+    val model = viewModel()
+
+    library.recordings.value =
+        listOf(recording(remoteId = null, status = RecordingStatus.LOCAL_ONLY))
+
+    assertEquals("a1", model.state.value.result?.id)
+    assertFalse(model.state.value.offlineSaved)
+    assertNull(model.state.value.error)
+    assertFalse(model.state.value.recording?.onServer ?: true)
+    assertEquals(RecordingStatus.LOCAL_ONLY, model.state.value.status)
   }
 
   @Test

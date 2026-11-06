@@ -4,6 +4,7 @@ import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.StubTaigaClient
 import com.rbmr.taigasleep.backend.TaigaClient
+import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaNetworkException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.recording.store.RecordingConfig
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -164,6 +166,45 @@ class SyncServiceTest {
   }
 
   @Test
+  fun `a refresh that answers 404 makes a night with a local copy local only`() = runBlocking {
+    val environment = FakeEnvironment()
+    environment.client = StubTaigaClient()
+    environment.refreshFailure = TaigaHttpException(404, "recording not found")
+    environment.state["r1"] = UploadRecord(id = "r1", onServer = true, phase = UploadPhase.DONE)
+
+    val result = SyncService(environment).refresh("r1")
+
+    assertTrue(result.exceptionOrNull() is RecordingNotOnServerException)
+    assertEquals(listOf("refresh r1", "markLocal r1"), environment.calls)
+    assertFalse(environment.state.getValue("r1").onServer)
+    assertEquals(UploadPhase.LOCAL, environment.state.getValue("r1").phase)
+  }
+
+  @Test
+  fun `a refresh that answers 404 for a night only on the server marks nothing local`() = runBlocking {
+    val environment = FakeEnvironment().apply { files = false }
+    environment.client = StubTaigaClient()
+    environment.refreshFailure = TaigaHttpException(404, "recording not found")
+
+    val result = SyncService(environment).refresh("remote-r1")
+
+    assertTrue(result.exceptionOrNull() is RecordingNotOnServerException)
+    assertEquals(listOf("refresh remote-r1"), environment.calls)
+  }
+
+  @Test
+  fun `a refresh that fails with a network error is not a missing night`() = runBlocking {
+    val environment = FakeEnvironment()
+    environment.client = StubTaigaClient()
+    environment.refreshFailure = TaigaNetworkException(IOException("offline"))
+
+    val result = SyncService(environment).refresh("r1")
+
+    assertTrue(result.exceptionOrNull() is TaigaNetworkException)
+    assertEquals(listOf("refresh r1"), environment.calls)
+  }
+
+  @Test
   fun `a retry keeps the analysis the screen is showing`() = runBlocking {
     val environment = FakeEnvironment()
 
@@ -184,23 +225,25 @@ class SyncServiceTest {
   }
 
   @Test
-  fun `a recording gone from the server fails the night waiting for its analysis`() {
-    val environment = FakeEnvironment()
-    environment.state["r1"] = UploadRecord(id = "r1", onServer = true, phase = UploadPhase.PROCESSING)
-
-    SyncService(environment).recordingGone("r1", "recording not found")
-
-    assertEquals(listOf("markAnalysisFailed r1 recording not found"), environment.calls)
-  }
-
-  @Test
-  fun `a recording gone from the server leaves a finished night alone`() {
+  fun `a recording gone from the server is local again on the phone`() {
     val environment = FakeEnvironment()
     environment.state["r1"] = UploadRecord(id = "r1", onServer = true, phase = UploadPhase.DONE)
 
     SyncService(environment).recordingGone("r1")
 
-    assertEquals(emptyList<String>(), environment.calls)
+    assertEquals(listOf("markLocal r1"), environment.calls)
+    assertFalse(environment.state.getValue("r1").onServer)
+  }
+
+  @Test
+  fun `a recording gone from the server fails the night waiting for an analysis without a local copy`() {
+    val environment = FakeEnvironment().apply { files = false }
+    environment.state["remote-r1"] =
+        UploadRecord(id = "remote-r1", onServer = true, phase = UploadPhase.PROCESSING)
+
+    SyncService(environment).recordingGone("remote-r1", "recording not found")
+
+    assertEquals(listOf("markAnalysisFailed remote-r1 recording not found"), environment.calls)
   }
 
   private class FakeEnvironment : SyncEnvironment {

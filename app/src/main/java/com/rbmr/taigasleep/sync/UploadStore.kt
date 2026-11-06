@@ -243,12 +243,14 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
   fun markLocal(id: String) {
     update(id) {
       it.copy(
+          onServer = false,
           phase = UploadPhase.LOCAL,
           progress = 0f,
           failure = null,
           errorDetail = null,
           warning = null,
           updatedAtMs = now(),
+          uploadedAtMs = null,
       )
     }
   }

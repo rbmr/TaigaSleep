@@ -45,6 +45,20 @@ class UploadStoreTest {
   }
 
   @Test
+  fun `a recording the server no longer has becomes local only`() {
+    val storage = MemoryStorage()
+    val store = UploadStore(storage)
+    store.markDone("r1")
+
+    store.markLocal("r1")
+
+    val record = store.record("r1")!!
+    assertEquals(UploadPhase.LOCAL, record.phase)
+    assertFalse(record.onServer)
+    assertNull(record.uploadedAtMs)
+  }
+
+  @Test
   fun aSyncFileWithAnalysisFactsStillLoads() {
     // What an older app wrote: the sync state beside a copy of the analysis facts. The unknown keys
     // are ignored, and the next write drops them.
