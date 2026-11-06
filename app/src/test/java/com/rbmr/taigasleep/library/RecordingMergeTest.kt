@@ -15,6 +15,7 @@ import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
+import com.rbmr.taigasleep.sync.RemoteHistoryCache
 import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.sync.UploadPhase
@@ -32,6 +33,8 @@ import org.junit.rules.TemporaryFolder
 
 class RecordingMergeTest {
   @get:Rule val temporary = TemporaryFolder()
+
+  private val account = "https://sleep.example|me@example.com"
 
   private val local =
       Recording(
@@ -199,6 +202,53 @@ class RecordingMergeTest {
 
     assertNull(night.remoteId)
     assertEquals(RecordingStatus.LOCAL_ONLY, night.status)
+  }
+
+  @Test
+  fun aNightTheServerNoLongerHasIsLocalOnlyAndKeepsItsSavedResult() {
+    val root = temporary.newFolder("recordings-gone")
+    val dir = File(root, "local").apply { mkdirs() }
+    File(dir, RecordingStore.SYNC_FILE)
+        .writeText(
+            """{"id":"local","onServer":true,"phase":"DONE","progress":1.0,
+             "updatedAtMs":10,"uploadedAtMs":9}"""
+        )
+    val store = UploadStore(RecordingDirectoryStorage(root))
+    store.markLocal("local")
+    val cache =
+        cacheWith(
+            succeeded("a1", algorithm = "baseline", version = "1.0.0")
+                .full(segments = segmentSeconds(), sleepScore = 81.0)
+        )
+
+    val night = buildRecordings(listOf(local), store.records.value, null, results = cache).single()
+
+    assertFalse(night.onServer)
+    assertNull(night.remoteId)
+    assertEquals(RecordingStatus.LOCAL_ONLY, night.status)
+    assertEquals("a1", night.analysisId)
+    assertEquals(81.0, night.sleepScore ?: 0.0, 0.001)
+  }
+
+  @Test
+  fun aRemoteOnlyNightTheServerNoLongerHasLeavesTheList() {
+    val remote =
+        summaries(
+            RecordingSummaryDto(
+                recording = recording(id = "gone"),
+                analyses = listOf(succeeded("a1")),
+            ),
+            RecordingSummaryDto(recording = recording(id = "kept")),
+        )
+    val history =
+        RemoteHistoryCache(File(temporary.newFolder("history-gone"), "remote-recordings.json"))
+    history.save(account, remote)
+
+    history.remove(account, "gone")
+
+    val nights =
+        buildRecordings(emptyList(), emptyMap(), remote, hiddenRemoteIds = history.removed.value)
+    assertEquals(listOf("remote-kept"), nights.map { it.key })
   }
 
   @Test

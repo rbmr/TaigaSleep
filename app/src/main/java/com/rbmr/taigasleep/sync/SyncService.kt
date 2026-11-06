@@ -1,11 +1,18 @@
 package com.rbmr.taigasleep.sync
 
 import com.rbmr.taigasleep.backend.AlgorithmDto
+import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+
+/**
+ * A refresh that answered 404: the server does not have this recording, which is not a network
+ * failure.
+ */
+class RecordingNotOnServerException(message: String? = null) : Exception(message)
 
 /**
  * The one entry point to sync: everything outside this package calls this class and nothing else.
@@ -97,10 +104,15 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
   }
 
   /**
-   * The server no longer has this recording. A recording that was waiting for its analysis is marked
-   * failed instead of processing for ever; every other state stays what it is.
+   * The server no longer has this recording. A recording on this phone is local again, so it can be
+   * uploaded from the recording screen; a recording that was waiting for its analysis without a copy
+   * here is marked failed instead of processing for ever.
    */
   fun recordingGone(id: String, detail: String? = null) {
+    if (environment.hasRecording(id)) {
+      environment.markLocal(id)
+      return
+    }
     if (environment.record(id)?.phase != UploadPhase.PROCESSING) return
     environment.markAnalysisFailed(id, detail)
   }
@@ -114,6 +126,9 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
   /**
    * Read one recording and its analyses from the server and store what it says. [preferred] are
    * analysis ids in order of preference, for example the run the user selected.
+   *
+   * A 404 means the server does not have the recording, not that it could not be reached: the
+   * recording's stored state follows that ([recordingGone]) and the failure says so.
    */
   suspend fun refresh(
       id: String,
@@ -128,6 +143,10 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
         } catch (e: TaigaUnauthorizedException) {
           environment.logout()
           Result.failure(e)
+        } catch (e: TaigaHttpException) {
+          if (e.status != 404) return@withContext Result.failure(e)
+          recordingGone(id, e.message)
+          Result.failure(RecordingNotOnServerException(e.message))
         } catch (e: CancellationException) {
           throw e
         } catch (e: Exception) {

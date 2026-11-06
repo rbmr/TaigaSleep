@@ -667,11 +667,13 @@ private object SyncSurface {
           "UploadSettings",
           "RawRetentionMode",
           // The data a screen or the library carries: one night's sync state, what an explicit raw
-          // action did, one queued server delete, one read of a night and its analyses.
+          // action did, one queued server delete, one read of a night and its analyses, and the
+          // failure that says the server does not have a night.
           "UploadRecord",
           "RawActionResult",
           "PendingDelete",
           "RecordingSnapshot",
+          "RecordingNotOnServerException",
           // Where the result payload is kept, and the live stream the library drives.
           "ResultCache",
           "LiveSyncTarget",
