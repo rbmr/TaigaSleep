@@ -51,7 +51,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
   private val history = RemoteHistoryCache.of(this.context)
   private val results = ResultCache.of(this.context)
   private val sync = SyncService.of(this.context)
-  private val deletes = PendingDeleteStore.of(this.context)
+  private val deletes = context.appContainer.pendingDeleteStore
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
   private val remoteSummaries = MutableStateFlow<RecordingSummaryListDto?>(null)

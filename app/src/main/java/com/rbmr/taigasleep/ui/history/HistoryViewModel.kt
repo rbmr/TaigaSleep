@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.ui.history
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.library.LibrarySource
 import com.rbmr.taigasleep.library.RecordingLibrary
 import com.rbmr.taigasleep.library.RecordingView
@@ -137,7 +138,7 @@ class HistoryViewModel(
           }
       return HistoryViewModel(
           library = library,
-          pendingDeletes = PendingDeleteStore.of(context).pending,
+          pendingDeletes = context.appContainer.pendingDeleteStore.pending,
           work = work,
       ) as T
     }

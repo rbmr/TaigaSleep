@@ -18,7 +18,7 @@ import java.io.File
 internal object RecordingDeleter {
   fun delete(context: Context, localId: String?, remoteId: String?) {
     if (localId == null && remoteId == null) return
-    val pending = PendingDeleteStore.of(context)
+    val pending = context.appContainer.pendingDeleteStore
     if (remoteId != null) pending.add(remoteId)
 
     if (localId != null) {

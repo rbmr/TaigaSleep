@@ -6,6 +6,7 @@ import com.rbmr.taigasleep.backend.OkHttpRemoteApi
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.remoteStore
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.sync.PendingDeleteStore
 import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
 import com.rbmr.taigasleep.sync.UploadStore
 import java.io.File
@@ -32,6 +33,10 @@ class AppContainer(private val application: Application) {
 
   val remoteRepository: RemoteRepository by lazy {
     RemoteRepository(store = remoteStore(application), api = OkHttpRemoteApi())
+  }
+
+  val pendingDeleteStore: PendingDeleteStore by lazy {
+    PendingDeleteStore(application.getSharedPreferences("deletes", Context.MODE_PRIVATE))
   }
 }
 

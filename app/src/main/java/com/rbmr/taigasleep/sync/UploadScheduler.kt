@@ -75,7 +75,7 @@ internal object UploadScheduler {
 
   /** Restore the remote-delete queue after a process restart. */
   fun resumePendingDeletes(context: Context) {
-    for (recordingId in PendingDeleteStore.of(context).remoteIds()) {
+    for (recordingId in context.appContainer.pendingDeleteStore.remoteIds()) {
       enqueueDelete(context, recordingId)
     }
   }
