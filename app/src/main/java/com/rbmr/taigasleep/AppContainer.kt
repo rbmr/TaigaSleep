@@ -3,6 +3,8 @@ package com.rbmr.taigasleep
 import android.app.Application
 import android.content.Context
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
+import com.rbmr.taigasleep.sync.UploadStore
 import java.io.File
 
 /**
@@ -14,6 +16,15 @@ class AppContainer(private val application: Application) {
   val recordingStore: RecordingStore by lazy {
     val base = application.getExternalFilesDir(null) ?: application.filesDir
     RecordingStore(File(base, "recordings"))
+  }
+
+  val uploadStore: UploadStore by lazy {
+    UploadStore(
+        RecordingDirectoryStorage(
+            recordingStore.root,
+            application.getSharedPreferences("uploads", Context.MODE_PRIVATE),
+        )
+    )
   }
 }
 

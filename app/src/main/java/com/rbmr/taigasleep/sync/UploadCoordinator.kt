@@ -48,7 +48,7 @@ internal object UploadCoordinator {
           return@withContext Result.failure(IllegalStateException(reason))
         }
         val api = remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
-        val store = UploadStore.of(context)
+        val store = context.appContainer.uploadStore
         val recordingId = recordingIdOf(key)
 
         try {

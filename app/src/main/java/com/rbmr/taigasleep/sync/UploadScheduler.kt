@@ -28,7 +28,7 @@ internal object UploadScheduler {
   const val KEY_RECORDING_ID = "recording_id"
 
   fun enqueueManual(context: Context, localId: String) {
-    val store = UploadStore.of(context)
+    val store = context.appContainer.uploadStore
     store.markQueued(localId)
     enqueue(context, localId, manualConstraints(), ExistingWorkPolicy.REPLACE)
   }
@@ -37,7 +37,7 @@ internal object UploadScheduler {
     val settings = UploadSettings.get(context).autoUpload.value
     if (!settings.enabled) return
     if (!RemoteRepository.of(context).hasSession) return
-    val store = UploadStore.of(context)
+    val store = context.appContainer.uploadStore
     val record = store.record(localId)
     if (record?.phase == UploadPhase.DONE) return
     if (record?.phase == UploadPhase.FAILED) return // let the user decide; retry is explicit
@@ -84,7 +84,7 @@ internal object UploadScheduler {
   fun rescheduleAll(context: Context) {
     val local = context.appContainer.recordingStore.list()
     val manager = WorkManager.getInstance(context)
-    val store = UploadStore.of(context)
+    val store = context.appContainer.uploadStore
     val settings = UploadSettings.get(context).autoUpload.value
     local.forEach { session ->
       manager.cancelUniqueWork("upload-${session.id}")
@@ -109,7 +109,7 @@ internal object UploadScheduler {
       withContext(Dispatchers.IO) {
         if (!RemoteRepository.of(context).hasSession) return@withContext
         val settings = UploadSettings.get(context).autoUpload.value
-        val store = UploadStore.of(context)
+        val store = context.appContainer.uploadStore
         for (session in context.appContainer.recordingStore.list()) {
           if (session.state == RecordingPhase.RECORDING &&
               RecordingService.running) {

@@ -62,7 +62,7 @@ internal object RawRetention {
       withContext(Dispatchers.IO) {
         val mode = UploadSettings.get(context).rawRetention.value
         if (mode == RawRetentionMode.NEVER) return@withContext
-        val store = UploadStore.of(context)
+        val store = context.appContainer.uploadStore
         val sessions = context.appContainer.recordingStore
         var changed = false
         for (session in sessions.list()) {
@@ -93,7 +93,7 @@ internal object RawRetention {
         val dir = sessions.dir(localId)
         val meta = RecordingMeta.read(dir) ?: return@withContext RawActionResult.NothingToDelete
         if (meta.state == RecordingPhase.RECORDING) return@withContext RawActionResult.Recording
-        val record = UploadStore.of(context).record(localId)
+        val record = context.appContainer.uploadStore.record(localId)
         if (record?.uploadConfirmedAt() == null) return@withContext RawActionResult.NotUploaded
         if (!hasStreams(dir)) return@withContext RawActionResult.NothingToDelete
         try {
@@ -162,7 +162,7 @@ internal object RawRetention {
             }
             onProgress((index + 1).toFloat() / available.size)
           }
-          UploadStore.of(context).markKeepRaw(localId)
+          context.appContainer.uploadStore.markKeepRaw(localId)
           RecordingRepository.refreshRecordings(context)
           Result.success(Unit)
         } catch (e: CancellationException) {

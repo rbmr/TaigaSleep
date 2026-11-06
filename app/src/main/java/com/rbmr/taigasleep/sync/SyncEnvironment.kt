@@ -99,7 +99,7 @@ internal interface SyncEnvironment {
 /** The app's [SyncEnvironment]: each member is the call the screens and the workers used to make. */
 internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
   private val app = context.applicationContext
-  private val state = UploadStore.of(app)
+  private val state = app.appContainer.uploadStore
   private val settings = UploadSettings.get(app)
   private val remote = RemoteRepository.of(app)
 

@@ -316,22 +316,6 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
   private fun now(): Long = System.currentTimeMillis()
 
   companion object {
-    @Volatile private var instance: UploadStore? = null
-
-    fun of(context: Context): UploadStore =
-        instance
-            ?: synchronized(this) {
-              instance
-                  ?: UploadStore(
-                          RecordingDirectoryStorage(
-                              context.appContainer.recordingStore.root,
-                              context.applicationContext.getSharedPreferences(
-                                  "uploads",
-                                  Context.MODE_PRIVATE,
-                              ),
-                          )
-                      )
-                      .also { instance = it }
-            }
+    fun of(context: Context): UploadStore = context.appContainer.uploadStore
   }
 }
