@@ -28,7 +28,7 @@ import com.rbmr.taigasleep.tracker.RecordingMode
  */
 @Composable
 internal fun DataSheet(
-    config: NightConfig,
+    config: StartConfig,
     onEcg: (Boolean) -> Unit,
     onAcc: (Boolean) -> Unit,
     onMode: (RecordingMode) -> Unit,

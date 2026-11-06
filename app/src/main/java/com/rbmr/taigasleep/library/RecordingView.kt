@@ -20,11 +20,11 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * The one display state of a night. It is derived from the two independent layers below:
+ * The one display state of a recording. It is derived from the two independent layers below:
  * where the bytes are ([BackupState]) and which analyses exist ([Analysis]).
  */
 enum class RecordingStatus {
-  /** The recorder is still writing this night. */
+  /** The recorder is still writing this recording. */
   RECORDING,
   /** No server copy exists. */
   LOCAL_ONLY,
@@ -32,7 +32,7 @@ enum class RecordingStatus {
   QUEUED,
   /** Bytes are moving; see [RecordingView.progress]. */
   UPLOADING,
-  /** The night is on the server and an analysis is queued, running or not requested yet. */
+  /** The recording is on the server and an analysis is queued, running or not requested yet. */
   PROCESSING,
   /** At least one analysis finished and can be shown. */
   READY,
@@ -90,7 +90,7 @@ data class Analysis(
     val resultDownloaded: Boolean = false,
 )
 
-/** A snapshot served to the UI. The server copy is never required to draw a night. */
+/** A snapshot served to the UI. The server copy is never required to draw a recording. */
 data class RecordingView(
     val key: String,
     val localId: String?,
@@ -150,22 +150,22 @@ data class RecordingView(
 }
 
 /**
- * Merge the local recordings and the app's night records with what the analysis caches say a night
- * shows. The server's list and the result cache are the only sources of analysis facts; the sync
- * record only says where the bytes are and whether they are moving.
+ * Merge the local recordings and the app's durable record state with what the analysis caches say a
+ * recording shows. The server's list and the result cache are the only sources of analysis facts; the
+ * sync record only says where the bytes are and whether they are moving.
  *
- * [overrides] carries a fresh recording and analysis list fetched by the night screen, so a night
- * with several analyses shows all of them before the next History refresh.
+ * [overrides] carries a fresh recording and analysis list fetched by the recording screen, so a
+ * recording with several analyses shows all of them before the next History refresh.
  *
- * [selectedAnalysisIds] is the run each night shows, remembered by the cached History. It only wins
- * while it is one of the runs the caches list.
+ * [selectedAnalysisIds] is the run each recording shows, remembered by the cached History. It only
+ * wins while it is one of the runs the caches list.
  *
  * [hiddenRemoteIds] are recordings whose server copy is being deleted or is already gone. Their
  * server summary, their fresh override and their cached runs are left out, so History cannot show
- * a night that the server no longer has. A local recording stays as the local night it is.
+ * a recording that the server no longer has. A local recording stays as the local recording it is.
  *
- * The phone's recording id is the server's recording id, so a local night and its server copy are
- * matched by id.
+ * The phone's recording id is the server's recording id, so a local recording and its server copy
+ * are matched by id.
  */
 fun buildRecordings(
     recordings: List<Recording>,
@@ -178,11 +178,11 @@ fun buildRecordings(
 ): List<RecordingView> {
   val byId = remote?.items?.associateBy { it.recording.id }.orEmpty()
   val localIds = recordings.map { it.id }.toSet()
-  val nights = mutableListOf<RecordingView>()
+  val merged = mutableListOf<RecordingView>()
   for (recording in recordings) {
     val hidden = recording.id in hiddenRemoteIds
-    nights +=
-        buildNight(
+    merged +=
+        buildRecording(
             key = recording.id,
             local = recording,
             summary = byId[recording.id].takeUnless { hidden },
@@ -196,8 +196,8 @@ fun buildRecordings(
     if (summary.recording.id in localIds) continue
     if (summary.recording.id in hiddenRemoteIds) continue
     val key = remoteKey(summary.recording.id)
-    nights +=
-        buildNight(
+    merged +=
+        buildRecording(
             key = key,
             local = null,
             summary = summary,
@@ -207,12 +207,12 @@ fun buildRecordings(
             results = results,
         )
   }
-  // A night opened directly by its recording id can be fresh before the next History refresh.
+  // A recording opened directly by its recording id can be fresh before the next History refresh.
   for ((key, override) in overrides) {
     if (recordingIdOf(key) in hiddenRemoteIds) continue
-    if (nights.none { it.key == key }) {
-      nights +=
-          buildNight(
+    if (merged.none { it.key == key }) {
+      merged +=
+          buildRecording(
               key = key,
               local = null,
               summary = null,
@@ -223,7 +223,7 @@ fun buildRecordings(
           )
     }
   }
-  return nights.sortedWith(compareByDescending<RecordingView> { it.startUtcMs }.thenBy { it.device })
+  return merged.sortedWith(compareByDescending<RecordingView> { it.startUtcMs }.thenBy { it.device })
 }
 
 /** A fresh recording and analysis list from the server, kept only for the current process. */
@@ -232,7 +232,7 @@ data class RemoteOverride(
     val runs: List<Analysis>,
 )
 
-private fun buildNight(
+private fun buildRecording(
     key: String,
     local: Recording?,
     summary: RecordingSummaryDto?,
@@ -260,9 +260,9 @@ private fun buildNight(
           ?: summary?.analyses
               ?.map { run -> run.toRun(downloaded = results?.has(key, run.id) == true) }
               .orEmpty()
-  // The server's list has the runs. A night whose list is not on this phone at all is drawn from
+  // The server's list has the runs. A recording whose list is not on this phone at all is drawn from
   // the result cache instead, so an upgrade or a logged-out start does not lose a result it had.
-  // A night the server does list is never filled in from the cache: a run it no longer lists is
+  // A recording the server does list is never filled in from the cache: a run it no longer lists is
   // gone, not hidden.
   val cachedRuns =
       if (summary == null && override == null) {

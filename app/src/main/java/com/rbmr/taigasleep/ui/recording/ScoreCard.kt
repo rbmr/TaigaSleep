@@ -29,7 +29,7 @@ import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
 
-/** The head of the night: whether it is processed, and its sleep score as a ring. */
+/** The head of the recording: whether it is processed, and its sleep score as a ring. */
 @Composable
 internal fun RecordingHeaderCard(
     sleepScore: Double?,

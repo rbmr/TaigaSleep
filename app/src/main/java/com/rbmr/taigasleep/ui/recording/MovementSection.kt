@@ -13,7 +13,7 @@ import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.insights.MetricSpec
 import com.rbmr.taigasleep.ui.components.TaigaCard
 
-/** The movement numbers of the night. */
+/** The movement numbers of the recording. */
 @Composable
 internal fun MovementStatsCard(items: List<ResultItemDto>, onMetric: (MetricSpec) -> Unit) {
   TaigaCard {

@@ -12,11 +12,11 @@ import com.rbmr.taigasleep.sync.RawActionResult
 import java.io.File
 
 /**
- * The work behind the night screen's buttons, behind a port so the view model needs no Android
+ * The work behind the recording screen's buttons, behind a port so the view model needs no Android
  * types. Everything here already exists in `recording` and `sync`; this only names the calls the
  * screen makes.
  */
-interface NightWork {
+interface RecordingWork {
   suspend fun refreshRecordings()
 
   fun upload(localId: String)
@@ -40,7 +40,7 @@ interface NightWork {
 }
 
 /**
- * Builds the night screen's view model from the singletons the app already has. The calls live
+ * Builds the recording screen's view model from the singletons the app already has. The calls live
  * here, in the one part of the screen that may reach the stores.
  */
 class RecordingDetailFactory(
@@ -55,7 +55,7 @@ class RecordingDetailFactory(
     val store = app.appContainer.recordingStore
     val sync = app.appContainer.syncService
     val work =
-        object : NightWork {
+        object : RecordingWork {
           override suspend fun refreshRecordings() {
             RecordingRepository.refreshRecordings(app)
           }
@@ -86,14 +86,14 @@ class RecordingDetailFactory(
               RecordingStore.RAW_FILES.sumOf { File(store.dir(localId), it).length() }
         }
     return RecordingDetailViewModel(
-        key = localId ?: remoteId?.let { "remote-$it" } ?: analysisId ?: "night",
+        key = localId ?: remoteId?.let { "remote-$it" } ?: analysisId ?: "recording",
         localId = localId,
         remoteId = remoteId,
         analysisId = analysisId,
         library = app.appContainer.recordingLibrary,
         work = work,
         texts =
-            NightTexts(
+            RecordingTexts(
                 loadFailed = app.getString(R.string.night_load_failed),
                 loginError = app.getString(R.string.upload_error_login),
                 rawRestoreFailed = app.getString(R.string.night_raw_restore_failed),

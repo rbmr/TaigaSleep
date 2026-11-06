@@ -47,7 +47,7 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
 | `GET /v1/health` | public | Liveness: `{ "status": "ok", "time": ... }` |
-| `GET /v1/version` | public | `{ "service": "taiga-sleep", "version": "0.3.0", "api": 2 }`. A client compares `api` with the one it was built for before it does anything else. |
+| `GET /v1/version` | public | `{ "service": "taiga-sleep", "version": "0.6.1", "api": 4 }`. A client compares `api` with the one it was built for before it does anything else. |
 | `GET /v1/openapi.json` | public | The OpenAPI 3.1 document of this build. |
 | `GET /v1/docs` | public | Browsable documentation of the same. |
 

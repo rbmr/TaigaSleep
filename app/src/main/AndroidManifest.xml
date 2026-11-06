@@ -65,7 +65,7 @@
         android:name=".recording.WatchdogReceiver"
         android:exported="false" />
 
-    <!-- Lets the share sheet read the on-demand session zip from the cache directory. -->
+    <!-- Lets the share sheet read the on-demand recording zip from the cache directory. -->
     <provider
         android:name="androidx.core.content.FileProvider"
         android:authorities="${applicationId}.fileprovider"

@@ -30,7 +30,7 @@ import com.rbmr.taigasleep.ui.components.ScoreRing
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import kotlin.math.roundToInt
 
-/** The data-quality score, what it is made of and how much of the night it covers. */
+/** The data-quality score, what it is made of and how much of the recording it covers. */
 @Composable
 internal fun DataQualityStatsCard(
     analysis: AnalysisResultDto,

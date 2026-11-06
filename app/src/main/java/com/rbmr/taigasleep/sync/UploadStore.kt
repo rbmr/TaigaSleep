@@ -54,11 +54,11 @@ data class UploadRecord(
     val updatedAtMs: Long = 0,
     /**
      * When the server last confirmed that the upload is complete. Raw cleanup counts from here.
-     * Null for a night that was never uploaded or whose state predates this field.
+     * Null for a recording that was never uploaded or whose state predates this field.
      */
     val uploadedAtMs: Long? = null,
     /**
-     * The user downloaded this night's raw files again, or chose to keep them. Automatic cleanup
+     * The user downloaded this recording's raw files again, or chose to keep them. Automatic cleanup
      * leaves it alone until the user deletes the raw files explicitly.
      */
     val keepRawOnPhone: Boolean = false,
@@ -76,7 +76,7 @@ data class UploadRecord(
 
 /**
  * Where sync state is kept: one `sync.json` inside each recording directory, so it lives and dies
- * with the recording. A remote-only key has no directory, so its session-only state is not written.
+ * with the recording. A remote-only key has no directory, so its recording-only state is not written.
  */
 interface UploadRecordsStorage {
   fun ids(): Set<String>
@@ -263,7 +263,7 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
     }
   }
 
-  /** The user downloaded this night's raw files again; keep them out of automatic cleanup. */
+  /** The user downloaded this recording's raw files again; keep them out of automatic cleanup. */
   fun markKeepRaw(id: String) {
     if (_records.value[id] == null) return
     update(id) { it.copy(keepRawOnPhone = true) }

@@ -8,8 +8,8 @@ fixed.
 ## One word: recording
 
 A **recording** is one run of a tracker: its metadata and its raw streams. The app, the
-backend, the worker and the docs all use this word. "Session" and "night" are not used
-for the same thing, because three names for one concept is how structure gets lost.
+backend, the worker and the docs all use this word. Neither "session" nor "night" names a
+recording, because three names for one concept is how structure gets lost.
 
 ## The three responsibilities of the app
 
@@ -100,7 +100,7 @@ Two things sit outside the table:
   types of `tracker` (the simulated sensor) and `guard` (the guidance preview picker, a
   Compose dialog), and may use those two and nothing else.
 
-Two rules inside the packages:
+Four rules inside the packages:
 
 - **One type per fact.** `recording.store.Recording` is a recording on the phone,
   `backend.RecordingDto` is the server's copy, `library.Analysis` is one analysis, and
@@ -108,6 +108,17 @@ Two rules inside the packages:
   the screens; nothing else merges them into one object.
 - **State has one owner.** Whatever stores or derives a piece of state is the only thing
   that writes it. Screens observe; they do not decide.
+- **`sync` has one entry point.** `SyncService` owns the sequences: the upload queue, the
+  retention policy, the analysis requests and the result cache are its pieces. Nothing
+  outside the package reaches them, and the sync-surface check in `ArchitectureTest` keeps
+  it that way.
+- **A screen has a state holder.** The History, Home and recording detail screens take their
+  state from a view model: it reads the library, sync and the settings, owns what the screen is
+  waiting on, and the composable draws that state and forwards the user's actions. The import
+  ratchet (`app/src/test/resources/ui-import-baseline.txt`) records how many imports every file
+  under `ui/` except the view models still takes from the packages that own state, and fails
+  when one rises and when one falls. A screen that needs a new one moves the call into its
+  state holder instead.
 
 ### Analyses and results
 
@@ -116,13 +127,15 @@ on the phone:
 
 - `sync.ResultCache` keeps the full payload of a finished analysis that was downloaded.
 - `sync.RemoteHistoryCache` keeps the server's recording list with its analysis summaries, and
-  the run each night shows. The choice of run is a property of the row, not of the analysis.
+  the run each recording shows. The choice of run is a property of the row, not of the analysis.
 
-`library` derives what a History row shows about an analysis — the score, the stage bar, the
-model, the selected run, whether the payload is cached — from those two caches alone. It keeps
-no copy of those facts. `sync.UploadRecord` is therefore only the sync state of one night: where
-its bytes are, how far they got, why an attempt failed, when the upload finished, and the
-retention flags. A score never lives in `sync.json`.
+An analysis summary has one owner: `sync.RemoteHistoryCache`, filled from the server's recording
+list and selected-run choices. `library` reads it, and derives what a History row shows about an
+analysis — the score, the stage bar, the model, the selected run, whether the payload is cached —
+from that cache and `sync.ResultCache` alone. It keeps no copy of those facts. `sync.UploadRecord`
+is therefore only the sync state of one recording: where its bytes are, how far they got, why an
+attempt failed, when the upload finished, and the retention flags. A score never lives in
+`sync.json`.
 
 ## The recording lifecycle
 
@@ -130,8 +143,9 @@ retention flags. A score never lives in `sync.json`.
 
 A tracker offers one or both **recording modes** for a given configuration:
 
-- **Stream**: data flows to the phone while recording. The phone has to stay alive all
-  night, so the preventing-shutdown flow applies. The Polar H10 streams HR, ECG and ACC.
+- **Stream**: data flows to the phone while recording. The phone has to stay alive for the
+  whole recording, so the preventing-shutdown flow applies. The Polar H10 streams HR, ECG and
+  ACC.
 - **OnDevice**: the tracker stores the data itself and the phone downloads it afterwards.
   The phone does not have to stay awake, so the user is not asked to configure anything.
   The H10 can do this only when recording just HR/RR; the Verity Sense and the Loop are
@@ -166,7 +180,7 @@ places. Each mode supplies what its transitions do; the machine owns when they h
 2. Walk the steps for that device. Each step has an explanation and a check; a check is
    automatic or needs the user's confirmation.
 3. The final screen lists every step with its check. When all pass, the device is trusted
-   not to shut the recording down during the night.
+   not to shut the recording down while it runs.
 
 ## Syncing
 
@@ -186,13 +200,16 @@ screen:
 
 Statistics come in three kinds: a single **number**, a **series** (graph) and a **score**
 (a weighted combination of percentages). Each carries what the user needs to trust it:
-what it means and where its data came from. The app renders what the analysis provides and
-hides what it does not; it does not announce what is missing. See
+what it means and where its data came from. Figures reach the app only as typed `items` in
+the analysis result: there are no parallel result keys to fall back to. The app renders what
+the analysis provides and hides what it does not; it does not announce what is missing. See
 [`vision.md`](vision.md#show-what-is-available-hide-what-is-not).
 
 ## Tests that keep this true
 
 - The architecture test (package dependencies, above).
+- The sync-surface check in the same test: nothing outside `sync` reaches past `SyncService`.
+- The UI import ratchet (`ui-import-baseline.txt`), described under the rules above.
 - The API contract test on the backend: every registered route is in the OpenAPI
   document and the other way round.
 - The integration suite, which runs the real backend binary with the real worker.

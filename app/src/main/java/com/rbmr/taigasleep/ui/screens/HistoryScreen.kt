@@ -45,13 +45,13 @@ import com.rbmr.taigasleep.ui.history.HistoryViewModel
 
 /**
  * The list shows what the user has: one line of status, one result summary, and nothing to operate.
- * Opening a night is the only action here; retry, export and delete live in the night screen.
+ * Opening a recording is the only action here; retry, export and delete live in the recording screen.
  *
  * The screen only draws the state its view model holds (see [HistoryViewModel]).
  */
 @Composable
 fun HistoryScreen(
-    onOpenNight: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
+    onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
 ) {
   val context = LocalContext.current
   val factory = remember { HistoryViewModel.Factory(context) }
@@ -64,13 +64,13 @@ fun HistoryScreen(
     onPauseOrDispose {}
   }
 
-  HistoryScreen(state = state, onOpenNight = onOpenNight)
+  HistoryScreen(state = state, onOpenRecording = onOpenRecording)
 }
 
 @Composable
 fun HistoryScreen(
     state: HistoryUiState,
-    onOpenNight: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
+    onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
 ) {
   LazyColumn(
       modifier = Modifier.fillMaxSize().statusBarsPadding(),
@@ -106,7 +106,7 @@ fun HistoryScreen(
       items(state.items, key = { it.key }) { item ->
         RecordingRow(
             item = item,
-            onOpen = { onOpenNight(item.localId, item.remoteId, item.analysisId) },
+            onOpen = { onOpenRecording(item.localId, item.remoteId, item.analysisId) },
         )
       }
     }

@@ -24,7 +24,7 @@ recording/DataQualitySection.kt 2
 recording/DetailsSheet.kt 0
 recording/HeartRateSection.kt 1
 recording/MovementSection.kt 1
-recording/NightScreen.kt 0
+recording/DetailScreen.kt 0
 recording/RecordingBody.kt 2
 recording/RecordingDetailFactory.kt 4
 recording/RecordingDetailUiState.kt 5

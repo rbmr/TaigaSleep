@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** Everything History draws: the nights that are not waiting for the server, and the last failure. */
+/** Everything History draws: the recordings that are not waiting for the server, and the last failure. */
 data class HistoryUiState(
     val items: List<RecordingView> = emptyList(),
     /**
@@ -38,16 +38,16 @@ interface HistoryWork {
   /** Every time the screen becomes visible: re-read the recordings from disk. */
   suspend fun onResume()
 
-  /** Delete one night everywhere it exists; the row leaves the list as soon as its local copy goes. */
+  /** Delete one recording everywhere it exists; the row leaves the list as soon as its local copy goes. */
   fun delete(view: RecordingView)
 }
 
 /**
- * The state holder of the History screen: it follows the library, filters the nights whose server
+ * The state holder of the History screen: it follows the library, filters the recordings whose server
  * copy is already being deleted, and runs the work the screen does when it opens or resumes.
  *
  * It owns no state that the library or the sync stores also hold. The library still writes the
- * nights and the connection state; this only mirrors them for drawing.
+ * recordings and the connection state; this only mirrors them for drawing.
  */
 class HistoryViewModel(
     private val library: LibrarySource,
@@ -59,9 +59,9 @@ class HistoryViewModel(
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
 
   val state: StateFlow<HistoryUiState> =
-      combine(library.recordings, pendingDeletes, failure) { nights, pending, error ->
+      combine(library.recordings, pendingDeletes, failure) { list, pending, error ->
             HistoryUiState(
-                items = nights.filterNot { it.localId == null && it.remoteId in pending },
+                items = list.filterNot { it.localId == null && it.remoteId in pending },
                 error = error,
             )
           }
@@ -72,13 +72,13 @@ class HistoryViewModel(
     scope.launch { library.remoteStatus.collect { library.reload() } }
   }
 
-  /** The screen was shown: reconcile the queues and the retention policy, then read the nights. */
+  /** The screen was shown: reconcile the queues and the retention policy, then read the recordings. */
   fun onOpen() {
     failure.value = null
     launch { work.onOpen() }
   }
 
-  /** The screen became visible again: the nights may have changed on disk. */
+  /** The screen became visible again: the recordings may have changed on disk. */
   fun refresh() {
     launch { work.onResume() }
   }

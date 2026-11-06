@@ -14,7 +14,7 @@ data class Streams(val ecg: Boolean = false, val acc: Boolean = false)
  * What the tracker will record and how: the configuration step of the start flow. The mode follows
  * from the tracker and the chosen streams, so both are part of the same answer.
  */
-data class NightConfig(
+data class StartConfig(
     val streams: Streams,
     /** The modes this tracker offers for these streams, in the order it reports them. */
     val modes: Set<RecordingMode>,
@@ -44,18 +44,18 @@ data class SensorPicker(
 /**
  * The start flow of docs/architecture.md as named states: connect a tracker ([NoTracker],
  * [Connecting]), configure what to record ([Configure]), the preventing-shutdown flow when the
- * mode needs it ([NeedsGuard]), start ([ReadyToStart]) and the night itself ([Recording]).
+ * mode needs it ([NeedsGuard]), start ([ReadyToStart]) and the recording itself ([Recording]).
  *
  * The states are produced by [homeState], a pure function of the tracker, the chosen configuration,
  * the readiness answer and the recording state.
  */
 sealed interface HomeUiState {
-  /** The preventing-shutdown answer the readiness card shows; null while a night is running. */
+  /** The preventing-shutdown answer the readiness card shows; null while a recording is running. */
   val guard: HomeState?
 
   val picker: SensorPicker
 
-  /** Why the last start was refused or the last session ended abnormally. */
+  /** Why the last start was refused or the last recording ended abnormally. */
   val error: String?
 
   /** No tracker has been selected yet. */
@@ -76,16 +76,16 @@ sealed interface HomeUiState {
   /** Connected: choosing what to record, which is the sheet the gear opens. */
   data class Configure(
       val tracker: TrackerView,
-      val config: NightConfig,
+      val config: StartConfig,
       override val guard: HomeState,
       override val picker: SensorPicker = SensorPicker(),
       override val error: String? = null,
   ) : HomeUiState
 
-  /** Connected, recording mode Stream, and the phone is not ready for a night yet. */
+  /** Connected, recording mode Stream, and the phone is not ready for a recording yet. */
   data class NeedsGuard(
       val tracker: TrackerView,
-      val config: NightConfig,
+      val config: StartConfig,
       override val picker: SensorPicker = SensorPicker(),
       override val error: String? = null,
   ) : HomeUiState {
@@ -93,16 +93,16 @@ sealed interface HomeUiState {
       get() = HomeState.NEEDS_SETTINGS
   }
 
-  /** Connected and ready: the night can start. */
+  /** Connected and ready: the recording can start. */
   data class ReadyToStart(
       val tracker: TrackerView,
-      val config: NightConfig,
+      val config: StartConfig,
       override val guard: HomeState,
       override val picker: SensorPicker = SensorPicker(),
       override val error: String? = null,
   ) : HomeUiState
 
-  /** A night is running, with the three ways to end it. */
+  /** A recording is running, with the three ways to end it. */
   data class Recording(
       val status: CaptureStatus,
       override val picker: SensorPicker = SensorPicker(),
@@ -113,7 +113,7 @@ sealed interface HomeUiState {
     override val error: String?
       get() = null
 
-    /** The mode the running night was started with; the service reports whether it streams. */
+    /** The mode the running recording was started with; the service reports whether it streams. */
     val mode: RecordingMode
       get() = if (status.liveStreaming) RecordingMode.STREAM else RecordingMode.ON_DEVICE
 
@@ -130,7 +130,7 @@ sealed interface HomeUiState {
 internal fun homeState(
     status: CaptureStatus,
     tracker: TrackerView?,
-    config: NightConfig?,
+    config: StartConfig?,
     guard: HomeState,
     configuring: Boolean,
     picker: SensorPicker,

@@ -30,11 +30,11 @@ import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaCard
 
 /**
- * The scrolling body of the night screen: the header, what the screen has to report, and the parts
- * that belong to the night's state. Nothing here decides anything.
+ * The scrolling body of the recording screen: the header, what the screen has to report, and the parts
+ * that belong to the recording's state. Nothing here decides anything.
  */
 @Composable
-internal fun NightBody(
+internal fun RecordingBody(
     state: RecordingDetailUiState,
     padding: PaddingValues,
     onUpload: () -> Unit,
@@ -140,7 +140,7 @@ internal fun NightBody(
 
     when {
       processed && analysis != null ->
-          processedNight(
+          processedRecording(
               state = state,
               run = run,
               analysis = analysis,
@@ -161,8 +161,8 @@ internal fun NightBody(
   }
 }
 
-/** The cards of a night whose result is here and can be shown. */
-private fun LazyListScope.processedNight(
+/** The cards of a recording whose result is here and can be shown. */
+private fun LazyListScope.processedRecording(
     state: RecordingDetailUiState,
     run: AnalysisDto,
     analysis: AnalysisResultDto,

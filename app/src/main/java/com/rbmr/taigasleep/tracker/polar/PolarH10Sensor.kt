@@ -490,7 +490,7 @@ class PolarH10Sensor(
   }
 
   /**
-   * Restarts a stream that never produced a sample; a silent start failure loses the night. The
+   * Restarts a stream that never produced a sample; a silent start failure loses the recording. The
    * check belongs to one stream start: cancel the previous one so a timer left over from before a
    * disconnect cannot fire after the reconnect and restart streams that just started.
    */

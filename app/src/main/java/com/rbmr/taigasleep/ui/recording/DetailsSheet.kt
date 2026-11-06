@@ -30,7 +30,7 @@ import com.rbmr.taigasleep.ui.components.DestructiveButton
 import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.theme.taiga
 
-/** Everything about the night that is not a result: where its bytes are and what can be done. */
+/** Everything about the recording that is not a result: where its bytes are and what can be done. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RecordingDetailsSheet(

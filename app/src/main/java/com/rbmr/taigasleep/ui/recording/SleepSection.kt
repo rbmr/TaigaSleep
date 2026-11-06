@@ -18,7 +18,7 @@ import com.rbmr.taigasleep.ui.components.SleepStagesChart
 import com.rbmr.taigasleep.ui.components.StageBreakdown
 import com.rbmr.taigasleep.ui.components.TaigaCard
 
-/** The stages of the night, the time spent in each and the sleep numbers. */
+/** The stages of the recording, the time spent in each and the sleep numbers. */
 @Composable
 internal fun SleepStatsCard(
     state: RecordingDetailUiState,

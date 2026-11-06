@@ -42,7 +42,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Foreground service that records one session. It survives the screen being off (partial wake
+ * Foreground service that runs one recording. It survives the screen being off (partial wake
  * lock, `connectedDevice` type), restarts after an OS kill (START_STICKY, null intent) and is
  * watched by an exact-alarm [WatchdogReceiver].
  *
@@ -188,7 +188,7 @@ class RecordingService : Service() {
         try {
           RecordingWriter.create(store.root, meta, SystemClockSource)
         } catch (e: Exception) {
-          Log.e(TAG, "cannot create session", e)
+          Log.e(TAG, "cannot create recording", e)
           leave(getString(R.string.rec_error_storage))
           return
         }
@@ -196,7 +196,7 @@ class RecordingService : Service() {
     attach(writer, sensor, mode)
   }
 
-  /** Picks up the session recorded before this process or service instance died. */
+  /** Picks up the recording that was running before this process or service instance died. */
   private suspend fun resume() {
     if (live != null) return
     val id = prefs.activeSessionId
@@ -210,7 +210,7 @@ class RecordingService : Service() {
       leave(null)
       return
     }
-    val writer = RecordingWriter.resume(dir, SystemClockSource, "service resumed session") ?: run {
+    val writer = RecordingWriter.resume(dir, SystemClockSource, "service resumed recording") ?: run {
       leave(null)
       return
     }
@@ -567,7 +567,7 @@ class RecordingService : Service() {
     private const val EXTRA_ACC = "acc"
     private const val EXTRA_MODE = "mode"
 
-    /** True while this process has a session being recorded. */
+    /** True while this process has a live recording. */
     @Volatile
     var running = false
       private set

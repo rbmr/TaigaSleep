@@ -14,7 +14,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * A local copy of a finished analysis. The backend remains authoritative, but History and the
- * night detail keep working when the server is temporarily unreachable or the app is offline.
+ * recording detail keep working when the server is temporarily unreachable or the app is offline.
  */
 class ResultCache(private val root: File) {
   private val json =
@@ -31,7 +31,7 @@ class ResultCache(private val root: File) {
   fun save(key: String, analysis: AnalysisDto): Boolean =
       saveFile(key, analysis)
 
-  /** Saves one run's payload without replacing another run of the same night. */
+  /** Saves one run's payload without replacing another run of the same recording. */
   fun save(key: String, analysisId: String?, analysis: AnalysisDto): Boolean =
       saveFile(composite(key, analysisId), analysis)
 
@@ -39,7 +39,7 @@ class ResultCache(private val root: File) {
 
   /**
    * Loads the cached payload of one run. A cache written before results were keyed per analysis
-   * falls back to the night's single file, but only when it belongs to the requested run.
+   * falls back to the recording's single file, but only when it belongs to the requested run.
    */
   fun load(key: String, analysisId: String?): AnalysisDto? {
     if (analysisId.isNullOrBlank()) return load(key)
@@ -56,7 +56,7 @@ class ResultCache(private val root: File) {
 
   /**
    * Every run whose full payload is on this phone for [key], one per cached file. A cache written
-   * before results were keyed per analysis kept one payload per night without the run in its name;
+   * before results were keyed per analysis kept one payload per recording without the run in its name;
    * that one is included too, so a History row can still be drawn from it.
    */
   fun cached(key: String): List<AnalysisDto> {

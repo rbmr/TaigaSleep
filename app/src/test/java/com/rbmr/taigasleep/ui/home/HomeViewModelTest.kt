@@ -67,7 +67,7 @@ private class FakeWork : HomeWork {
   }
 
   override fun savedConfig(sensor: SleepSensor) =
-      NightConfig(streams, modes, mode, canEcg, canAcc)
+      StartConfig(streams, modes, mode, canEcg, canAcc)
 
   override fun setEcg(sensorId: String, on: Boolean) {
     calls += "ecg:$on"
@@ -86,7 +86,7 @@ private class FakeWork : HomeWork {
 
   override fun guard(mode: RecordingMode): HomeState = guard
 
-  override fun start(config: NightConfig) {
+  override fun start(config: StartConfig) {
     calls += "start:${config.mode}:${config.streams.ecg}:${config.streams.acc}"
   }
 
@@ -123,7 +123,7 @@ private fun config(
     mode: RecordingMode = RecordingMode.STREAM,
     ecg: Boolean = true,
     modes: Set<RecordingMode> = setOf(RecordingMode.STREAM),
-) = NightConfig(Streams(ecg = ecg, acc = false), modes, mode, canRecordEcg = true, canRecordAcc = false)
+) = StartConfig(Streams(ecg = ecg, acc = false), modes, mode, canRecordEcg = true, canRecordAcc = false)
 
 private val tracker = TrackerView("Polar H10", ConnectionState.CONNECTED, 80)
 private val disconnected = TrackerView("Polar H10", ConnectionState.CONNECTING, 80)

@@ -50,7 +50,7 @@ class AppContainer(private val application: Application) {
   val resultCache: ResultCache by lazy { ResultCache(File(application.filesDir, "analysis")) }
 
   val remoteHistoryCache: RemoteHistoryCache by lazy {
-    // The list of an older app holds session summaries this version cannot read.
+    // The list of an older app holds recording summaries this version cannot read.
     File(application.filesDir, "history/remote-sessions.json").delete()
     RemoteHistoryCache(File(application.filesDir, "history/remote-recordings.json"))
   }

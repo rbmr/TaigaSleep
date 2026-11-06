@@ -55,7 +55,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
             sensors.restoreLast(app, canConnect)
           }
 
-          override fun savedConfig(sensor: SleepSensor): NightConfig = configOf(sensor, prefs)
+          override fun savedConfig(sensor: SleepSensor): StartConfig = configOf(sensor, prefs)
 
           override fun setEcg(sensorId: String, on: Boolean) {
             prefs.setEcgEnabled(sensorId, on)
@@ -72,7 +72,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
           override fun guard(mode: RecordingMode): HomeState =
               ReadinessState.state(app, guidance, GuidanceFlows.previewOf(guidance), mode)
 
-          override fun start(config: NightConfig) {
+          override fun start(config: StartConfig) {
             val sensor = sensors.sensor.value ?: return
             RecordingRepository.setIdle()
             val streams = StreamConfig(ecg = config.streams.ecg, acc = config.streams.acc)
@@ -112,7 +112,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
   }
 
   /** The configuration step: the remembered streams, the modes they allow and the chosen mode. */
-  private fun configOf(sensor: SleepSensor, prefs: RecordingPrefs): NightConfig {
+  private fun configOf(sensor: SleepSensor, prefs: RecordingPrefs): StartConfig {
     val streams =
         Streams(
             ecg = sensor.capabilities.ecg && prefs.ecgEnabled(sensor.id),
@@ -126,7 +126,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
           RecordingMode.STREAM in modes -> RecordingMode.STREAM
           else -> modes.firstOrNull() ?: RecordingMode.STREAM
         }
-    return NightConfig(
+    return StartConfig(
         streams = streams,
         modes = modes,
         mode = mode,

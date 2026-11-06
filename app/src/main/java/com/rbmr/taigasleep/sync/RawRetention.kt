@@ -63,17 +63,17 @@ internal object RawRetention {
         val mode = UploadSettings.get(context).rawRetention.value
         if (mode == RawRetentionMode.NEVER) return@withContext
         val store = context.appContainer.uploadStore
-        val sessions = context.appContainer.recordingStore
+        val recordings = context.appContainer.recordingStore
         var changed = false
-        for (session in sessions.list()) {
-          if (session.state == RecordingPhase.RECORDING) continue
-          val record = store.record(session.id) ?: continue
+        for (recording in recordings.list()) {
+          if (recording.state == RecordingPhase.RECORDING) continue
+          val record = store.record(recording.id) ?: continue
           if (record.keepRawOnPhone) continue
           val confirmedAt = record.uploadConfirmedAt() ?: continue
           if (!isRawCleanupDue(mode, confirmedAt, nowMs)) continue
           val trimmed =
               runCatching {
-                    trim(session.dir, sessions.lastFrameMs(session.dir))
+                    trim(recording.dir, recordings.lastFrameMs(recording.dir))
                     true
                   }
                   .getOrDefault(false)
@@ -84,20 +84,20 @@ internal object RawRetention {
 
   /**
    * The explicit exception: remove the raw files of one uploaded recording right now. Metadata,
-   * analysis and the server copy stay, so the night remains in History and the raw files can be
+   * analysis and the server copy stay, so the recording remains in History and the raw files can be
    * downloaded again.
    */
   suspend fun deleteRaw(context: Context, localId: String): RawActionResult =
       withContext(Dispatchers.IO) {
-        val sessions = context.appContainer.recordingStore
-        val dir = sessions.dir(localId)
+        val recordings = context.appContainer.recordingStore
+        val dir = recordings.dir(localId)
         val meta = RecordingMeta.read(dir) ?: return@withContext RawActionResult.NothingToDelete
         if (meta.state == RecordingPhase.RECORDING) return@withContext RawActionResult.Recording
         val record = context.appContainer.uploadStore.record(localId)
         if (record?.uploadConfirmedAt() == null) return@withContext RawActionResult.NotUploaded
         if (!hasStreams(dir)) return@withContext RawActionResult.NothingToDelete
         try {
-          trim(dir, sessions.lastFrameMs(dir))
+          trim(dir, recordings.lastFrameMs(dir))
           RecordingRepository.refreshRecordings(context)
           RawActionResult.Done
         } catch (e: IOException) {
@@ -108,7 +108,7 @@ internal object RawRetention {
   /**
    * The other explicit exception: download the raw files of one uploaded recording again. The
    * server inflates its compressed copy, so the files written here are the original streams.
-   * A restored night is protected from automatic cleanup until the user deletes it explicitly.
+   * A restored recording is protected from automatic cleanup until the user deletes it explicitly.
    */
   suspend fun restore(
       context: Context,
@@ -117,8 +117,8 @@ internal object RawRetention {
       onProgress: (Float) -> Unit = {},
   ): Result<Unit> =
       withContext(Dispatchers.IO) {
-        val sessions = context.appContainer.recordingStore
-        val dir = sessions.dir(localId)
+        val recordings = context.appContainer.recordingStore
+        val dir = recordings.dir(localId)
         val meta = RecordingMeta.read(dir)
         if (meta == null) {
           return@withContext Result.failure(
@@ -194,7 +194,7 @@ internal object RawRetention {
 
   /**
    * Deletes the raw streams after making sure the end time is in meta.json, because the last HR
-   * frame is where an unfinished night used to get its end time from.
+   * frame is where an unfinished recording used to get its end time from.
    */
   private fun trim(dir: File, lastFrameMs: Long?) {
     val meta = RecordingMeta.read(dir)

@@ -8,9 +8,9 @@ import com.rbmr.taigasleep.tracker.SensorKind
 /** The sensor the user picked last, so it can be reconnected without scanning again. */
 data class SavedSensor(val kind: SensorKind, val id: String, val name: String)
 
-/** Small persisted state of the recorder: tracking config, last sensor and the live-session marker. */
+/** Small persisted state of the recorder: tracking config, last sensor and the live-recording marker. */
 class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
-  /** Set while a session is being recorded; the watchdog and service restarts key off it. */
+  /** Set while a recording is live; the watchdog and service restarts key off it. */
   var activeSessionId: String?
     get() = prefs.getString(KEY_ACTIVE, null)
     set(value) = prefs.edit().apply { if (value == null) remove(KEY_ACTIVE) else putString(KEY_ACTIVE, value) }.apply()

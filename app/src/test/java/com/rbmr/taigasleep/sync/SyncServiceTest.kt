@@ -74,7 +74,7 @@ class SyncServiceTest {
 
     SyncService(environment).delete("r1", "r1")
 
-    assertEquals(listOf("cancelUploads r1", "deleteNight r1 r1"), environment.calls)
+    assertEquals(listOf("cancelUploads r1", "deleteRecording r1 r1"), environment.calls)
   }
 
   @Test
@@ -83,7 +83,7 @@ class SyncServiceTest {
 
     SyncService(environment).delete(null, "server-1")
 
-    assertEquals(listOf("deleteNight null server-1"), environment.calls)
+    assertEquals(listOf("deleteRecording null server-1"), environment.calls)
   }
 
   @Test
@@ -92,7 +92,7 @@ class SyncServiceTest {
 
     SyncService(environment).delete(null, null)
 
-    assertEquals(listOf("deleteNight null null"), environment.calls)
+    assertEquals(listOf("deleteRecording null null"), environment.calls)
   }
 
   @Test
@@ -282,8 +282,8 @@ class SyncServiceTest {
       calls += "cancelLegacyPolls"
     }
 
-    override fun deleteNight(localId: String?, remoteId: String?) {
-      calls += "deleteNight $localId $remoteId"
+    override fun deleteRecording(localId: String?, remoteId: String?) {
+      calls += "deleteRecording $localId $remoteId"
     }
 
     override suspend fun enforceRawRetention() {

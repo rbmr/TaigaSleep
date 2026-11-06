@@ -86,18 +86,18 @@ internal object UploadScheduler {
     val manager = WorkManager.getInstance(context)
     val store = context.appContainer.uploadStore
     val settings = UploadSettings.get(context).autoUpload.value
-    local.forEach { session ->
-      manager.cancelUniqueWork("upload-${session.id}")
-      if (store.record(session.id)?.phase == UploadPhase.UPLOADING) {
-        store.markQueued(session.id)
+    local.forEach { recording ->
+      manager.cancelUniqueWork("upload-${recording.id}")
+      if (store.record(recording.id)?.phase == UploadPhase.UPLOADING) {
+        store.markQueued(recording.id)
       }
     }
     if (!context.appContainer.remoteRepository.hasSession) return
-    local.forEach { session ->
-      if (session.state == RecordingPhase.RECORDING) return@forEach
-      // A night that is processing is on the server already; its result comes from the live stream.
-      if (store.record(session.id)?.phase == UploadPhase.PROCESSING) return@forEach
-      if (settings.enabled) enqueueAuto(context, session.id)
+    local.forEach { recording ->
+      if (recording.state == RecordingPhase.RECORDING) return@forEach
+      // A recording that is processing is on the server already; its result comes from the live stream.
+      if (store.record(recording.id)?.phase == UploadPhase.PROCESSING) return@forEach
+      if (settings.enabled) enqueueAuto(context, recording.id)
     }
   }
 
@@ -110,14 +110,14 @@ internal object UploadScheduler {
         if (!context.appContainer.remoteRepository.hasSession) return@withContext
         val settings = UploadSettings.get(context).autoUpload.value
         val store = context.appContainer.uploadStore
-        for (session in context.appContainer.recordingStore.list()) {
-          if (session.state == RecordingPhase.RECORDING &&
+        for (recording in context.appContainer.recordingStore.list()) {
+          if (recording.state == RecordingPhase.RECORDING &&
               RecordingService.running) {
             continue
           }
-          val record = store.record(session.id)
+          val record = store.record(recording.id)
           when (record?.phase) {
-            // Results are not polled: a processing night is refreshed by the live sync.
+            // Results are not polled: a processing recording is refreshed by the live sync.
             UploadPhase.DONE,
             UploadPhase.FAILED,
             UploadPhase.PROCESSING -> Unit
@@ -126,9 +126,9 @@ internal object UploadScheduler {
             UploadPhase.UPLOADING,
             null ->
                 if (settings.enabled) {
-                  enqueueAuto(context, session.id)
+                  enqueueAuto(context, recording.id)
                 } else if (record?.phase == UploadPhase.UPLOADING) {
-                  store.markQueued(session.id)
+                  store.markQueued(recording.id)
                 }
           }
         }

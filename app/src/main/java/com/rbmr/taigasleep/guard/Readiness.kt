@@ -7,7 +7,7 @@ import android.os.PowerManager
 import com.rbmr.taigasleep.tracker.RecordingMode
 
 /**
- * The phone settings that decide whether a night survives. Read once per answer, never decided
+ * The phone settings that decide whether a recording survives. Read once per answer, never decided
  * here: the flow's required steps own the decision, so this only reports what the system says.
  */
 data class Readiness(
@@ -62,7 +62,7 @@ data class Readiness(
 enum class HomeState {
   READY,
   NEEDS_SETTINGS,
-  /** The chosen mode stores the night on the tracker, so the phone may sleep. */
+  /** The chosen mode stores the recording on the tracker, so the phone may sleep. */
   NOT_NEEDED,
 }
 

@@ -16,8 +16,8 @@ enum class ExportPhase {
   ZIPPING,
 }
 
-/** The messages the night screen shows. They come from resources, so the view model has no context. */
-data class NightTexts(
+/** The messages the recording screen shows. They come from resources, so the view model has no context. */
+data class RecordingTexts(
     val loadFailed: String,
     val loginError: String,
     val rawRestoreFailed: String,
@@ -26,11 +26,11 @@ data class NightTexts(
 )
 
 /**
- * Everything the night screen draws, for one night. The night itself and its analyses come from the
+ * Everything the recording screen draws, for one recording. The recording itself and its analyses come from the
  * library; the rest is what the screen has asked for or is waiting on.
  */
 data class RecordingDetailUiState(
-    val night: RecordingView? = null,
+    val recording: RecordingView? = null,
     val result: AnalysisDto? = null,
     val loading: Boolean = true,
     val offlineSaved: Boolean = false,
@@ -55,64 +55,64 @@ data class RecordingDetailUiState(
     val loginError: String = "",
 ) {
   val status: RecordingStatus
-    get() = night?.status ?: RecordingStatus.LOCAL_ONLY
+    get() = recording?.status ?: RecordingStatus.LOCAL_ONLY
 
   /** The failure the status line reports, with a rejected login taking over the stored one. */
   val failure: UploadFailure?
-    get() = if (loginExpired) UploadFailure.LOGIN else night?.failure
+    get() = if (loginExpired) UploadFailure.LOGIN else recording?.failure
 
   val errorDetail: String?
-    get() = if (loginExpired) loginError else night?.errorDetail
+    get() = if (loginExpired) loginError else recording?.errorDetail
 
   val local: Recording?
-    get() = night?.local
+    get() = recording?.local
 
   val remoteId: String?
-    get() = night?.remoteId
+    get() = recording?.remoteId
 
   val selectedAnalysisId: String?
-    get() = night?.analysisId
+    get() = recording?.analysisId
 
   val analyses: List<Analysis>
-    get() = night?.analyses.orEmpty()
+    get() = recording?.analyses.orEmpty()
 
   val startUtcMs: Long
-    get() = night?.startUtcMs ?: 0
+    get() = recording?.startUtcMs ?: 0
 
   val endUtcMs: Long?
-    get() = night?.endUtcMs
+    get() = recording?.endUtcMs
 
   val durationMs: Long
-    get() = night?.durationMs ?: 0
+    get() = recording?.durationMs ?: 0
 
   val progress: Float
-    get() = night?.progress ?: 0f
+    get() = recording?.progress ?: 0f
 
   /** The device the screen is titled with: the phone's name wins over the server's. */
   val device: String
-    get() = night?.local?.sensorName ?: night?.remote?.device.orEmpty()
+    get() = recording?.local?.sensorName ?: recording?.remote?.device.orEmpty()
 
   /** The device the details sheet lists, where a blank name falls through to the other copy. */
   val detailsDevice: String
     get() =
-        night?.local?.sensorName?.takeIf { it.isNotBlank() }
-            ?: night?.remote?.device?.takeIf { it.isNotBlank() }
+        recording?.local?.sensorName?.takeIf { it.isNotBlank() }
+            ?: recording?.remote?.device?.takeIf { it.isNotBlank() }
             ?: ""
 
   /** When the server's copy was created, for the details sheet. */
   val remoteCreatedAtMs: Long?
     get() =
-        parseApiDate(night?.remote?.created.orEmpty()).takeIf { it > 0 }
-            ?: night?.backup?.uploadedAtMs
+        parseApiDate(recording?.remote?.created.orEmpty()).takeIf { it > 0 }
+            ?: recording?.backup?.uploadedAtMs
 
   /** The stage timeline of the shown result, which is what the charts draw. */
   val segments: List<StageSegmentDto>
-    get() = result?.result?.stages?.segments ?: night?.segments.orEmpty()
+    get() = result?.result?.stages?.segments ?: recording?.segments.orEmpty()
 
   val epochSeconds: Int
-    get() = result?.result?.stages?.epoch_seconds ?: night?.epochSeconds ?: 30
+    get() = result?.result?.stages?.epoch_seconds ?: recording?.epochSeconds ?: 30
 
-  /** The start of the drawn night, from the recording or from the result's timeline. */
+  /** The start of the drawn recording, from the recording or from the result's timeline. */
   val start: Long
     get() = startUtcMs.takeIf { it > 0 } ?: result?.result?.stages?.start_unix_ms ?: 0L
 
