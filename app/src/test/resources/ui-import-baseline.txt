@@ -2,7 +2,7 @@
 # guard. Every file except a `*ViewModel.kt` is listed, including the ones with none: the ratchet
 # fails when a count rises and when it falls, so the line changes with the code. Paths are relative
 # to `app/src/main/java/com/rbmr/taigasleep/ui/`. See ArchitectureTest.
-TaigaApp.kt 6
+TaigaApp.kt 4
 components/Buttons.kt 0
 components/Components.kt 0
 components/PreviewTheme.kt 0
@@ -26,7 +26,7 @@ recording/HeartRateSection.kt 1
 recording/MovementSection.kt 1
 recording/NightScreen.kt 0
 recording/RecordingBody.kt 2
-recording/RecordingDetailFactory.kt 5
+recording/RecordingDetailFactory.kt 4
 recording/RecordingDetailUiState.kt 5
 recording/RecordingOverlays.kt 0
 recording/ScoreCard.kt 2
@@ -37,7 +37,7 @@ screens/AboutScreen.kt 0
 screens/FlowScreen.kt 11
 screens/HistoryScreen.kt 1
 screens/RemoteScreen.kt 7
-screens/SettingsScreen.kt 6
+screens/SettingsScreen.kt 4
 theme/Color.kt 0
 theme/Theme.kt 0
 theme/ThemeMode.kt 0

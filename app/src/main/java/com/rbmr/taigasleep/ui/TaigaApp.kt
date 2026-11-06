@@ -32,11 +32,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.RemoteError
-import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.guard.GuidanceFlows
 import com.rbmr.taigasleep.guard.GuidanceStore
-import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.ui.components.BottomBarItem
 import com.rbmr.taigasleep.ui.components.TaigaBottomBar
 import com.rbmr.taigasleep.ui.home.HomeScreen

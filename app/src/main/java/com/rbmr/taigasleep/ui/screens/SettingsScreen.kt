@@ -39,14 +39,11 @@ import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AlgorithmDto
-import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.RemoteStatus
-import com.rbmr.taigasleep.insights.AnalysisSettingsStore
 import com.rbmr.taigasleep.insights.compareVersions
 import com.rbmr.taigasleep.insights.effectiveOrder
 import com.rbmr.taigasleep.insights.movePreference
 import com.rbmr.taigasleep.sync.RawRetentionMode
-import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.sync.UploadSettings
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SettingsCheckboxRow

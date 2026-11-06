@@ -205,6 +205,88 @@ class ArchitectureTest {
     assertEquals(1, Architecture.violations("A.kt", "package org.example").size)
   }
 
+  @Test
+  fun `of lookups stay in the wiring and the worker entry points`() {
+    val violations = OfCalls.violations(appSources().toMap())
+
+    assertTrue(
+        "Only the app wiring and the WorkManager workers may call `.of(...)` " +
+            "(${violations.size}):\n" + violations.joinToString("\n") { "  $it" },
+        violations.isEmpty(),
+    )
+  }
+
+  @Test
+  fun `the of checker reports a lookup outside the wiring and accepts the worker entry points`() {
+    val sources =
+        mapOf(
+            "src/main/java/com/rbmr/taigasleep/recording/store/RecordingStore.kt" to
+                """
+                package com.rbmr.taigasleep.recording.store
+
+                class RecordingStore {
+                  companion object {
+                    fun of(context: android.content.Context) = 1
+                  }
+                }
+                """
+                    .trimIndent(),
+            "src/main/java/com/rbmr/taigasleep/ui/A.kt" to
+                """
+                package com.rbmr.taigasleep.ui
+
+                class A {
+                  fun f() = RecordingStore.of(context)
+                }
+                """
+                    .trimIndent(),
+            "src/main/java/com/rbmr/taigasleep/sync/UploadWorker.kt" to
+                """
+                package com.rbmr.taigasleep.sync
+
+                class UploadWorker {
+                  fun f() = RecordingStore.of(context)
+                }
+                """
+                    .trimIndent(),
+            "src/main/java/com/rbmr/taigasleep/sync/OtherWorker.kt" to
+                """
+                package com.rbmr.taigasleep.sync
+
+                class OtherWorker {
+                  fun f() = RecordingStore.of(context)
+                }
+                """
+                    .trimIndent(),
+            "src/main/java/com/rbmr/taigasleep/TaigaApplication.kt" to
+                """
+                package com.rbmr.taigasleep
+
+                class Wiring {
+                  fun f() = RecordingStore.of(context)
+                }
+                """
+                    .trimIndent(),
+            "src/main/java/com/rbmr/taigasleep/diagnostics/DeviceState.kt" to
+                """
+                package com.rbmr.taigasleep.diagnostics
+
+                fun f(context: android.content.Context) =
+                    context.packageManager.getPackageInfo(
+                        context.packageName,
+                        android.content.pm.PackageManager.PackageInfoFlags.of(0),
+                    )
+                """
+                    .trimIndent(),
+        )
+
+    val violations = OfCalls.violations(sources)
+
+    assertEquals(2, violations.size)
+    assertTrue(violations.any { "ui/A.kt" in it })
+    assertTrue(violations.any { "sync/OtherWorker.kt" in it })
+  }
+
   /**
    * The screens draw. Only a `ViewModel` may reach into the stores, so every other file under `ui/`
    * keeps exactly the number of imports from the packages that hold state that it has in the
@@ -270,7 +352,6 @@ class ArchitectureTest {
                     """
                     package com.rbmr.taigasleep.library
 
-                    import com.rbmr.taigasleep.sync.SyncService
                     import com.rbmr.taigasleep.sync.UploadScheduler
                     import com.rbmr.taigasleep.sync.UploadPhase
                     """
@@ -295,9 +376,7 @@ class ArchitectureTest {
     assertEquals(
         listOf(
             "library/A.kt -> UploadScheduler: nothing outside `sync` may use it; add it to " +
-                "SyncSurface.ALLOWED on purpose",
-            "TaigaApplication.kt -> UploadCoordinator: nothing outside `sync` may use it; add it " +
-                "to SyncSurface.ALLOWED on purpose",
+                "SyncSurface.ALLOWED on purpose"
         ),
         violations,
     )
@@ -452,6 +531,63 @@ private object Architecture {
 }
 
 /**
+ * The `.of(context)` lookups that are still allowed: the app wiring in the root package, and the
+ * WorkManager workers, which Android constructs without arguments so they read the container
+ * through the collaborators' entry points. Every other file uses the container.
+ */
+private object OfCalls {
+  private const val ROOT = "com.rbmr.taigasleep"
+
+  /** One worker entry point, with the reason it cannot take its collaborators as arguments. */
+  data class Allowed(val file: String, val why: String)
+
+  val ALLOWED =
+      listOf(
+          Allowed(
+              "src/main/java/com/rbmr/taigasleep/sync/UploadWorker.kt",
+              "WorkManager constructs the worker, so it reads the container",
+          ),
+          Allowed(
+              "src/main/java/com/rbmr/taigasleep/sync/DeleteWorker.kt",
+              "WorkManager constructs the worker, so it reads the container",
+          ),
+      )
+
+  private val PACKAGE = Regex("""^\s*package\s+([\w.]+)""", RegexOption.MULTILINE)
+  private val DECLARED = Regex("""\b(?:class|object|interface)\s+([A-Z]\w*)""")
+  private val CALL = Regex("""\b([A-Z]\w*)\.of\s*\(""")
+
+  /** One line per lookup of an app class by `.of(...)` in a file that may not make one. */
+  fun violations(sources: Map<String, String>): List<String> {
+    val appTypes =
+        sources.values.flatMap { source ->
+          DECLARED.findAll(source).map { it.groupValues[1] }.toList()
+        }
+    val allowedFiles = ALLOWED.map { it.file }.toSet()
+    return sources
+        .flatMap { (path, source) ->
+          if (path in allowedFiles || isRoot(source)) emptyList()
+          else
+              CALL.findAll(source)
+                  .mapNotNull { match ->
+                    val type = match.groupValues[1]
+                    if (type !in appTypes) {
+                      null
+                    } else {
+                      "$path -> $type.of(...): use the app container; only the wiring and the " +
+                          "WorkManager workers may look a collaborator up"
+                    }
+                  }
+                  .toList()
+        }
+        .distinct()
+  }
+
+  private fun isRoot(source: String): Boolean =
+      PACKAGE.find(source)?.groupValues?.get(1) == ROOT
+}
+
+/**
  * Counts what a screen file imports from the packages that own state. The number, not the names, is
  * what the baseline holds: a screen either keeps its dependencies or its view model takes one over.
  */
@@ -514,22 +650,21 @@ private object UiImports {
  * library, the application and the workers (`UploadScheduler`, `UploadCoordinator`,
  * `AnalysisService`, `RecordingDeleter`, `RawRetention`, `UploadNotifications`) are not here:
  * `SyncService` is the only way to reach them, so a call site that needs one is a call site that
- * goes through the service.
+ * goes through the service. The root package is the wiring that builds the package, so it is not
+ * held to this surface.
  */
 private object SyncSurface {
+  private const val ROOT = "com.rbmr.taigasleep"
   private const val PACKAGE_NAME = "com.rbmr.taigasleep.sync"
 
   /** Every name the rest of the app may import from `sync`. Adding one is a decision. */
   val ALLOWED =
       setOf(
-          // The entry point: the whole outside surface of the package.
-          "SyncService",
           // What a screen shows about a night that is moving, and why it failed.
           "UploadPhase",
           "UploadFailure",
           // The settings the screens read and write.
           "UploadSettings",
-          "AutoUploadSettings",
           "RawRetentionMode",
           // The data a screen or the library carries: one night's sync state, what an explicit raw
           // action did, one queued server delete, one read of a night and its analyses.
@@ -537,16 +672,9 @@ private object SyncSurface {
           "RawActionResult",
           "PendingDelete",
           "RecordingSnapshot",
-          // Where that state is kept, and the live stream the library drives.
+          // Where the result payload is kept, and the live stream the library drives.
           "ResultCache",
-          "RemoteHistoryCache",
-          "PendingDeleteStore",
-          "LiveSync",
           "LiveSyncTarget",
-          // What the app wiring builds the shared stores from.
-          "UploadStore",
-          "RecordingDirectoryStorage",
-          "AppSyncEnvironment",
           // A night's key, which installed algorithm a recording can feed, and the server's list
           // without the recordings the app deleted.
           "remoteKey",
@@ -570,7 +698,9 @@ private object SyncSurface {
 
   private fun inside(source: String): Boolean {
     val declared = PACKAGE.find(source)?.groupValues?.get(1) ?: return false
-    return declared == PACKAGE_NAME || declared.startsWith("$PACKAGE_NAME.")
+    return declared == ROOT ||
+        declared == PACKAGE_NAME ||
+        declared.startsWith("$PACKAGE_NAME.")
   }
 
   /** The sync names [source] imports or spells out in full. */

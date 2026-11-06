@@ -5,12 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.library.LibrarySource
-import com.rbmr.taigasleep.library.RecordingLibrary
 import com.rbmr.taigasleep.library.RecordingView
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.sync.PendingDelete
-import com.rbmr.taigasleep.sync.PendingDeleteStore
-import com.rbmr.taigasleep.sync.SyncService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

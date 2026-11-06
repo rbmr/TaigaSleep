@@ -6,7 +6,6 @@ import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingSummaryDto
 import com.rbmr.taigasleep.backend.RecordingSummaryListDto
-import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.recordingSummaries
@@ -14,13 +13,8 @@ import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
-import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.LiveSyncTarget
-import com.rbmr.taigasleep.sync.PendingDeleteStore
 import com.rbmr.taigasleep.sync.RecordingSnapshot
-import com.rbmr.taigasleep.sync.RemoteHistoryCache
-import com.rbmr.taigasleep.sync.ResultCache
-import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.compatible
 import com.rbmr.taigasleep.sync.remoteKey
@@ -375,8 +369,6 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
 
   companion object {
     private val HR_ONLY = RecordingConfig(hr = true, ecg = false, acc = false)
-
-    fun of(context: Context): RecordingLibrary = context.appContainer.recordingLibrary
   }
 }
 
