@@ -45,7 +45,7 @@ import kotlinx.coroutines.withContext
  * The raw bytes and the analyses stay independent: [RecordingView.backup] says where the bytes are and
  * [RecordingView.analyses] lists every requested result. [RecordingView.status] is only a derived display summary.
  */
-class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, NightSource {
+class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, NightSource {
   private val context = context.applicationContext
   private val remote = context.appContainer.remoteRepository
   private val history = context.appContainer.remoteHistoryCache
@@ -376,13 +376,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
   companion object {
     private val HR_ONLY = RecordingConfig(hr = true, ecg = false, acc = false)
 
-    @Volatile private var instance: RecordingLibrary? = null
-
-    fun of(context: Context): RecordingLibrary =
-        instance
-            ?: synchronized(this) {
-              instance ?: RecordingLibrary(context).also { instance = it }
-            }
+    fun of(context: Context): RecordingLibrary = context.appContainer.recordingLibrary
   }
 }
 

@@ -13,7 +13,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.rbmr.taigasleep.library.LibraryLiveSync
 import com.rbmr.taigasleep.ui.TaigaApp
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 import com.rbmr.taigasleep.ui.theme.ThemeMode
@@ -28,7 +27,7 @@ class MainActivity : ComponentActivity() {
     // Results arrive live while the app is on screen: the event stream is open exactly while the
     // activity is started, and is closed when it is not. Nothing is kept running in the background.
     lifecycleScope.launch {
-      repeatOnLifecycle(Lifecycle.State.STARTED) { LibraryLiveSync.of(applicationContext).run() }
+      repeatOnLifecycle(Lifecycle.State.STARTED) { appContainer.liveSync.run() }
     }
     setContent {
       val themeMode by settings.themeMode.collectAsStateWithLifecycle()

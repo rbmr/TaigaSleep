@@ -92,7 +92,7 @@ class RecordingDetailFactory(
         localId = localId,
         remoteId = remoteId,
         analysisId = analysisId,
-        library = RecordingLibrary.of(app),
+        library = app.appContainer.recordingLibrary,
         work = work,
         texts =
             NightTexts(

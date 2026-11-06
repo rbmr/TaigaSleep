@@ -116,7 +116,7 @@ class HistoryViewModel(
   class Factory(private val context: Context) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-      val library = RecordingLibrary.of(context)
+      val library = context.appContainer.recordingLibrary
       val sync = SyncService.of(context)
       val work =
           object : HistoryWork {

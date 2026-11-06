@@ -6,7 +6,9 @@ import com.rbmr.taigasleep.backend.OkHttpRemoteApi
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.remoteStore
 import com.rbmr.taigasleep.insights.AnalysisSettingsStore
+import com.rbmr.taigasleep.library.RecordingLibrary
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.sync.LiveSync
 import com.rbmr.taigasleep.sync.PendingDeleteStore
 import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
 import com.rbmr.taigasleep.sync.RemoteHistoryCache
@@ -52,6 +54,16 @@ class AppContainer(private val application: Application) {
 
   val analysisSettingsStore: AnalysisSettingsStore by lazy {
     AnalysisSettingsStore(application)
+  }
+
+  val recordingLibrary: RecordingLibrary by lazy { RecordingLibrary(application) }
+
+  val liveSync: LiveSync by lazy {
+    LiveSync(
+        gate = remoteRepository.streamAccount,
+        events = remoteRepository.events(),
+        target = recordingLibrary,
+    )
   }
 }
 
