@@ -67,7 +67,7 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
           }
           for (run in started) {
             environment.markManualAnalysis(id, run.analysisId)
-            environment.markProcessing(id, run.analysisId)
+            environment.markProcessing(id)
           }
           Result.success(started)
         } catch (e: TaigaUnauthorizedException) {
@@ -95,6 +95,15 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
   fun delete(id: String?, remoteId: String? = null) {
     if (id != null) environment.cancelUploads(id)
     environment.deleteNight(id, remoteId)
+  }
+
+  /**
+   * The server no longer has this recording. A night that was waiting for its analysis is marked
+   * failed instead of processing for ever; every other state stays what it is.
+   */
+  fun recordingGone(id: String, detail: String? = null) {
+    if (environment.record(id)?.phase != UploadPhase.PROCESSING) return
+    environment.markAnalysisFailed(id, detail)
   }
 
   /** Restore the remote-delete queue and continue every upload that was interrupted. */

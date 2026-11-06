@@ -25,7 +25,9 @@ internal interface SyncEnvironment {
 
   fun markLocal(id: String)
 
-  fun markProcessing(id: String, analysisId: String?)
+  fun markProcessing(id: String)
+
+  fun markAnalysisFailed(id: String, detail: String?)
 
   fun markManualAnalysis(id: String, analysisId: String)
 
@@ -106,7 +108,10 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
 
   override fun markLocal(id: String) = state.markLocal(id)
 
-  override fun markProcessing(id: String, analysisId: String?) = state.markProcessing(id, analysisId)
+  override fun markProcessing(id: String) = state.markProcessing(id)
+
+  override fun markAnalysisFailed(id: String, detail: String?) =
+      state.markFailed(id, UploadFailure.ANALYSIS, detail)
 
   override fun markManualAnalysis(id: String, analysisId: String) =
       state.markManualAnalysis(id, analysisId)

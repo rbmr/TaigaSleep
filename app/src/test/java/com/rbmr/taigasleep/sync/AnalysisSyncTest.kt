@@ -124,10 +124,9 @@ class AnalysisSyncTest {
     assertEquals(81.0, snapshot.shown?.result?.items?.single()?.value ?: 0.0, 0.001)
     val record = store.record("r1")!!
     assertEquals(UploadPhase.DONE, record.phase)
-    assertEquals("a1", record.analysisId)
-    assertEquals(81.0, record.sleepScore ?: 0.0, 0.001)
-    assertTrue(record.resultDownloaded)
+    assertTrue(record.onServer)
     assertTrue(results.has("r1", "a1"))
+    assertEquals(81.0, results.load("r1", "a1")?.result?.items?.single()?.value ?: 0.0, 0.001)
   }
 
   @Test
@@ -171,20 +170,17 @@ class AnalysisSyncTest {
 
       val record = store.record("r1")!!
       assertEquals(status, UploadPhase.PROCESSING, record.phase)
-      assertEquals("a1", record.analysisId)
       assertTrue(client.fetched.isEmpty())
     }
   }
 
   @Test
   fun `a sealed recording without an analysis is processing without an id`() {
-    store.markProcessing("r1", "gone")
+    store.markProcessing("r1")
 
     refresh(FakeClient())
 
-    val record = store.record("r1")!!
-    assertEquals(UploadPhase.PROCESSING, record.phase)
-    assertNull(record.analysisId)
+    assertEquals(UploadPhase.PROCESSING, store.record("r1")?.phase)
   }
 
   @Test
@@ -203,25 +199,23 @@ class AnalysisSyncTest {
   fun `a remembered analysis the server replaced is not chosen`() {
     // A retry deletes the failed analysis and queues a new one under another id.
     store.markFailed("r1", UploadFailure.ANALYSIS, "boom")
-    store.markProcessing("r1", "old")
+    store.markProcessing("r1")
     val client = FakeClient(listing = listOf(analysis("fresh", "queued", created = "2026-10-24T06:00:00Z")))
 
     val snapshot = refresh(client, preferred = listOf("old"))
 
     assertEquals("fresh", snapshot.shown?.id)
-    val record = store.record("r1")!!
-    assertEquals(UploadPhase.PROCESSING, record.phase)
-    assertEquals("fresh", record.analysisId)
+    assertEquals(UploadPhase.PROCESSING, store.record("r1")?.phase)
   }
 
   @Test
   fun `a deleted analysis leaves the night waiting for a new one`() {
-    store.markProcessing("r1", "gone")
+    store.markProcessing("r1")
 
     val snapshot = refresh(FakeClient(listing = emptyList()), preferred = listOf("gone"))
 
     assertNull(snapshot.shown)
-    assertNull(store.record("r1")?.analysisId)
+    assertEquals(UploadPhase.PROCESSING, store.record("r1")?.phase)
   }
 
   @Test

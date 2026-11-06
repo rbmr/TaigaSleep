@@ -2,7 +2,6 @@ package com.rbmr.taigasleep.sync
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,7 +43,6 @@ data class UploadRecord(
     val id: String,
     /** The server has a copy of this recording, which it keeps under [id]. */
     val onServer: Boolean = false,
-    val analysisId: String? = null,
     val phase: UploadPhase = UploadPhase.LOCAL,
     /** 0..1 for [UploadPhase.UPLOADING]; 1 once the upload is complete. */
     val progress: Float = 0f,
@@ -53,14 +51,6 @@ data class UploadRecord(
     val errorDetail: String? = null,
     val warning: String? = null,
     val updatedAtMs: Long = 0,
-    /** Enough of the result to draw the History row without a network call. */
-    val epochSeconds: Int = 30,
-    val segments: List<StageSegmentDto> = emptyList(),
-    val sleepScore: Double? = null,
-    val model: String? = null,
-    val modelVersion: String? = null,
-    /** True only when the full analysis payload is in the local result cache. */
-    val resultDownloaded: Boolean = false,
     /**
      * When the server last confirmed that the upload is complete. Raw cleanup counts from here.
      * Null for a night that was never uploaded or whose state predates this field.
@@ -205,13 +195,12 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
     }
   }
 
-  fun markProcessing(id: String, analysisId: String?) {
+  fun markProcessing(id: String) {
     val confirmedAt = now()
     update(id) {
       it.copy(
           phase = UploadPhase.PROCESSING,
           onServer = true,
-          analysisId = analysisId,
           progress = 1f,
           failure = null,
           errorDetail = null,
@@ -222,33 +211,17 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
     }
   }
 
-  fun markDone(
-      id: String,
-      analysisId: String?,
-      model: String?,
-      modelVersion: String?,
-      epochSeconds: Int,
-      segments: List<StageSegmentDto>,
-      sleepScore: Double?,
-      resultDownloaded: Boolean,
-  ) {
+  fun markDone(id: String) {
     val doneAt = now()
     update(id) {
       it.copy(
           phase = UploadPhase.DONE,
           onServer = true,
-          analysisId = analysisId,
           progress = 1f,
           failure = null,
           errorDetail = null,
           warning = null,
           updatedAtMs = doneAt,
-          model = model,
-          modelVersion = modelVersion,
-          epochSeconds = epochSeconds,
-          segments = segments,
-          sleepScore = sleepScore,
-          resultDownloaded = resultDownloaded,
           uploadedAtMs = it.uploadedAtMs ?: doneAt,
       )
     }
@@ -287,11 +260,6 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
           updatedAtMs = now(),
       )
     }
-  }
-
-  /** Remember which finished run the user wants to see for this night. */
-  fun markSelectedAnalysis(id: String, analysisId: String) {
-    update(id) { it.copy(analysisId = analysisId, updatedAtMs = now()) }
   }
 
   /** The user downloaded this night's raw files again; keep them out of automatic cleanup. */

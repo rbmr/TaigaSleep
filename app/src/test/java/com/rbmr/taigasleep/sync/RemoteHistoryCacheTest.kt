@@ -106,6 +106,48 @@ class RemoteHistoryCacheTest {
     assertTrue(cache.removed.value.isEmpty())
   }
 
+  @Test
+  fun `the run a night shows comes back with the list`() {
+    cache.save(account, twoRecordings())
+
+    cache.select(account, "20261023_223000-k3f9", "a1")
+
+    assertEquals(mapOf("20261023_223000-k3f9" to "a1"), cache.selected(account))
+    // A later fetch of the list keeps the choice.
+    cache.save(account, twoRecordings())
+    assertEquals("a1", cache.selected(account)["20261023_223000-k3f9"])
+  }
+
+  @Test
+  fun `another account never sees the selection`() {
+    cache.save(account, twoRecordings())
+    cache.select(account, "20261023_223000-k3f9", "a1")
+
+    assertTrue(cache.selected("https://sleep.example|you@example.com").isEmpty())
+    assertTrue(cache.selected("").isEmpty())
+  }
+
+  @Test
+  fun `the choice leaves when the recording is deleted`() {
+    cache.save(account, twoRecordings())
+    cache.select(account, "20261023_223000-k3f9", "a1")
+    cache.select(account, "remote-20261023_223000-k3f9", "a1")
+
+    cache.remove(account, "20261023_223000-k3f9")
+
+    assertTrue(cache.selected(account).isEmpty())
+  }
+
+  @Test
+  fun `a file written before the selection was kept still loads`() {
+    File(root, "history").mkdirs()
+    File(root, "history/remote-recordings.json")
+        .writeText("""{"accountKey":"$account","recordings":{"items":[]}}""")
+
+    assertEquals(0, cache.load(account)?.items?.size)
+    assertTrue(cache.selected(account).isEmpty())
+  }
+
   private val account = "https://sleep.example|me@example.com"
 
   private fun twoRecordings() =

@@ -17,12 +17,15 @@ import kotlinx.serialization.json.Json
 private data class CachedRemoteHistory(
     val accountKey: String = "",
     val recordings: RecordingSummaryListDto = RecordingSummaryListDto(),
+    /** The run each night shows, by night key. */
+    val selected: Map<String, String> = emptyMap(),
 )
 
 /**
  * The last remote recording list per account, so History can still show remote-only nights when the
  * server is temporarily unreachable. It is replaced on every successful fetch and never shown for
- * a different account.
+ * a different account. It also remembers which run each night shows, so a chosen analysis survives
+ * a process death without being a fact about the analysis itself.
  *
  * A recording whose server copy is gone is removed for good: [removed] remembers every id a
  * completed delete or a missing recording took out of the list, so a fetch that started earlier
@@ -44,25 +47,36 @@ class RemoteHistoryCache(private val file: File) {
   fun load(accountKey: String): RecordingSummaryListDto? {
     if (accountKey.isBlank() || !file.isFile) return null
     return runCatching {
-          val cached = json.decodeFromString<CachedRemoteHistory>(file.readText())
-          cached.recordings.takeIf { cached.accountKey == accountKey }
+          read()?.takeIf { it.accountKey == accountKey }?.recordings
         }
         .getOrNull()
   }
 
+  /**
+   * The run each night shows, by night key, for the account that cached the list. Empty for
+   * another account or before the list was ever fetched.
+   */
+  fun selected(accountKey: String): Map<String, String> {
+    if (accountKey.isBlank() || !file.isFile) return emptyMap()
+    return runCatching { read()?.takeIf { it.accountKey == accountKey }?.selected.orEmpty() }
+        .getOrDefault(emptyMap())
+  }
+
+  /** Remember the run a night shows. Null forgets it, as when the server no longer has a run. */
+  fun select(accountKey: String, key: String, analysisId: String?) {
+    if (accountKey.isBlank() || key.isBlank()) return
+    val cached = runCatching { read() }.getOrNull() ?: return
+    if (cached.accountKey != accountKey) return
+    val selected =
+        if (analysisId.isNullOrBlank()) cached.selected - key
+        else cached.selected + (key to analysisId)
+    if (selected == cached.selected) return
+    write(cached.copy(selected = selected))
+  }
+
   fun save(accountKey: String, recordings: RecordingSummaryListDto) {
     if (accountKey.isBlank()) return
-    runCatching {
-          file.parentFile?.mkdirs()
-          val tmp = File(file.parentFile, "${file.name}.tmp")
-          tmp.writeText(json.encodeToString(CachedRemoteHistory(accountKey, recordings)))
-          Files.move(
-              tmp.toPath(),
-              file.toPath(),
-              StandardCopyOption.ATOMIC_MOVE,
-              StandardCopyOption.REPLACE_EXISTING,
-          )
-        }
+    write(CachedRemoteHistory(accountKey, recordings, selected(accountKey)))
   }
 
   /**
@@ -73,9 +87,11 @@ class RemoteHistoryCache(private val file: File) {
   fun remove(accountKey: String, recordingId: String, keepOut: Boolean = true) {
     if (accountKey.isBlank() || recordingId.isBlank()) return
     if (keepOut) _removed.update { it + recordingId }
-    val cached = load(accountKey) ?: return
-    if (cached.items.none { it.recording.id == recordingId }) return
-    save(accountKey, cached.withoutRecordings(setOf(recordingId)))
+    val cached = runCatching { read() }.getOrNull()?.takeIf { it.accountKey == accountKey } ?: return
+    val items = cached.recordings.withoutRecordings(setOf(recordingId))
+    val selected = cached.selected - recordingId - remoteKey(recordingId)
+    if (items == cached.recordings && selected == cached.selected) return
+    write(cached.copy(recordings = items, selected = selected))
   }
 
   fun clear() {
@@ -85,6 +101,26 @@ class RemoteHistoryCache(private val file: File) {
   /** The cached list belongs to one account; the removals of a previous one do not apply to it. */
   fun resetRemoved() {
     _removed.value = emptySet()
+  }
+
+  /** The saved document, or null when there is none or it cannot be read. */
+  private fun read(): CachedRemoteHistory? {
+    if (!file.isFile) return null
+    return runCatching { json.decodeFromString<CachedRemoteHistory>(file.readText()) }.getOrNull()
+  }
+
+  private fun write(cached: CachedRemoteHistory) {
+    runCatching {
+          file.parentFile?.mkdirs()
+          val tmp = File(file.parentFile, "${file.name}.tmp")
+          tmp.writeText(json.encodeToString(cached))
+          Files.move(
+              tmp.toPath(),
+              file.toPath(),
+              StandardCopyOption.ATOMIC_MOVE,
+              StandardCopyOption.REPLACE_EXISTING,
+          )
+        }
   }
 
   companion object {
