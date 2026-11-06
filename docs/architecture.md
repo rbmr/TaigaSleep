@@ -87,11 +87,13 @@ in the table.
 Two things sit outside the table:
 
 - **The root package is the app's wiring**: `TaigaApplication`, `MainActivity`,
-  `AppSettings`. It may depend on everything and nothing else may depend on it, apart from
-  the generated `R` and `BuildConfig`. This is where packages that must not know each
-  other are connected: `recording` defines what it needs from the rest of the app
+  `AppSettings`, `AppContainer`. It may depend on everything and nothing else may depend on
+  it, apart from the generated `R` and `BuildConfig`. This is where packages that must not
+  know each other are connected: `recording` defines what it needs from the rest of the app
   (`RecordingHooks`: may it start, what are the phone's readiness settings, a recording
-  ended) and the wiring answers with `guard` and `sync`.
+  ended) and the wiring answers with `guard` and `sync`. `AppContainer` holds the one
+  instance of each long-lived collaborator; other packages read it through the
+  `Context.appContainer` accessor, so they share state without importing the wiring itself.
 - **`debug` is a build-variant seam, not a package of the app.** `src/debug` holds the
   debug-only tools and `src/release` an empty twin with the same API (see
   [`debug-build.md`](debug-build.md)), so any package may use `debug`. It stands in for

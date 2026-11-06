@@ -17,10 +17,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class TaigaApplication : Application() {
+  lateinit var container: AppContainer
+    private set
+
   private var startedActivities = 0
 
   override fun onCreate() {
     super.onCreate()
+    // Before anything else: every collaborator is reached through this one instance.
+    container = AppContainer(this)
     // Before anything can start a recording: the service asks these to decide and to hand over.
     RecordingHooks.install(RecordingWiring)
     Diagnostics.init(this)
