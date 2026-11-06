@@ -1,6 +1,5 @@
 package com.rbmr.taigasleep.sync
 
-import android.content.Context
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import java.io.File
@@ -127,8 +126,4 @@ class ResultCache(private val root: File) {
 
   private fun safe(key: String): String =
       key.map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("")
-
-  companion object {
-    fun of(context: Context): ResultCache = ResultCache(File(context.filesDir, "analysis"))
-  }
 }

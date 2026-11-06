@@ -9,6 +9,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.recording.RecordingService
 import com.rbmr.taigasleep.recording.store.RecordingPhase
@@ -27,7 +28,7 @@ internal object UploadScheduler {
   const val KEY_RECORDING_ID = "recording_id"
 
   fun enqueueManual(context: Context, localId: String) {
-    val store = UploadStore.of(context)
+    val store = context.appContainer.uploadStore
     store.markQueued(localId)
     enqueue(context, localId, manualConstraints(), ExistingWorkPolicy.REPLACE)
   }
@@ -35,8 +36,8 @@ internal object UploadScheduler {
   fun enqueueAuto(context: Context, localId: String) {
     val settings = UploadSettings.get(context).autoUpload.value
     if (!settings.enabled) return
-    if (!RemoteRepository.of(context).hasSession) return
-    val store = UploadStore.of(context)
+    if (!context.appContainer.remoteRepository.hasSession) return
+    val store = context.appContainer.uploadStore
     val record = store.record(localId)
     if (record?.phase == UploadPhase.DONE) return
     if (record?.phase == UploadPhase.FAILED) return // let the user decide; retry is explicit
@@ -74,16 +75,16 @@ internal object UploadScheduler {
 
   /** Restore the remote-delete queue after a process restart. */
   fun resumePendingDeletes(context: Context) {
-    for (recordingId in PendingDeleteStore.of(context).remoteIds()) {
+    for (recordingId in context.appContainer.pendingDeleteStore.remoteIds()) {
       enqueueDelete(context, recordingId)
     }
   }
 
   /** After an automatic-upload checkbox changes, apply it to the queued uploads. */
   fun rescheduleAll(context: Context) {
-    val local = RecordingStore.of(context).list()
+    val local = context.appContainer.recordingStore.list()
     val manager = WorkManager.getInstance(context)
-    val store = UploadStore.of(context)
+    val store = context.appContainer.uploadStore
     val settings = UploadSettings.get(context).autoUpload.value
     local.forEach { session ->
       manager.cancelUniqueWork("upload-${session.id}")
@@ -91,7 +92,7 @@ internal object UploadScheduler {
         store.markQueued(session.id)
       }
     }
-    if (!RemoteRepository.of(context).hasSession) return
+    if (!context.appContainer.remoteRepository.hasSession) return
     local.forEach { session ->
       if (session.state == RecordingPhase.RECORDING) return@forEach
       // A night that is processing is on the server already; its result comes from the live stream.
@@ -106,10 +107,10 @@ internal object UploadScheduler {
    */
   suspend fun reconcile(context: Context) =
       withContext(Dispatchers.IO) {
-        if (!RemoteRepository.of(context).hasSession) return@withContext
+        if (!context.appContainer.remoteRepository.hasSession) return@withContext
         val settings = UploadSettings.get(context).autoUpload.value
-        val store = UploadStore.of(context)
-        for (session in RecordingStore.of(context).list()) {
+        val store = context.appContainer.uploadStore
+        for (session in context.appContainer.recordingStore.list()) {
           if (session.state == RecordingPhase.RECORDING &&
               RecordingService.running) {
             continue

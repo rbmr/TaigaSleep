@@ -1,11 +1,11 @@
 package com.rbmr.taigasleep.library
 
 import android.content.Context
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingSummaryDto
 import com.rbmr.taigasleep.backend.RecordingSummaryListDto
-import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.recordingSummaries
@@ -13,13 +13,8 @@ import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
-import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.LiveSyncTarget
-import com.rbmr.taigasleep.sync.PendingDeleteStore
 import com.rbmr.taigasleep.sync.RecordingSnapshot
-import com.rbmr.taigasleep.sync.RemoteHistoryCache
-import com.rbmr.taigasleep.sync.ResultCache
-import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.compatible
 import com.rbmr.taigasleep.sync.remoteKey
@@ -44,13 +39,13 @@ import kotlinx.coroutines.withContext
  * The raw bytes and the analyses stay independent: [RecordingView.backup] says where the bytes are and
  * [RecordingView.analyses] lists every requested result. [RecordingView.status] is only a derived display summary.
  */
-class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, NightSource {
+class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, NightSource {
   private val context = context.applicationContext
-  private val remote = RemoteRepository.of(this.context)
-  private val history = RemoteHistoryCache.of(this.context)
-  private val results = ResultCache.of(this.context)
-  private val sync = SyncService.of(this.context)
-  private val deletes = PendingDeleteStore.of(this.context)
+  private val remote = context.appContainer.remoteRepository
+  private val history = context.appContainer.remoteHistoryCache
+  private val results = context.appContainer.resultCache
+  private val sync = context.appContainer.syncService
+  private val deletes = context.appContainer.pendingDeleteStore
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
   private val remoteSummaries = MutableStateFlow<RecordingSummaryListDto?>(null)
@@ -260,7 +255,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
       // come from disk: the screens may not have loaded them yet when the app has just opened.
       val current =
           buildRecordings(
-              recordings = RecordingStore.of(context).list(),
+              recordings = context.appContainer.recordingStore.list(),
               records = records,
               remote = remoteSummaries.value,
               overrides = overrides.value,
@@ -298,7 +293,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
 
   /** The night key of a recording: the phone's own id when it has the recording, else the remote key. */
   private fun keyFor(recordingId: String): String =
-      if (RecordingStore.of(context).dir(recordingId).isDirectory) recordingId
+      if (context.appContainer.recordingStore.dir(recordingId).isDirectory) recordingId
       else remoteKey(recordingId)
 
   /**
@@ -356,7 +351,7 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
    */
   private fun dropRemote(recordingId: String) {
     remoteSummaries.update { it?.withoutRecordings(setOf(recordingId)) }
-    val onPhone = RecordingStore.of(context).dir(recordingId).isDirectory
+    val onPhone = context.appContainer.recordingStore.dir(recordingId).isDirectory
     history.remove(remote.accountKey, recordingId, keepOut = !onPhone)
   }
 
@@ -374,14 +369,6 @@ class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, N
 
   companion object {
     private val HR_ONLY = RecordingConfig(hr = true, ecg = false, acc = false)
-
-    @Volatile private var instance: RecordingLibrary? = null
-
-    fun of(context: Context): RecordingLibrary =
-        instance
-            ?: synchronized(this) {
-              instance ?: RecordingLibrary(context).also { instance = it }
-            }
   }
 }
 

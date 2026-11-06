@@ -1,12 +1,10 @@
 package com.rbmr.taigasleep.sync
 
 import android.content.Context
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AlgorithmDto
-import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.TaigaClient
-import com.rbmr.taigasleep.insights.AnalysisSettingsStore
 import com.rbmr.taigasleep.recording.store.RecordingConfig
-import com.rbmr.taigasleep.recording.store.RecordingStore
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -98,9 +96,9 @@ internal interface SyncEnvironment {
 /** The app's [SyncEnvironment]: each member is the call the screens and the workers used to make. */
 internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
   private val app = context.applicationContext
-  private val state = UploadStore.of(app)
+  private val state = app.appContainer.uploadStore
   private val settings = UploadSettings.get(app)
-  private val remote = RemoteRepository.of(app)
+  private val remote = app.appContainer.remoteRepository
 
   override val records: StateFlow<Map<String, UploadRecord>> = state.records
 
@@ -126,7 +124,7 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
 
   override fun logout() = remote.logout()
 
-  override fun hasRecording(id: String): Boolean = RecordingStore.of(app).dir(id).isDirectory
+  override fun hasRecording(id: String): Boolean = app.appContainer.recordingStore.dir(id).isDirectory
 
   override fun config(id: String): RecordingConfig = localRecordingConfig(app, id)
 
@@ -173,7 +171,7 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
           api,
           recordingId,
           config,
-          AnalysisSettingsStore.of(app).settings.value,
+          app.appContainer.analysisSettingsStore.settings.value,
       )
 
   override suspend fun installedAlgorithms(api: TaigaClient): Result<List<AlgorithmDto>> =
@@ -188,5 +186,5 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
       recordingId: String,
       preferred: List<String?>,
   ): RecordingSnapshot =
-      AnalysisSync(api, state, ResultCache.of(app)).refresh(id, recordingId, preferred)
+      AnalysisSync(api, state, app.appContainer.resultCache).refresh(id, recordingId, preferred)
 }

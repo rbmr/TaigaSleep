@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.backend
 
 import android.content.Context
 import com.rbmr.taigasleep.BuildConfig
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.diagnostics.Diagnostics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -397,17 +398,6 @@ class RemoteRepository internal constructor(
       }
 
   companion object {
-    @Volatile private var instance: RemoteRepository? = null
-
-    fun of(context: Context): RemoteRepository =
-        instance
-            ?: synchronized(this) {
-              instance
-                  ?: RemoteRepository(
-                          store = remoteStore(context),
-                          api = OkHttpRemoteApi(),
-                      )
-                      .also { instance = it }
-            }
+    fun of(context: Context): RemoteRepository = context.appContainer.remoteRepository
   }
 }

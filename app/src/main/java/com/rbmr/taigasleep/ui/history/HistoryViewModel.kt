@@ -3,13 +3,11 @@ package com.rbmr.taigasleep.ui.history
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.library.LibrarySource
-import com.rbmr.taigasleep.library.RecordingLibrary
 import com.rbmr.taigasleep.library.RecordingView
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.sync.PendingDelete
-import com.rbmr.taigasleep.sync.PendingDeleteStore
-import com.rbmr.taigasleep.sync.SyncService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -115,8 +113,8 @@ class HistoryViewModel(
   class Factory(private val context: Context) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-      val library = RecordingLibrary.of(context)
-      val sync = SyncService.of(context)
+      val library = context.appContainer.recordingLibrary
+      val sync = context.appContainer.syncService
       val work =
           object : HistoryWork {
             override suspend fun onOpen() {
@@ -137,7 +135,7 @@ class HistoryViewModel(
           }
       return HistoryViewModel(
           library = library,
-          pendingDeletes = PendingDeleteStore.of(context).pending,
+          pendingDeletes = context.appContainer.pendingDeleteStore.pending,
           work = work,
       ) as T
     }

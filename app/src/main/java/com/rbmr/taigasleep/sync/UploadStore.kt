@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.sync
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -315,22 +316,6 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
   private fun now(): Long = System.currentTimeMillis()
 
   companion object {
-    @Volatile private var instance: UploadStore? = null
-
-    fun of(context: Context): UploadStore =
-        instance
-            ?: synchronized(this) {
-              instance
-                  ?: UploadStore(
-                          RecordingDirectoryStorage(
-                              RecordingStore.of(context).root,
-                              context.applicationContext.getSharedPreferences(
-                                  "uploads",
-                                  Context.MODE_PRIVATE,
-                              ),
-                          )
-                      )
-                      .also { instance = it }
-            }
+    fun of(context: Context): UploadStore = context.appContainer.uploadStore
   }
 }

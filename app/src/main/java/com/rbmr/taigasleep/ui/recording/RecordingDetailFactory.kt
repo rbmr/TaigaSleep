@@ -4,12 +4,11 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.library.RecordingLibrary
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.RawActionResult
-import com.rbmr.taigasleep.sync.SyncService
 import java.io.File
 
 /**
@@ -53,8 +52,8 @@ class RecordingDetailFactory(
   @Suppress("UNCHECKED_CAST")
   override fun <T : ViewModel> create(modelClass: Class<T>): T {
     val app = context.applicationContext
-    val store = RecordingStore.of(app)
-    val sync = SyncService.of(app)
+    val store = app.appContainer.recordingStore
+    val sync = app.appContainer.syncService
     val work =
         object : NightWork {
           override suspend fun refreshRecordings() {
@@ -91,7 +90,7 @@ class RecordingDetailFactory(
         localId = localId,
         remoteId = remoteId,
         analysisId = analysisId,
-        library = RecordingLibrary.of(app),
+        library = app.appContainer.recordingLibrary,
         work = work,
         texts =
             NightTexts(

@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.recording.store
 
 import android.content.Context
+import com.rbmr.taigasleep.appContainer
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -150,9 +151,6 @@ class RecordingStore(val root: File) {
     /** The app's sync state for this recording, kept beside meta.json and not exported. */
     const val SYNC_FILE = "sync.json"
 
-    fun of(context: Context): RecordingStore {
-      val base = context.getExternalFilesDir(null) ?: context.filesDir
-      return RecordingStore(File(base, "recordings"))
-    }
+    fun of(context: Context): RecordingStore = context.appContainer.recordingStore
   }
 }

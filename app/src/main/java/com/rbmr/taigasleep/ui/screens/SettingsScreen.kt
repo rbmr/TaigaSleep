@@ -37,15 +37,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AlgorithmDto
-import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.RemoteStatus
-import com.rbmr.taigasleep.insights.AnalysisSettingsStore
 import com.rbmr.taigasleep.insights.compareVersions
 import com.rbmr.taigasleep.insights.effectiveOrder
 import com.rbmr.taigasleep.insights.movePreference
 import com.rbmr.taigasleep.sync.RawRetentionMode
-import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.sync.UploadSettings
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SettingsCheckboxRow
@@ -65,8 +63,8 @@ fun SettingsScreen(
     onRemoteClick: () -> Unit,
 ) {
   val context = LocalContext.current
-  val remoteRepository = remember { RemoteRepository.of(context) }
-  val sync = remember { SyncService.of(context) }
+  val remoteRepository = remember { context.appContainer.remoteRepository }
+  val sync = remember { context.appContainer.syncService }
   val remoteStatus by remoteRepository.status.collectAsStateWithLifecycle()
   val uploadSettings = remember { UploadSettings.get(context) }
   val autoUpload by uploadSettings.autoUpload.collectAsStateWithLifecycle()
@@ -83,7 +81,7 @@ fun SettingsScreen(
             ThemeMode.DARK -> R.string.settings_appearance_body_dark
           }
       )
-  val analysisSettingsStore = remember { AnalysisSettingsStore.of(context) }
+  val analysisSettingsStore = remember { context.appContainer.analysisSettingsStore }
   val analysisSettings by analysisSettingsStore.settings.collectAsStateWithLifecycle()
   var installedAlgorithms by remember { mutableStateOf<List<AlgorithmDto>>(emptyList()) }
   var installedLoading by remember { mutableStateOf(false) }

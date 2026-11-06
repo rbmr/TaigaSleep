@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.recording
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -38,7 +39,7 @@ object Exporter {
           dir.deleteRecursively()
           dir.mkdirs()
           File(dir, "taiga-$recordingId.zip").also {
-            RecordingStore.of(context).zip(recordingId, it, onProgress)
+            context.appContainer.recordingStore.zip(recordingId, it, onProgress)
           }
         }
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", zip)

@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.sync
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.rbmr.taigasleep.appContainer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +20,7 @@ data class PendingDelete(
  * Remote deletes that could not be completed yet. The local recording and its results are already
  * gone; this only keeps the recording id until the server can be reached.
  */
-class PendingDeleteStore private constructor(private val prefs: SharedPreferences) {
+class PendingDeleteStore internal constructor(private val prefs: SharedPreferences) {
   private val lock = Any()
   private val json =
       Json {
@@ -59,19 +60,6 @@ class PendingDeleteStore private constructor(private val prefs: SharedPreference
   companion object {
     private const val KEY = "pending_remote_deletes"
 
-    @Volatile private var instance: PendingDeleteStore? = null
-
-    fun of(context: Context): PendingDeleteStore =
-        instance
-            ?: synchronized(this) {
-              instance
-                  ?: PendingDeleteStore(
-                          context.applicationContext.getSharedPreferences(
-                              "deletes",
-                              Context.MODE_PRIVATE,
-                          )
-                      )
-                      .also { instance = it }
-            }
+    fun of(context: Context): PendingDeleteStore = context.appContainer.pendingDeleteStore
   }
 }

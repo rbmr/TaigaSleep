@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.sync
 
 import android.content.Context
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import java.io.File
@@ -17,18 +18,18 @@ import java.io.File
 internal object RecordingDeleter {
   fun delete(context: Context, localId: String?, remoteId: String?) {
     if (localId == null && remoteId == null) return
-    val pending = PendingDeleteStore.of(context)
+    val pending = context.appContainer.pendingDeleteStore
     if (remoteId != null) pending.add(remoteId)
 
     if (localId != null) {
-      RecordingStore.of(context).delete(localId)
-      ResultCache.of(context).delete(localId)
-      UploadStore.of(context).clear(localId)
+      context.appContainer.recordingStore.delete(localId)
+      context.appContainer.resultCache.delete(localId)
+      context.appContainer.uploadStore.clear(localId)
       File(context.filesDir, "upload-cache/$localId").deleteRecursively()
     }
     if (remoteId != null) {
-      ResultCache.of(context).delete("remote-$remoteId")
-      UploadStore.of(context).clear("remote-$remoteId")
+      context.appContainer.resultCache.delete("remote-$remoteId")
+      context.appContainer.uploadStore.clear("remote-$remoteId")
       UploadScheduler.enqueueDelete(context, remoteId)
     }
     RecordingRepository.refreshRecordings(context)
