@@ -93,7 +93,7 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
    */
   fun delete(id: String?, remoteId: String? = null) {
     if (id != null) environment.cancelUploads(id)
-    environment.deleteNight(id, remoteId)
+    environment.deleteRecording(id, remoteId)
   }
 
   /**

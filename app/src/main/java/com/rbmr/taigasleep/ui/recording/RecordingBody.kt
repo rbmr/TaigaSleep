@@ -34,7 +34,7 @@ import com.rbmr.taigasleep.ui.components.TaigaCard
  * that belong to the recording's state. Nothing here decides anything.
  */
 @Composable
-internal fun NightBody(
+internal fun RecordingBody(
     state: RecordingDetailUiState,
     padding: PaddingValues,
     onUpload: () -> Unit,
@@ -140,7 +140,7 @@ internal fun NightBody(
 
     when {
       processed && analysis != null ->
-          processedNight(
+          processedRecording(
               state = state,
               run = run,
               analysis = analysis,
@@ -162,7 +162,7 @@ internal fun NightBody(
 }
 
 /** The cards of a recording whose result is here and can be shown. */
-private fun LazyListScope.processedNight(
+private fun LazyListScope.processedRecording(
     state: RecordingDetailUiState,
     run: AnalysisDto,
     analysis: AnalysisResultDto,

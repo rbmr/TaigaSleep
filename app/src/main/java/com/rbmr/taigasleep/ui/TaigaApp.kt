@@ -163,7 +163,7 @@ fun TaigaApp(
             when (page) {
               0 ->
                   HistoryScreen(
-                      onOpenNight = { local, server, analysis ->
+                      onOpenRecording = { local, server, analysis ->
                         detailLocal = local
                         detailRemote = server
                         detailAnalysis = analysis

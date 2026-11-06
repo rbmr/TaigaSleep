@@ -46,8 +46,8 @@ fun RecordingDetailScreen(
         RecordingDetailFactory(context, localId, remoteId, analysisId)
       }
   // One view model per recording, so opening another recording starts from its own state.
-  val nightKey = localId ?: remoteId?.let { "remote-$it" } ?: analysisId ?: "night"
-  val viewModel: RecordingDetailViewModel = viewModel(key = nightKey, factory = factory)
+  val recordingKey = localId ?: remoteId?.let { "remote-$it" } ?: analysisId ?: "recording"
+  val viewModel: RecordingDetailViewModel = viewModel(key = recordingKey, factory = factory)
   val state by viewModel.state.collectAsStateWithLifecycle()
 
   var showQuality by rememberSaveable { mutableStateOf(false) }
@@ -97,7 +97,7 @@ fun RecordingDetailScreen(
         )
       },
   ) { padding ->
-    NightBody(
+    RecordingBody(
         state = state,
         padding = padding,
         onUpload = viewModel::upload,
@@ -114,7 +114,7 @@ fun RecordingDetailScreen(
         onExpand = { fullscreenChart = it },
     )
 
-    NightOverlays(
+    RecordingOverlays(
         state = state,
         showQuality = showQuality,
         showSleepScore = showSleepScore,

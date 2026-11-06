@@ -3,7 +3,7 @@ package com.rbmr.taigasleep.ui.recording
 import androidx.lifecycle.ViewModel
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
-import com.rbmr.taigasleep.library.NightSource
+import com.rbmr.taigasleep.library.RecordingSource
 import com.rbmr.taigasleep.library.RecordingView
 import com.rbmr.taigasleep.recording.ExportSource
 import com.rbmr.taigasleep.recording.exportSource
@@ -29,9 +29,9 @@ class RecordingDetailViewModel(
     private val localId: String?,
     private val remoteId: String?,
     private val analysisId: String?,
-    private val library: NightSource,
-    private val work: NightWork,
-    private val texts: NightTexts,
+    private val library: RecordingSource,
+    private val work: RecordingWork,
+    private val texts: RecordingTexts,
     dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : ViewModel() {
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -49,15 +49,15 @@ class RecordingDetailViewModel(
   private var lastStatus: RemoteStatus? = null
   private var lastSelected: String? = null
   private var lastDownloaded = false
-  private var observedNight = false
+  private var observedRecording = false
 
   init {
     scope.launch {
-      library.recordings.collect { nights ->
-        val night = nightIn(nights)
-        _state.update { it.copy(night = night, canExport = canExportOf(night)) }
-        if (night != null) {
-          followSelectedResult(night)
+      library.recordings.collect { list ->
+        val recording = recordingIn(list)
+        _state.update { it.copy(recording = recording, canExport = canExportOf(recording)) }
+        if (recording != null) {
+          followSelectedResult(recording)
           // The raw files appear and go behind the sheet, so its size follows the recording.
           if (_state.value.showDetails) readRawSize()
         }
@@ -88,13 +88,13 @@ class RecordingDetailViewModel(
   }
 
   fun retryAnalysis() {
-    val night = _state.value.night ?: return
-    val server = night.remoteId ?: return
-    val key = night.local?.id ?: "remote-$server"
+    val recording = _state.value.recording ?: return
+    val server = recording.remoteId ?: return
+    val key = recording.local?.id ?: "remote-$server"
     _state.update { it.copy(actionError = null) }
     scope.launch {
       work
-          .retryAnalysis(key, night.analysisId)
+          .retryAnalysis(key, recording.analysisId)
           .onSuccess { load() }
           .onFailure { failure -> _state.update { it.copy(actionError = failure.message) } }
     }
@@ -102,19 +102,19 @@ class RecordingDetailViewModel(
 
   /** Remember which finished run the user picked, and read it back from the server. */
   fun selectAnalysis(analysis: String) {
-    val night = _state.value.night ?: return
-    library.selectAnalysis(night, analysis)
+    val recording = _state.value.recording ?: return
+    library.selectAnalysis(recording, analysis)
     preferred = analysis
     load()
   }
 
   /** Ask the server for one more run of an algorithm. */
   fun requestAnalysis(algorithmId: String) {
-    val night = _state.value.night ?: return
+    val recording = _state.value.recording ?: return
     _state.update { it.copy(analysisBusy = true) }
     scope.launch {
       library
-          .requestManual(night, algorithmId)
+          .requestManual(recording, algorithmId)
           .onSuccess { load() }
           .onFailure { failure ->
             _state.update { it.copy(algorithmsError = failure.message) }
@@ -125,11 +125,11 @@ class RecordingDetailViewModel(
 
   /** The analysis sheet was opened: ask which algorithms this recording can feed. */
   fun loadAlgorithms() {
-    val night = _state.value.night ?: return
+    val recording = _state.value.recording ?: return
     _state.update { it.copy(algorithmsLoading = true, algorithmsError = null) }
     scope.launch {
       library
-          .compatibleAlgorithms(night)
+          .compatibleAlgorithms(recording)
           .onSuccess { algorithms -> _state.update { it.copy(algorithms = algorithms) } }
           .onFailure { failure ->
             _state.update { it.copy(algorithmsError = failure.message) }
@@ -223,7 +223,7 @@ class RecordingDetailViewModel(
         scope.launch {
           work.refreshRecordings()
           library.reload()
-          val current = library.recording(key) ?: _state.value.night
+          val current = library.recording(key) ?: _state.value.recording
           val cached = current?.let { library.cachedResult(key, it.analysisId) }
           _state.update { it.copy(result = cached ?: it.result, loading = false) }
           val server = current?.remoteId ?: _state.value.remoteId ?: remoteId
@@ -267,13 +267,13 @@ class RecordingDetailViewModel(
   }
 
   /** The selected run can change and its payload can arrive while the screen is open. */
-  private fun followSelectedResult(night: RecordingView) {
-    val selected = night.analysisId
-    if (selected == lastSelected && night.resultDownloaded == lastDownloaded) return
-    val first = !observedNight
-    observedNight = true
+  private fun followSelectedResult(recording: RecordingView) {
+    val selected = recording.analysisId
+    if (selected == lastSelected && recording.resultDownloaded == lastDownloaded) return
+    val first = !observedRecording
+    observedRecording = true
     lastSelected = selected
-    lastDownloaded = night.resultDownloaded
+    lastDownloaded = recording.resultDownloaded
     if (selected == null) return
     val cached = library.cachedResult(key, selected)
     _state.update {
@@ -337,12 +337,12 @@ class RecordingDetailViewModel(
   }
 
   /** The phone has the raw files, or the server does: either copy can be exported. */
-  private fun canExportOf(night: RecordingView?): Boolean {
-    val local = night?.local ?: return false
-    return exportSource(local.hasRaw, night.remoteId != null) != ExportSource.UNAVAILABLE
+  private fun canExportOf(recording: RecordingView?): Boolean {
+    val local = recording?.local ?: return false
+    return exportSource(local.hasRaw, recording.remoteId != null) != ExportSource.UNAVAILABLE
   }
 
-  private fun nightIn(nights: List<RecordingView>): RecordingView? =
-      nights.firstOrNull { it.key == key }
-          ?: localId?.let { id -> nights.firstOrNull { it.localId == id } }
+  private fun recordingIn(list: List<RecordingView>): RecordingView? =
+      list.firstOrNull { it.key == key }
+          ?: localId?.let { id -> list.firstOrNull { it.localId == id } }
 }

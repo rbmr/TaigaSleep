@@ -20,7 +20,7 @@ interface LibrarySource {
 }
 
 /** One recording, for the screen that shows it: its stored copy, its result and its pending runs. */
-interface NightSource : LibrarySource {
+interface RecordingSource : LibrarySource {
   /** The recording with this key, or null when the list does not hold it (yet). */
   fun recording(key: String): RecordingView?
 

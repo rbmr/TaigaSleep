@@ -10,7 +10,7 @@ import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.library.Analysis
 import com.rbmr.taigasleep.library.AnalysisStatus
 import com.rbmr.taigasleep.library.BackupState
-import com.rbmr.taigasleep.library.NightSource
+import com.rbmr.taigasleep.library.RecordingSource
 import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.library.RecordingView
 import com.rbmr.taigasleep.recording.store.Recording
@@ -27,7 +27,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 private val TEXTS =
-    NightTexts(
+    RecordingTexts(
         loadFailed = "could not load",
         loginError = "please log in",
         rawRestoreFailed = "could not restore",
@@ -35,8 +35,8 @@ private val TEXTS =
         rawNotUploaded = "not uploaded yet",
     )
 
-private class FakeLibrary(nights: List<RecordingView>) : NightSource {
-  override val recordings = MutableStateFlow(nights)
+private class FakeLibrary(initial: List<RecordingView>) : RecordingSource {
+  override val recordings = MutableStateFlow(initial)
   override val remoteStatus = MutableStateFlow<RemoteStatus>(RemoteStatus.Connected("a@b.c", 0))
   val calls = mutableListOf<String>()
   var cached: AnalysisDto? = null
@@ -80,7 +80,7 @@ private class FakeLibrary(nights: List<RecordingView>) : NightSource {
   }
 }
 
-private class FakeWork : NightWork {
+private class FakeWork : RecordingWork {
   val calls = mutableListOf<String>()
   var rawSize = 2048L
   var share: Result<Unit> = Result.success(Unit)
@@ -148,7 +148,7 @@ private fun recording(id: String, hasRaw: Boolean = true) =
         hasRaw = hasRaw,
     )
 
-private fun night(
+private fun recording(
     localId: String? = "local",
     remoteId: String? = "r1",
     status: RecordingStatus = RecordingStatus.READY,
@@ -198,7 +198,7 @@ private fun payload(id: String) =
     )
 
 class RecordingDetailViewModelTest {
-  private val library = FakeLibrary(listOf(night()))
+  private val library = FakeLibrary(listOf(recording()))
   private val work = FakeWork()
 
   private fun viewModel(
@@ -232,7 +232,7 @@ class RecordingDetailViewModelTest {
   fun `the state follows the library when a newer night arrives`() {
     val model = viewModel()
 
-    library.recordings.value = listOf(night(status = RecordingStatus.PROCESSING, analysisId = null))
+    library.recordings.value = listOf(recording(status = RecordingStatus.PROCESSING, analysisId = null))
 
     assertEquals(RecordingStatus.PROCESSING, model.state.value.status)
     assertEquals(null, model.state.value.selectedAnalysisId)
@@ -243,7 +243,7 @@ class RecordingDetailViewModelTest {
     val model = viewModel()
     library.cached = payload("a2")
 
-    library.recordings.value = listOf(night(analysisId = "a2", analyses = listOf(run("a1"), run("a2"))))
+    library.recordings.value = listOf(recording(analysisId = "a2", analyses = listOf(run("a1"), run("a2"))))
 
     assertEquals("a2", model.state.value.result?.id)
   }
@@ -393,7 +393,7 @@ class RecordingDetailViewModelTest {
 
   @Test
   fun `an export of a server-only night restores the raw files first`() {
-    library.recordings.value = listOf(night(hasRaw = false))
+    library.recordings.value = listOf(recording(hasRaw = false))
     val model = viewModel()
 
     model.export()
@@ -429,7 +429,7 @@ class RecordingDetailViewModelTest {
 
   @Test
   fun `downloading the raw data restores it and keeps the sheet open`() {
-    library.recordings.value = listOf(night(hasRaw = false))
+    library.recordings.value = listOf(recording(hasRaw = false))
     val model = viewModel()
     model.openDetails()
 
@@ -441,7 +441,7 @@ class RecordingDetailViewModelTest {
 
   @Test
   fun `a finished download shows the size of the files it restored`() {
-    library.recordings.value = listOf(night(hasRaw = false))
+    library.recordings.value = listOf(recording(hasRaw = false))
     work.rawSize = 0
     val model = viewModel()
     model.openDetails()
@@ -449,7 +449,7 @@ class RecordingDetailViewModelTest {
 
     work.restores = {
       work.rawSize = 229_000
-      library.recordings.value = listOf(night(hasRaw = true))
+      library.recordings.value = listOf(recording(hasRaw = true))
     }
     model.downloadRaw()
 

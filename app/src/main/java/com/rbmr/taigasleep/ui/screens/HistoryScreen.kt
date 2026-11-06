@@ -51,7 +51,7 @@ import com.rbmr.taigasleep.ui.history.HistoryViewModel
  */
 @Composable
 fun HistoryScreen(
-    onOpenNight: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
+    onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
 ) {
   val context = LocalContext.current
   val factory = remember { HistoryViewModel.Factory(context) }
@@ -64,13 +64,13 @@ fun HistoryScreen(
     onPauseOrDispose {}
   }
 
-  HistoryScreen(state = state, onOpenNight = onOpenNight)
+  HistoryScreen(state = state, onOpenRecording = onOpenRecording)
 }
 
 @Composable
 fun HistoryScreen(
     state: HistoryUiState,
-    onOpenNight: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
+    onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
 ) {
   LazyColumn(
       modifier = Modifier.fillMaxSize().statusBarsPadding(),
@@ -106,7 +106,7 @@ fun HistoryScreen(
       items(state.items, key = { it.key }) { item ->
         RecordingRow(
             item = item,
-            onOpen = { onOpenNight(item.localId, item.remoteId, item.analysisId) },
+            onOpen = { onOpenRecording(item.localId, item.remoteId, item.analysisId) },
         )
       }
     }

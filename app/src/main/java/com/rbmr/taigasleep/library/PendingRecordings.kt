@@ -24,15 +24,15 @@ internal data class PendingRecording(
  * A recording the server has not sealed is still uploading and is not read.
  */
 internal fun pendingRecordings(
-    nights: List<RecordingView>,
+    recordings: List<RecordingView>,
     records: Map<String, UploadRecord>,
 ): List<PendingRecording> =
-    nights.mapNotNull { night ->
-      val recordingId = night.remoteId ?: return@mapNotNull null
-      if (night.remote?.complete == false) return@mapNotNull null
-      val record = records[night.key]
+    recordings.mapNotNull { recording ->
+      val recordingId = recording.remoteId ?: return@mapNotNull null
+      if (recording.remote?.complete == false) return@mapNotNull null
+      val record = records[recording.key]
       val working =
-          night.analyses.any {
+          recording.analyses.any {
             it.status == AnalysisStatus.QUEUED || it.status == AnalysisStatus.RUNNING
           }
       // A run the server lists may have changed while the app was closed. A recording the list does not
@@ -41,10 +41,10 @@ internal fun pendingRecordings(
       // off leaves behind, and is not read again.
       val unsettled =
           record?.phase == UploadPhase.PROCESSING &&
-              (night.analyses.isNotEmpty() || night.remote == null)
-      val unfetched = night.isDone && !night.resultDownloaded
+              (recording.analyses.isNotEmpty() || recording.remote == null)
+      val unfetched = recording.isDone && !recording.resultDownloaded
       if (working || unsettled || unfetched) {
-        PendingRecording(night.key, recordingId, night.analysisId)
+        PendingRecording(recording.key, recordingId, recording.analysisId)
       } else {
         null
       }

@@ -59,9 +59,9 @@ class HistoryViewModel(
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
 
   val state: StateFlow<HistoryUiState> =
-      combine(library.recordings, pendingDeletes, failure) { nights, pending, error ->
+      combine(library.recordings, pendingDeletes, failure) { list, pending, error ->
             HistoryUiState(
-                items = nights.filterNot { it.localId == null && it.remoteId in pending },
+                items = list.filterNot { it.localId == null && it.remoteId in pending },
                 error = error,
             )
           }

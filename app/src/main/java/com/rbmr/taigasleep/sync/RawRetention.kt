@@ -63,17 +63,17 @@ internal object RawRetention {
         val mode = UploadSettings.get(context).rawRetention.value
         if (mode == RawRetentionMode.NEVER) return@withContext
         val store = context.appContainer.uploadStore
-        val sessions = context.appContainer.recordingStore
+        val recordings = context.appContainer.recordingStore
         var changed = false
-        for (session in sessions.list()) {
-          if (session.state == RecordingPhase.RECORDING) continue
-          val record = store.record(session.id) ?: continue
+        for (recording in recordings.list()) {
+          if (recording.state == RecordingPhase.RECORDING) continue
+          val record = store.record(recording.id) ?: continue
           if (record.keepRawOnPhone) continue
           val confirmedAt = record.uploadConfirmedAt() ?: continue
           if (!isRawCleanupDue(mode, confirmedAt, nowMs)) continue
           val trimmed =
               runCatching {
-                    trim(session.dir, sessions.lastFrameMs(session.dir))
+                    trim(recording.dir, recordings.lastFrameMs(recording.dir))
                     true
                   }
                   .getOrDefault(false)
@@ -89,15 +89,15 @@ internal object RawRetention {
    */
   suspend fun deleteRaw(context: Context, localId: String): RawActionResult =
       withContext(Dispatchers.IO) {
-        val sessions = context.appContainer.recordingStore
-        val dir = sessions.dir(localId)
+        val recordings = context.appContainer.recordingStore
+        val dir = recordings.dir(localId)
         val meta = RecordingMeta.read(dir) ?: return@withContext RawActionResult.NothingToDelete
         if (meta.state == RecordingPhase.RECORDING) return@withContext RawActionResult.Recording
         val record = context.appContainer.uploadStore.record(localId)
         if (record?.uploadConfirmedAt() == null) return@withContext RawActionResult.NotUploaded
         if (!hasStreams(dir)) return@withContext RawActionResult.NothingToDelete
         try {
-          trim(dir, sessions.lastFrameMs(dir))
+          trim(dir, recordings.lastFrameMs(dir))
           RecordingRepository.refreshRecordings(context)
           RawActionResult.Done
         } catch (e: IOException) {
@@ -117,8 +117,8 @@ internal object RawRetention {
       onProgress: (Float) -> Unit = {},
   ): Result<Unit> =
       withContext(Dispatchers.IO) {
-        val sessions = context.appContainer.recordingStore
-        val dir = sessions.dir(localId)
+        val recordings = context.appContainer.recordingStore
+        val dir = recordings.dir(localId)
         val meta = RecordingMeta.read(dir)
         if (meta == null) {
           return@withContext Result.failure(

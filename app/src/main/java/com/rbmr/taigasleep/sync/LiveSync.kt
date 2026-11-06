@@ -56,10 +56,10 @@ class LiveSync(
 ) {
   /** Suspends until cancelled. */
   suspend fun run() {
-    gate.collectLatest { account -> if (account != null) session() }
+    gate.collectLatest { account -> if (account != null) stream() }
   }
 
-  private suspend fun session() {
+  private suspend fun stream() {
     try {
       coroutineScope {
         val queue = SyncQueue(target, refreshIntervalMs, clock, sleep)

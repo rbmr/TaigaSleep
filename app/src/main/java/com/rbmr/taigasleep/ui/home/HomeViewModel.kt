@@ -34,7 +34,7 @@ interface HomeWork {
   fun restoreLast(canConnect: Boolean)
 
   /** The remembered configuration of this tracker: its streams, the modes they allow and the choice. */
-  fun savedConfig(sensor: SleepSensor): NightConfig
+  fun savedConfig(sensor: SleepSensor): RecordingConfig
 
   fun setEcg(sensorId: String, on: Boolean)
 
@@ -45,7 +45,7 @@ interface HomeWork {
   /** The shared answer of the preventing-shutdown flow for a recording mode. */
   fun guard(mode: RecordingMode): HomeState
 
-  fun start(config: NightConfig)
+  fun start(config: RecordingConfig)
 
   fun stop()
 
@@ -75,11 +75,11 @@ class HomeViewModel(
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
   private var current: SleepSensor? = null
   private var tracker: TrackerView? = null
-  private var config: NightConfig? = null
+  private var config: RecordingConfig? = null
   private var guard: HomeState = HomeState.NEEDS_SETTINGS
   private var configuring = false
   private var picker = SensorPicker()
-  private var session = CaptureStatus()
+  private var capture = CaptureStatus()
   private var watching: Job? = null
 
   private val _state = MutableStateFlow<HomeUiState>(HomeUiState.NoTracker(guard))
@@ -88,7 +88,7 @@ class HomeViewModel(
   init {
     scope.launch {
       status.collect {
-        session = it
+        capture = it
         emit()
       }
     }
@@ -243,6 +243,6 @@ class HomeViewModel(
   }
 
   private fun emit() {
-    _state.value = homeState(session, tracker, config, guard, configuring, picker)
+    _state.value = homeState(capture, tracker, config, guard, configuring, picker)
   }
 }

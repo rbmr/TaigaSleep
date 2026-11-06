@@ -178,11 +178,11 @@ fun buildRecordings(
 ): List<RecordingView> {
   val byId = remote?.items?.associateBy { it.recording.id }.orEmpty()
   val localIds = recordings.map { it.id }.toSet()
-  val nights = mutableListOf<RecordingView>()
+  val merged = mutableListOf<RecordingView>()
   for (recording in recordings) {
     val hidden = recording.id in hiddenRemoteIds
-    nights +=
-        buildNight(
+    merged +=
+        buildRecording(
             key = recording.id,
             local = recording,
             summary = byId[recording.id].takeUnless { hidden },
@@ -196,8 +196,8 @@ fun buildRecordings(
     if (summary.recording.id in localIds) continue
     if (summary.recording.id in hiddenRemoteIds) continue
     val key = remoteKey(summary.recording.id)
-    nights +=
-        buildNight(
+    merged +=
+        buildRecording(
             key = key,
             local = null,
             summary = summary,
@@ -210,9 +210,9 @@ fun buildRecordings(
   // A recording opened directly by its recording id can be fresh before the next History refresh.
   for ((key, override) in overrides) {
     if (recordingIdOf(key) in hiddenRemoteIds) continue
-    if (nights.none { it.key == key }) {
-      nights +=
-          buildNight(
+    if (merged.none { it.key == key }) {
+      merged +=
+          buildRecording(
               key = key,
               local = null,
               summary = null,
@@ -223,7 +223,7 @@ fun buildRecordings(
           )
     }
   }
-  return nights.sortedWith(compareByDescending<RecordingView> { it.startUtcMs }.thenBy { it.device })
+  return merged.sortedWith(compareByDescending<RecordingView> { it.startUtcMs }.thenBy { it.device })
 }
 
 /** A fresh recording and analysis list from the server, kept only for the current process. */
@@ -232,7 +232,7 @@ data class RemoteOverride(
     val runs: List<Analysis>,
 )
 
-private fun buildNight(
+private fun buildRecording(
     key: String,
     local: Recording?,
     summary: RecordingSummaryDto?,

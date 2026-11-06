@@ -13,7 +13,7 @@ import com.rbmr.taigasleep.ui.components.SleepStagesChart
 
 /** Every sheet and dialog of the recording screen, drawn over the body it belongs to. */
 @Composable
-internal fun NightOverlays(
+internal fun RecordingOverlays(
     state: RecordingDetailUiState,
     showQuality: Boolean,
     showSleepScore: Boolean,
@@ -81,7 +81,7 @@ internal fun NightOverlays(
   }
   metric?.let { spec -> MetricSheet(spec = spec, onDismiss = onDismissMetric) }
 
-  if (showAnalysis && state.night != null) {
+  if (showAnalysis && state.recording != null) {
     AnalysisSheet(
         runs = state.analyses,
         selectedId = state.selectedAnalysisId,

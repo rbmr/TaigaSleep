@@ -16,7 +16,7 @@ import java.io.File
  * types. Everything here already exists in `recording` and `sync`; this only names the calls the
  * screen makes.
  */
-interface NightWork {
+interface RecordingWork {
   suspend fun refreshRecordings()
 
   fun upload(localId: String)
@@ -55,7 +55,7 @@ class RecordingDetailFactory(
     val store = app.appContainer.recordingStore
     val sync = app.appContainer.syncService
     val work =
-        object : NightWork {
+        object : RecordingWork {
           override suspend fun refreshRecordings() {
             RecordingRepository.refreshRecordings(app)
           }
@@ -86,14 +86,14 @@ class RecordingDetailFactory(
               RecordingStore.RAW_FILES.sumOf { File(store.dir(localId), it).length() }
         }
     return RecordingDetailViewModel(
-        key = localId ?: remoteId?.let { "remote-$it" } ?: analysisId ?: "night",
+        key = localId ?: remoteId?.let { "remote-$it" } ?: analysisId ?: "recording",
         localId = localId,
         remoteId = remoteId,
         analysisId = analysisId,
         library = app.appContainer.recordingLibrary,
         work = work,
         texts =
-            NightTexts(
+            RecordingTexts(
                 loadFailed = app.getString(R.string.night_load_failed),
                 loginError = app.getString(R.string.upload_error_login),
                 rawRestoreFailed = app.getString(R.string.night_raw_restore_failed),
