@@ -14,7 +14,7 @@ import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.tracker.SystemClockSource
 
 /**
- * Fires every few minutes while a session is active and restarts the service if it, or its
+ * Fires every few minutes while a recording is active and restarts the service if it, or its
  * heartbeat, is gone. Works in "Unrestricted" and "Optimized" battery modes; the readiness gate
  * exists because it does not work in "Restricted".
  */

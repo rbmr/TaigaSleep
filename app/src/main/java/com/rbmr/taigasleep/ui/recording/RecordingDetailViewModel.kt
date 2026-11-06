@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * The screen's state holder. It follows the night in the library, loads the cached result and the
+ * The screen's state holder. It follows the recording in the library, loads the cached result and the
  * server's copy, and runs the actions of the screen. Nothing here draws.
  */
 class RecordingDetailViewModel(
@@ -58,7 +58,7 @@ class RecordingDetailViewModel(
         _state.update { it.copy(night = night, canExport = canExportOf(night)) }
         if (night != null) {
           followSelectedResult(night)
-          // The raw files appear and go behind the sheet, so its size follows the night.
+          // The raw files appear and go behind the sheet, so its size follows the recording.
           if (_state.value.showDetails) readRawSize()
         }
       }
@@ -73,7 +73,7 @@ class RecordingDetailViewModel(
     }
   }
 
-  /** The screen was shown: read the night and its result now. */
+  /** The screen was shown: read the recording and its result now. */
   fun refresh() = load()
 
   fun upload() {
@@ -123,7 +123,7 @@ class RecordingDetailViewModel(
     }
   }
 
-  /** The analysis sheet was opened: ask which algorithms this night can feed. */
+  /** The analysis sheet was opened: ask which algorithms this recording can feed. */
   fun loadAlgorithms() {
     val night = _state.value.night ?: return
     _state.update { it.copy(algorithmsLoading = true, algorithmsError = null) }
@@ -158,7 +158,7 @@ class RecordingDetailViewModel(
     }
   }
 
-  /** Restore the raw files of this night from the server, without exporting anything. */
+  /** Restore the raw files of this recording from the server, without exporting anything. */
   fun downloadRaw() {
     val id = _state.value.local?.id ?: localId ?: return
     val server = _state.value.remoteId ?: return
@@ -172,7 +172,7 @@ class RecordingDetailViewModel(
     }
   }
 
-  /** Remove the raw files of this night from the phone; the metadata and the server copy stay. */
+  /** Remove the raw files of this recording from the phone; the metadata and the server copy stay. */
   fun deleteRaw() {
     val id = _state.value.local?.id ?: localId ?: return
     _state.update { it.copy(actionError = null) }
@@ -191,7 +191,7 @@ class RecordingDetailViewModel(
     }
   }
 
-  /** Delete the night everywhere it exists, then leave the screen. */
+  /** Delete the recording everywhere it exists, then leave the screen. */
   fun delete() {
     _state.update { it.copy(showDetails = false) }
     work.delete(_state.value.local?.id ?: localId, _state.value.remoteId ?: remoteId)
@@ -216,7 +216,7 @@ class RecordingDetailViewModel(
     scope.cancel()
   }
 
-  /** Re-read the night and its result: the library, then the server when the account allows it. */
+  /** Re-read the recording and its result: the library, then the server when the account allows it. */
   private fun load() {
     loadJob?.cancel()
     loadJob =
@@ -284,7 +284,7 @@ class RecordingDetailViewModel(
       }
     }
     // A run this phone does not have yet is read from the server, as a changed selection always
-    // was. The first night is left to the load that opened the screen.
+    // was. The first recording is left to the load that opened the screen.
     if (!first && cached == null && _state.value.connected) load()
   }
 

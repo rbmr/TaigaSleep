@@ -2,7 +2,7 @@ package com.rbmr.taigasleep.recording
 
 /** Formatting for live values. Shared by the active screen and the notification. */
 object RecordingFormat {
-  /** `h:mm:ss`, for a session duration or an elapsed timer. */
+  /** `h:mm:ss`, for a recording duration or an elapsed timer. */
   fun elapsed(ms: Long): String {
     val s = (ms / 1000).coerceAtLeast(0)
     return "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60)

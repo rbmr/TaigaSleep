@@ -30,7 +30,7 @@ import com.rbmr.taigasleep.library.AnalysisOrigin
 import com.rbmr.taigasleep.library.AnalysisStatus
 import com.rbmr.taigasleep.ui.theme.taiga
 
-/** Which result of this night is shown, and which other algorithm can be asked for. */
+/** Which result of this recording is shown, and which other algorithm can be asked for. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AnalysisSheet(

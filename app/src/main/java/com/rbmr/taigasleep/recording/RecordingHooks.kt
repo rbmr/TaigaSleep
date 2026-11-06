@@ -17,7 +17,7 @@ interface RecordingHooks {
   fun mayStart(context: Context, mode: RecordingMode): Boolean
 
   /**
-   * One line naming the phone settings that decide whether a night survives (battery optimisation,
+   * One line naming the phone settings that decide whether a recording survives (battery optimisation,
    * standby bucket, background restriction). It is written to the recording's events when they
    * change, so two equal lines mean equal settings.
    */

@@ -12,14 +12,14 @@ import kotlinx.coroutines.withContext
  *
  * Each function does what its call site did before it existed, in the same order. A finished
  * recording gets its durable state and is queued; an explicit request is sent and remembered before
- * the night is read back; a delete stops the queue before the files go. The rules themselves did not
+ * the recording is read back; a delete stops the queue before the files go. The rules themselves did not
  * move: the queue, the retention policy and the server calls are the pieces that already existed,
  * and this only names the sequence.
  *
  * The app builds it once per process with [of]; the tests give it a fake [SyncEnvironment].
  */
 class SyncService internal constructor(private val environment: SyncEnvironment) {
-  /** The durable sync state of every recording, as History and the night screen observe it. */
+  /** The durable sync state of every recording, as History and the recording screen observe it. */
   val records: StateFlow<Map<String, UploadRecord>> = environment.records
 
   /**
@@ -34,12 +34,12 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
     environment.enqueueAuto(id)
   }
 
-  /** The user asked for this night to go to the server now; the automatic policy does not apply. */
+  /** The user asked for this recording to go to the server now; the automatic policy does not apply. */
   fun uploadNow(id: String) = environment.enqueueManual(id)
 
   /**
    * Ask the server for analyses of [id]. An explicit [algorithm] asks for that stager alone; without
-   * one the preferred compatible stager is used. The runs are remembered as manual and the night as
+   * one the preferred compatible stager is used. The runs are remembered as manual and the recording as
    * processing before the caller reads it back, so the new run is visible as soon as it is queued.
    */
   suspend fun requestAnalysis(
@@ -81,15 +81,15 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
 
   /**
    * Ask again for a failed analysis, or for one when none exists yet. [analysisId] is the run the
-   * screen is showing, so a night with several analyses retries the one the user is looking at.
+   * screen is showing, so a recording with several analyses retries the one the user is looking at.
    */
   suspend fun retryAnalysis(id: String, analysisId: String? = null): Result<Unit> =
       environment.retry(id, analysisId)
 
   /**
-   * Delete a night everywhere it exists. The upload queue stops first, so no worker writes the files
+   * Delete a recording everywhere it exists. The upload queue stops first, so no worker writes the files
    * that are about to go; [id] is the phone's recording id and [remoteId] its server id, which the
-   * caller has both of and which are the same for a night this phone uploaded.
+   * caller has both of and which are the same for a recording this phone uploaded.
    */
   fun delete(id: String?, remoteId: String? = null) {
     if (id != null) environment.cancelUploads(id)
@@ -97,7 +97,7 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
   }
 
   /**
-   * The server no longer has this recording. A night that was waiting for its analysis is marked
+   * The server no longer has this recording. A recording that was waiting for its analysis is marked
    * failed instead of processing for ever; every other state stays what it is.
    */
   fun recordingGone(id: String, detail: String? = null) {
@@ -112,7 +112,7 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
   }
 
   /**
-   * Read one night and its analyses from the server and store what it says. [preferred] are
+   * Read one recording and its analyses from the server and store what it says. [preferred] are
    * analysis ids in order of preference, for example the run the user selected.
    */
   suspend fun refresh(
@@ -135,14 +135,14 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
         }
       }
 
-  /** Apply the raw-retention policy to every uploaded night whose cleanup time has passed. */
+  /** Apply the raw-retention policy to every uploaded recording whose cleanup time has passed. */
   suspend fun enforceRawRetention() = environment.enforceRawRetention()
 
-  /** Download this night's raw files again; the server inflates its compressed copy. */
+  /** Download this recording's raw files again; the server inflates its compressed copy. */
   suspend fun downloadRaw(id: String, onProgress: (Float) -> Unit = {}): Result<Unit> =
       environment.restoreRaw(id, onProgress)
 
-  /** Remove this night's raw files from this phone now; the server copy stays. */
+  /** Remove this recording's raw files from this phone now; the server copy stays. */
   suspend fun deleteRaw(id: String): RawActionResult = environment.deleteRaw(id)
 
   /** The algorithms the server reports, or the failure to read them. */

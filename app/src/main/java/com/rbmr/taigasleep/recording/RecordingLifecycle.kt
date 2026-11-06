@@ -23,7 +23,7 @@ sealed interface LifecycleEffect {
   /** Ask the tracker to stop without waiting for it. */
   data object StopStreamsAsync : LifecycleEffect
 
-  /** Download the recording the tracker made, now that the night is over. */
+  /** Download the recording the tracker made, now that the recording is over. */
   data object FetchFromTracker : LifecycleEffect
 
   /** Add the final "stop"/"force_stop" event and write the final meta.json state. */

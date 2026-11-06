@@ -21,7 +21,7 @@ import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaCard
 
 /**
- * The one card a night that is not ready gets: processing, uploading, failed or only on the phone.
+ * The one card a recording that is not ready gets: processing, uploading, failed or only on the phone.
  * Each state names the one action that makes sense for it.
  */
 internal fun LazyListScope.statusCards(

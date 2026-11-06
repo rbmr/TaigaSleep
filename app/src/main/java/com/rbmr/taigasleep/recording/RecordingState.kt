@@ -14,7 +14,7 @@ data class RecordingState(
     val capture: Capture = Capture(),
     val link: Link = Link(),
     val contact: Contact = Contact(),
-    /** Only the streams enabled in the session config. */
+    /** Only the streams enabled in the recording config. */
     val streams: Map<StreamKind, Stream> = emptyMap(),
     val heart: Heart = Heart(),
     val quality: Quality = Quality(),

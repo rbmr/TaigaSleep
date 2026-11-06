@@ -101,7 +101,7 @@ fun HomeScreen(onGuidanceClick: () -> Unit) {
   val readinessLongClick: (() -> Unit)? =
       if (DebugTools.GUIDANCE_PREVIEW) ({ showPreviewPicker = true }) else null
 
-  // On first show: mark sessions a dead process left behind, and reconnect the remembered sensor.
+  // On first show: mark recordings a dead process left behind, and reconnect the remembered sensor.
   LaunchedEffect(Unit) { viewModel.onFirstShow() }
   // The user may have changed the battery settings in the system UI or in the flow.
   LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshGuard() }

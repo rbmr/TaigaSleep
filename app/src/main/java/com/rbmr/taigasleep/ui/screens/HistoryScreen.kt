@@ -45,7 +45,7 @@ import com.rbmr.taigasleep.ui.history.HistoryViewModel
 
 /**
  * The list shows what the user has: one line of status, one result summary, and nothing to operate.
- * Opening a night is the only action here; retry, export and delete live in the night screen.
+ * Opening a recording is the only action here; retry, export and delete live in the recording screen.
  *
  * The screen only draws the state its view model holds (see [HistoryViewModel]).
  */

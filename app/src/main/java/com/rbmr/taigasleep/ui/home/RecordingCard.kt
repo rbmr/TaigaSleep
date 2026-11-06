@@ -17,7 +17,7 @@ import com.rbmr.taigasleep.ui.components.StatusBanner
 import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaCard
 
-/** The live numbers of a running night: time, link, battery, streams and the one thing to fix. */
+/** The live numbers of a running recording: time, link, battery, streams and the one thing to fix. */
 @Composable
 internal fun RecordingCard(status: CaptureStatus) {
   val state = status.state

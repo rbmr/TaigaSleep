@@ -26,7 +26,7 @@ data class CaptureStatus(
     val liveStreaming: Boolean = true,
     /** The one live snapshot; the UI and the notification only format it. */
     val state: RecordingState = RecordingState(),
-    /** Why the last start was refused or the session ended abnormally. */
+    /** Why the last start was refused or the recording ended abnormally. */
     val error: String? = null,
 )
 
@@ -44,12 +44,12 @@ object RecordingRepository {
     _status.value = CaptureStatus(error = error)
   }
 
-  /** Re-reads the session list from disk (cheap for the handful of nights kept on the phone). */
+  /** Re-reads the recording list from disk (cheap for the handful of recordings kept on the phone). */
   fun refreshRecordings(context: Context) {
     _sessions.value = context.appContainer.recordingStore.list()
   }
 
-  /** On app start: sessions left in `recording` with no live service become `interrupted`. */
+  /** On app start: recordings left in `recording` with no live service become `interrupted`. */
   fun reconcile(context: Context) {
     if (RecordingService.running) return
     val prefs = RecordingPrefs.get(context)

@@ -5,12 +5,12 @@ import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.TaigaClient
 import com.rbmr.taigasleep.backend.TaigaHttpException
 
-/** One recording as the server has it right now, and the analysis its night shows. */
+/** One recording as the server has it right now, and the analysis its recording shows. */
 class RecordingSnapshot(
     val recording: RecordingDto,
     val analyses: List<AnalysisDto>,
     /**
-     * The analysis the night shows, with its full result when it succeeded. Null when the recording
+     * The analysis the recording shows, with its full result when it succeeded. Null when the recording
      * has no analysis.
      */
     val shown: AnalysisDto?,
@@ -18,12 +18,12 @@ class RecordingSnapshot(
 
 /**
  * Brings the app's stored view of one recording in line with the server, once. This is what runs
- * when the event stream says a recording changed, when it (re)connects, and when a night is opened.
+ * when the event stream says a recording changed, when it (re)connects, and when a recording is opened.
  * It is a plain read-and-store, never a loop: nothing waits for an analysis to finish.
  *
- * The analysis a night shows is [chooseAnalysis]. A succeeded one has its full result saved in the
- * [ResultCache] and the night becomes done; a failed one marks the night failed; one that is queued
- * or running leaves it processing. A night whose analysis is gone (deleted, or replaced by a retry
+ * The analysis a recording shows is [chooseAnalysis]. A succeeded one has its full result saved in the
+ * [ResultCache] and the recording becomes done; a failed one marks the recording failed; one that is queued
+ * or running leaves it processing. A recording whose analysis is gone (deleted, or replaced by a retry
  * under a new id) follows what the recording lists now.
  */
 class AnalysisSync(
@@ -32,7 +32,7 @@ class AnalysisSync(
     private val results: ResultCache,
 ) {
   /**
-   * Reads [recordingId] and writes what it says for the night [key]. [preferred] are analysis ids in
+   * Reads [recordingId] and writes what it says for the recording [key]. [preferred] are analysis ids in
    * order of preference, for example the one the user selected; ids the server no longer lists are
    * skipped. A [TaigaHttpException] (a 404 means the recording itself is gone) and the other
    * transport failures are the caller's to handle.

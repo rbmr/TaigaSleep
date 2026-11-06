@@ -46,7 +46,7 @@ class UploadWorker(
         } catch (e: CancellationException) {
           throw e
         } catch (_: Exception) {
-          return retryOrFail(store, localId, UploadFailure.NETWORK, "could not verify the session")
+          return retryOrFail(store, localId, UploadFailure.NETWORK, "could not verify the recording")
         }
     when (verified) {
       null -> {
@@ -125,9 +125,9 @@ class UploadWorker(
       store.markProcessing(localId)
       // The server has the bytes now, so an immediate or overdue cleanup may run.
       RawRetention.enforce(context)
-      // The night stays in the processing state and nothing waits for it: while the app is open the
+      // The recording stays in the processing state and nothing waits for it: while the app is open the
       // event stream reports the result, otherwise the next open reads it. With automatic analysis
-      // off (started is null) the night is only stored and can be analysed manually.
+      // off (started is null) the recording is only stored and can be analysed manually.
       Result.success()
     } catch (e: TaigaUnauthorizedException) {
       remote.logout()

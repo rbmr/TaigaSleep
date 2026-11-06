@@ -3,7 +3,7 @@ package com.rbmr.taigasleep.library
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 
-/** A night that has to be read from the server again. [analysisId] is the run it shows. */
+/** A recording that has to be read from the server again. [analysisId] is the run it shows. */
 internal data class PendingRecording(
     val key: String,
     val recordingId: String,
@@ -11,17 +11,17 @@ internal data class PendingRecording(
 )
 
 /**
- * The nights a reconcile has to read from the server: those whose analysis is not settled in the
- * app. [nights] is what the app shows after the History list was just fetched, [records] what it
- * stored per night key. A night on the server is pending when
+ * The recordings a reconcile has to read from the server: those whose analysis is not settled in the
+ * app. [recordings] is what the app shows after the History list was just fetched, [records] what it
+ * stored per recording key. A recording on the server is pending when
  *
  * - one of its runs is queued or running;
  * - its stored sync state still says processing while the server lists a run: it may have
- *   finished or failed while the app was closed. A night uploaded with automatic analysis off has
+ *   finished or failed while the app was closed. A recording uploaded with automatic analysis off has
  *   no run and is left alone;
  * - the run it shows succeeded and its result is not on this phone yet.
  *
- * A night the server has not sealed is still uploading and is not read.
+ * A recording the server has not sealed is still uploading and is not read.
  */
 internal fun pendingRecordings(
     nights: List<RecordingView>,
@@ -35,9 +35,9 @@ internal fun pendingRecordings(
           night.analyses.any {
             it.status == AnalysisStatus.QUEUED || it.status == AnalysisStatus.RUNNING
           }
-      // A run the server lists may have changed while the app was closed. A night the list does not
+      // A run the server lists may have changed while the app was closed. A recording the list does not
       // reach is read by its own id, because the app no longer remembers the run it asked for. A
-      // night in the list with no run has no analysis to settle, which is what automatic analysis
+      // recording in the list with no run has no analysis to settle, which is what automatic analysis
       // off leaves behind, and is not read again.
       val unsettled =
           record?.phase == UploadPhase.PROCESSING &&

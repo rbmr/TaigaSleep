@@ -24,7 +24,7 @@ data class StorageHealth(
 )
 
 /**
- * Owns one session directory: meta.json, events.jsonl and the stream logs. It encodes and appends
+ * Owns one recording directory: meta.json, events.jsonl and the stream logs. It encodes and appends
  * frames in the v1 format, fsyncs on a cadence and exposes [storageHealth]. It derives nothing:
  * contact, rates, staleness and quality belong to [RecordingMonitor].
  *
@@ -191,10 +191,10 @@ private constructor(
     const val SYNC_INTERVAL_MS = 30_000L
     private const val MAX_ERROR_EVENTS = 50
 
-    /** Starts a new session directory under [root]; meta.json is written with state recording. */
+    /** Starts a new recording directory under [root]; meta.json is written with state recording. */
     fun create(root: File, meta: RecordingMeta, clock: Clock): RecordingWriter {
       val dir = File(root, meta.recordingId)
-      check(dir.mkdirs()) { "session dir exists: ${meta.recordingId}" }
+      check(dir.mkdirs()) { "recording dir exists: ${meta.recordingId}" }
       meta.write(dir)
       return RecordingWriter(dir, meta, clock).also {
         it.openLogs()
@@ -203,7 +203,7 @@ private constructor(
     }
 
     /**
-     * Reopens an unfinished session: truncates each log to its last valid frame and flips the state
+     * Reopens an unfinished recording: truncates each log to its last valid frame and flips the state
      * back to recording. Returns null if the directory has no readable meta.json.
      */
     fun resume(dir: File, clock: Clock, message: String): RecordingWriter? {

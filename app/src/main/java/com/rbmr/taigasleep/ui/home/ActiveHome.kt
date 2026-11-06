@@ -94,7 +94,7 @@ private fun Note(res: Int) {
   )
 }
 
-/** The confirmation that stands between a tap and ending the night one of three ways. */
+/** The confirmation that stands between a tap and ending the recording one of three ways. */
 @Composable
 internal fun ConfirmDialog(action: StopAction, onDismiss: () -> Unit, onConfirm: () -> Unit) {
   val (title, body, label) =

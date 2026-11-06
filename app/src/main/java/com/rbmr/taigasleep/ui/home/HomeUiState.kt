@@ -44,18 +44,18 @@ data class SensorPicker(
 /**
  * The start flow of docs/architecture.md as named states: connect a tracker ([NoTracker],
  * [Connecting]), configure what to record ([Configure]), the preventing-shutdown flow when the
- * mode needs it ([NeedsGuard]), start ([ReadyToStart]) and the night itself ([Recording]).
+ * mode needs it ([NeedsGuard]), start ([ReadyToStart]) and the recording itself ([Recording]).
  *
  * The states are produced by [homeState], a pure function of the tracker, the chosen configuration,
  * the readiness answer and the recording state.
  */
 sealed interface HomeUiState {
-  /** The preventing-shutdown answer the readiness card shows; null while a night is running. */
+  /** The preventing-shutdown answer the readiness card shows; null while a recording is running. */
   val guard: HomeState?
 
   val picker: SensorPicker
 
-  /** Why the last start was refused or the last session ended abnormally. */
+  /** Why the last start was refused or the last recording ended abnormally. */
   val error: String?
 
   /** No tracker has been selected yet. */
@@ -82,7 +82,7 @@ sealed interface HomeUiState {
       override val error: String? = null,
   ) : HomeUiState
 
-  /** Connected, recording mode Stream, and the phone is not ready for a night yet. */
+  /** Connected, recording mode Stream, and the phone is not ready for a recording yet. */
   data class NeedsGuard(
       val tracker: TrackerView,
       val config: NightConfig,
@@ -93,7 +93,7 @@ sealed interface HomeUiState {
       get() = HomeState.NEEDS_SETTINGS
   }
 
-  /** Connected and ready: the night can start. */
+  /** Connected and ready: the recording can start. */
   data class ReadyToStart(
       val tracker: TrackerView,
       val config: NightConfig,
@@ -102,7 +102,7 @@ sealed interface HomeUiState {
       override val error: String? = null,
   ) : HomeUiState
 
-  /** A night is running, with the three ways to end it. */
+  /** A recording is running, with the three ways to end it. */
   data class Recording(
       val status: CaptureStatus,
       override val picker: SensorPicker = SensorPicker(),
@@ -113,7 +113,7 @@ sealed interface HomeUiState {
     override val error: String?
       get() = null
 
-    /** The mode the running night was started with; the service reports whether it streams. */
+    /** The mode the running recording was started with; the service reports whether it streams. */
     val mode: RecordingMode
       get() = if (status.liveStreaming) RecordingMode.STREAM else RecordingMode.ON_DEVICE
 

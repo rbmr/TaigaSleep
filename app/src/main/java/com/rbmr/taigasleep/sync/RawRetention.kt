@@ -84,7 +84,7 @@ internal object RawRetention {
 
   /**
    * The explicit exception: remove the raw files of one uploaded recording right now. Metadata,
-   * analysis and the server copy stay, so the night remains in History and the raw files can be
+   * analysis and the server copy stay, so the recording remains in History and the raw files can be
    * downloaded again.
    */
   suspend fun deleteRaw(context: Context, localId: String): RawActionResult =
@@ -108,7 +108,7 @@ internal object RawRetention {
   /**
    * The other explicit exception: download the raw files of one uploaded recording again. The
    * server inflates its compressed copy, so the files written here are the original streams.
-   * A restored night is protected from automatic cleanup until the user deletes it explicitly.
+   * A restored recording is protected from automatic cleanup until the user deletes it explicitly.
    */
   suspend fun restore(
       context: Context,
@@ -194,7 +194,7 @@ internal object RawRetention {
 
   /**
    * Deletes the raw streams after making sure the end time is in meta.json, because the last HR
-   * frame is where an unfinished night used to get its end time from.
+   * frame is where an unfinished recording used to get its end time from.
    */
   private fun trim(dir: File, lastFrameMs: Long?) {
     val meta = RecordingMeta.read(dir)

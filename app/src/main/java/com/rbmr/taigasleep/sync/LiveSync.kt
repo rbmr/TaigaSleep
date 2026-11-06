@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 /** What the live stream refreshes. The library's repository is the implementation. */
 interface LiveSyncTarget {
   /**
-   * One refresh of everything that may be out of date: the History list and every night whose
+   * One refresh of everything that may be out of date: the History list and every recording whose
    * analysis is not settled. It runs whenever the stream (re)connects, because events are not
    * replayed.
    */

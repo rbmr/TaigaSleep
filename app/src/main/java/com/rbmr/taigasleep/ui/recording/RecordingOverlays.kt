@@ -11,7 +11,7 @@ import com.rbmr.taigasleep.ui.components.ChartFullscreenDialog
 import com.rbmr.taigasleep.ui.components.HeartRateChart
 import com.rbmr.taigasleep.ui.components.SleepStagesChart
 
-/** Every sheet and dialog of the night screen, drawn over the body it belongs to. */
+/** Every sheet and dialog of the recording screen, drawn over the body it belongs to. */
 @Composable
 internal fun NightOverlays(
     state: RecordingDetailUiState,

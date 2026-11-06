@@ -28,7 +28,7 @@ fun manualChoices(
 ): List<StagerChoice> = selectStagers(config, algorithms, ids)
 
 /**
- * The one place that asks the server for analyses. Uploading and requesting are separate: a night
+ * The one place that asks the server for analyses. Uploading and requesting are separate: a recording
  * can be safely on the server with no analysis, and manual requests can add more later.
  */
 internal object AnalysisService {
@@ -44,7 +44,7 @@ internal object AnalysisService {
     return request(client, recordingId, choice)
   }
 
-  /** A manual retry of a night that has no analysis yet, regardless of the automatic setting. */
+  /** A manual retry of a recording that has no analysis yet, regardless of the automatic setting. */
   suspend fun startPreferred(
       client: TaigaClient,
       recordingId: String,

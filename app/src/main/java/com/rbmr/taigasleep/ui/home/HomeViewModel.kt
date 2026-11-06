@@ -181,7 +181,7 @@ class HomeViewModel(
     work.disconnect()
   }
 
-  /** Start the night with the chosen configuration. */
+  /** Start the recording with the chosen configuration. */
   fun start() {
     val config = config ?: return
     work.start(config)

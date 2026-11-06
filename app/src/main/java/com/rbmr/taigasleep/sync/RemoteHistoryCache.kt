@@ -18,14 +18,14 @@ import kotlinx.serialization.json.Json
 private data class CachedRemoteHistory(
     val accountKey: String = "",
     val recordings: RecordingSummaryListDto = RecordingSummaryListDto(),
-    /** The run each night shows, by night key. */
+    /** The run each recording shows, by recording key. */
     val selected: Map<String, String> = emptyMap(),
 )
 
 /**
- * The last remote recording list per account, so History can still show remote-only nights when the
+ * The last remote recording list per account, so History can still show remote-only recordings when the
  * server is temporarily unreachable. It is replaced on every successful fetch and never shown for
- * a different account. It also remembers which run each night shows, so a chosen analysis survives
+ * a different account. It also remembers which run each recording shows, so a chosen analysis survives
  * a process death without being a fact about the analysis itself.
  *
  * A recording whose server copy is gone is removed for good: [removed] remembers every id a
@@ -54,7 +54,7 @@ class RemoteHistoryCache(private val file: File) {
   }
 
   /**
-   * The run each night shows, by night key, for the account that cached the list. Empty for
+   * The run each recording shows, by recording key, for the account that cached the list. Empty for
    * another account or before the list was ever fetched.
    */
   fun selected(accountKey: String): Map<String, String> {
@@ -63,7 +63,7 @@ class RemoteHistoryCache(private val file: File) {
         .getOrDefault(emptyMap())
   }
 
-  /** Remember the run a night shows. Null forgets it, as when the server no longer has a run. */
+  /** Remember the run a recording shows. Null forgets it, as when the server no longer has a run. */
   fun select(accountKey: String, key: String, analysisId: String?) {
     if (accountKey.isBlank() || key.isBlank()) return
     val cached = runCatching { read() }.getOrNull() ?: return
@@ -83,7 +83,7 @@ class RemoteHistoryCache(private val file: File) {
   /**
    * The server no longer has this recording for this account: it leaves the saved list. With
    * [keepOut] every list fetched afterwards drops it too, which is what a completed delete does; a
-   * night that is still on the phone can be uploaded again, so it is not kept out.
+   * recording that is still on the phone can be uploaded again, so it is not kept out.
    */
   fun remove(accountKey: String, recordingId: String, keepOut: Boolean = true) {
     if (accountKey.isBlank() || recordingId.isBlank()) return

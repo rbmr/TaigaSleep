@@ -67,7 +67,7 @@ internal data class CompressionIndex(
 )
 
 /**
- * The compressed upload cache for one local session.
+ * The compressed upload cache for one local recording.
  *
  * The server only knows the compressed byte offset, so the phone must remember which local byte
  * offset each compressed member ends at. The cache appends every member locally before sending it,

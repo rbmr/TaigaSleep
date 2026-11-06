@@ -16,7 +16,7 @@ enum class ExportPhase {
   ZIPPING,
 }
 
-/** The messages the night screen shows. They come from resources, so the view model has no context. */
+/** The messages the recording screen shows. They come from resources, so the view model has no context. */
 data class NightTexts(
     val loadFailed: String,
     val loginError: String,
@@ -26,7 +26,7 @@ data class NightTexts(
 )
 
 /**
- * Everything the night screen draws, for one night. The night itself and its analyses come from the
+ * Everything the recording screen draws, for one recording. The recording itself and its analyses come from the
  * library; the rest is what the screen has asked for or is waiting on.
  */
 data class RecordingDetailUiState(
@@ -112,7 +112,7 @@ data class RecordingDetailUiState(
   val epochSeconds: Int
     get() = result?.result?.stages?.epoch_seconds ?: night?.epochSeconds ?: 30
 
-  /** The start of the drawn night, from the recording or from the result's timeline. */
+  /** The start of the drawn recording, from the recording or from the result's timeline. */
   val start: Long
     get() = startUtcMs.takeIf { it > 0 } ?: result?.result?.stages?.start_unix_ms ?: 0L
 

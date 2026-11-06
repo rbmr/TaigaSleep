@@ -42,7 +42,7 @@ enum class LogoVariant {
 fun TaigaLogo(
     modifier: Modifier = Modifier,
     variant: LogoVariant = LogoVariant.Sleeping,
-    // Soft aurora light behind the den, used while a night is being recorded.
+    // Soft aurora light behind the den, used while a recording is running.
     glow: Boolean = false,
     contentDescription: String? = null,
 ) {

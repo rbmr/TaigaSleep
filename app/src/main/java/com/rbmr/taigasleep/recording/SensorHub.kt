@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.update
 /**
  * The one sensor the app talks to, shared by the Home screen and the recording service, plus device
  * scanning. The app container owns the one instance so a service restarted by the OS can pick the
- * sensor up again from the session's meta.json.
+ * sensor up again from the recording's meta.json.
  */
 class SensorHub {
   private val _sensor = MutableStateFlow<SleepSensor?>(null)

@@ -41,7 +41,7 @@ internal interface SyncEnvironment {
   /** Whether this id is a recording with a directory on this phone. */
   fun hasRecording(id: String): Boolean
 
-  /** The stream configuration behind a night; a night that is only on the server is HR only. */
+  /** The stream configuration behind a recording; a recording that is only on the server is HR only. */
   fun config(id: String): RecordingConfig
 
   fun enqueueAuto(id: String)

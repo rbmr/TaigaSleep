@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * The one place that turns local recordings, the app's durable night state and the cached server
+ * The one place that turns local recordings, the app's durable recording state and the cached server
  * summaries into [RecordingView] snapshots. The UI reads this and never merges the stores itself.
  *
  * The raw bytes and the analyses stay independent: [RecordingView.backup] says where the bytes are and
@@ -50,7 +50,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
 
   private val remoteSummaries = MutableStateFlow<RecordingSummaryListDto?>(null)
   private val overrides = MutableStateFlow<Map<String, RemoteOverride>>(emptyMap())
-  /** The run each night shows, remembered by the cached History. */
+  /** The run each recording shows, remembered by the cached History. */
   private val selectedAnalyses = MutableStateFlow<Map<String, String>>(emptyMap())
   private var loadedAccount: String? = null
   private var loadedOnce = false
@@ -158,7 +158,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
         }
       }
 
-  /** The stream configuration behind a local night; a remote-only night is treated as HR-only. */
+  /** The stream configuration behind a local recording; a remote-only recording is treated as HR-only. */
   fun configFor(recording: RecordingView): RecordingConfig {
     val local = recording.local ?: return HR_ONLY
     return RecordingMeta.read(local.dir)?.config ?: HR_ONLY
@@ -204,9 +204,9 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   }
 
   /**
-   * Refresh one night's recording and its analyses, once. The fetched analysis list replaces the
+   * Refresh one recording and its analyses, once. The fetched analysis list replaces the
    * cached run summaries for this process, so several analyses are visible immediately, and the
-   * night's stored state, the result cache and the cached History list follow what the server says
+   * recording's stored state, the result cache and the cached History list follow what the server says
    * (see [AnalysisSync]). The selected analysis is read when it is still listed.
    */
   override suspend fun refreshRecording(
@@ -233,16 +233,16 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
         val runs = snapshot.analyses.map { run -> run.toRun(downloaded = results.has(key, run.id)) }
         overrides.update { it + (key to RemoteOverride(snapshot.recording, runs)) }
         rememberSummary(snapshot)
-        // The run the server says this night shows is the remembered one until the user picks
-        // another. A night with no run at all forgets it, as the record used to.
+        // The run the server says this recording shows is the remembered one until the user picks
+        // another. A recording with no run at all forgets it, as the record used to.
         rememberSelected(key, snapshot.shown?.id)
         Result.success(snapshot.shown)
       }
 
   /**
    * One refresh of everything that may be out of date, for when the event stream (re)connects and
-   * the app opens: the History list, then every night whose analysis is not settled (see
-   * [pendingRecordings]), one at a time. A night that finished, failed or vanished while the app
+   * the app opens: the History list, then every recording whose analysis is not settled (see
+   * [pendingRecordings]), one at a time. A recording that finished, failed or vanished while the app
    * was closed is settled here, and a finished result that is not on this phone yet is downloaded.
    */
   override suspend fun reconcile() {
@@ -251,7 +251,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
       if (refreshList().isFailure) return@withContext
       val hidden = hiddenNow()
       val records = sync.records.value
-      // The nights as the screens see them now, with the list that was just fetched. The sessions
+      // The recordings as the screens see them now, with the list that was just fetched. They
       // come from disk: the screens may not have loaded them yet when the app has just opened.
       val current =
           buildRecordings(
@@ -282,7 +282,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   /**
    * The server says the recording no longer exists. Its row leaves History, without a read that
    * would only answer 404, and the saved list drops it so a cold start shows it no more. A local
-   * copy stays, as the local night it is.
+   * copy stays, as the local recording it is.
    */
   override suspend fun recordingDeleted(recordingId: String) {
     withContext(Dispatchers.IO) {
@@ -291,7 +291,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
     }
   }
 
-  /** The night key of a recording: the phone's own id when it has the recording, else the remote key. */
+  /** The key of a recording: the phone's own id when it has the recording, else the remote key. */
   private fun keyFor(recordingId: String): String =
       if (context.appContainer.recordingStore.dir(recordingId).isDirectory) recordingId
       else remoteKey(recordingId)
@@ -321,7 +321,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   }
 
   /**
-   * The run a night shows is remembered with the cached History, not with the recording's sync
+   * The run a recording shows is remembered with the cached History, not with the recording's sync
    * state: which run to show is a property of the row, and the run itself belongs to the server.
    */
   private fun rememberSelected(key: String, analysisId: String?) {
@@ -335,7 +335,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
 
   /**
    * The server says the recording does not exist (any more). It leaves the list, in memory and in
-   * the saved copy, so History cannot keep it with an error. A night that was waiting for its
+   * the saved copy, so History cannot keep it with an error. A recording that was waiting for its
    * analysis is marked failed instead of processing for ever.
    */
   private fun forget(key: String, recordingId: String, cause: TaigaHttpException) {

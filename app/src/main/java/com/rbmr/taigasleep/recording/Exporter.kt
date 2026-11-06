@@ -26,7 +26,7 @@ fun exportSource(hasRaw: Boolean, onServer: Boolean): ExportSource =
       else -> ExportSource.UNAVAILABLE
     }
 
-/** Zips a session into the cache directory on demand and offers it to the share sheet. */
+/** Zips a recording into the cache directory on demand and offers it to the share sheet. */
 object Exporter {
   suspend fun share(
       context: Context,

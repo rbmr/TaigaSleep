@@ -12,7 +12,7 @@ import com.rbmr.taigasleep.sync.RawActionResult
 import java.io.File
 
 /**
- * The work behind the night screen's buttons, behind a port so the view model needs no Android
+ * The work behind the recording screen's buttons, behind a port so the view model needs no Android
  * types. Everything here already exists in `recording` and `sync`; this only names the calls the
  * screen makes.
  */
@@ -40,7 +40,7 @@ interface NightWork {
 }
 
 /**
- * Builds the night screen's view model from the singletons the app already has. The calls live
+ * Builds the recording screen's view model from the singletons the app already has. The calls live
  * here, in the one part of the screen that may reach the stores.
  */
 class RecordingDetailFactory(

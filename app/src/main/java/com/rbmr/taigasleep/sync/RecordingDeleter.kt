@@ -10,7 +10,7 @@ import java.io.File
  * Deletes one recording everywhere. The local copy and cached results go immediately; the remote
  * recording is queued and retried until the server is reachable. A 404 from the server is treated
  * as success, because the only useful meaning is that the recording no longer exists for this
- * account. [remoteId] is the recording id on the server, which is the local id for a night that
+ * account. [remoteId] is the recording id on the server, which is the local id for a recording that
  * was uploaded from this phone.
  *
  * The work queued for the recording is cancelled before this runs, which is [SyncService]'s step.

@@ -17,7 +17,7 @@ data class Recording(
     val dir: File,
     val state: RecordingPhase,
     val startUtcMs: Long,
-    /** End time for finished sessions; for unfinished ones the time of the last HR frame. */
+    /** End time for finished recordings; for unfinished ones the time of the last HR frame. */
     val endUtcMs: Long?,
     val sizeBytes: Long,
     val sensorName: String,
@@ -28,7 +28,7 @@ data class Recording(
     get() = ((endUtcMs ?: startUtcMs) - startUtcMs).coerceAtLeast(0)
 }
 
-/** Lists and manages the session directories under `<external files>/recordings/`. */
+/** Lists and manages the recording directories under `<external files>/recordings/`. */
 class RecordingStore(val root: File) {
   init {
     root.mkdirs()
@@ -89,7 +89,7 @@ class RecordingStore(val root: File) {
   }
 
   /**
-   * Marks every session still in state `recording` (except [liveId]) as `interrupted`: its process
+   * Marks every recording still in state `recording` (except [liveId]) as `interrupted`: its process
    * died and nothing resumed it. Returns the ids that were changed.
    */
   fun markOrphans(liveId: String?): List<String> {
@@ -100,7 +100,7 @@ class RecordingStore(val root: File) {
       val end = lastFrameMs(dir) ?: meta.startUtcMs
       try {
         val now = System.currentTimeMillis() * 1_000_000L
-        EventLog.append(dir, now, 0, "error", "unfinished session found on app start")
+        EventLog.append(dir, now, 0, "error", "unfinished recording found on app start")
         meta.copy(state = RecordingPhase.INTERRUPTED, endUtcMs = end).write(dir)
         changed += meta.recordingId
       } catch (_: java.io.IOException) {}
@@ -110,7 +110,7 @@ class RecordingStore(val root: File) {
 
   fun delete(id: String): Boolean = File(root, id).takeIf { it.isDirectory }?.deleteRecursively() ?: false
 
-  /** Zips the session directory to [out]; the archive is never kept beyond the share. */
+  /** Zips the recording directory to [out]; the archive is never kept beyond the share. */
   fun zip(id: String, out: File, onProgress: (Float) -> Unit = {}) {
     val dir = File(root, id)
     val files =

@@ -27,7 +27,7 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.insights.MetricSpec
 
 /**
- * The night screen: one scaffold that draws [RecordingDetailUiState] and forwards the user's
+ * The recording screen: one scaffold that draws [RecordingDetailUiState] and forwards the user's
  * actions to [RecordingDetailViewModel]. The drawing lives in the files around this one.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,7 +45,7 @@ fun RecordingDetailScreen(
       remember(context, localId, remoteId, analysisId) {
         RecordingDetailFactory(context, localId, remoteId, analysisId)
       }
-  // One view model per night, so opening another night starts from its own state.
+  // One view model per recording, so opening another recording starts from its own state.
   val nightKey = localId ?: remoteId?.let { "remote-$it" } ?: analysisId ?: "night"
   val viewModel: RecordingDetailViewModel = viewModel(key = nightKey, factory = factory)
   val state by viewModel.state.collectAsStateWithLifecycle()
@@ -59,7 +59,7 @@ fun RecordingDetailScreen(
   var showRawDelete by remember { mutableStateOf(false) }
 
   // Every time the screen is shown, including when a stored view model is reused for the same
-  // night: the night may have changed while it was closed.
+  // recording: the recording may have changed while it was closed.
   LaunchedEffect(Unit) { viewModel.refresh() }
   LaunchedEffect(state.closeRequested) { if (state.closeRequested) onBack() }
   LaunchedEffect(state.loginRequested) {

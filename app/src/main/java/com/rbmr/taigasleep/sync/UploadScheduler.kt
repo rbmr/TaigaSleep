@@ -95,7 +95,7 @@ internal object UploadScheduler {
     if (!context.appContainer.remoteRepository.hasSession) return
     local.forEach { session ->
       if (session.state == RecordingPhase.RECORDING) return@forEach
-      // A night that is processing is on the server already; its result comes from the live stream.
+      // A recording that is processing is on the server already; its result comes from the live stream.
       if (store.record(session.id)?.phase == UploadPhase.PROCESSING) return@forEach
       if (settings.enabled) enqueueAuto(context, session.id)
     }
@@ -117,7 +117,7 @@ internal object UploadScheduler {
           }
           val record = store.record(session.id)
           when (record?.phase) {
-            // Results are not polled: a processing night is refreshed by the live sync.
+            // Results are not polled: a processing recording is refreshed by the live sync.
             UploadPhase.DONE,
             UploadPhase.FAILED,
             UploadPhase.PROCESSING -> Unit

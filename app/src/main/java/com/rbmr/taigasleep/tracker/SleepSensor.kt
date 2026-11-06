@@ -85,7 +85,7 @@ interface SampleListener {
   /** A stream problem worth an `error` event (start failure, stream error). */
   fun onError(message: String)
 
-  /** A notable sensor event for the session's events.jsonl (clock set, stream started). */
+  /** A notable sensor event for the recording's events.jsonl (clock set, stream started). */
   fun onNote(type: String, message: String) {}
 }
 
