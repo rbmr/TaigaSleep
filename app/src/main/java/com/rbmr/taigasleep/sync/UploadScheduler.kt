@@ -36,7 +36,7 @@ internal object UploadScheduler {
   fun enqueueAuto(context: Context, localId: String) {
     val settings = UploadSettings.get(context).autoUpload.value
     if (!settings.enabled) return
-    if (!RemoteRepository.of(context).hasSession) return
+    if (!context.appContainer.remoteRepository.hasSession) return
     val store = context.appContainer.uploadStore
     val record = store.record(localId)
     if (record?.phase == UploadPhase.DONE) return
@@ -92,7 +92,7 @@ internal object UploadScheduler {
         store.markQueued(session.id)
       }
     }
-    if (!RemoteRepository.of(context).hasSession) return
+    if (!context.appContainer.remoteRepository.hasSession) return
     local.forEach { session ->
       if (session.state == RecordingPhase.RECORDING) return@forEach
       // A night that is processing is on the server already; its result comes from the live stream.
@@ -107,7 +107,7 @@ internal object UploadScheduler {
    */
   suspend fun reconcile(context: Context) =
       withContext(Dispatchers.IO) {
-        if (!RemoteRepository.of(context).hasSession) return@withContext
+        if (!context.appContainer.remoteRepository.hasSession) return@withContext
         val settings = UploadSettings.get(context).autoUpload.value
         val store = context.appContainer.uploadStore
         for (session in context.appContainer.recordingStore.list()) {

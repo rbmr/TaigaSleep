@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.RemoteStatus
@@ -65,7 +66,7 @@ fun SettingsScreen(
     onRemoteClick: () -> Unit,
 ) {
   val context = LocalContext.current
-  val remoteRepository = remember { RemoteRepository.of(context) }
+  val remoteRepository = remember { context.appContainer.remoteRepository }
   val sync = remember { SyncService.of(context) }
   val remoteStatus by remoteRepository.status.collectAsStateWithLifecycle()
   val uploadSettings = remember { UploadSettings.get(context) }

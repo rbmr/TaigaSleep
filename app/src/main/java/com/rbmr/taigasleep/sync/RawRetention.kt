@@ -130,7 +130,7 @@ internal object RawRetention {
               IllegalStateException("the recording is still in progress")
           )
         }
-        val remote = RemoteRepository.of(context)
+        val remote = context.appContainer.remoteRepository
         val api =
             remote.api()
                 ?: return@withContext Result.failure(IllegalStateException("login required"))

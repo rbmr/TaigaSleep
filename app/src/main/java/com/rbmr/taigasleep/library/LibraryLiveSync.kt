@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.library
 
 import android.content.Context
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.sync.LiveSync
 
@@ -15,7 +16,7 @@ object LibraryLiveSync {
           }
 
   private fun build(context: Context): LiveSync {
-    val remote = RemoteRepository.of(context)
+    val remote = context.appContainer.remoteRepository
     return LiveSync(
         gate = remote.streamAccount,
         events = remote.events(),

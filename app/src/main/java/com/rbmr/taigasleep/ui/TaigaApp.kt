@@ -30,6 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.RemoteError
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.RemoteStatus
@@ -38,13 +39,13 @@ import com.rbmr.taigasleep.guard.GuidanceStore
 import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.ui.components.BottomBarItem
 import com.rbmr.taigasleep.ui.components.TaigaBottomBar
+import com.rbmr.taigasleep.ui.home.HomeScreen
+import com.rbmr.taigasleep.ui.recording.RecordingDetailScreen
 import com.rbmr.taigasleep.ui.screens.AboutScreen
 import com.rbmr.taigasleep.ui.screens.FlowScreen
 import com.rbmr.taigasleep.ui.screens.HistoryScreen
 import com.rbmr.taigasleep.ui.screens.RemoteScreen
 import com.rbmr.taigasleep.ui.screens.SettingsScreen
-import com.rbmr.taigasleep.ui.home.HomeScreen
-import com.rbmr.taigasleep.ui.recording.RecordingDetailScreen
 import com.rbmr.taigasleep.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
 
@@ -70,7 +71,7 @@ fun TaigaApp(
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
   val guidanceStore = remember { GuidanceStore(context) }
-  val remote = remember { RemoteRepository.of(context) }
+  val remote = remember { context.appContainer.remoteRepository }
   val remoteStatus by remote.status.collectAsStateWithLifecycle()
   var showAbout by rememberSaveable { mutableStateOf(false) }
   var showGuidance by rememberSaveable { mutableStateOf(false) }

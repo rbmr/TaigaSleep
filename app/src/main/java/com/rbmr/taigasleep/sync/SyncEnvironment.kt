@@ -101,7 +101,7 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
   private val app = context.applicationContext
   private val state = app.appContainer.uploadStore
   private val settings = UploadSettings.get(app)
-  private val remote = RemoteRepository.of(app)
+  private val remote = app.appContainer.remoteRepository
 
   override val records: StateFlow<Map<String, UploadRecord>> = state.records
 

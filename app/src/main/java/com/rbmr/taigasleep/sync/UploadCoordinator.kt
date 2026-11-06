@@ -35,7 +35,7 @@ internal object UploadCoordinator {
    */
   suspend fun retryAnalysis(context: Context, key: String, analysisId: String?): Result<Unit> =
       withContext(Dispatchers.IO) {
-        val remote = RemoteRepository.of(context)
+        val remote = context.appContainer.remoteRepository
         val verified =
             try {
               remote.verify()

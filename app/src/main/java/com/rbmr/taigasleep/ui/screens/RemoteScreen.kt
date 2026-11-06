@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AddressCheck
 import com.rbmr.taigasleep.backend.CheckResult
 import com.rbmr.taigasleep.backend.RemoteError
@@ -95,7 +96,7 @@ private enum class RemotePage(val titleRes: Int) {
 @Composable
 fun RemoteScreen(onBack: () -> Unit) {
   val context = LocalContext.current
-  val repository = remember { RemoteRepository.of(context) }
+  val repository = remember { context.appContainer.remoteRepository }
   val status by repository.status.collectAsStateWithLifecycle()
   val state by repository.state.collectAsStateWithLifecycle()
   val address by repository.address.collectAsStateWithLifecycle()

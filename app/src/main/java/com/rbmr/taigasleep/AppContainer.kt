@@ -2,6 +2,9 @@ package com.rbmr.taigasleep
 
 import android.app.Application
 import android.content.Context
+import com.rbmr.taigasleep.backend.OkHttpRemoteApi
+import com.rbmr.taigasleep.backend.RemoteRepository
+import com.rbmr.taigasleep.backend.remoteStore
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
 import com.rbmr.taigasleep.sync.UploadStore
@@ -25,6 +28,10 @@ class AppContainer(private val application: Application) {
             application.getSharedPreferences("uploads", Context.MODE_PRIVATE),
         )
     )
+  }
+
+  val remoteRepository: RemoteRepository by lazy {
+    RemoteRepository(store = remoteStore(application), api = OkHttpRemoteApi())
   }
 }
 
