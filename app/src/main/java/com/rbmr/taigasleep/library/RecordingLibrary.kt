@@ -48,7 +48,7 @@ import kotlinx.coroutines.withContext
 class RecordingLibrary private constructor(context: Context) : LiveSyncTarget, NightSource {
   private val context = context.applicationContext
   private val remote = context.appContainer.remoteRepository
-  private val history = RemoteHistoryCache.of(this.context)
+  private val history = context.appContainer.remoteHistoryCache
   private val results = context.appContainer.resultCache
   private val sync = SyncService.of(this.context)
   private val deletes = context.appContainer.pendingDeleteStore

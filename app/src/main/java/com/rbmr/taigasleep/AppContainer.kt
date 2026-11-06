@@ -8,6 +8,7 @@ import com.rbmr.taigasleep.backend.remoteStore
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.PendingDeleteStore
 import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
+import com.rbmr.taigasleep.sync.RemoteHistoryCache
 import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.UploadStore
 import java.io.File
@@ -41,6 +42,12 @@ class AppContainer(private val application: Application) {
   }
 
   val resultCache: ResultCache by lazy { ResultCache(File(application.filesDir, "analysis")) }
+
+  val remoteHistoryCache: RemoteHistoryCache by lazy {
+    // The list of an older app holds session summaries this version cannot read.
+    File(application.filesDir, "history/remote-sessions.json").delete()
+    RemoteHistoryCache(File(application.filesDir, "history/remote-recordings.json"))
+  }
 }
 
 /** The process-wide container, reached from any Context through the application object. */

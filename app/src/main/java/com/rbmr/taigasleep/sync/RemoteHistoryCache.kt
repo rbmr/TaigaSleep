@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.sync
 
 import android.content.Context
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.RecordingSummaryListDto
 import java.io.File
 import java.nio.file.Files
@@ -124,19 +125,7 @@ class RemoteHistoryCache(private val file: File) {
   }
 
   companion object {
-    @Volatile private var instance: RemoteHistoryCache? = null
-
-    fun of(context: Context): RemoteHistoryCache =
-        instance
-            ?: synchronized(this) {
-              instance
-                  ?: RemoteHistoryCache(File(context.filesDir, "history/remote-recordings.json"))
-                      .also {
-                        // The list of an older app holds session summaries this version cannot read.
-                        File(context.filesDir, "history/remote-sessions.json").delete()
-                        instance = it
-                      }
-            }
+    fun of(context: Context): RemoteHistoryCache = context.appContainer.remoteHistoryCache
   }
 }
 
