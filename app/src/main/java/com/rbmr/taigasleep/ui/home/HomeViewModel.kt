@@ -34,7 +34,7 @@ interface HomeWork {
   fun restoreLast(canConnect: Boolean)
 
   /** The remembered configuration of this tracker: its streams, the modes they allow and the choice. */
-  fun savedConfig(sensor: SleepSensor): RecordingConfig
+  fun savedConfig(sensor: SleepSensor): StartConfig
 
   fun setEcg(sensorId: String, on: Boolean)
 
@@ -45,7 +45,7 @@ interface HomeWork {
   /** The shared answer of the preventing-shutdown flow for a recording mode. */
   fun guard(mode: RecordingMode): HomeState
 
-  fun start(config: RecordingConfig)
+  fun start(config: StartConfig)
 
   fun stop()
 
@@ -75,7 +75,7 @@ class HomeViewModel(
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
   private var current: SleepSensor? = null
   private var tracker: TrackerView? = null
-  private var config: RecordingConfig? = null
+  private var config: StartConfig? = null
   private var guard: HomeState = HomeState.NEEDS_SETTINGS
   private var configuring = false
   private var picker = SensorPicker()

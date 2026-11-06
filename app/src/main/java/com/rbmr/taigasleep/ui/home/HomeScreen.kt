@@ -53,7 +53,7 @@ import com.rbmr.taigasleep.ui.components.TaigaLogo
 /** What the inactive stage draws, whichever step of the start flow it is on. */
 private data class InactiveView(
     val tracker: TrackerView?,
-    val config: RecordingConfig?,
+    val config: StartConfig?,
     val guard: HomeState,
     val canStart: Boolean,
     val denied: Boolean,

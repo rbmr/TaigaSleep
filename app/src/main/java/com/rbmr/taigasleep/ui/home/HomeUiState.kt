@@ -14,7 +14,7 @@ data class Streams(val ecg: Boolean = false, val acc: Boolean = false)
  * What the tracker will record and how: the configuration step of the start flow. The mode follows
  * from the tracker and the chosen streams, so both are part of the same answer.
  */
-data class RecordingConfig(
+data class StartConfig(
     val streams: Streams,
     /** The modes this tracker offers for these streams, in the order it reports them. */
     val modes: Set<RecordingMode>,
@@ -76,7 +76,7 @@ sealed interface HomeUiState {
   /** Connected: choosing what to record, which is the sheet the gear opens. */
   data class Configure(
       val tracker: TrackerView,
-      val config: RecordingConfig,
+      val config: StartConfig,
       override val guard: HomeState,
       override val picker: SensorPicker = SensorPicker(),
       override val error: String? = null,
@@ -85,7 +85,7 @@ sealed interface HomeUiState {
   /** Connected, recording mode Stream, and the phone is not ready for a recording yet. */
   data class NeedsGuard(
       val tracker: TrackerView,
-      val config: RecordingConfig,
+      val config: StartConfig,
       override val picker: SensorPicker = SensorPicker(),
       override val error: String? = null,
   ) : HomeUiState {
@@ -96,7 +96,7 @@ sealed interface HomeUiState {
   /** Connected and ready: the recording can start. */
   data class ReadyToStart(
       val tracker: TrackerView,
-      val config: RecordingConfig,
+      val config: StartConfig,
       override val guard: HomeState,
       override val picker: SensorPicker = SensorPicker(),
       override val error: String? = null,
@@ -130,7 +130,7 @@ sealed interface HomeUiState {
 internal fun homeState(
     status: CaptureStatus,
     tracker: TrackerView?,
-    config: RecordingConfig?,
+    config: StartConfig?,
     guard: HomeState,
     configuring: Boolean,
     picker: SensorPicker,
