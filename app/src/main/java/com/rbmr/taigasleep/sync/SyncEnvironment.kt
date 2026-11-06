@@ -189,5 +189,5 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
       recordingId: String,
       preferred: List<String?>,
   ): RecordingSnapshot =
-      AnalysisSync(api, state, ResultCache.of(app)).refresh(id, recordingId, preferred)
+      AnalysisSync(api, state, app.appContainer.resultCache).refresh(id, recordingId, preferred)
 }

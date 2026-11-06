@@ -8,6 +8,7 @@ import com.rbmr.taigasleep.backend.remoteStore
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.PendingDeleteStore
 import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
+import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.UploadStore
 import java.io.File
 
@@ -38,6 +39,8 @@ class AppContainer(private val application: Application) {
   val pendingDeleteStore: PendingDeleteStore by lazy {
     PendingDeleteStore(application.getSharedPreferences("deletes", Context.MODE_PRIVATE))
   }
+
+  val resultCache: ResultCache by lazy { ResultCache(File(application.filesDir, "analysis")) }
 }
 
 /** The process-wide container, reached from any Context through the application object. */
