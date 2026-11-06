@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.guard.GuidanceFlows
 import com.rbmr.taigasleep.guard.GuidanceStore
 import com.rbmr.taigasleep.guard.HomeState
@@ -13,7 +14,6 @@ import com.rbmr.taigasleep.guard.ReadinessState
 import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.RecordingService
-import com.rbmr.taigasleep.recording.SensorHub
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SleepSensor
@@ -36,22 +36,23 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
   @Suppress("UNCHECKED_CAST")
   override fun <T : ViewModel> create(modelClass: Class<T>): T {
     val app = context.applicationContext
+    val sensors = app.appContainer.sensorHub
     val prefs = RecordingPrefs.get(app)
     val guidance = GuidanceStore(app)
     val work =
         object : HomeWork {
-          override val found = SensorHub.found
-          override val scanning = SensorHub.scanning
+          override val found = sensors.found
+          override val scanning = sensors.scanning
 
           override fun onFirstShow() {
             RecordingRepository.reconcile(app)
-            SensorHub.restoreLast(app, canConnect = hasBluetooth(app))
+            sensors.restoreLast(app, canConnect = hasBluetooth(app))
           }
 
           override fun hasBluetooth(): Boolean = hasBluetooth(app)
 
           override fun restoreLast(canConnect: Boolean) {
-            SensorHub.restoreLast(app, canConnect)
+            sensors.restoreLast(app, canConnect)
           }
 
           override fun savedConfig(sensor: SleepSensor): NightConfig = configOf(sensor, prefs)
@@ -72,7 +73,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
               ReadinessState.state(app, guidance, GuidanceFlows.previewOf(guidance), mode)
 
           override fun start(config: NightConfig) {
-            val sensor = SensorHub.sensor.value ?: return
+            val sensor = sensors.sensor.value ?: return
             RecordingRepository.setIdle()
             val streams = StreamConfig(ecg = config.streams.ecg, acc = config.streams.acc)
             RecordingService.start(app, sensor, streams, config.mode)
@@ -91,23 +92,23 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
           }
 
           override fun disconnect() {
-            SensorHub.clear()
+            sensors.clear()
             prefs.lastSensor = null
           }
 
           override fun startScan() {
-            SensorHub.startScan(app)
+            sensors.startScan(app)
           }
 
           override fun stopScan() {
-            SensorHub.stopScan()
+            sensors.stopScan()
           }
 
           override fun select(found: FoundSensor) {
-            SensorHub.select(app, found)
+            sensors.select(app, found)
           }
         }
-    return HomeViewModel(work, SensorHub.sensor, RecordingRepository.status) as T
+    return HomeViewModel(work, sensors.sensor, RecordingRepository.status) as T
   }
 
   /** The configuration step: the remembered streams, the modes they allow and the chosen mode. */

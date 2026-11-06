@@ -7,6 +7,7 @@ import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.remoteStore
 import com.rbmr.taigasleep.insights.AnalysisSettingsStore
 import com.rbmr.taigasleep.library.RecordingLibrary
+import com.rbmr.taigasleep.recording.SensorHub
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.AppSyncEnvironment
 import com.rbmr.taigasleep.sync.LiveSync
@@ -61,6 +62,8 @@ class AppContainer(private val application: Application) {
   val recordingLibrary: RecordingLibrary by lazy { RecordingLibrary(application) }
 
   val syncService: SyncService by lazy { SyncService(AppSyncEnvironment(application)) }
+
+  val sensorHub: SensorHub by lazy { SensorHub() }
 
   val liveSync: LiveSync by lazy {
     LiveSync(

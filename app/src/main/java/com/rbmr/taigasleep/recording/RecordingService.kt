@@ -133,7 +133,7 @@ class RecordingService : Service() {
     }
     val sensor =
         try {
-          SensorHub.obtain(this, kind, sensorId, intent.getStringExtra(EXTRA_SENSOR_NAME) ?: sensorId)
+          appContainer.sensorHub.obtain(this, kind, sensorId, intent.getStringExtra(EXTRA_SENSOR_NAME) ?: sensorId)
         } catch (e: IllegalStateException) {
           leave(e.message ?: getString(R.string.rec_error_no_sensor))
           return
@@ -217,7 +217,7 @@ class RecordingService : Service() {
     writer.event("readiness", hooks.readinessSummary(this))
     val sensor =
         try {
-          SensorHub.obtain(this, kind, meta.sensorId, meta.sensorName)
+          appContainer.sensorHub.obtain(this, kind, meta.sensorId, meta.sensorName)
         } catch (e: IllegalStateException) {
           writer.event("error", e.message ?: "sensor unavailable")
           writer.finish(RecordingPhase.INTERRUPTED, "cannot resume")
