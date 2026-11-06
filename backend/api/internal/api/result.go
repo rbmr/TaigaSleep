@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+
+	"github.com/rbmr/TaigaSleep/backend/api/internal/summary"
 )
 
 // The result of an analysis is stored as the worker sent it. The API only checks the
@@ -144,34 +146,8 @@ func validateItems(items []resultItem) error {
 }
 
 // summaryOf derives the small headline stored next to a result: what a list of
-// recordings shows without loading the full result. The stage timeline stays
-// compact, and the scores are the id and value of each score item.
+// recordings shows without loading the full result. It shares its derivation with
+// the migration that rebuilds summaries written in an older shape.
 func summaryOf(raw json.RawMessage) map[string]any {
-	var full map[string]any
-	if err := json.Unmarshal(raw, &full); err != nil {
-		return map[string]any{}
-	}
-	summary := map[string]any{}
-	if stages, ok := full["stages"].(map[string]any); ok {
-		summary["stages"] = map[string]any{
-			"epoch_seconds": stages["epoch_seconds"],
-			"start_unix_ms": stages["start_unix_ms"],
-			"count":         stages["count"],
-			"segments":      stages["segments"],
-		}
-	}
-	scores := []map[string]any{}
-	if items, ok := full["items"].([]any); ok {
-		for _, entry := range items {
-			item, ok := entry.(map[string]any)
-			if !ok || item["kind"] != "score" {
-				continue
-			}
-			scores = append(scores, map[string]any{"id": item["id"], "value": item["value"]})
-		}
-	}
-	if len(scores) > 0 {
-		summary["scores"] = scores
-	}
-	return summary
+	return summary.Of(raw)
 }
