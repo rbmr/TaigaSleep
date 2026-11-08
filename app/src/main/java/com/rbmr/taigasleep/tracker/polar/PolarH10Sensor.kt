@@ -9,13 +9,12 @@ import com.polar.sdk.api.PolarBleApi.PolarBleSdkFeature
 import com.polar.sdk.api.PolarBleApi.PolarDeviceDataType
 import com.polar.sdk.api.PolarBleApiCallback
 import com.polar.sdk.api.PolarBleApiDefaultImpl
+import com.polar.sdk.api.PolarH10OfflineExerciseApi
 import com.polar.sdk.api.model.EcgSample
 import com.polar.sdk.api.model.PolarDeviceInfo
 import com.polar.sdk.api.model.PolarHealthThermometerData
 import com.polar.sdk.api.model.PolarHrData
-import com.polar.sdk.api.model.PolarOfflineRecordingData
-import com.polar.sdk.api.model.PolarOfflineRecordingEntry
-import com.polar.sdk.api.model.PolarRecordingSecret
+import com.polar.sdk.api.model.PolarExerciseEntry
 import com.polar.sdk.api.model.PolarSensorSetting
 import com.polar.sdk.api.model.PolarSensorSetting.SettingType
 import com.rbmr.taigasleep.tracker.AccBatch
@@ -63,7 +62,7 @@ private object PolarSdk {
                       PolarBleSdkFeature.FEATURE_DEVICE_INFO,
                       PolarBleSdkFeature.FEATURE_BATTERY_INFO,
                       PolarBleSdkFeature.FEATURE_POLAR_ONLINE_STREAMING,
-                      PolarBleSdkFeature.FEATURE_POLAR_OFFLINE_RECORDING,
+                      PolarBleSdkFeature.FEATURE_POLAR_H10_EXERCISE_RECORDING,
                       PolarBleSdkFeature.FEATURE_POLAR_DEVICE_TIME_SETUP,
                   ),
               )
@@ -157,9 +156,7 @@ class PolarH10Sensor(
   // On-device recording: the strap stores HR/RR itself and the phone fetches it in the morning.
   private var onDeviceWanted: StreamConfig? = null
   private var onDeviceListener: SampleListener? = null
-  private var onDeviceStartedAtMs = 0L
   private var onDeviceActive = false
-  private val secrets = PolarRecordingSecrets(appContext)
 
   // The strap's clock is set once per recording, before its streams start, so the sample
   // timestamps are real time (an unset H10 clock was days off). Touched on the control thread.
@@ -218,15 +215,13 @@ class PolarH10Sensor(
   override fun discardOnDevice() {
     control.execute {
       stopOnDevice()
-      val since = onDeviceStartedAtMs
       runCatching {
-        for (entry in hrEntries(since)) {
-          api.removeOfflineRecord(id, entry).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingAwait()
+        for (entry in exerciseEntries()) {
+          api.removeExercise(id, entry).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingAwait()
         }
       }
       onDeviceWanted = null
       onDeviceListener = null
-      onDeviceStartedAtMs = 0
     }
   }
 
@@ -309,35 +304,31 @@ class PolarH10Sensor(
     if (cfg.ecg || cfg.acc) return
     if (onDeviceActive) return
     if (_connection.value != ConnectionState.CONNECTED) return
-    if (PolarBleSdkFeature.FEATURE_POLAR_OFFLINE_RECORDING !in ready && !force) return
+    if (PolarBleSdkFeature.FEATURE_POLAR_H10_EXERCISE_RECORDING !in ready && !force) return
     val l = onDeviceListener ?: return
     try {
       // A service restart can find the strap already recording from the previous instance. Do not
       // start a second file; the fetch at the end drains whatever is there.
-      val active =
-          api.getOfflineRecordingStatus(id)
-              .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
-              .blockingGet()
-      if (PolarDeviceDataType.HR in active) {
+      val status =
+          api.requestRecordingStatus(id).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingGet()
+      if (status.first == true) {
         onDeviceActive = true
-        onDeviceStartedAtMs = System.currentTimeMillis()
         l.onNote("on_device_resume", "the tracker was already storing HR and RR")
         return
       }
-      // HR is the only stream the H10 can keep on the device; the service only offers this mode
-      // for an HR-only configuration.
-      val settings =
-          api.requestOfflineRecordingSettings(id, PolarDeviceDataType.HR)
-              .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
-              .blockingGet()
-      api.startOfflineRecording(id, PolarDeviceDataType.HR, settings, secrets.get())
+      // The H10 keeps one kind of sample per recording; beat intervals carry both HR and RR.
+      api.startRecording(
+              id,
+              EXERCISE_ID,
+              PolarH10OfflineExerciseApi.RecordingInterval.INTERVAL_1S,
+              PolarH10OfflineExerciseApi.SampleType.RR,
+          )
           .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
           .blockingAwait()
       onDeviceActive = true
-      onDeviceStartedAtMs = System.currentTimeMillis()
       l.onNote("on_device_start", "the tracker is storing HR and RR on the device")
     } catch (e: Exception) {
-      Log.e(TAG, "offline recording did not start", e)
+      Log.e(TAG, "on-device recording did not start", e)
       l.onError("on-device recording did not start: ${e.message ?: e.javaClass.simpleName}")
       onDeviceWanted = null
     }
@@ -345,34 +336,26 @@ class PolarH10Sensor(
 
   private fun fetchStoredRecording(listener: SampleListener): Boolean {
     stopOnDevice()
-    val since = onDeviceStartedAtMs
+    // The strap's own clock is not trusted: the recording ends when it was stopped just now.
+    val stoppedMs = System.currentTimeMillis()
     var any = false
     try {
-      for (entry in hrEntries(since)) {
+      for (entry in exerciseEntries()) {
         val data =
-            api.getOfflineRecord(id, entry, secrets.get())
-                .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
-                .blockingGet()
-        if (data is PolarOfflineRecordingData.HrOfflineRecording) {
-          val startMs = data.startTime.toInstant(ZoneOffset.UTC).toEpochMilli()
-          data.data.samples.forEachIndexed { index, sample ->
-            val phoneNs = (startMs + index * 1_000L) * 1_000_000L
-            listener.onHr(
-                Stamp(phoneNs, clock.elapsedNs()),
-                HrSample(
-                    sample.hr,
-                    sample.contactStatusSupported,
-                    sample.contactStatus,
-                    sample.rrAvailable,
-                    sample.rrsMs.map { it }.toIntArray(),
-                ),
-            )
-          }
+            api.fetchExercise(id, entry).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingGet()
+        val beats = data.hrSamples.filter { it > 0 }
+        var timeMs = stoppedMs - beats.sum()
+        for (rr in beats) {
+          timeMs += rr
+          listener.onHr(
+              Stamp(timeMs * 1_000_000L, clock.elapsedNs()),
+              HrSample(60_000 / rr, false, false, true, intArrayOf(rr)),
+          )
           any = true
         }
         // It is on the phone now; the strap can forget it.
         runCatching {
-          api.removeOfflineRecord(id, entry).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingAwait()
+          api.removeExercise(id, entry).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingAwait()
         }
       }
     } catch (e: Exception) {
@@ -380,29 +363,17 @@ class PolarH10Sensor(
     }
     onDeviceWanted = null
     onDeviceListener = null
-    onDeviceStartedAtMs = 0
     return any
   }
 
-  private fun hrEntries(sinceMs: Long): List<PolarOfflineRecordingEntry> {
-    val entries =
-        api.listOfflineRecordings(id)
-            .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
-            .blockingIterable()
-            .toList()
-    return entries.filter {
-      it.type == PolarDeviceDataType.HR &&
-          (sinceMs <= 0 || it.date.toInstant(ZoneOffset.UTC).toEpochMilli() >= sinceMs - 60_000)
-    }
-  }
+  private fun exerciseEntries(): List<PolarExerciseEntry> =
+      api.listExercises(id).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingIterable().toList()
 
   private fun stopOnDevice() {
     if (!onDeviceActive) return
     onDeviceActive = false
     runCatching {
-      api.stopOfflineRecording(id, PolarDeviceDataType.HR)
-          .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
-          .blockingAwait()
+      api.stopRecording(id).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingAwait()
     }
   }
 
@@ -657,6 +628,7 @@ class PolarH10Sensor(
     private const val CLOCK_WAIT_S = 3L
     private const val FIRST_DATA_S = 15L
     private const val OFFLINE_TIMEOUT_S = 60L
+    private const val EXERCISE_ID = "TAIGA"
 
     /** Devices in range, as the SDK finds them. */
     fun scan(context: Context): Flowable<PolarDeviceInfo> =
