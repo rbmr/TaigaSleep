@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.recording.store
 
 import android.content.Context
 import com.rbmr.taigasleep.appContainer
+import com.rbmr.taigasleep.tracker.RecordingMode
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -97,6 +98,8 @@ class RecordingStore(val root: File) {
     for (dir in root.listFiles { f -> f.isDirectory } ?: emptyArray()) {
       val meta = RecordingMeta.read(dir) ?: continue
       if (meta.state != RecordingPhase.RECORDING || meta.recordingId == liveId) continue
+      // The tracker keeps recording without the app; the recording is still going, not orphaned.
+      if (meta.mode == RecordingMode.ON_DEVICE) continue
       val end = lastFrameMs(dir) ?: meta.startUtcMs
       try {
         val now = System.currentTimeMillis() * 1_000_000L
@@ -107,6 +110,13 @@ class RecordingStore(val root: File) {
     }
     return changed
   }
+
+  /** The recording the tracker is storing on its own, if one is in progress. */
+  fun onDeviceInProgress(): RecordingMeta? =
+      (root.listFiles { f -> f.isDirectory } ?: emptyArray())
+          .mapNotNull { RecordingMeta.read(it) }
+          .filter { it.state == RecordingPhase.RECORDING && it.mode == RecordingMode.ON_DEVICE }
+          .maxByOrNull { it.startUtcMs }
 
   fun delete(id: String): Boolean = File(root, id).takeIf { it.isDirectory }?.deleteRecursively() ?: false
 

@@ -132,6 +132,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
         mode = mode,
         canRecordEcg = sensor.capabilities.ecg,
         canRecordAcc = sensor.capabilities.acc,
+        offeredModes = modes + sensor.recordingModes(StreamConfig(ecg = false, acc = false)),
     )
   }
 }

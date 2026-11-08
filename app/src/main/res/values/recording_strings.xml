@@ -32,6 +32,7 @@
   <string name="rec_mode_stream">Stream to phone</string>
   <string name="rec_mode_on_device">Record on tracker</string>
   <string name="rec_mode_stream_note">The tracker sends data to the phone while you sleep. Keep the phone awake and nearby.</string>
+  <string name="rec_mode_on_device_unavailable_note">The tracker can only store heart rate. Turn off ECG and movement to record on the tracker.</string>
   <string name="rec_mode_on_device_note">The tracker stores the night itself. Taiga fetches it when you stop in the morning.</string>
   <string name="rec_done">Done</string>
   <string name="rec_home_title_idle">Recordings</string>

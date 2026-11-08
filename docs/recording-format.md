@@ -72,13 +72,17 @@ step).
 
 `state` is one of `recording`, `stopped` (clean stop), `forced_stop` (one-sided
 stop without sensor connection), `interrupted` (found as `recording` on app
-start with no live service). `mode` is `stream` (data arrived while recording)
+start with no live service; never a recording in `on_device` mode, which stays `recording`
+until it is stopped, discarded or force stopped). `mode` is `stream` (data arrived while recording)
 or `on_device` (the strap stored it and the phone fetched it at the end); a
 recording written before modes existed has no key and means `stream`.
 
 The Polar H10 can record HR/RR on itself when the configuration is HR-only. In
 `on_device` mode the `hr.log` file is written from the fetched samples when the
-recording stops, so it still holds the same frames as a streamed HR-only night. `end_utc_ms` is null while recording; for an
+recording stops, so it still holds the same frames as a streamed HR-only night. The
+strap stores beat intervals; each becomes one frame with the heart rate derived from it,
+timed backwards from the moment the strap was stopped, because the strap's own clock is
+not trusted. `end_utc_ms` is null while recording; for an
 `interrupted` session it is the time of the last valid HR frame. When the OS
 restarts the service and it resumes a session, the state stays (or returns to)
 `recording` and a `service_restart` event is appended.

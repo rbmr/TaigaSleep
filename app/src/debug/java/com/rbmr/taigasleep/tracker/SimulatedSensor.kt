@@ -100,12 +100,17 @@ class SimulatedSensor(
   }
 
   @Synchronized
-  override fun startOnDevice(config: StreamConfig, listener: SampleListener) {
+  override fun startOnDevice(
+      config: StreamConfig,
+      listener: SampleListener,
+      onResult: (String?) -> Unit,
+  ) {
     this.config = config
     this.listener = listener
     onDevice = true
     stored.clear()
     resetSchedule()
+    onResult(null)
   }
 
   @Synchronized

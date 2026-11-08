@@ -13,6 +13,7 @@ import com.rbmr.taigasleep.tracker.HrSample
 import com.rbmr.taigasleep.tracker.Stamp
 import java.io.File
 import org.json.JSONObject
+import com.rbmr.taigasleep.tracker.RecordingMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -174,5 +175,26 @@ class RecordingWriterTest {
     // The duration estimate comes from the last HR frame, about one second after the start.
     assertEquals(1000L, info.durationMs)
     assertEquals(RecordingPhase.STOPPED, store.list().first { it.id == "20261022_220000" }.state)
+  }
+
+  @Test
+  fun onDeviceRecordingsStayInProgressWithoutTheApp() {
+    val root = tmp.newFolder("rec")
+    val store = RecordingStore(root)
+    RecordingWriter.create(root, meta().copy(mode = RecordingMode.ON_DEVICE), clock).close()
+
+    assertEquals(emptyList<String>(), store.markOrphans(liveId = null))
+    assertEquals("20261023_223000", store.onDeviceInProgress()?.recordingId)
+    assertEquals(RecordingPhase.RECORDING, store.list().first().state)
+  }
+
+  @Test
+  fun finishedOnDeviceRecordingsAreNotInProgress() {
+    val root = tmp.newFolder("rec")
+    val store = RecordingStore(root)
+    RecordingWriter.create(root, meta().copy(mode = RecordingMode.ON_DEVICE), clock)
+        .finish(RecordingPhase.STOPPED, "done")
+
+    assertNull(store.onDeviceInProgress())
   }
 }

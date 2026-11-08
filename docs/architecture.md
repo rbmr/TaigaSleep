@@ -152,7 +152,13 @@ A tracker offers one or both **recording modes** for a given configuration:
   expected to work this way.
 
 The mode follows from the tracker and the chosen streams, not from a separate setting the
-user has to understand.
+user has to understand. A mode the tracker offers but the chosen streams rule out stays
+visible, greyed out with the reason, so the feature is not mistaken for missing.
+
+An OnDevice recording needs the tracker only twice, when it starts and when it ends. Once the
+tracker confirms it is storing, the foreground service and the watchdog stop; the recording
+stays `recording` on disk, and the app, a restart of the app or a reboot of the phone finds it
+again and shows it as active. Stop and Discard reconnect to the tracker then.
 
 ### Ending a recording
 
