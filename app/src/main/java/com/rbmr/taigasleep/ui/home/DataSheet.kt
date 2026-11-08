@@ -100,7 +100,13 @@ private fun ModeRow(label: String, selected: Boolean, enabled: Boolean, onChange
   ) {
     RadioButton(selected = selected, onClick = if (enabled) onChange else null, enabled = enabled)
     Spacer(Modifier.width(8.dp))
-    Text(text = label, style = MaterialTheme.typography.bodyLarge)
+    Text(
+        text = label,
+        style = MaterialTheme.typography.bodyLarge,
+        color =
+            if (enabled) MaterialTheme.colorScheme.onSurface
+            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+    )
   }
 }
 
