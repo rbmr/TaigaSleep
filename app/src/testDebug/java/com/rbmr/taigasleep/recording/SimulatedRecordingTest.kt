@@ -164,7 +164,7 @@ class SimulatedRecordingTest {
     val fanout =
         SampleFanout(writer, monitor) { message -> writer.event("error", message) }
     sensor.connect()
-    sensor.startOnDevice(StreamConfig(ecg = false, acc = false), fanout)
+    sensor.startOnDevice(StreamConfig(ecg = false, acc = false), fanout) {}
     repeat(300) {
       clock.advanceMs(100)
       sensor.pump(clock.elapsedNs())

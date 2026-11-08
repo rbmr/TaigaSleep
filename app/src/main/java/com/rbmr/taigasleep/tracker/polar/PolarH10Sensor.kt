@@ -156,6 +156,7 @@ class PolarH10Sensor(
   // On-device recording: the strap stores HR/RR itself and the phone fetches it in the morning.
   private var onDeviceWanted: StreamConfig? = null
   private var onDeviceListener: SampleListener? = null
+  private var onDeviceResult: ((String?) -> Unit)? = null
   private var onDeviceActive = false
 
   // The strap's clock is set once per recording, before its streams start, so the sample
@@ -196,16 +197,22 @@ class PolarH10Sensor(
 
   override fun recordingModes(config: StreamConfig): Set<RecordingMode> = polarRecordingModes(config)
 
-  override fun startOnDevice(config: StreamConfig, listener: SampleListener) {
+  override fun startOnDevice(
+      config: StreamConfig,
+      listener: SampleListener,
+      onResult: (String?) -> Unit,
+  ) {
     control.execute {
       onDeviceWanted = config
       onDeviceListener = listener
+      onDeviceResult = onResult
       maybeBeginOnDevice()
     }
   }
 
   override fun fetchOnDevice(listener: SampleListener): Boolean =
       try {
+        awaitConnected()
         control.submit<Boolean> { fetchStoredRecording(listener) }.get(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
       } catch (e: Exception) {
         listener.onError("could not fetch the recording from the tracker: ${e.message ?: e.javaClass.simpleName}")
@@ -214,6 +221,7 @@ class PolarH10Sensor(
 
   override fun discardOnDevice() {
     control.execute {
+      awaitConnected()
       stopOnDevice()
       runCatching {
         for (entry in exerciseEntries()) {
@@ -314,6 +322,7 @@ class PolarH10Sensor(
       if (status.first == true) {
         onDeviceActive = true
         l.onNote("on_device_resume", "the tracker was already storing HR and RR")
+        finishOnDeviceStart(null)
         return
       }
       // The H10 keeps one kind of sample per recording; beat intervals carry both HR and RR.
@@ -327,11 +336,20 @@ class PolarH10Sensor(
           .blockingAwait()
       onDeviceActive = true
       l.onNote("on_device_start", "the tracker is storing HR and RR on the device")
+      finishOnDeviceStart(null)
     } catch (e: Exception) {
       Log.e(TAG, "on-device recording did not start", e)
-      l.onError("on-device recording did not start: ${e.message ?: e.javaClass.simpleName}")
+      val reason = "on-device recording did not start: ${e.message ?: e.javaClass.simpleName}"
+      l.onError(reason)
       onDeviceWanted = null
+      finishOnDeviceStart(reason)
     }
+  }
+
+  private fun finishOnDeviceStart(error: String?) {
+    val result = onDeviceResult ?: return
+    onDeviceResult = null
+    result(error)
   }
 
   private fun fetchStoredRecording(listener: SampleListener): Boolean {
@@ -363,14 +381,23 @@ class PolarH10Sensor(
     }
     onDeviceWanted = null
     onDeviceListener = null
+    onDeviceResult = null
     return any
   }
 
   private fun exerciseEntries(): List<PolarExerciseEntry> =
       api.listExercises(id).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingIterable().toList()
 
+  /** The phone may have been off all night: the link comes back by itself, so wait for it. */
+  private fun awaitConnected() {
+    val deadline = System.currentTimeMillis() + CONNECT_WAIT_S * 1_000
+    while (_connection.value != ConnectionState.CONNECTED && System.currentTimeMillis() < deadline) {
+      Thread.sleep(250)
+    }
+  }
+
+  /** Always asks the strap: after an app restart this instance does not know it was recording. */
   private fun stopOnDevice() {
-    if (!onDeviceActive) return
     onDeviceActive = false
     runCatching {
       api.stopRecording(id).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingAwait()
@@ -628,6 +655,7 @@ class PolarH10Sensor(
     private const val CLOCK_WAIT_S = 3L
     private const val FIRST_DATA_S = 15L
     private const val OFFLINE_TIMEOUT_S = 60L
+    private const val CONNECT_WAIT_S = 60L
     private const val EXERCISE_ID = "TAIGA"
 
     /** Devices in range, as the SDK finds them. */

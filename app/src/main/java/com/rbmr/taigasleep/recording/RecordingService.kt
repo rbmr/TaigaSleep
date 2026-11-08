@@ -197,7 +197,7 @@ class RecordingService : Service() {
   }
 
   /** Picks up the recording that was running before this process or service instance died. */
-  private suspend fun resume() {
+  private suspend fun resume(parked: Boolean = false, contact: Boolean = true) {
     if (live != null) return
     val id = prefs.activeSessionId
     val dir = id?.let { store.dir(it) }
@@ -225,13 +225,20 @@ class RecordingService : Service() {
           leave(null)
           return
         }
-    attach(writer, sensor, meta.mode)
+    attach(writer, sensor, meta.mode, parked, contact)
   }
 
+  /**
+   * [parked] is an on-device recording that is already running on the tracker and is only being
+   * picked up to be stopped or discarded: the tracker is not asked to start again. Without
+   * [contact] the tracker is left alone altogether (force stop).
+   */
   private fun attach(
       writer: RecordingWriter,
       sensor: SleepSensor,
       mode: RecordingMode,
+      parked: Boolean = false,
+      contact: Boolean = true,
   ) {
     val lifecycle = RecordingLifecycle(mode)
     val needsWakeLock = lifecycle.start().contains(LifecycleEffect.AcquireWakeLock)
@@ -263,7 +270,8 @@ class RecordingService : Service() {
     lastNotificationText = null
     prefs.activeSessionId = writer.meta.recordingId
     prefs.heartbeatMs = System.currentTimeMillis()
-    WatchdogReceiver.schedule(this)
+    // An on-device recording needs no watchdog: nothing on the phone has to keep running.
+    if (mode == RecordingMode.STREAM) WatchdogReceiver.schedule(this)
     Diagnostics.markRunning()
     Diagnostics.snapshot("recording_start")
 
@@ -287,11 +295,13 @@ class RecordingService : Service() {
         end(s)
         return
       }
-      tracker.startOnDevice(streamConfig, fanout)
+      if (!parked) {
+        tracker.startOnDevice(streamConfig, fanout) { error -> scope.launch { onDeviceStarted(error) } }
+      }
     } else {
       sensor.startStreams(streamConfig, fanout)
     }
-    if (sensor.connection.value == ConnectionState.DISCONNECTED) sensor.connect()
+    if (contact && sensor.connection.value == ConnectionState.DISCONNECTED) sensor.connect()
 
     s.jobs =
         listOf(
@@ -308,8 +318,34 @@ class RecordingService : Service() {
     RecordingRepository.refreshRecordings(this)
   }
 
+  /** The tracker is storing: the service is not needed until the tracker has to be stopped. */
+  private suspend fun onDeviceStarted(error: String?) {
+    val s = live ?: return
+    s.jobs.forEach { it.cancel() }
+    if (error != null) {
+      s.writer.finish(RecordingPhase.INTERRUPTED, "tracker did not start")
+      end(s)
+      RecordingRepository.setIdle(error)
+      return
+    }
+    s.writer.sync()
+    s.writer.close()
+    live = null
+    running = false
+    WatchdogReceiver.cancel(this)
+    releaseWakeLock(s)
+    stopForeground(STOP_FOREGROUND_REMOVE)
+    stopSelf()
+  }
+
+  /** Picks up the on-device recording that is running on the tracker, after the service was gone. */
+  private suspend fun adopt(contact: Boolean): Live? {
+    if (live == null) resume(parked = true, contact = contact)
+    return live
+  }
+
   private suspend fun stop(forced: Boolean) {
-    val s = live
+    val s = adopt(contact = !forced)
     if (s == null) {
       leave(null)
       return
@@ -322,7 +358,7 @@ class RecordingService : Service() {
   }
 
   private suspend fun discard() {
-    val s = live
+    val s = adopt(contact = true)
     if (s == null) {
       leave(null)
       return

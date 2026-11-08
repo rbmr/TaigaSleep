@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -16,11 +18,20 @@ import com.rbmr.taigasleep.recording.RecordingState
 import com.rbmr.taigasleep.ui.components.StatusBanner
 import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import kotlinx.coroutines.delay
 
 /** The live numbers of a running recording: time, link, battery, streams and the one thing to fix. */
 @Composable
 internal fun RecordingCard(status: CaptureStatus) {
   val state = status.state
+  // A recording stored on the tracker has no service ticking: count from its start.
+  val sinceStartMs by
+      produceState(0L, status.startUtcMs, status.liveStreaming) {
+        while (!status.liveStreaming) {
+          value = (System.currentTimeMillis() - status.startUtcMs).coerceAtLeast(0)
+          delay(1000)
+        }
+      }
   TaigaCard {
     Text(
         text =
@@ -32,7 +43,7 @@ internal fun RecordingCard(status: CaptureStatus) {
         color = MaterialTheme.colorScheme.primary,
     )
     Text(
-        text = RecordingFormat.elapsed(state.capture.elapsedMs),
+        text = RecordingFormat.elapsed(if (status.liveStreaming) state.capture.elapsedMs else sinceStartMs),
         style = MaterialTheme.typography.displayLarge,
     )
     Spacer(Modifier.height(8.dp))

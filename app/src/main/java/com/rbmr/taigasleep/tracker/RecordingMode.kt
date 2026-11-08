@@ -26,8 +26,12 @@ enum class RecordingMode(val wire: String) {
  * is the separate contract for the other mode.
  */
 interface OnDeviceTracker {
-  /** Starts capturing on the tracker itself. Data stays there until [fetchOnDevice]. */
-  fun startOnDevice(config: StreamConfig, listener: SampleListener)
+  /**
+   * Starts capturing on the tracker itself, as soon as it is connected. Data stays there until
+   * [fetchOnDevice]. [onResult] is called once: null when the tracker is storing, else the reason
+   * it is not. After that the phone does not need the tracker until the recording is stopped.
+   */
+  fun startOnDevice(config: StreamConfig, listener: SampleListener, onResult: (error: String?) -> Unit)
 
   /**
    * Replays everything captured since [startOnDevice] into [listener], as if it arrived live.

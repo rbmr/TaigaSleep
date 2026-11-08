@@ -52,7 +52,7 @@ internal fun DataSheet(
           if (config.canRecordAcc) {
             ToggleRow(stringResource(R.string.rec_config_acc), config.streams.acc) { onAcc(it) }
           }
-          if (config.modes.size > 1) {
+          if (config.offeredModes.size > 1) {
             Spacer(Modifier.height(16.dp))
             Text(
                 text = stringResource(R.string.rec_mode_title),
@@ -75,8 +75,11 @@ internal fun DataSheet(
             Text(
                 text =
                     stringResource(
-                        if (config.mode == RecordingMode.ON_DEVICE) R.string.rec_mode_on_device_note
-                        else R.string.rec_mode_stream_note
+                        when {
+                          RecordingMode.ON_DEVICE !in config.modes -> R.string.rec_mode_on_device_unavailable_note
+                          config.mode == RecordingMode.ON_DEVICE -> R.string.rec_mode_on_device_note
+                          else -> R.string.rec_mode_stream_note
+                        }
                     ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

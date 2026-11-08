@@ -49,14 +49,29 @@ object RecordingRepository {
     _sessions.value = context.appContainer.recordingStore.list()
   }
 
-  /** On app start: recordings left in `recording` with no live service become `interrupted`. */
+  /**
+   * On app start: streamed recordings left in `recording` with no live service become
+   * `interrupted`. A recording the tracker stores on its own stays active: nothing on the phone
+   * has to be running for it.
+   */
   fun reconcile(context: Context) {
     if (RecordingService.running) return
     val prefs = RecordingPrefs.get(context)
-    val changed = context.appContainer.recordingStore.markOrphans(liveId = null)
-    if (changed.isNotEmpty() || prefs.activeSessionId != null) {
-      prefs.activeSessionId = null
-      WatchdogReceiver.cancel(context)
+    val store = context.appContainer.recordingStore
+    store.markOrphans(liveId = null)
+    val onDevice = store.onDeviceInProgress()
+    prefs.activeSessionId = onDevice?.recordingId
+    WatchdogReceiver.cancel(context)
+    if (onDevice != null) {
+      _status.value =
+          CaptureStatus(
+              phase = Phase.RECORDING,
+              recordingId = onDevice.recordingId,
+              startUtcMs = onDevice.startUtcMs,
+              config = onDevice.config,
+              sensorName = onDevice.sensorName,
+              liveStreaming = false,
+          )
     }
     refreshRecordings(context)
   }

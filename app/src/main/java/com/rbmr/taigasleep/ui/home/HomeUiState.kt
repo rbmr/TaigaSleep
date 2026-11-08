@@ -21,6 +21,8 @@ data class StartConfig(
     val mode: RecordingMode,
     val canRecordEcg: Boolean,
     val canRecordAcc: Boolean,
+    /** Every mode the tracker offers for some configuration; a mode outside [modes] is greyed out. */
+    val offeredModes: Set<RecordingMode> = modes,
 )
 
 /** The connected tracker as the screen shows it: who it is, whether it is here, and its battery. */
