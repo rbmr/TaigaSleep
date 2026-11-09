@@ -100,6 +100,7 @@ class RecordingService : Service() {
       ACTION_FORCE_STOP -> scope.launch { stop(forced = true) }
       ACTION_DISCARD -> scope.launch { discard() }
       ACTION_FETCH -> scope.launch { fetchPending(intent.getStringExtra(EXTRA_RECORDING_ID)) }
+      ACTION_RESTART -> scope.launch { restart() }
       // ACTION_RESUME from the watchdog, or a null intent after the OS restarted the service.
       else -> scope.launch { resume() }
     }
@@ -195,6 +196,28 @@ class RecordingService : Service() {
         }
     writer.event("readiness", hooks.readinessSummary(this))
     attach(writer, sensor, mode)
+  }
+
+  /**
+   * The watchdog found the service alive but its heartbeat stopped: its live session has to be
+   * rebuilt, because a resume would find [live] set and do nothing. The streams are dropped without
+   * finishing the recording, which is then attached again on the same directory.
+   */
+  private suspend fun restart() {
+    val s = live
+    if (s == null) {
+      resume()
+      return
+    }
+    Diagnostics.log("service_restart", mapOf("recording" to s.writer.meta.recordingId))
+    s.jobs.forEach { it.cancel() }
+    apply(s, s.lifecycle.restart())
+    s.writer.sync()
+    s.writer.close()
+    releaseWakeLock(s)
+    live = null
+    running = false
+    resume()
   }
 
   /** Picks up the recording that was running before this process or service instance died. */
@@ -724,6 +747,7 @@ class RecordingService : Service() {
     const val ACTION_FORCE_STOP = "com.rbmr.taigasleep.recording.FORCE_STOP"
     const val ACTION_DISCARD = "com.rbmr.taigasleep.recording.DISCARD"
     const val ACTION_RESUME = "com.rbmr.taigasleep.recording.RESUME"
+    const val ACTION_RESTART = "com.rbmr.taigasleep.recording.RESTART"
     const val ACTION_FETCH = "com.rbmr.taigasleep.recording.FETCH"
 
     private const val EXTRA_SENSOR_KIND = "sensor_kind"

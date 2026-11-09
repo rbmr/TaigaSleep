@@ -149,6 +149,40 @@ class RecordingLifecycleTest {
   }
 
   @Test
+  fun aStuckStreamPipelineIsDroppedWithoutEndingTheRecording() {
+    val lifecycle = RecordingLifecycle(RecordingMode.STREAM)
+    lifecycle.start()
+
+    assertEquals(listOf(LifecycleEffect.StopStreamsAsync), lifecycle.restart())
+    // The recording stays open, so it can be attached again on the same directory.
+    assertEquals(LifecycleState.RECORDING, lifecycle.state)
+    assertEquals(
+        listOf(LifecycleEffect.StopStreams, LifecycleEffect.Finish(RecordingPhase.STOPPED)),
+        lifecycle.stop(),
+    )
+    assertEquals(LifecycleState.FINISHED, lifecycle.state)
+  }
+
+  @Test
+  fun anOnDevicePipelineHasNoStreamsToDropOnARestart() {
+    val lifecycle = RecordingLifecycle(RecordingMode.ON_DEVICE)
+    lifecycle.start()
+
+    assertTrue(lifecycle.restart().isEmpty())
+    assertEquals(LifecycleState.RECORDING, lifecycle.state)
+  }
+
+  @Test
+  fun restartDoesNothingWhenNoRecordingIsLive() {
+    for (mode in RecordingMode.entries) {
+      val lifecycle = RecordingLifecycle(mode)
+
+      assertTrue(lifecycle.restart().isEmpty())
+      assertEquals(LifecycleState.IDLE, lifecycle.state)
+    }
+  }
+
+  @Test
   fun terminalStatesDoNotChangeAgain() {
     for (mode in RecordingMode.entries) {
       val lifecycle = RecordingLifecycle(mode)

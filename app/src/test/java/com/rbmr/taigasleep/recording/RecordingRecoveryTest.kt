@@ -127,6 +127,36 @@ class RecordingRecoveryTest {
   }
 
   @Test
+  fun `the watchdog resumes a recording whose service is gone`() {
+    assertEquals(
+        RecoveryAction.RESUME,
+        RecordingRecovery.onWatchdog("20261023_223000", serviceRunning = false, heartbeatAgeMs = 0),
+    )
+  }
+
+  @Test
+  fun `the watchdog rebuilds a service that is alive but stalled`() {
+    assertEquals(
+        RecoveryAction.RESTART,
+        RecordingRecovery.onWatchdog(
+            "20261023_223000",
+            serviceRunning = true,
+            heartbeatAgeMs = RecordingRecovery.STALE_MS,
+        ),
+    )
+  }
+
+  @Test
+  fun `the watchdog leaves a healthy service and an idle phone alone`() {
+    assertNull(
+        RecordingRecovery.onWatchdog("20261023_223000", serviceRunning = true, heartbeatAgeMs = 1_000)
+    )
+    assertNull(
+        RecordingRecovery.onWatchdog(null, serviceRunning = true, heartbeatAgeMs = RecordingRecovery.STALE_MS)
+    )
+  }
+
+  @Test
   fun `an upload leaves the recording the phone still marks live to the service`() {
     assertEquals(
         RecoveryAction.RESUME,

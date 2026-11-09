@@ -54,6 +54,26 @@ object RecordingRecovery {
    */
   fun onBoot(store: RecordingStore, activeSessionId: String?): RecordingMeta? = live(store, activeSessionId)
 
+  /** How old the service's heartbeat may be before the watchdog rebuilds its pipeline. */
+  const val STALE_MS = 150_000L
+
+  /**
+   * The watchdog: a marker with no service behind it is resumed, and a service that is alive but
+   * whose heartbeat stopped is rebuilt. Resuming that one would do nothing, because its live session
+   * is still there. Null when the service is healthy or no recording is active.
+   */
+  fun onWatchdog(
+      activeSessionId: String?,
+      serviceRunning: Boolean,
+      heartbeatAgeMs: Long,
+  ): RecoveryAction? =
+      when {
+        activeSessionId == null -> null
+        !serviceRunning -> RecoveryAction.RESUME
+        heartbeatAgeMs >= STALE_MS -> RecoveryAction.RESTART
+        else -> null
+      }
+
   /**
    * An upload found a recording still marked open. A streamed recording whose marker is set belongs
    * to the service, which decides whether it can continue. An on-device recording keeps going on the
