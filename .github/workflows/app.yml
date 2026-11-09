@@ -1,8 +1,9 @@
 name: app
 
-# App unit tests, including ArchitectureTest, run on every pull request that can
-# change the app or the package table it enforces. #52 owned this before; it now
-# runs here instead of only after a merge in release.yml.
+# App unit tests, including ArchitectureTest, and Android lint run on every pull
+# request that can change the app or the package table it enforces. #52 owned this
+# before; it now runs here instead of only after a merge in release.yml. Lint fails
+# on new errors; app/lint-baseline.xml holds the findings that predate it.
 
 on:
   pull_request:
@@ -44,6 +45,9 @@ jobs:
 
       - name: Run unit tests and build the debug APK
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug
+
+      - name: Run Android lint
+        run: ./gradlew :app:lintDebug
 
       - name: Upload the unit test report
         if: failure()

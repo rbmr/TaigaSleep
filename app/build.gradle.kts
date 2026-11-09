@@ -122,6 +122,11 @@ android {
 
   testOptions { unitTests.isReturnDefaultValues = true }
 
+  lint {
+    baseline = file("lint-baseline.xml")
+    abortOnError = true
+  }
+
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
