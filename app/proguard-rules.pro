@@ -26,6 +26,14 @@
 # so the name and the constructor have to survive. Its consumer rules keep both for
 # every ListenableWorker subclass, which covers UploadWorker and DeleteWorker.
 
+# Room
+#
+# Room creates the generated database classes, including the one WorkManager owns,
+# through getDeclaredConstructor, so their no-argument constructors have to survive.
+-keepclassmembers class * extends androidx.room.RoomDatabase {
+    <init>();
+}
+
 # OkHttp and RxJava
 #
 # Both ship the rules they need (optional platform classes in OkHttp, the JVM Flow
