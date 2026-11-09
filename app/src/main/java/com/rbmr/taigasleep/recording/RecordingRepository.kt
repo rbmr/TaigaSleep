@@ -64,15 +64,22 @@ object RecordingRepository {
   }
 
   /**
-   * On app start: streamed recordings left in `recording` with no live service become
-   * `interrupted`. A recording the tracker stores on its own stays active: nothing on the phone
-   * has to be running for it.
+   * On app start: a streamed recording whose marker is set is handed back to the service, which
+   * decides whether it can continue; only a recording the process left behind without a marker
+   * becomes `interrupted`. A recording the tracker stores on its own stays active: nothing on the
+   * phone has to be running for it.
    */
   fun reconcile(context: Context) {
     if (RecordingService.running) return
     val prefs = RecordingPrefs.get(context)
     val store = context.appContainer.recordingStore
-    store.markOrphans(liveId = null)
+    val live = RecordingRecovery.onAppear(store, prefs.activeSessionId)
+    if (live != null) {
+      prefs.activeSessionId = live.recordingId
+      RecordingService.send(context, RecordingService.ACTION_RESUME)
+      refreshRecordings(context)
+      return
+    }
     val onDevice = store.onDeviceInProgress()
     val pending = store.fetchPending()
     prefs.activeSessionId = onDevice?.recordingId
