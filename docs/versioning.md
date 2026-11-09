@@ -97,6 +97,9 @@ Merging to `main` publishes one release per component whose version changed:
 
 Docs, CI and tooling changes need no version bump and publish nothing.
 
+The app APK is built with R8 minification and resource shrinking. The keep rules
+for what R8 cannot see on its own live in `app/proguard-rules.pro`.
+
 ### The plan runs before the merge
 
 The same plan is the `release plan` check on every pull request, so the checks on
@@ -127,8 +130,6 @@ python3 tools/release_plan.py               # the plan for this branch
 
 ## Out of scope for now
 
-- R8 and resource shrinking in the release build. They need keep rules for the
-  Polar SDK and RxJava plus a pass on real hardware.
 - Migrations, deprecation windows and a minimum supported app version served by
   the backend. Those matter once there are users you cannot ask to update.
 - Conventional-commit driven bumps such as release-please. The explicit file bump

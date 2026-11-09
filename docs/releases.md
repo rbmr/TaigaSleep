@@ -147,7 +147,5 @@ unbuilt.
 
 ## Not done yet
 
-- Minification and R8 are off, so the release APK is unminified until it has been
-  tested against a real sensor.
 - No reproducible backend digest is recorded in the release body; `:latest` is
   rebuilt in place, so pin `:v<version>` when you need one.
