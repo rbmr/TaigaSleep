@@ -66,6 +66,9 @@ class RecordingService : Service() {
       val monitor: RecordingMonitor,
   ) {
     var jobs = emptyList<Job>()
+
+    /** Elapsed-realtime ms when the wake lock was last acquired, so it can be renewed in time. */
+    var wakeLockSinceMs = 0L
   }
 
   private var live: Live? = null
@@ -266,13 +269,14 @@ class RecordingService : Service() {
   ) {
     val lifecycle = RecordingLifecycle(mode)
     val needsWakeLock = lifecycle.start().contains(LifecycleEffect.AcquireWakeLock)
+    val acquiredAtMs = SystemClock.elapsedRealtime()
     val wakeLock =
         if (needsWakeLock) {
           getSystemService(PowerManager::class.java)
               .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TaigaSleep::recording")
               .apply {
                 setReferenceCounted(false)
-                acquire(WAKE_LOCK_MS)
+                acquire(RecordingRecovery.WAKE_LOCK_MS)
               }
         } else {
           null
@@ -289,6 +293,7 @@ class RecordingService : Service() {
     val fanout =
         SampleFanout(writer, monitor) { message -> writer.event("error", message) }
     val s = Live(writer, sensor, mode, lifecycle, fanout, wakeLock, monitor)
+    s.wakeLockSinceMs = acquiredAtMs
     live = s
     running = true
     lastNotificationText = null
@@ -554,6 +559,7 @@ class RecordingService : Service() {
   private fun end(s: Live, pending: PendingFetch? = null) {
     Diagnostics.log("service_stop", mapOf("state" to s.writer.meta.state.name.lowercase()))
     Diagnostics.markCleanShutdown("recording_ended")
+    s.jobs.forEach { it.cancel() }
     live = null
     running = false
     lastNotificationText = null
@@ -607,6 +613,8 @@ class RecordingService : Service() {
     var lastReadinessCheck = 0L
     var readiness = hooks.readinessSummary(this)
     while (true) {
+      // The recording may have been ended or rebuilt by another path: only the live session ticks.
+      if (live !== s) return
       val nowMs = SystemClock.elapsedRealtime()
       val nowNs = SystemClockSource.elapsedNs()
 
@@ -614,6 +622,13 @@ class RecordingService : Service() {
       s.writer.syncIfDue(nowMs)
       s.monitor.onBattery(s.sensor.battery.value)
       s.monitor.tick(nowNs)
+
+      // One night is longer than one wake-lock timeout, so the lock is taken again before it lapses.
+      val lock = s.wakeLock
+      if (lock != null && RecordingRecovery.wakeLockNeedsRenewal(nowMs - s.wakeLockSinceMs)) {
+        lock.acquire(RecordingRecovery.WAKE_LOCK_MS)
+        s.wakeLockSinceMs = nowMs
+      }
 
       if (nowMs - lastHeartbeat >= HEARTBEAT_MS) {
         lastHeartbeat = nowMs
@@ -737,7 +752,6 @@ class RecordingService : Service() {
     private const val TAG = "RecordingService"
     private const val CHANNEL_ID = "recording"
     private const val NOTIFICATION_ID = 1
-    private const val WAKE_LOCK_MS = 12 * 60 * 60 * 1000L
     private const val STOP_STREAMS_TIMEOUT_MS = 3_000L
     private const val HEARTBEAT_MS = 15_000L
     private const val READINESS_MS = 10_000L

@@ -8,7 +8,9 @@ import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.tracker.RecordingMode
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -154,6 +156,17 @@ class RecordingRecoveryTest {
     assertNull(
         RecordingRecovery.onWatchdog(null, serviceRunning = true, heartbeatAgeMs = RecordingRecovery.STALE_MS)
     )
+  }
+
+  @Test
+  fun `the wake lock is renewed before its timeout runs out`() {
+    val timeout = RecordingRecovery.WAKE_LOCK_MS
+
+    assertFalse(RecordingRecovery.wakeLockNeedsRenewal(0))
+    assertFalse(RecordingRecovery.wakeLockNeedsRenewal(timeout - RecordingRecovery.WAKE_LOCK_RENEW_BEFORE_MS - 1))
+    assertTrue(RecordingRecovery.wakeLockNeedsRenewal(timeout - RecordingRecovery.WAKE_LOCK_RENEW_BEFORE_MS))
+    // A lock that already ran out is taken again as soon as the loop sees it.
+    assertTrue(RecordingRecovery.wakeLockNeedsRenewal(timeout + 1))
   }
 
   @Test

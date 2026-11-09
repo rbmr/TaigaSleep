@@ -89,4 +89,14 @@ object RecordingRecovery {
         activeSessionId == recordingId -> RecoveryAction.RESUME
         else -> RecoveryAction.INTERRUPT
       }
+
+  /** The partial wake lock is timed, so it is held for this long and renewed while recording goes on. */
+  const val WAKE_LOCK_MS = 10 * 60_000L
+
+  /** Less than this left on the wake lock means it has to be renewed now. */
+  const val WAKE_LOCK_RENEW_BEFORE_MS = 60_000L
+
+  /** True once a lock held for [heldForMs] is close enough to its timeout to be renewed. */
+  fun wakeLockNeedsRenewal(heldForMs: Long): Boolean =
+      heldForMs >= WAKE_LOCK_MS - WAKE_LOCK_RENEW_BEFORE_MS
 }
