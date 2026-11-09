@@ -30,6 +30,7 @@ import com.rbmr.taigasleep.tracker.StreamConfig
 import com.rbmr.taigasleep.tracker.SystemClockSource
 import java.util.TimeZone
 import java.util.concurrent.Executors
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -351,17 +352,19 @@ class RecordingService : Service() {
     if (contact && sensor.connection.value == ConnectionState.DISCONNECTED) sensor.connect()
 
     s.jobs =
-        listOf(
-            // One collector feeds both consumers, so the screen and the notification never disagree.
-            scope.launch {
-              monitor.state.collect { state ->
-                RecordingRepository.update { it.copy(state = state) }
-                showState(state)
+        buildList {
+          // One collector feeds both consumers, so the screen and the notification never disagree.
+          add(
+              scope.launch {
+                monitor.state.collect { state ->
+                  RecordingRepository.update { it.copy(state = state) }
+                  showState(state)
+                }
               }
-            },
-            scope.launch { watchConnection(s) },
-            scope.launch { tickLoop(s) },
-        )
+          )
+          add(scope.launch { watchConnection(s) })
+          add(scope.launch { tickLoop(s) })
+        }
     RecordingRepository.refreshRecordings(this)
   }
 
@@ -636,10 +639,11 @@ class RecordingService : Service() {
       val nowMs = SystemClock.elapsedRealtime()
       val nowNs = SystemClockSource.elapsedNs()
 
-      // The monitor derives everything; the service only feeds it the sensor's raw values.
+      // The monitor derives everything; the service only feeds it the sensor's raw values and
+      // performs the recovery steps it asks for. A step never ends the recording.
       s.writer.syncIfDue(nowMs)
       s.monitor.onBattery(s.sensor.battery.value)
-      s.monitor.tick(nowNs)
+      for (step in s.monitor.tick(nowNs)) applyRecovery(s, step)
 
       // One night is longer than one wake-lock timeout, so the lock is taken again before it lapses.
       val lock = s.wakeLock
@@ -659,6 +663,22 @@ class RecordingService : Service() {
         readiness = now
       }
       delay(1000)
+    }
+  }
+
+  /**
+   * Performs the step the monitor's recovery policy asked for. A failure is recorded and never ends
+   * the recording; the policy asks again on its next step.
+   */
+  private suspend fun applyRecovery(s: Live, step: RecoveryStep) {
+    if (live !== s) return
+    val cfg = s.writer.meta.config
+    try {
+      executeRecovery(step, s.sensor, StreamConfig(cfg.ecg, cfg.acc), s.fanout)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      s.writer.event("error", "recovery step failed: ${e.message ?: e.javaClass.simpleName}")
     }
   }
 
