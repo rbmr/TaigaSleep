@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.recording
 
 import android.content.Context
 import com.rbmr.taigasleep.appContainer
+import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingStore
@@ -76,7 +77,13 @@ object RecordingRepository {
     val live = RecordingRecovery.onAppear(store, prefs.activeSessionId)
     if (live != null) {
       prefs.activeSessionId = live.recordingId
-      RecordingService.send(context, RecordingService.ACTION_RESUME)
+      try {
+        RecordingService.send(context, RecordingService.ACTION_RESUME)
+      } catch (e: Exception) {
+        // A refused start must not take the screen down: the marker stays, so the watchdog or the
+        // next app start hands the recording to the service again.
+        Diagnostics.log("resume_refused", mapOf("error" to e.message))
+      }
       refreshRecordings(context)
       return
     }

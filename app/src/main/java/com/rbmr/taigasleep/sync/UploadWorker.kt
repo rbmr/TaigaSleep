@@ -98,7 +98,8 @@ class UploadWorker(
         when (RecordingRecovery.onUploadFoundOpen(meta.mode, active, localId)) {
           RecoveryAction.RESUME -> {
             // The phone still marks this recording live: the service decides whether it continues.
-            RecordingService.send(context, RecordingService.ACTION_RESUME)
+            // A refused start leaves the marker in place, so the watchdog tries again.
+            runCatching { RecordingService.send(context, RecordingService.ACTION_RESUME) }
             store.markQueued(localId, UploadFailure.RECORDING, "recording is still in progress")
             return Result.success()
           }

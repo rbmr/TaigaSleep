@@ -160,6 +160,22 @@ tracker confirms it is storing, the foreground service and the watchdog stop; th
 stays `recording` on disk, and the app, a restart of the app or a reboot of the phone finds it
 again and shows it as active. Stop and Discard reconnect to the tracker then.
 
+### Keeping a recording alive
+
+A Stream recording is handed from one process to the next instead of being declared dead:
+
+- While a recording runs, the phone keeps a marker with its id in `RecordingPrefs` and the
+  service renews its partial wake lock before the timeout runs out, so one lock covers a whole
+  night.
+- Opening the app, a reboot and the watchdog all hand a marked recording back to the service
+  with the same resume action. Only a recording without a marker is an orphan and becomes
+  `interrupted`; the service, not those callers, decides whether a marked one can continue.
+- The watchdog also rebuilds the live session of a service that is still there but whose
+  heartbeat stopped, because resuming it would find its session in place and change nothing.
+- A recording the tracker stores itself is adopted on resume, never started a second time.
+- When the system refuses to keep the service in the foreground, the recording ends as
+  `interrupted` with that reason instead of restarting into the same refusal.
+
 ### Ending a recording
 
 Three actions, whose meaning depends on the mode:

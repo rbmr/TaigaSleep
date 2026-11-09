@@ -218,12 +218,18 @@ class RecordingService : Service() {
    * finishing the recording, which is then attached again on the same directory.
    */
   private suspend fun restart() {
-    val s = live
-    if (s == null) {
-      resume()
-      return
+    live?.let {
+      Diagnostics.log("service_restart", mapOf("recording" to it.writer.meta.recordingId))
+      teardown(it)
     }
-    Diagnostics.log("service_restart", mapOf("recording" to s.writer.meta.recordingId))
+    resume()
+  }
+
+  /**
+   * Drops the live session without ending the recording: its streams stop and its logs are closed,
+   * so the directory can be opened again. meta.json stays as it is, so the recording stays open.
+   */
+  private suspend fun teardown(s: Live) {
     s.jobs.forEach { it.cancel() }
     apply(s, s.lifecycle.restart())
     s.writer.sync()
@@ -231,7 +237,6 @@ class RecordingService : Service() {
     releaseWakeLock(s)
     live = null
     running = false
-    resume()
   }
 
   /** Picks up the recording that was running before this process or service instance died. */
@@ -752,7 +757,8 @@ class RecordingService : Service() {
    * permission was revoked or the start came from the background. The recording cannot be kept
    * alive, so it is closed with the reason on disk and on the screen, and nothing crashes.
    */
-  private fun foregroundRefused() {
+  private suspend fun foregroundRefused() {
+    live?.let { teardown(it) }
     val id = RecordingRecovery.abandon(store, prefs.activeSessionId, REASON_NO_FOREGROUND, SystemClockSource)
     Diagnostics.log("service_foreground_refused", mapOf("recording" to id))
     if (id != null) {
