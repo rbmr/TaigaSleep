@@ -108,9 +108,9 @@ android {
       versionNameSuffix = "-debug"
     }
     release {
-      // Minification waits until a release APK has been exercised on real hardware.
-      isMinifyEnabled = false
-      isShrinkResources = false
+      isMinifyEnabled = true
+      isShrinkResources = true
+      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
     }
   }
@@ -121,6 +121,11 @@ android {
   }
 
   testOptions { unitTests.isReturnDefaultValues = true }
+
+  lint {
+    baseline = file("lint-baseline.xml")
+    abortOnError = true
+  }
 
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
