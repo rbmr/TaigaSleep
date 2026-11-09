@@ -30,6 +30,15 @@ enum class RecoveryAction {
  * is unit-tested once instead of being repeated in each path.
  */
 object RecordingRecovery {
+  /** How old the service's heartbeat may be before the watchdog rebuilds its pipeline. */
+  const val STALE_MS = 150_000L
+
+  /** The partial wake lock is timed, so it is held for this long and renewed while recording goes on. */
+  const val WAKE_LOCK_MS = 10 * 60_000L
+
+  /** Less than this left on the wake lock means it has to be renewed now. */
+  const val WAKE_LOCK_RENEW_BEFORE_MS = 60_000L
+
   /**
    * The recording the service can pick up: streamed to the phone and still open, or null. A
    * recording the tracker stores on its own is not resumed; it needs nothing from the phone.
@@ -55,9 +64,6 @@ object RecordingRecovery {
    * recording. Nothing else is touched: a reboot orphans nothing, it only interrupted the service.
    */
   fun onBoot(store: RecordingStore, activeSessionId: String?): RecordingMeta? = live(store, activeSessionId)
-
-  /** How old the service's heartbeat may be before the watchdog rebuilds its pipeline. */
-  const val STALE_MS = 150_000L
 
   /**
    * The watchdog: a marker with no service behind it is resumed, and a service that is alive but
@@ -91,12 +97,6 @@ object RecordingRecovery {
         activeSessionId == recordingId -> RecoveryAction.RESUME
         else -> RecoveryAction.INTERRUPT
       }
-
-  /** The partial wake lock is timed, so it is held for this long and renewed while recording goes on. */
-  const val WAKE_LOCK_MS = 10 * 60_000L
-
-  /** Less than this left on the wake lock means it has to be renewed now. */
-  const val WAKE_LOCK_RENEW_BEFORE_MS = 60_000L
 
   /** True once a lock held for [heldForMs] is close enough to its timeout to be renewed. */
   fun wakeLockNeedsRenewal(heldForMs: Long): Boolean =

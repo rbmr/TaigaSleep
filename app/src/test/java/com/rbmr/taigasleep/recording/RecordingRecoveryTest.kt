@@ -163,8 +163,14 @@ class RecordingRecoveryTest {
     val timeout = RecordingRecovery.WAKE_LOCK_MS
 
     assertFalse(RecordingRecovery.wakeLockNeedsRenewal(0))
-    assertFalse(RecordingRecovery.wakeLockNeedsRenewal(timeout - RecordingRecovery.WAKE_LOCK_RENEW_BEFORE_MS - 1))
-    assertTrue(RecordingRecovery.wakeLockNeedsRenewal(timeout - RecordingRecovery.WAKE_LOCK_RENEW_BEFORE_MS))
+    assertFalse(
+        RecordingRecovery.wakeLockNeedsRenewal(
+            timeout - RecordingRecovery.WAKE_LOCK_RENEW_BEFORE_MS - 1
+        )
+    )
+    assertTrue(
+        RecordingRecovery.wakeLockNeedsRenewal(timeout - RecordingRecovery.WAKE_LOCK_RENEW_BEFORE_MS)
+    )
     // A lock that already ran out is taken again as soon as the loop sees it.
     assertTrue(RecordingRecovery.wakeLockNeedsRenewal(timeout + 1))
   }
