@@ -54,11 +54,12 @@ class EventListeners(private val app: Application) {
                 fields["note"] = "light doze changed (no public getter)"
             PowerManager.ACTION_POWER_SAVE_MODE_CHANGED ->
                 fields["power_save"] = DeviceState.safe { power().isPowerSaveMode }
-            BluetoothAdapter.ACTION_STATE_CHANGED ->
-                fields["state"] =
-                    Names.bluetoothState(
-                        intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
-                    )
+            BluetoothAdapter.ACTION_STATE_CHANGED -> {
+              val state =
+                  intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+              fields["state"] = Names.bluetoothState(state)
+              BluetoothPower.report(state == BluetoothAdapter.STATE_ON)
+            }
             Intent.ACTION_BATTERY_LOW,
             Intent.ACTION_BATTERY_OKAY,
             Intent.ACTION_POWER_CONNECTED,

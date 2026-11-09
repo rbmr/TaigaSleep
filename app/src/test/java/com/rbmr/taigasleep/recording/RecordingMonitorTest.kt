@@ -259,6 +259,26 @@ class RecordingMonitorTest {
   }
 
   @Test
+  fun aBluetoothCycleAsksToReconnectAsSoonAsTheRadioIsBack() {
+    val m = monitor()
+    m.onPhase(RecordingState.Phase.RECORDING)
+    m.onLink(ConnectionState.CONNECTED)
+    m.hr()
+    m.tick()
+
+    val wait = m.onBluetooth(false).single()
+    assertEquals(RecoveryStepKind.WAIT, wait.kind)
+    assertEquals("recovery" to wait.reason, events.last())
+
+    clock.advanceMs(5 * 60_000)
+    assertTrue("nothing is escalated while the radio is off", m.tick().isEmpty())
+
+    val reconnect = m.onBluetooth(true).single()
+    assertEquals(RecoveryStepKind.RECONNECT, reconnect.kind)
+    assertEquals("recovery" to reconnect.reason, events.last())
+  }
+
+  @Test
   fun anOnDeviceRecordingAsksForNoStreamRecovery() {
     val m =
         RecordingMonitor(

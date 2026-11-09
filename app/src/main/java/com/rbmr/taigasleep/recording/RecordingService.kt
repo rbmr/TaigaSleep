@@ -16,6 +16,7 @@ import android.util.Log
 import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
+import com.rbmr.taigasleep.diagnostics.BluetoothPower
 import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
@@ -364,6 +365,8 @@ class RecordingService : Service() {
           )
           add(scope.launch { watchConnection(s) })
           add(scope.launch { tickLoop(s) })
+          // A streamed recording is the only one whose link can be lost with the radio.
+          if (mode == RecordingMode.STREAM) add(scope.launch { watchBluetooth(s) })
         }
     RecordingRepository.refreshRecordings(this)
   }
@@ -626,6 +629,14 @@ class RecordingService : Service() {
         Diagnostics.log("ble_disconnect", mapOf("state" to state.name.lowercase()))
         wasConnected = false
       }
+    }
+  }
+
+  /** Watches the radio so a recording that lost Bluetooth reconnects as soon as it is back. */
+  private suspend fun watchBluetooth(s: Live) {
+    BluetoothPower.enabled.collect { enabled ->
+      if (enabled == null) return@collect
+      for (step in s.monitor.onBluetooth(enabled)) applyRecovery(s, step)
     }
   }
 
