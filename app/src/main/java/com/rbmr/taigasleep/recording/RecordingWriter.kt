@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.recording
 import android.util.Log
 import com.rbmr.taigasleep.recording.store.EventLog
 import com.rbmr.taigasleep.recording.store.FrameLogWriter
+import com.rbmr.taigasleep.recording.store.LogPosition
 import com.rbmr.taigasleep.recording.store.Payloads
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
@@ -84,18 +85,21 @@ private constructor(
     }
   }
 
+  /** Returns false when the frame could not be written, so an importer can refuse to delete it. */
   @Synchronized
-  fun writeHr(stamp: Stamp, s: HrSample) {
-    if (closed) return
+  fun writeHr(stamp: Stamp, s: HrSample): Boolean {
+    if (closed) return false
     val flags = Payloads.hrFlags(s.contactSupported, s.contact, s.rrAvailable)
     val enc = Payloads.encodeHr(stamp.phoneNs, stamp.elapsedNs, s.hr, flags, s.rrMs)
     if (enc.clamped > 0) errorEvent("hr values out of range clamped (${enc.clamped})")
-    append(StreamId.HR, enc.bytes)
+    return append(StreamId.HR, enc.bytes)
   }
 
   @Synchronized
-  fun writeEcg(stamp: Stamp, b: EcgBatch) {
-    if (closed || b.timestampsNs.isEmpty()) return
+  fun writeEcg(stamp: Stamp, b: EcgBatch): Boolean {
+    if (closed) return false
+    if (b.timestampsNs.isEmpty()) return true
+    var ok = true
     for (from in b.timestampsNs.indices step Payloads.MAX_BATCH) {
       val to = minOf(from + Payloads.MAX_BATCH, b.timestampsNs.size)
       val enc =
@@ -105,13 +109,16 @@ private constructor(
               b.timestampsNs.copyOfRange(from, to),
               b.voltageUv.copyOfRange(from, to),
           )
-      append(StreamId.ECG, enc.bytes)
+      ok = append(StreamId.ECG, enc.bytes) && ok
     }
+    return ok
   }
 
   @Synchronized
-  fun writeAcc(stamp: Stamp, b: AccBatch) {
-    if (closed || b.timestampsNs.isEmpty()) return
+  fun writeAcc(stamp: Stamp, b: AccBatch): Boolean {
+    if (closed) return false
+    if (b.timestampsNs.isEmpty()) return true
+    var ok = true
     for (from in b.timestampsNs.indices step Payloads.MAX_BATCH) {
       val to = minOf(from + Payloads.MAX_BATCH, b.timestampsNs.size)
       val enc =
@@ -122,17 +129,21 @@ private constructor(
               b.xyzMg.copyOfRange(from * 3, to * 3),
           )
       if (enc.clamped > 0) errorEvent("acc values outside i16 clamped (${enc.clamped})")
-      append(StreamId.ACC, enc.bytes)
+      ok = append(StreamId.ACC, enc.bytes) && ok
     }
+    return ok
   }
 
-  private fun append(stream: Int, payload: ByteArray) {
-    val log = logs[stream] ?: return
-    try {
+  private fun append(stream: Int, payload: ByteArray): Boolean {
+    if (closed) return false
+    val log = logs[stream] ?: return false
+    return try {
       log.append(payload)
+      true
     } catch (e: IOException) {
       failure = e.message ?: "write failed"
       Log.e(TAG, "frame write failed", e)
+      false
     }
   }
 
@@ -144,13 +155,126 @@ private constructor(
     sync()
   }
 
+  /** Flushes every log and returns false when the data is not safely on disk. */
   @Synchronized
-  fun sync() {
-    try {
+  fun sync(): Boolean {
+    if (closed) return false
+    return try {
       logs.values.forEach { it.sync() }
       lastSyncNs = clock.elapsedNs()
+      true
     } catch (e: IOException) {
       failure = e.message ?: "sync failed"
+      false
+    }
+  }
+
+  /**
+   * The current end of every log, so an importer can remove a half-written entry again. It is a
+   * position only: the frame format does not change.
+   */
+  @Synchronized
+  fun mark(): Map<Int, LogPosition> = logs.mapValues { (_, log) -> LogPosition(log.bytes, log.frames) }
+
+  /** Removes everything appended after [mark]. Returns false when the logs cannot be rolled back. */
+  @Synchronized
+  fun rollback(mark: Map<Int, LogPosition>): Boolean {
+    var ok = true
+    for ((stream, position) in mark) {
+      val log = logs[stream] ?: continue
+      try {
+        log.truncate(position)
+      } catch (e: IOException) {
+        failure = e.message ?: "rollback failed"
+        ok = false
+      }
+    }
+    return ok
+  }
+
+  /**
+   * Marks the recording as still waiting for the tracker before the fetch starts, so a process
+   * kill during the fetch is found again as fetch pending after a restart.
+   */
+  @Synchronized
+  fun markFetchPending(): Boolean {
+    if (closed) return false
+    val updated = meta.copy(state = RecordingPhase.FETCH_PENDING, fetchPending = true)
+    return try {
+      updated.write(dir)
+      meta = updated
+      true
+    } catch (e: IOException) {
+      failure = e.message ?: "metadata write failed"
+      Log.e(TAG, "fetch pending metadata write failed", e)
+      false
+    }
+  }
+
+  /** How many samples of each tracker entry are already on this phone. */
+  @Synchronized fun importedOnDevice(): Map<String, Int> = meta.importedEntries
+
+  /**
+   * Remembers where the logs stood before one tracker entry is appended. If the process dies
+   * during the import, the next fetch truncates back to this point and imports the entry once.
+   */
+  @Synchronized
+  fun beginEntryImport(entryId: String): Boolean {
+    val updated = meta.copy(importStarted = entryId, importStart = mark())
+    return try {
+      updated.write(dir)
+      meta = updated
+      true
+    } catch (e: IOException) {
+      failure = e.message ?: "metadata write failed"
+      Log.e(TAG, "import mark metadata write failed", e)
+      false
+    }
+  }
+
+  /** Rolls back a tracker entry that was being appended when the previous process died. */
+  @Synchronized
+  fun rollbackStartedImport(): Boolean {
+    val start = meta.importStart
+    if (meta.importStarted == null && start.isEmpty()) return true
+    var ok = true
+    for ((stream, position) in start) {
+      try {
+        logs[stream]?.truncate(position)
+      } catch (e: IOException) {
+        failure = e.message ?: "rollback failed"
+        ok = false
+      }
+    }
+    if (!ok) return false
+    val updated = meta.copy(importStarted = null, importStart = emptyMap())
+    return try {
+      updated.write(dir)
+      meta = updated
+      true
+    } catch (e: IOException) {
+      failure = e.message ?: "metadata write failed"
+      false
+    }
+  }
+
+  /** Records the samples of one tracker entry that are safely stored. */
+  @Synchronized
+  fun markOnDeviceImported(entryId: String, samples: Int): Boolean {
+    val updated =
+        meta.copy(
+            importedEntries = meta.importedEntries + (entryId to samples),
+            importStarted = null,
+            importStart = emptyMap(),
+        )
+    return try {
+      updated.write(dir)
+      meta = updated
+      true
+    } catch (e: IOException) {
+      failure = e.message ?: "metadata write failed"
+      Log.e(TAG, "imported metadata write failed", e)
+      false
     }
   }
 
@@ -179,7 +303,13 @@ private constructor(
         }
     event(type, message)
     close()
-    meta = meta.copy(state = state, endUtcMs = clock.phoneNs() / 1_000_000L)
+    // A retry must not move the end of a recording that already ended when the user stopped it.
+    meta =
+        meta.copy(
+            state = state,
+            endUtcMs = meta.endUtcMs ?: clock.phoneNs() / 1_000_000L,
+            fetchPending = state == RecordingPhase.FETCH_PENDING,
+        )
     meta.write(dir)
   }
 
@@ -213,6 +343,20 @@ private constructor(
       return RecordingWriter(dir, resumed, clock).also {
         it.openLogs()
         it.event("service_restart", message)
+      }
+    }
+
+    /**
+     * Reopens a fetch-pending recording without changing its state: a retry may still fail and the
+     * state must survive that. The logs are truncated to their last valid frame first.
+     */
+    fun resumeFetch(dir: File, clock: Clock, message: String): RecordingWriter? {
+      val meta = RecordingMeta.read(dir) ?: return null
+      return RecordingWriter(dir, meta, clock).also {
+        it.openLogs()
+        // An entry that was half appended before the process died is written again from scratch.
+        it.rollbackStartedImport()
+        it.event("fetch", message)
       }
     }
   }

@@ -91,6 +91,10 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
             RecordingService.send(app, RecordingService.ACTION_DISCARD)
           }
 
+          override fun fetchAgain(recordingId: String) {
+            RecordingService.fetch(app, recordingId)
+          }
+
           override fun disconnect() {
             sensors.clear()
             prefs.lastSensor = null

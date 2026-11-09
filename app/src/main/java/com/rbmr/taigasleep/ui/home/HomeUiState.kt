@@ -104,6 +104,17 @@ sealed interface HomeUiState {
       override val error: String? = null,
   ) : HomeUiState
 
+  /** The tracker still holds a night; the only action is to fetch it again. */
+  data class FetchPending(
+      val recordingId: String,
+      val sensorName: String,
+      override val error: String?,
+      override val picker: SensorPicker = SensorPicker(),
+  ) : HomeUiState {
+    override val guard: HomeState?
+      get() = null
+  }
+
   /** A recording is running, with the three ways to end it. */
   data class Recording(
       val status: CaptureStatus,
@@ -138,6 +149,9 @@ internal fun homeState(
     picker: SensorPicker,
 ): HomeUiState {
   if (status.phase != Phase.IDLE) return HomeUiState.Recording(status, picker)
+  status.fetchPending?.let {
+    return HomeUiState.FetchPending(it.recordingId, it.sensorName, it.error, picker)
+  }
   if (tracker == null) return HomeUiState.NoTracker(guard, picker, status.error)
   // Without a configuration there is nothing to show past the connection, so it is not ready.
   if (config == null || tracker.connection != ConnectionState.CONNECTED) {

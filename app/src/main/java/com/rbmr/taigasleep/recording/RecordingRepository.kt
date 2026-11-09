@@ -16,6 +16,14 @@ enum class Phase {
   STOPPING,
 }
 
+/** A recording whose night is still on the tracker and can be fetched again. */
+data class PendingFetch(
+    val recordingId: String,
+    val sensorName: String,
+    val startUtcMs: Long,
+    val error: String?,
+)
+
 data class CaptureStatus(
     val phase: Phase = Phase.IDLE,
     val recordingId: String? = null,
@@ -28,6 +36,8 @@ data class CaptureStatus(
     val state: RecordingState = RecordingState(),
     /** Why the last start was refused or the recording ended abnormally. */
     val error: String? = null,
+    /** Set instead of [phase] when the tracker still holds a night that must be fetched again. */
+    val fetchPending: PendingFetch? = null,
 )
 
 /** Observable recorder state: written by [RecordingService], read by the UI. */
@@ -42,6 +52,10 @@ object RecordingRepository {
 
   internal fun setIdle(error: String? = null) {
     _status.value = CaptureStatus(error = error)
+  }
+
+  internal fun setFetchPending(pending: PendingFetch) {
+    _status.value = CaptureStatus(fetchPending = pending)
   }
 
   /** Re-reads the recording list from disk (cheap for the handful of recordings kept on the phone). */
@@ -60,6 +74,7 @@ object RecordingRepository {
     val store = context.appContainer.recordingStore
     store.markOrphans(liveId = null)
     val onDevice = store.onDeviceInProgress()
+    val pending = store.fetchPending()
     prefs.activeSessionId = onDevice?.recordingId
     WatchdogReceiver.cancel(context)
     if (onDevice != null) {
@@ -71,6 +86,17 @@ object RecordingRepository {
               config = onDevice.config,
               sensorName = onDevice.sensorName,
               liveStreaming = false,
+          )
+    } else if (pending != null) {
+      _status.value =
+          CaptureStatus(
+              fetchPending =
+                  PendingFetch(
+                      recordingId = pending.recordingId,
+                      sensorName = pending.sensorName,
+                      startUtcMs = pending.startUtcMs,
+                      error = null,
+                  )
           )
     }
     refreshRecordings(context)

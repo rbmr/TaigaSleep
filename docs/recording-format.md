@@ -73,19 +73,46 @@ step).
 `state` is one of `recording`, `stopped` (clean stop), `forced_stop` (one-sided
 stop without sensor connection), `interrupted` (found as `recording` on app
 start with no live service; never a recording in `on_device` mode, which stays `recording`
-until it is stopped, discarded or force stopped). `mode` is `stream` (data arrived while recording)
-or `on_device` (the strap stored it and the phone fetched it at the end); a
-recording written before modes existed has no key and means `stream`.
+until it is stopped, discarded or force stopped), or `fetch_pending` (the tracker
+still holds part of the night and a fetch must be retried). `mode` is `stream` (data
+arrived while recording) or `on_device` (the strap stored it and the phone fetched it
+at the end); a recording written before modes existed has no key and means `stream`.
 
 The Polar H10 can record HR/RR on itself when the configuration is HR-only. In
 `on_device` mode the `hr.log` file is written from the fetched samples when the
 recording stops, so it still holds the same frames as a streamed HR-only night. The
 strap stores beat intervals; each becomes one frame with the heart rate derived from it,
-timed backwards from the moment the strap was stopped, because the strap's own clock is
-not trusted. `end_utc_ms` is null while recording; for an
-`interrupted` session it is the time of the last valid HR frame. When the OS
-restarts the service and it resumes a session, the state stays (or returns to)
-`recording` and a `service_restart` event is appended.
+timed forward from that exercise's own start time, with each RR interval added in
+order. An RR interval of 0 or less produces no frame, so it stays a gap, and the
+gap between two exercises stays a gap too. The app sets the strap's clock before an
+on-device recording starts and records a `clock_sync` event, so the exercise start is
+real time; it still anchors absolute time to the phone's clock where it can.
+
+An `on_device` recording has one extra metadata object:
+
+```json
+"on_device": {
+  "fetch_pending": false,
+  "imported_entries": { "exercise-id": 1234 },
+  "import_started": "exercise-id",
+  "import_start": { "1": { "bytes": 8192, "frames": 128 } }
+}
+```
+
+`fetch_pending` is written before the fetch starts, so a process kill during the
+fetch is found again after a restart. `imported_entries` maps each tracker entry id
+to how many of its samples are already on the phone; a retry imports the rest and
+never duplicates an entry. Before an entry is appended, `import_started` names it and
+`import_start` holds the byte and frame position of each stream log; if the process
+dies mid-entry, the next fetch truncates back to that position and imports the entry
+once. Both fields are cleared when the entry is marked imported. The tracker's copy is
+removed only after the imported frames are flushed and fsynced and the imported sample
+count equals the fetched one. A recording without this object has nothing on the
+tracker.
+
+`end_utc_ms` is null while recording; for an `interrupted` session it is the time of
+the last valid HR frame. When the OS restarts the service and it resumes a session,
+the state stays (or returns to) `recording` and a `service_restart` event is appended.
 
 ## Frame log (`*.log`)
 
@@ -167,8 +194,8 @@ set), `stream` (a stream delivered its first sample), `contact` (the raw HR cont
 state applies 60 s/5 s hysteresis before it changes the notification), `ecg_signal` (the ECG was pinned at the sensor's limits, or recovered), `stream_stalled` (a
 stream stopped delivering without a disconnect), `stream_recovered` (a stalled stream came
 back), `battery` (the sensor battery crossed the low threshold), `storage_error` (a raw frame
-or fsync failed), `readiness` (a snapshot of the battery/standby settings at start and on
-every state change). Keep messages short and free of personal data.
+or fsync failed), `fetch` (an on-device fetch was retried), `readiness` (a snapshot of the
+battery/standby settings at start and on every state change). Keep messages short and free of personal data.
 
 The service owns the lifecycle lines (`start`, `stop`, `force_stop`, `readiness`,
 `service_restart`); the live monitor owns `connect`, `disconnect`, `reconnect`, `contact`,

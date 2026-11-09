@@ -11,7 +11,9 @@ enum class RecordingPhase(val wire: String) {
   RECORDING("recording"),
   STOPPED("stopped"),
   FORCED_STOP("forced_stop"),
-  INTERRUPTED("interrupted");
+  INTERRUPTED("interrupted"),
+  /** The tracker still holds part of the night; fetching it again is the only way to finish. */
+  FETCH_PENDING("fetch_pending");
 
   companion object {
     fun fromWire(value: String?): RecordingPhase =
@@ -55,6 +57,14 @@ data class RecordingMeta(
     val sensorFirmware: String?,
     val sensorBatteryAtStart: Int?,
     val config: RecordingConfig,
+    /** The tracker still holds a part of this recording that is not on the phone. */
+    val fetchPending: Boolean = false,
+    /** How many samples of each tracker entry are already imported, keyed by its id. */
+    val importedEntries: Map<String, Int> = emptyMap(),
+    /** The entry whose samples are being appended now; a restart rolls it back before retrying. */
+    val importStarted: String? = null,
+    /** The log positions from before [importStarted] began, keyed by stream id. */
+    val importStart: Map<Int, LogPosition> = emptyMap(),
 ) {
   fun toJson(): JSONObject =
       JSONObject()
@@ -97,6 +107,30 @@ data class RecordingMeta(
                   .put("acc_rate_hz", config.accRateHz)
                   .put("acc_range_g", config.accRangeG),
           )
+          .apply {
+            if (mode == RecordingMode.ON_DEVICE) {
+              put(
+                  "on_device",
+                  JSONObject()
+                      .put("fetch_pending", fetchPending)
+                      .put("imported_entries", JSONObject(importedEntries))
+                      .put("import_started", importStarted ?: JSONObject.NULL)
+                      .put(
+                          "import_start",
+                          JSONObject().apply {
+                            for ((stream, position) in importStart) {
+                              put(
+                                  stream.toString(),
+                                  JSONObject()
+                                      .put("bytes", position.bytes)
+                                      .put("frames", position.frames),
+                              )
+                            }
+                          },
+                      ),
+              )
+            }
+          }
 
   companion object {
     fun fromJson(o: JSONObject): RecordingMeta {
@@ -104,6 +138,26 @@ data class RecordingMeta(
       val phone = o.getJSONObject("phone")
       val sensor = o.getJSONObject("sensor")
       val config = o.getJSONObject("config")
+      val onDevice = o.optJSONObject("on_device")
+      val imported = LinkedHashMap<String, Int>()
+      onDevice?.optJSONObject("imported_entries")?.let { entries ->
+        val names = entries.keys()
+        while (names.hasNext()) {
+          val name = names.next()
+          imported[name] = entries.optInt(name)
+        }
+      }
+      val importStart = LinkedHashMap<Int, LogPosition>()
+      onDevice?.optJSONObject("import_start")?.let { positions ->
+        val names = positions.keys()
+        while (names.hasNext()) {
+          val key = names.next()
+          val stream = key.toIntOrNull() ?: continue
+          val position = positions.optJSONObject(key) ?: continue
+          importStart[stream] =
+              LogPosition(position.optLong("bytes"), position.optLong("frames"))
+        }
+      }
       return RecordingMeta(
           recordingId = o.getString("session_id"),
           state = RecordingPhase.fromWire(o.optString("state")),
@@ -133,6 +187,12 @@ data class RecordingMeta(
                   accRateHz = config.optInt("acc_rate_hz", 50),
                   accRangeG = config.optInt("acc_range_g", 8),
               ),
+          fetchPending = onDevice?.optBoolean("fetch_pending", false) ?: false,
+          importedEntries = imported,
+          importStarted =
+              if (onDevice == null || onDevice.isNull("import_started")) null
+              else onDevice.optString("import_started").takeIf { it.isNotEmpty() },
+          importStart = importStart,
       )
     }
 

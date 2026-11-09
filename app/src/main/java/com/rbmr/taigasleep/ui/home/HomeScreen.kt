@@ -63,6 +63,7 @@ private data class InactiveView(
 private fun HomeUiState.inactive(): InactiveView? =
     when (this) {
       is HomeUiState.Recording -> null
+      is HomeUiState.FetchPending -> null
       is HomeUiState.NoTracker ->
           InactiveView(null, null, guard, canStart = false, picker.denied, error)
       is HomeUiState.Connecting ->
@@ -149,26 +150,28 @@ fun HomeScreen(onGuidanceClick: () -> Unit) {
               )
   ) {
     // Two separate stages: nothing from one is shown on the other.
-    val recording = state as? HomeUiState.Recording
-    if (recording != null) {
-      ActiveHome(
-          state = recording,
-          onStop = { confirm = StopAction.STOP },
-          onForceStop = { confirm = StopAction.FORCE_STOP },
-          onDiscard = { confirm = StopAction.DISCARD },
-      )
-    } else {
-      state.inactive()?.let { view ->
-        InactiveHome(
-            view = view,
-            onSelectSensor = viewModel::selectSensor,
-            onDisconnect = viewModel::disconnect,
-            onDataSettings = viewModel::openConfiguration,
-            onReadiness = onGuidanceClick,
-            onReadinessLongClick = readinessLongClick,
-            onStart = ::start,
-        )
-      }
+    when (val current = state) {
+      is HomeUiState.Recording ->
+          ActiveHome(
+              state = current,
+              onStop = { confirm = StopAction.STOP },
+              onForceStop = { confirm = StopAction.FORCE_STOP },
+              onDiscard = { confirm = StopAction.DISCARD },
+          )
+      is HomeUiState.FetchPending ->
+          FetchPendingHome(state = current, onFetchAgain = viewModel::fetchAgain)
+      else ->
+          current.inactive()?.let { view ->
+            InactiveHome(
+                view = view,
+                onSelectSensor = viewModel::selectSensor,
+                onDisconnect = viewModel::disconnect,
+                onDataSettings = viewModel::openConfiguration,
+                onReadiness = onGuidanceClick,
+                onReadinessLongClick = readinessLongClick,
+                onStart = ::start,
+            )
+          }
     }
   }
 

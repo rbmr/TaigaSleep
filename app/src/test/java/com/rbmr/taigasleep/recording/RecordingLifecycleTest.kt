@@ -67,15 +67,49 @@ class RecordingLifecycleTest {
     val lifecycle = RecordingLifecycle(RecordingMode.ON_DEVICE)
     lifecycle.start()
 
+    assertEquals(listOf(LifecycleEffect.FetchFromTracker), lifecycle.stop())
+    assertEquals(LifecycleState.STOPPING, lifecycle.state)
+    // Removing the tracker's copy is its own step, after the fetch has been verified.
     assertEquals(
         listOf(
-            LifecycleEffect.FetchFromTracker,
-            LifecycleEffect.StopStreams,
+            LifecycleEffect.RemoveFromTracker,
             LifecycleEffect.Finish(RecordingPhase.STOPPED),
         ),
-        lifecycle.stop(),
+        lifecycle.fetchSucceeded(),
     )
     assertEquals(LifecycleState.FINISHED, lifecycle.state)
+  }
+
+  @Test
+  fun aFailedOnDeviceFetchStaysPendingForARetry() {
+    val lifecycle = RecordingLifecycle(RecordingMode.ON_DEVICE)
+    lifecycle.start()
+
+    lifecycle.stop()
+    assertEquals(
+        listOf(LifecycleEffect.Finish(RecordingPhase.FETCH_PENDING)),
+        lifecycle.fetchFailed(),
+    )
+    assertEquals(LifecycleState.FETCH_PENDING, lifecycle.state)
+
+    assertEquals(listOf(LifecycleEffect.FetchFromTracker), lifecycle.retryFetch())
+    assertEquals(LifecycleState.STOPPING, lifecycle.state)
+    assertEquals(
+        listOf(
+            LifecycleEffect.RemoveFromTracker,
+            LifecycleEffect.Finish(RecordingPhase.STOPPED),
+        ),
+        lifecycle.fetchSucceeded(),
+    )
+    assertEquals(LifecycleState.FINISHED, lifecycle.state)
+  }
+
+  @Test
+  fun aRetryStartsFromThePersistedPendingState() {
+    val lifecycle = RecordingLifecycle(RecordingMode.ON_DEVICE, LifecycleState.FETCH_PENDING)
+
+    assertEquals(listOf(LifecycleEffect.FetchFromTracker), lifecycle.retryFetch())
+    assertEquals(LifecycleState.STOPPING, lifecycle.state)
   }
 
   @Test
@@ -119,12 +153,18 @@ class RecordingLifecycleTest {
     for (mode in RecordingMode.entries) {
       val lifecycle = RecordingLifecycle(mode)
       lifecycle.start()
-      lifecycle.stop()
+      if (mode == RecordingMode.ON_DEVICE) {
+        lifecycle.stop()
+        lifecycle.fetchSucceeded()
+      } else {
+        lifecycle.stop()
+      }
 
       assertTrue(lifecycle.stop().isEmpty())
       assertTrue(lifecycle.forceStop().isEmpty())
       assertTrue(lifecycle.discard().isEmpty())
       assertTrue(lifecycle.start().isEmpty())
+      assertTrue(lifecycle.retryFetch().isEmpty())
       assertEquals(LifecycleState.FINISHED, lifecycle.state)
     }
   }

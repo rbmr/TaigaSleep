@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.ui.home
 
 import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.recording.CaptureStatus
+import com.rbmr.taigasleep.recording.PendingFetch
 import com.rbmr.taigasleep.recording.Phase
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.FoundSensor
@@ -100,6 +101,10 @@ private class FakeWork : HomeWork {
 
   override fun discard() {
     calls += "discard"
+  }
+
+  override fun fetchAgain(recordingId: String) {
+    calls += "fetch:$recordingId"
   }
 
   override fun disconnect() {
@@ -228,6 +233,30 @@ class HomeStepTest {
   }
 
   @Test
+  fun `a night still on the tracker is its own step`() {
+    val pending = PendingFetch("20261023_223000", "Polar H10", 1_792_798_200_000L, "timed out")
+    val state =
+        homeState(
+            CaptureStatus(fetchPending = pending),
+            null,
+            null,
+            HomeState.READY,
+            false,
+            SensorPicker(),
+        )
+
+    assertEquals(
+        HomeUiState.FetchPending(
+            "20261023_223000",
+            "Polar H10",
+            "timed out",
+            SensorPicker(),
+        ),
+        state,
+    )
+  }
+
+  @Test
   fun `the service's last error reaches the screen`() {
     val state =
         homeState(
@@ -325,6 +354,19 @@ class HomeViewModelTest {
     model.discard()
 
     assertEquals(listOf("stop", "forceStop", "discard"), work.calls)
+  }
+
+  @Test
+  fun `the fetch pending screen retries that recording`() {
+    val model = viewModel()
+    status.value =
+        CaptureStatus(
+            fetchPending = PendingFetch("20261023_223000", "Polar H10", 1_792_798_200_000L, null)
+        )
+
+    model.fetchAgain()
+
+    assertEquals(listOf("fetch:20261023_223000"), work.calls)
   }
 
   @Test
