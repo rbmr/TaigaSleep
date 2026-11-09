@@ -439,7 +439,7 @@ class RecordingService : Service() {
         hooks.onRecordingFinished(this, meta.recordingId)
       }
       is OnDeviceFetch.Failed -> {
-        writer.event("error", "fetching the tracker recording failed: $result.reason")
+        writer.event("error", "fetching the tracker recording failed: ${result.reason}")
         writer.finish(RecordingPhase.FETCH_PENDING, "fetch failed; the tracker keeps the recording")
         RecordingRepository.setFetchPending(
             PendingFetch(meta.recordingId, meta.sensorName, meta.startUtcMs, result.reason)
