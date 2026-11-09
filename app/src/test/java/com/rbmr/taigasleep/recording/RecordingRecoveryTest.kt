@@ -100,6 +100,33 @@ class RecordingRecoveryTest {
   }
 
   @Test
+  fun `the boot broadcast resumes a marked live recording`() {
+    val store = store()
+    open(store)
+
+    assertEquals("20261023_223000", RecordingRecovery.onBoot(store, "20261023_223000")?.recordingId)
+  }
+
+  @Test
+  fun `the boot broadcast does nothing without a marked recording`() {
+    val store = store()
+    val dir = open(store)
+
+    assertNull(RecordingRecovery.onBoot(store, null))
+    assertNull(RecordingRecovery.onBoot(store, "gone"))
+    // A reboot orphans nothing: a recording without a marker is left for the app start to close.
+    assertEquals(RecordingPhase.RECORDING, state(dir))
+  }
+
+  @Test
+  fun `the boot broadcast leaves an on-device recording to the tracker`() {
+    val store = store()
+    open(store, mode = RecordingMode.ON_DEVICE)
+
+    assertNull(RecordingRecovery.onBoot(store, "20261023_223000"))
+  }
+
+  @Test
   fun `an upload leaves the recording the phone still marks live to the service`() {
     assertEquals(
         RecoveryAction.RESUME,

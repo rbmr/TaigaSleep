@@ -49,6 +49,12 @@ object RecordingRecovery {
   }
 
   /**
+   * After a reboot: the recording to hand back to the service, or null when the phone was not
+   * recording. Nothing else is touched: a reboot orphans nothing, it only interrupted the service.
+   */
+  fun onBoot(store: RecordingStore, activeSessionId: String?): RecordingMeta? = live(store, activeSessionId)
+
+  /**
    * An upload found a recording still marked open. A streamed recording whose marker is set belongs
    * to the service, which decides whether it can continue. An on-device recording keeps going on the
    * tracker, so nothing may touch it. Without a marker the process died and the recording is closed.
