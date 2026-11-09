@@ -118,6 +118,13 @@ class RecordingStore(val root: File) {
           .filter { it.state == RecordingPhase.RECORDING && it.mode == RecordingMode.ON_DEVICE }
           .maxByOrNull { it.startUtcMs }
 
+  /** The newest recording whose tracker copy was not fetched yet, if any. */
+  fun fetchPending(): RecordingMeta? =
+      (root.listFiles { f -> f.isDirectory } ?: emptyArray())
+          .mapNotNull { RecordingMeta.read(it) }
+          .filter { it.fetchPending }
+          .maxByOrNull { it.startUtcMs }
+
   fun delete(id: String): Boolean = File(root, id).takeIf { it.isDirectory }?.deleteRecursively() ?: false
 
   /** Zips the recording directory to [out]; the archive is never kept beyond the share. */

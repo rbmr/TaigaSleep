@@ -53,6 +53,9 @@ interface HomeWork {
 
   fun discard()
 
+  /** Try again to move a night the tracker still holds onto the phone. */
+  fun fetchAgain(recordingId: String)
+
   fun disconnect()
 
   fun startScan()
@@ -197,6 +200,12 @@ class HomeViewModel(
 
   fun discard() {
     work.discard()
+  }
+
+  /** The screen is showing a fetch-pending night: retry its tracker fetch. */
+  fun fetchAgain() {
+    val pending = state.value as? HomeUiState.FetchPending ?: return
+    work.fetchAgain(pending.recordingId)
   }
 
   override fun onCleared() {

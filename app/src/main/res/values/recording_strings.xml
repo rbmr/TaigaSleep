@@ -16,6 +16,8 @@
   <string name="rec_error_no_sensor">Recording was not started: no sensor selected.</string>
   <string name="rec_error_storage">Recording was not started: could not create the session on this phone.</string>
   <string name="rec_error_mode">Recording was not started: this tracker cannot record with the chosen streams.</string>
+  <string name="rec_error_fetch_missing">Could not fetch the recording: it is no longer waiting on this phone.</string>
+  <string name="rec_error_fetch_failed">Could not reach the tracker. Keep it nearby and try again.</string>
 
   <string name="rec_connected_title">%1$s</string>
   <string name="rec_battery">Battery %1$d%%</string>
@@ -102,6 +104,11 @@
   <string name="rec_discard_body">All data recorded in this session will be deleted from the phone. This cannot be undone.</string>
   <string name="rec_discard_confirm">Discard</string>
   <string name="rec_cancel">Cancel</string>
+  <string name="rec_fetch_pending_title">Night waiting on the tracker</string>
+  <string name="rec_fetch_pending_subtitle">The recording is still stored on the tracker.</string>
+  <string name="rec_fetch_pending_body">Taiga could not fetch the recording from %1$s. The tracker keeps it until the fetch succeeds.</string>
+  <string name="rec_fetch_pending_note">Keep the tracker nearby and connected, then try again.</string>
+  <string name="rec_fetch_again">Fetch again</string>
 
   <string name="rec_export">Export zip</string>
   <string name="rec_state_recording">recording</string>

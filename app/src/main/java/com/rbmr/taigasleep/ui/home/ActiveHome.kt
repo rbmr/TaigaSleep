@@ -22,6 +22,7 @@ import com.rbmr.taigasleep.ui.components.LogoVariant
 import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SecondaryButton
+import com.rbmr.taigasleep.ui.components.TaigaCard
 
 internal enum class StopAction {
   STOP,
@@ -82,6 +83,48 @@ internal fun ActiveHome(
         Note(R.string.rec_discard_note)
       }
     }
+  }
+}
+
+/** The tracker still holds a night: explain why and offer the only useful action. */
+@Composable
+internal fun FetchPendingHome(state: HomeUiState.FetchPending, onFetchAgain: () -> Unit) {
+  LazyColumn(
+      modifier = Modifier.fillMaxSize().statusBarsPadding(),
+      contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
+      verticalArrangement = Arrangement.spacedBy(16.dp),
+  ) {
+    item {
+      ScreenHeader(
+          kicker = stringResource(R.string.home_kicker),
+          title = stringResource(R.string.rec_fetch_pending_title),
+          subtitle = stringResource(R.string.rec_fetch_pending_subtitle),
+      )
+    }
+    item { HomeLogo(LogoVariant.Sleeping, glow = false) }
+    item {
+      TaigaCard {
+        Text(
+            text = stringResource(R.string.rec_fetch_pending_body, state.sensorName),
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        state.error?.let {
+          Text(
+              text = it,
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.error,
+          )
+        }
+      }
+    }
+    item {
+      PrimaryButton(
+          text = stringResource(R.string.rec_fetch_again),
+          onClick = onFetchAgain,
+          size = ButtonSize.Large,
+      )
+    }
+    item { Note(R.string.rec_fetch_pending_note) }
   }
 }
 

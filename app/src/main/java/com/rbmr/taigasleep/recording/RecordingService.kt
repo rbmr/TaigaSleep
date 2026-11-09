@@ -99,6 +99,7 @@ class RecordingService : Service() {
       ACTION_STOP -> scope.launch { stop(forced = false) }
       ACTION_FORCE_STOP -> scope.launch { stop(forced = true) }
       ACTION_DISCARD -> scope.launch { discard() }
+      ACTION_FETCH -> scope.launch { fetchPending(intent.getStringExtra(EXTRA_RECORDING_ID)) }
       // ACTION_RESUME from the watchdog, or a null intent after the OS restarted the service.
       else -> scope.launch { resume() }
     }
@@ -353,8 +354,134 @@ class RecordingService : Service() {
     RecordingRepository.update { it.copy(phase = Phase.STOPPING) }
     s.monitor.onPhase(RecordingState.Phase.STOPPING)
     s.jobs.forEach { it.cancel() }
-    apply(s, if (forced) s.lifecycle.forceStop() else s.lifecycle.stop())
-    end(s)
+    if (!forced && s.mode == RecordingMode.ON_DEVICE) {
+      // Stop, fetch, persist, verify; only a verified import removes the tracker's copy.
+      s.lifecycle.stop()
+      fetchFromTracker(s)
+    } else {
+      apply(s, if (forced) s.lifecycle.forceStop() else s.lifecycle.stop())
+      end(s)
+    }
+  }
+
+  /** The on-device part of a stop: one timeout, then either a finished night or a retry. */
+  private suspend fun fetchFromTracker(s: Live) {
+    val tracker = s.sensor as? OnDeviceTracker
+    if (tracker == null) {
+      failFetch(s, "this tracker cannot hand over the recording")
+      return
+    }
+    // Write the pending state before starting, so a process kill mid-fetch is found after restart.
+    if (!s.writer.markFetchPending()) {
+      failFetch(s, "could not record that the fetch is still pending")
+      return
+    }
+    when (val result = OnDeviceImport(s.writer, tracker, SystemClockSource).fetch()) {
+      is OnDeviceFetch.Imported -> {
+        removeFromTracker(s, tracker, result)
+        apply(s, s.lifecycle.fetchSucceeded())
+        end(s)
+      }
+      is OnDeviceFetch.Failed -> failFetch(s, result.reason)
+    }
+  }
+
+  /** A failed fetch keeps the tracker's copy and leaves the recording ready for another attempt. */
+  private suspend fun failFetch(s: Live, reason: String) {
+    s.writer.event("error", "fetching the tracker recording failed: $reason")
+    apply(s, s.lifecycle.fetchFailed())
+    end(
+        s,
+        PendingFetch(
+            recordingId = s.writer.meta.recordingId,
+            sensorName = s.writer.meta.sensorName,
+            startUtcMs = s.writer.meta.startUtcMs,
+            error = reason,
+        ),
+    )
+  }
+
+  /**
+   * Retries the fetch of a recording the tracker still holds, without a live recording: the service
+   * reopens the recording, imports whatever is missing and then removes the tracker's copy.
+   */
+  private suspend fun fetchPending(recordingId: String?) {
+    if (live != null) return
+    val id = recordingId ?: store.fetchPending()?.recordingId
+    val dir = id?.let { store.dir(it) }
+    val meta = dir?.let { RecordingMeta.read(it) }
+    if (dir == null || meta == null || !meta.fetchPending) {
+      leave(getString(R.string.rec_error_fetch_missing))
+      return
+    }
+    val kind = SensorKind.fromWire(meta.sensorKind)
+    val tracker =
+        if (kind == null) {
+          null
+        } else {
+          runCatching { appContainer.sensorHub.obtain(this, kind, meta.sensorId, meta.sensorName) }
+              .getOrNull() as? OnDeviceTracker
+        }
+    if (tracker == null) {
+      leavePending(meta, getString(R.string.rec_error_fetch_failed))
+      return
+    }
+    val writer = RecordingWriter.resumeFetch(dir, SystemClockSource, "fetching from the tracker")
+    if (writer == null) {
+      leavePending(meta, getString(R.string.rec_error_fetch_missing))
+      return
+    }
+    when (val result = OnDeviceImport(writer, tracker, SystemClockSource).fetch()) {
+      is OnDeviceFetch.Imported -> {
+        removeFromTracker(writer, tracker, result)
+        writer.finish(RecordingPhase.STOPPED, "recording fetched from the tracker")
+        RecordingRepository.setIdle()
+        hooks.onRecordingFinished(this, meta.recordingId)
+      }
+      is OnDeviceFetch.Failed -> {
+        writer.event("error", "fetching the tracker recording failed: $result.reason")
+        writer.finish(RecordingPhase.FETCH_PENDING, "fetch failed; the tracker keeps the recording")
+        RecordingRepository.setFetchPending(
+            PendingFetch(meta.recordingId, meta.sensorName, meta.startUtcMs, result.reason)
+        )
+      }
+    }
+    writer.close()
+    finishFetchService()
+  }
+
+  private fun removeFromTracker(
+      writer: RecordingWriter,
+      tracker: OnDeviceTracker,
+      result: OnDeviceFetch.Imported,
+  ) {
+    runCatching { tracker.removeFromDevice(result.entries) }
+        .onFailure { writer.event("error", "could not remove the tracker copy: ${it.message}") }
+  }
+
+  private fun removeFromTracker(
+      s: Live,
+      tracker: OnDeviceTracker,
+      result: OnDeviceFetch.Imported,
+  ) = removeFromTracker(s.writer, tracker, result)
+
+  /** The retry could not even start: keep it on the screen, with the reason. */
+  private fun leavePending(meta: RecordingMeta, error: String) {
+    RecordingRepository.setFetchPending(
+        PendingFetch(meta.recordingId, meta.sensorName, meta.startUtcMs, error)
+    )
+    finishFetchService()
+  }
+
+  private fun finishFetchService() {
+    live = null
+    running = false
+    lastNotificationText = null
+    prefs.activeSessionId = null
+    WatchdogReceiver.cancel(this)
+    RecordingRepository.refreshRecordings(this)
+    stopForeground(STOP_FOREGROUND_REMOVE)
+    stopSelf()
   }
 
   private suspend fun discard() {
@@ -379,8 +506,9 @@ class RecordingService : Service() {
             }
         LifecycleEffect.StopStreamsAsync ->
             Thread { runCatching { s.sensor.stopStreams() } }.start()
-        LifecycleEffect.FetchFromTracker ->
-            (s.sensor as? OnDeviceTracker)?.fetchOnDevice(s.fanout)
+        // On-device stop runs the fetch itself, because its outcome decides the next effects.
+        LifecycleEffect.FetchFromTracker -> Unit
+        LifecycleEffect.RemoveFromTracker -> Unit
         LifecycleEffect.DiscardOnTracker ->
             (s.sensor as? OnDeviceTracker)?.discardOnDevice()
         is LifecycleEffect.Finish -> {
@@ -400,7 +528,7 @@ class RecordingService : Service() {
     }
   }
 
-  private fun end(s: Live) {
+  private fun end(s: Live, pending: PendingFetch? = null) {
     Diagnostics.log("service_stop", mapOf("state" to s.writer.meta.state.name.lowercase()))
     Diagnostics.markCleanShutdown("recording_ended")
     live = null
@@ -409,9 +537,10 @@ class RecordingService : Service() {
     prefs.activeSessionId = null
     WatchdogReceiver.cancel(this)
     releaseWakeLock(s)
-    RecordingRepository.setIdle()
+    if (pending != null) RecordingRepository.setFetchPending(pending) else RecordingRepository.setIdle()
     RecordingRepository.refreshRecordings(this)
-    if (s.lifecycle.state != LifecycleState.DISCARDED &&
+    if (pending == null &&
+        s.lifecycle.state != LifecycleState.DISCARDED &&
         s.writer.meta.state != RecordingPhase.RECORDING) {
       hooks.onRecordingFinished(this, s.writer.meta.recordingId)
     }
@@ -595,6 +724,7 @@ class RecordingService : Service() {
     const val ACTION_FORCE_STOP = "com.rbmr.taigasleep.recording.FORCE_STOP"
     const val ACTION_DISCARD = "com.rbmr.taigasleep.recording.DISCARD"
     const val ACTION_RESUME = "com.rbmr.taigasleep.recording.RESUME"
+    const val ACTION_FETCH = "com.rbmr.taigasleep.recording.FETCH"
 
     private const val EXTRA_SENSOR_KIND = "sensor_kind"
     private const val EXTRA_SENSOR_ID = "sensor_id"
@@ -602,6 +732,7 @@ class RecordingService : Service() {
     private const val EXTRA_ECG = "ecg"
     private const val EXTRA_ACC = "acc"
     private const val EXTRA_MODE = "mode"
+    private const val EXTRA_RECORDING_ID = "recording_id"
 
     /** True while this process has a live recording. */
     @Volatile
@@ -630,6 +761,13 @@ class RecordingService : Service() {
 
     fun send(context: Context, action: String) {
       context.startForegroundService(intent(context, action))
+    }
+
+    /** Tries the tracker fetch of a recording that is still waiting for it. */
+    fun fetch(context: Context, recordingId: String) {
+      context.startForegroundService(
+          intent(context, ACTION_FETCH).putExtra(EXTRA_RECORDING_ID, recordingId)
+      )
     }
   }
 }
