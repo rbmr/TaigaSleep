@@ -58,6 +58,19 @@ class SimulatedSensor(
   /** When set, [fetchOnDevice] throws after this many entries, like a broken tracker read. */
   var failFetchAfterEntries: Int? = null
 
+  /** False while the simulated strap keeps the link but sends nothing, until the streams restart. */
+  private var emitting = true
+
+  /**
+   * The link stays up but no samples are delivered until the streams are started again, like a strap
+   * whose notifications silently stopped. Lets a test drive the stream recovery of a live recording.
+   */
+  @Synchronized
+  fun stopEmittingUntilRestarted() {
+    emitting = false
+    resetSchedule()
+  }
+
   override fun recordingModes(config: StreamConfig): Set<RecordingMode> =
       setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE)
 
@@ -94,6 +107,7 @@ class SimulatedSensor(
   override fun startStreams(config: StreamConfig, listener: SampleListener) {
     this.config = config
     this.listener = listener
+    emitting = true
     resetSchedule()
   }
 
@@ -195,6 +209,7 @@ class SimulatedSensor(
     }
     val l = listener ?: return
     val c = config ?: return
+    if (!emitting) return
     if (hrDue == 0L) {
       hrDue = nowNs + HR_PERIOD_NS
       ecgDue = nowNs + ECG_PERIOD_NS
