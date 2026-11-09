@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.recording
 
+import com.rbmr.taigasleep.recording.store.LogPosition
 import com.rbmr.taigasleep.tracker.Clock
 import com.rbmr.taigasleep.tracker.HrSample
 import com.rbmr.taigasleep.tracker.OnDeviceTracker
@@ -8,6 +9,7 @@ import com.rbmr.taigasleep.tracker.TrackerEntry
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -63,7 +65,7 @@ class OnDeviceImport(
     }
   }
 
-  private fun cancel(future: java.util.concurrent.Future<*>) {
+  private fun cancel(future: Future<*>) {
     cancelled.set(true)
     future.cancel(true)
   }
@@ -81,6 +83,15 @@ class OnDeviceImport(
         val result = importEntry(entry)
         if (result is EntryImport.Failed) return OnDeviceFetch.Failed(result.reason)
         imported += (result as EntryImport.Done).written
+      }
+      // The whole tracker copy must now be on the phone, not just the samples of this attempt.
+      val fetchedSamples = entries.sumOf { entry -> entry.rrMs.count { it > 0 } }
+      val stored = writer.importedOnDevice()
+      val storedSamples = entries.sumOf { entry -> stored[entry.id] ?: 0 }
+      if (storedSamples != fetchedSamples) {
+        return OnDeviceFetch.Failed(
+            "the imported sample count does not match the fetched one ($storedSamples/$fetchedSamples)"
+        )
       }
       OnDeviceFetch.Imported(entries, imported)
     } catch (e: Exception) {
@@ -111,7 +122,14 @@ class OnDeviceImport(
       seen++
       if (seen <= already) continue
       if (aborted()) return rollback(mark, written, "fetch cancelled")
-      val sample = HrSample(60_000 / rr, contactSupported = false, contact = false, rrAvailable = true, rrMs = intArrayOf(rr))
+      val sample =
+          HrSample(
+              60_000 / rr,
+              contactSupported = false,
+              contact = false,
+              rrAvailable = true,
+              rrMs = intArrayOf(rr),
+          )
       val stamp = Stamp(timeMs * 1_000_000L, clock.elapsedNs())
       if (!writer.writeHr(stamp, sample)) {
         return rollback(mark, written, "writing the fetched samples failed")
@@ -131,7 +149,7 @@ class OnDeviceImport(
   }
 
   private fun rollback(
-      mark: Map<Int, com.rbmr.taigasleep.recording.store.LogPosition>,
+      mark: Map<Int, LogPosition>,
       written: Int,
       reason: String,
   ): EntryImport {
