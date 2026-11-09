@@ -66,6 +66,9 @@ class RecordingService : Service() {
       val monitor: RecordingMonitor,
   ) {
     var jobs = emptyList<Job>()
+
+    /** Elapsed-realtime ms when the wake lock was last acquired, so it can be renewed in time. */
+    var wakeLockSinceMs = 0L
   }
 
   private var live: Live? = null
@@ -89,17 +92,29 @@ class RecordingService : Service() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     // Must happen on every start, including restarts by the OS, or the system kills the service.
-    promote(notification(getString(R.string.rec_notification_starting)))
+    val foreground = promote(notification(getString(R.string.rec_notification_starting)))
     Diagnostics.log(
         "service_start",
-        mapOf("null_intent" to (intent == null), "action" to intent?.action, "foreground_type" to "connectedDevice"),
+        mapOf(
+            "null_intent" to (intent == null),
+            "action" to intent?.action,
+            "foreground_type" to "connectedDevice",
+            "foreground" to foreground,
+        ),
     )
+    if (!foreground) {
+      // Without the foreground state the system would kill the service at once, so the recording
+      // cannot go on. It ends here instead of a sticky restart running into the same refusal.
+      scope.launch { foregroundRefused() }
+      return START_NOT_STICKY
+    }
     when (intent?.action) {
       ACTION_START -> scope.launch { start(intent) }
       ACTION_STOP -> scope.launch { stop(forced = false) }
       ACTION_FORCE_STOP -> scope.launch { stop(forced = true) }
       ACTION_DISCARD -> scope.launch { discard() }
       ACTION_FETCH -> scope.launch { fetchPending(intent.getStringExtra(EXTRA_RECORDING_ID)) }
+      ACTION_RESTART -> scope.launch { restart() }
       // ACTION_RESUME from the watchdog, or a null intent after the OS restarted the service.
       else -> scope.launch { resume() }
     }
@@ -197,8 +212,35 @@ class RecordingService : Service() {
     attach(writer, sensor, mode)
   }
 
+  /**
+   * The watchdog found the service alive but its heartbeat stopped: its live session has to be
+   * rebuilt, because a resume would find [live] set and do nothing. The streams are dropped without
+   * finishing the recording, which is then attached again on the same directory.
+   */
+  private suspend fun restart() {
+    live?.let {
+      Diagnostics.log("service_restart", mapOf("recording" to it.writer.meta.recordingId))
+      teardown(it)
+    }
+    resume()
+  }
+
+  /**
+   * Drops the live session without ending the recording: its streams stop and its logs are closed,
+   * so the directory can be opened again. meta.json stays as it is, so the recording stays open.
+   */
+  private suspend fun teardown(s: Live) {
+    s.jobs.forEach { it.cancel() }
+    apply(s, s.lifecycle.restart())
+    s.writer.sync()
+    s.writer.close()
+    releaseWakeLock(s)
+    live = null
+    running = false
+  }
+
   /** Picks up the recording that was running before this process or service instance died. */
-  private suspend fun resume(parked: Boolean = false, contact: Boolean = true) {
+  private suspend fun resume(contact: Boolean = true) {
     if (live != null) return
     val id = prefs.activeSessionId
     val dir = id?.let { store.dir(it) }
@@ -226,7 +268,9 @@ class RecordingService : Service() {
           leave(null)
           return
         }
-    attach(writer, sensor, meta.mode, parked, contact)
+    // A recording the tracker stores itself is already running there: it is adopted, never started
+    // a second time, which is what a resume during an on-device start would otherwise do.
+    attach(writer, sensor, meta.mode, parked = RecordingRecovery.resumesParked(meta.mode), contact)
   }
 
   /**
@@ -243,13 +287,14 @@ class RecordingService : Service() {
   ) {
     val lifecycle = RecordingLifecycle(mode)
     val needsWakeLock = lifecycle.start().contains(LifecycleEffect.AcquireWakeLock)
+    val acquiredAtMs = SystemClock.elapsedRealtime()
     val wakeLock =
         if (needsWakeLock) {
           getSystemService(PowerManager::class.java)
               .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TaigaSleep::recording")
               .apply {
                 setReferenceCounted(false)
-                acquire(WAKE_LOCK_MS)
+                acquire(RecordingRecovery.WAKE_LOCK_MS)
               }
         } else {
           null
@@ -266,6 +311,7 @@ class RecordingService : Service() {
     val fanout =
         SampleFanout(writer, monitor) { message -> writer.event("error", message) }
     val s = Live(writer, sensor, mode, lifecycle, fanout, wakeLock, monitor)
+    s.wakeLockSinceMs = acquiredAtMs
     live = s
     running = true
     lastNotificationText = null
@@ -296,7 +342,7 @@ class RecordingService : Service() {
         end(s)
         return
       }
-      if (!parked) {
+      if (RecordingRecovery.startsOnTracker(mode, parked)) {
         tracker.startOnDevice(streamConfig, fanout) { error -> scope.launch { onDeviceStarted(error) } }
       }
     } else {
@@ -341,7 +387,7 @@ class RecordingService : Service() {
 
   /** Picks up the on-device recording that is running on the tracker, after the service was gone. */
   private suspend fun adopt(contact: Boolean): Live? {
-    if (live == null) resume(parked = true, contact = contact)
+    if (live == null) resume(contact = contact)
     return live
   }
 
@@ -531,6 +577,7 @@ class RecordingService : Service() {
   private fun end(s: Live, pending: PendingFetch? = null) {
     Diagnostics.log("service_stop", mapOf("state" to s.writer.meta.state.name.lowercase()))
     Diagnostics.markCleanShutdown("recording_ended")
+    s.jobs.forEach { it.cancel() }
     live = null
     running = false
     lastNotificationText = null
@@ -584,6 +631,8 @@ class RecordingService : Service() {
     var lastReadinessCheck = 0L
     var readiness = hooks.readinessSummary(this)
     while (true) {
+      // The recording may have been ended or rebuilt by another path: only the live session ticks.
+      if (live !== s) return
       val nowMs = SystemClock.elapsedRealtime()
       val nowNs = SystemClockSource.elapsedNs()
 
@@ -591,6 +640,13 @@ class RecordingService : Service() {
       s.writer.syncIfDue(nowMs)
       s.monitor.onBattery(s.sensor.battery.value)
       s.monitor.tick(nowNs)
+
+      // One night is longer than one wake-lock timeout, so the lock is taken again before it lapses.
+      val lock = s.wakeLock
+      if (lock != null && RecordingRecovery.wakeLockNeedsRenewal(nowMs - s.wakeLockSinceMs)) {
+        lock.acquire(RecordingRecovery.WAKE_LOCK_MS)
+        s.wakeLockSinceMs = nowMs
+      }
 
       if (nowMs - lastHeartbeat >= HEARTBEAT_MS) {
         lastHeartbeat = nowMs
@@ -686,8 +742,32 @@ class RecordingService : Service() {
 
   // Notification.
 
-  private fun promote(n: Notification) {
-    startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+  /** Returns false when the system refuses the foreground state; the recording cannot go on then. */
+  private fun promote(n: Notification): Boolean =
+      try {
+        startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        true
+      } catch (e: Exception) {
+        Log.e(TAG, "the system refused the foreground service", e)
+        false
+      }
+
+  /**
+   * The system did not let this service run in the foreground, for example because the Bluetooth
+   * permission was revoked or the start came from the background. The recording cannot be kept
+   * alive, so it is closed with the reason on disk and on the screen, and nothing crashes.
+   */
+  private suspend fun foregroundRefused() {
+    live?.let { teardown(it) }
+    val id = RecordingRecovery.abandon(store, prefs.activeSessionId, REASON_NO_FOREGROUND, SystemClockSource)
+    Diagnostics.log("service_foreground_refused", mapOf("recording" to id))
+    if (id != null) {
+      prefs.activeSessionId = null
+      WatchdogReceiver.cancel(this)
+      RecordingRepository.refreshRecordings(this)
+      hooks.onRecordingFinished(this, id)
+    }
+    leave(getString(R.string.rec_error_foreground))
   }
 
   private fun notification(text: String, startUtcMs: Long = RecordingRepository.status.value.startUtcMs): Notification {
@@ -714,16 +794,18 @@ class RecordingService : Service() {
     private const val TAG = "RecordingService"
     private const val CHANNEL_ID = "recording"
     private const val NOTIFICATION_ID = 1
-    private const val WAKE_LOCK_MS = 12 * 60 * 60 * 1000L
     private const val STOP_STREAMS_TIMEOUT_MS = 3_000L
     private const val HEARTBEAT_MS = 15_000L
     private const val READINESS_MS = 10_000L
+    /** Written to the recording when the system refuses the foreground state. */
+    private const val REASON_NO_FOREGROUND = "the system refused to keep the service in the foreground"
 
     const val ACTION_START = "com.rbmr.taigasleep.recording.START"
     const val ACTION_STOP = "com.rbmr.taigasleep.recording.STOP"
     const val ACTION_FORCE_STOP = "com.rbmr.taigasleep.recording.FORCE_STOP"
     const val ACTION_DISCARD = "com.rbmr.taigasleep.recording.DISCARD"
     const val ACTION_RESUME = "com.rbmr.taigasleep.recording.RESUME"
+    const val ACTION_RESTART = "com.rbmr.taigasleep.recording.RESTART"
     const val ACTION_FETCH = "com.rbmr.taigasleep.recording.FETCH"
 
     private const val EXTRA_SENSOR_KIND = "sensor_kind"

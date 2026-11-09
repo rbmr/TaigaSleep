@@ -12,7 +12,10 @@ import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaNetworkException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.label
+import com.rbmr.taigasleep.recording.RecordingPrefs
+import com.rbmr.taigasleep.recording.RecordingRecovery
 import com.rbmr.taigasleep.recording.RecordingService
+import com.rbmr.taigasleep.recording.RecoveryAction
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.RecordingStore
@@ -91,10 +94,27 @@ class UploadWorker(
           store.markQueued(localId, UploadFailure.RECORDING, "recording is still in progress")
           return Result.success()
         }
-        // A crash left the state as recording. Close the local metadata the same way app start
-        // does, using the last frame as the end time.
-        val end = sessions.lastFrameMs(dir) ?: meta.startUtcMs
-        meta.copy(state = RecordingPhase.INTERRUPTED, endUtcMs = end).write(dir)
+        val active = RecordingPrefs.get(context).activeSessionId
+        when (RecordingRecovery.onUploadFoundOpen(meta.mode, active, localId)) {
+          RecoveryAction.RESUME -> {
+            // The phone still marks this recording live: the service decides whether it continues.
+            // A refused start leaves the marker in place, so the watchdog tries again.
+            runCatching { RecordingService.send(context, RecordingService.ACTION_RESUME) }
+            store.markQueued(localId, UploadFailure.RECORDING, "recording is still in progress")
+            return Result.success()
+          }
+          RecoveryAction.WAIT -> {
+            // An on-device recording is running on the tracker, not on the phone.
+            store.markQueued(localId, UploadFailure.RECORDING, "recording is still in progress")
+            return Result.success()
+          }
+          else -> {
+            // No marker: a crash left the state as recording. Close the local metadata the same way
+            // app start does, using the last frame as the end time.
+            val end = sessions.lastFrameMs(dir) ?: meta.startUtcMs
+            meta.copy(state = RecordingPhase.INTERRUPTED, endUtcMs = end).write(dir)
+          }
+        }
       }
 
       store.markUploading(localId, 0f)

@@ -133,6 +133,18 @@ class RecordingLifecycle(
     }.also { state = LifecycleState.DISCARDED }
   }
 
+  /**
+   * The pipeline of a recording that is still open is stuck: drop its streams so everything can be
+   * attached again on the same directory. The recording is not finished and its state does not move.
+   */
+  fun restart(): List<LifecycleEffect> {
+    if (state != LifecycleState.RECORDING) return emptyList()
+    return when (mode) {
+      RecordingMode.STREAM -> listOf(LifecycleEffect.StopStreamsAsync)
+      RecordingMode.ON_DEVICE -> emptyList()
+    }
+  }
+
   /** The OS or the user killed the app: the recording was interrupted, keep what is on disk. */
   fun interrupted(): List<LifecycleEffect> {
     if (state == LifecycleState.IDLE || state == LifecycleState.FINISHED || state == LifecycleState.DISCARDED) {

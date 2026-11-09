@@ -72,7 +72,8 @@ step).
 
 `state` is one of `recording`, `stopped` (clean stop), `forced_stop` (one-sided
 stop without sensor connection), `interrupted` (found as `recording` on app
-start with no live service; never a recording in `on_device` mode, which stays `recording`
+start with no live marker and no live service, or ended because the phone refused to keep the
+service in the foreground; never a recording in `on_device` mode, which stays `recording`
 until it is stopped, discarded or force stopped), or `fetch_pending` (the tracker
 still holds part of the night and a fetch must be retried). `mode` is `stream` (data
 arrived while recording) or `on_device` (the strap stored it and the phone fetched it

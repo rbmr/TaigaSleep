@@ -20,6 +20,7 @@
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
   <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <uses-permission
       android:name="android.permission.SCHEDULE_EXACT_ALARM"
       android:maxSdkVersion="32" />
@@ -64,6 +65,16 @@
     <receiver
         android:name=".recording.WatchdogReceiver"
         android:exported="false" />
+
+    <!-- A reboot interrupts the service; this hands the recording back to it. Only the system sends
+         this protected broadcast, so the receiver stays closed to other apps. -->
+    <receiver
+        android:name=".recording.BootReceiver"
+        android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+      </intent-filter>
+    </receiver>
 
     <!-- Lets the share sheet read the on-demand recording zip from the cache directory. -->
     <provider

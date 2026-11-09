@@ -173,7 +173,8 @@ The automatic flag and the ordered preference list live in Settings → Analysis
 
 - **Stopped** and **force-stopped** recordings upload immediately.
 - A recording that was killed mid-night is marked **interrupted** on the next app
-  start and then uploads like any other finished night.
+  start and then uploads like any other finished night. A recording the phone still
+  marks as live is not closed that way: the service resumes it instead.
 - A recording that is still live is never uploaded. The `RecordingService`
   enqueues it when it finishes; uploading an open file would race the writer.
 - The backend's `meta.json` state must be non-`recording` before completion. The

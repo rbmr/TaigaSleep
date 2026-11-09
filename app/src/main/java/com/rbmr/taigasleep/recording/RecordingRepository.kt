@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.recording
 
 import android.content.Context
 import com.rbmr.taigasleep.appContainer
+import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingStore
@@ -64,15 +65,28 @@ object RecordingRepository {
   }
 
   /**
-   * On app start: streamed recordings left in `recording` with no live service become
-   * `interrupted`. A recording the tracker stores on its own stays active: nothing on the phone
-   * has to be running for it.
+   * On app start: a streamed recording whose marker is set is handed back to the service, which
+   * decides whether it can continue; only a recording the process left behind without a marker
+   * becomes `interrupted`. A recording the tracker stores on its own stays active: nothing on the
+   * phone has to be running for it.
    */
   fun reconcile(context: Context) {
     if (RecordingService.running) return
     val prefs = RecordingPrefs.get(context)
     val store = context.appContainer.recordingStore
-    store.markOrphans(liveId = null)
+    val live = RecordingRecovery.onAppear(store, prefs.activeSessionId)
+    if (live != null) {
+      prefs.activeSessionId = live.recordingId
+      try {
+        RecordingService.send(context, RecordingService.ACTION_RESUME)
+      } catch (e: Exception) {
+        // A refused start must not take the screen down: the marker stays, so the watchdog or the
+        // next app start hands the recording to the service again.
+        Diagnostics.log("resume_refused", mapOf("error" to e.message))
+      }
+      refreshRecordings(context)
+      return
+    }
     val onDevice = store.onDeviceInProgress()
     val pending = store.fetchPending()
     prefs.activeSessionId = onDevice?.recordingId

@@ -107,10 +107,11 @@ Not enforced; keep them lower_snake_case and keep `diag_heartbeat` for the diagn
 
 | type | suggested fields |
 |---|---|
-| `service_start`, `service_stop` | `reason`, `null_intent`, `foreground_type` |
+| `service_start`, `service_stop` | `reason`, `null_intent`, `foreground_type`, `foreground` |
 | `recording_state` | `from`, `to`, `session_id` |
 | `ble_connect`, `ble_disconnect`, `ble_reconnect` | `sensor_id`, `status`, `attempt`, `auto_connect` |
-| `watchdog_fire`, `watchdog_restart` | `service_running`, `last_heartbeat_age_s` |
+| `watchdog_fire`, `watchdog_restart` | `action`, `service_running`, `last_heartbeat_age_s` |
+| `boot_resume`, `resume_refused`, `service_foreground_refused` | `recording`, `error` |
 | `wakelock` | `action` (acquire/release), `timeout_ms` |
 
 ## Battery cost
