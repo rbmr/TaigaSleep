@@ -92,11 +92,22 @@ class RecordingService : Service() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     // Must happen on every start, including restarts by the OS, or the system kills the service.
-    promote(notification(getString(R.string.rec_notification_starting)))
+    val foreground = promote(notification(getString(R.string.rec_notification_starting)))
     Diagnostics.log(
         "service_start",
-        mapOf("null_intent" to (intent == null), "action" to intent?.action, "foreground_type" to "connectedDevice"),
+        mapOf(
+            "null_intent" to (intent == null),
+            "action" to intent?.action,
+            "foreground_type" to "connectedDevice",
+            "foreground" to foreground,
+        ),
     )
+    if (!foreground) {
+      // Without the foreground state the system would kill the service at once, so the recording
+      // cannot go on. It ends here instead of a sticky restart running into the same refusal.
+      scope.launch { foregroundRefused() }
+      return START_NOT_STICKY
+    }
     when (intent?.action) {
       ACTION_START -> scope.launch { start(intent) }
       ACTION_STOP -> scope.launch { stop(forced = false) }
@@ -724,8 +735,31 @@ class RecordingService : Service() {
 
   // Notification.
 
-  private fun promote(n: Notification) {
-    startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+  /** Returns false when the system refuses the foreground state; the recording cannot go on then. */
+  private fun promote(n: Notification): Boolean =
+      try {
+        startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        true
+      } catch (e: Exception) {
+        Log.e(TAG, "the system refused the foreground service", e)
+        false
+      }
+
+  /**
+   * The system did not let this service run in the foreground, for example because the Bluetooth
+   * permission was revoked or the start came from the background. The recording cannot be kept
+   * alive, so it is closed with the reason on disk and on the screen, and nothing crashes.
+   */
+  private fun foregroundRefused() {
+    val id = RecordingRecovery.abandon(store, prefs.activeSessionId, REASON_NO_FOREGROUND, SystemClockSource)
+    Diagnostics.log("service_foreground_refused", mapOf("recording" to id))
+    if (id != null) {
+      prefs.activeSessionId = null
+      WatchdogReceiver.cancel(this)
+      RecordingRepository.refreshRecordings(this)
+      hooks.onRecordingFinished(this, id)
+    }
+    leave(getString(R.string.rec_error_foreground))
   }
 
   private fun notification(text: String, startUtcMs: Long = RecordingRepository.status.value.startUtcMs): Notification {
@@ -755,6 +789,8 @@ class RecordingService : Service() {
     private const val STOP_STREAMS_TIMEOUT_MS = 3_000L
     private const val HEARTBEAT_MS = 15_000L
     private const val READINESS_MS = 10_000L
+    /** Written to the recording when the system refuses the foreground state. */
+    private const val REASON_NO_FOREGROUND = "the system refused to keep the service in the foreground"
 
     const val ACTION_START = "com.rbmr.taigasleep.recording.START"
     const val ACTION_STOP = "com.rbmr.taigasleep.recording.STOP"

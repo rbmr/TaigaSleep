@@ -170,6 +170,32 @@ class RecordingRecoveryTest {
   }
 
   @Test
+  fun `a refused foreground service ends the recording with the reason`() {
+    val store = store()
+    val dir = open(store)
+    val reason = "the system refused to keep the service in the foreground"
+
+    val id = RecordingRecovery.abandon(store, "20261023_223000", reason, clock)
+
+    assertEquals("20261023_223000", id)
+    assertEquals(RecordingPhase.INTERRUPTED, state(dir))
+    assertTrue(File(dir, "events.jsonl").readLines().any { it.contains(reason) })
+  }
+
+  @Test
+  fun `a refused foreground service with nothing open ends nothing`() {
+    val store = store()
+    val dir = open(store)
+    RecordingWriter.resume(dir, clock, "ended by the test")!!.finish(RecordingPhase.STOPPED, "stopped")
+
+    assertNull(RecordingRecovery.abandon(store, null, "refused", clock))
+    assertNull(RecordingRecovery.abandon(store, "gone", "refused", clock))
+    // A recording that already ended keeps the state it has.
+    assertNull(RecordingRecovery.abandon(store, "20261023_223000", "refused", clock))
+    assertEquals(RecordingPhase.STOPPED, state(dir))
+  }
+
+  @Test
   fun `an upload leaves the recording the phone still marks live to the service`() {
     assertEquals(
         RecoveryAction.RESUME,

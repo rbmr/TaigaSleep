@@ -1,8 +1,10 @@
 package com.rbmr.taigasleep.recording
 
+import com.rbmr.taigasleep.recording.store.EventLog
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.tracker.Clock
 import com.rbmr.taigasleep.tracker.RecordingMode
 
 /** What a path that found a recording still open has to do about it. */
@@ -99,4 +101,31 @@ object RecordingRecovery {
   /** True once a lock held for [heldForMs] is close enough to its timeout to be renewed. */
   fun wakeLockNeedsRenewal(heldForMs: Long): Boolean =
       heldForMs >= WAKE_LOCK_MS - WAKE_LOCK_RENEW_BEFORE_MS
+
+  /**
+   * Closes the recording the phone still marks live because the system refused to keep the service
+   * in the foreground, and returns its id. Null when nothing was open. Nothing is thrown: the service
+   * is on its way out and must not crash on the way.
+   */
+  fun abandon(
+      store: RecordingStore,
+      activeSessionId: String?,
+      reason: String,
+      clock: Clock,
+  ): String? {
+    val meta = activeSessionId?.let { RecordingMeta.read(store.dir(it)) } ?: return null
+    if (meta.state != RecordingPhase.RECORDING) return null
+    return try {
+      val dir = store.dir(meta.recordingId)
+      EventLog.append(dir, clock.phoneNs(), clock.elapsedNs(), "error", reason)
+      meta.copy(
+              state = RecordingPhase.INTERRUPTED,
+              endUtcMs = store.lastFrameMs(dir) ?: meta.startUtcMs,
+          )
+          .write(dir)
+      meta.recordingId
+    } catch (_: Exception) {
+      null
+    }
+  }
 }

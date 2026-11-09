@@ -18,6 +18,7 @@
   <string name="rec_error_mode">Recording was not started: this tracker cannot record with the chosen streams.</string>
   <string name="rec_error_fetch_missing">Could not fetch the recording: it is no longer waiting on this phone.</string>
   <string name="rec_error_fetch_failed">Could not reach the tracker. Keep it nearby and try again.</string>
+  <string name="rec_error_foreground">Recording ended: the phone did not allow it to keep running in the background.</string>
 
   <string name="rec_connected_title">%1$s</string>
   <string name="rec_battery">Battery %1$d%%</string>
