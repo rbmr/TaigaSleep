@@ -24,15 +24,16 @@ class WatchdogReceiver : BroadcastReceiver() {
     val id = prefs.activeSessionId ?: return
     schedule(context)
     val age = System.currentTimeMillis() - prefs.heartbeatMs
-    val action = RecordingRecovery.onWatchdog(id, RecordingService.running, age) ?: return
+    val action = RecordingRecovery.onWatchdog(id, RecordingService.running, age)
     Diagnostics.log(
         "watchdog_fire",
         mapOf(
-            "action" to action.name.lowercase(),
+            "action" to (action?.name?.lowercase() ?: "none"),
             "service_running" to RecordingService.running,
             "last_heartbeat_age_s" to age / 1000,
         ),
     )
+    if (action == null) return
     val reason =
         when (action) {
           RecoveryAction.RESTART ->
