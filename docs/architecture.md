@@ -173,6 +173,11 @@ A Stream recording is handed from one process to the next instead of being decla
 - The watchdog also rebuilds the live session of a service that is still there but whose
   heartbeat stopped, because resuming it would find its session in place and change nothing.
 - A recording the tracker stores itself is adopted on resume, never started a second time.
+- A stream that stops delivering while the link still says connected is recovered instead of
+  waited out: the streams are restarted after 30 s of silence, the link is dropped and made again
+  if that does not help, and the further attempts back off for the rest of the recording without
+  ever ending it. When Bluetooth comes back on, the link and the streams are made again at once.
+  Each step is an event with its reason, and samples resuming reset the escalation.
 - When the system refuses to keep the service in the foreground, the recording ends as
   `interrupted` with that reason instead of restarting into the same refusal.
 

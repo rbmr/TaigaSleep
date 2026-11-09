@@ -194,13 +194,14 @@ Types in use: `start`, `stop`, `force_stop`, `connect`, `disconnect`,
 set), `stream` (a stream delivered its first sample), `contact` (the raw HR contact flag changed; the live
 state applies 60 s/5 s hysteresis before it changes the notification), `ecg_signal` (the ECG was pinned at the sensor's limits, or recovered), `stream_stalled` (a
 stream stopped delivering without a disconnect), `stream_recovered` (a stalled stream came
-back), `battery` (the sensor battery crossed the low threshold), `storage_error` (a raw frame
+back), `recovery` (a stream that stopped delivering was restarted, or the link was made again,
+with the reason in the message), `battery` (the sensor battery crossed the low threshold), `storage_error` (a raw frame
 or fsync failed), `fetch` (an on-device fetch was retried), `readiness` (a snapshot of the
 battery/standby settings at start and on every state change). Keep messages short and free of personal data.
 
 The service owns the lifecycle lines (`start`, `stop`, `force_stop`, `readiness`,
 `service_restart`); the live monitor owns `connect`, `disconnect`, `reconnect`, `contact`,
-`ecg_signal`, `stream_stalled`, `stream_recovered`, `battery` and `storage_error`. Contact,
+`ecg_signal`, `stream_stalled`, `stream_recovered`, `recovery`, `battery` and `storage_error`. Contact,
 ECG quality, rates and staleness are derived only by the live monitor, never by the writer.
 
 ## Durability
