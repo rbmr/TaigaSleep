@@ -10,6 +10,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.zip.CRC32
 
+/** A point in one frame log: how many bytes and frames it held. */
+data class LogPosition(val bytes: Long, val frames: Long)
+
 /** Stream ids of the frame logs (see docs/recording-format.md). */
 object StreamId {
   const val HR = 1
@@ -149,6 +152,15 @@ class FrameLogWriter(private val file: File, private val stream: Int) : AutoClos
   @Synchronized
   fun sync() {
     raf.fd.sync()
+  }
+
+  /** Truncates the log back to a position taken before an append. */
+  @Synchronized
+  fun truncate(position: LogPosition) {
+    raf.setLength(position.bytes)
+    raf.seek(position.bytes)
+    frames = position.frames
+    bytes = position.bytes
   }
 
   @Synchronized

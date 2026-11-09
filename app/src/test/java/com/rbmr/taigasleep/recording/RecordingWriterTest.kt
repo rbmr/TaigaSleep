@@ -189,6 +189,48 @@ class RecordingWriterTest {
   }
 
   @Test
+  fun fetchPendingSurvivesARestartAndClearsAfterAFetchedRetry() {
+    val root = tmp.newFolder("rec")
+    val store = RecordingStore(root)
+    val w = RecordingWriter.create(root, meta().copy(mode = RecordingMode.ON_DEVICE), clock)
+    assertTrue(w.markFetchPending())
+    w.finish(RecordingPhase.FETCH_PENDING, "fetch failed")
+
+    val pending = store.fetchPending()!!
+    assertEquals("20261023_223000", pending.recordingId)
+    assertEquals(RecordingPhase.FETCH_PENDING, pending.state)
+    assertTrue(pending.fetchPending)
+    // The app process died after some entries were imported; a retry can resume them.
+    val retry = RecordingWriter.resumeFetch(w.dir, clock, "fetching again")!!
+    assertEquals(RecordingPhase.FETCH_PENDING, retry.meta.state)
+    assertTrue(retry.markOnDeviceImported("entry-1", 3))
+    retry.finish(RecordingPhase.STOPPED, "fetched")
+
+    assertNull(store.fetchPending())
+    val done = RecordingMeta.read(w.dir)!!
+    assertEquals(RecordingPhase.STOPPED, done.state)
+    assertEquals(mapOf("entry-1" to 3), done.importedEntries)
+  }
+
+  @Test
+  fun aHalfAppendedTrackerEntryIsRolledBackBeforeTheNextFetch() {
+    val root = tmp.newFolder("rec")
+    val w = RecordingWriter.create(root, meta().copy(mode = RecordingMode.ON_DEVICE), clock)
+    w.markFetchPending()
+    w.beginEntryImport("entry-1")
+    w.writeHr(stamp(), HrSample(60, true, true, true, intArrayOf(1000)))
+    w.close() // the process dies between writing the entry and marking it imported
+
+    val resumed = RecordingWriter.resumeFetch(w.dir, clock, "fetching again")!!
+    var frames = 0
+    FrameLog.scan(File(w.dir, "hr.log")) { frames++ }
+
+    assertEquals(0, frames)
+    assertNull(resumed.meta.importStarted)
+    assertEquals(emptyMap<String, Int>(), resumed.importedOnDevice())
+  }
+
+  @Test
   fun finishedOnDeviceRecordingsAreNotInProgress() {
     val root = tmp.newFolder("rec")
     val store = RecordingStore(root)

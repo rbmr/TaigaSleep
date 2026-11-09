@@ -31,6 +31,7 @@ import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.Stamp
 import com.rbmr.taigasleep.tracker.StreamConfig
 import com.rbmr.taigasleep.tracker.SystemClockSource
+import com.rbmr.taigasleep.tracker.TrackerEntry
 import io.reactivex.rxjava3.core.Flowable
 import io.reactivex.rxjava3.disposables.Disposable
 import java.time.LocalDateTime
@@ -158,6 +159,8 @@ class PolarH10Sensor(
   private var onDeviceListener: SampleListener? = null
   private var onDeviceResult: ((String?) -> Unit)? = null
   private var onDeviceActive = false
+  // The exercise objects behind the entries last fetched, so removal can name what it removes.
+  private val fetchedFromDevice = HashMap<String, PolarExerciseEntry>()
 
   // The strap's clock is set once per recording, before its streams start, so the sample
   // timestamps are real time (an unset H10 clock was days off). Touched on the control thread.
@@ -210,19 +213,73 @@ class PolarH10Sensor(
     }
   }
 
-  override fun fetchOnDevice(listener: SampleListener): Boolean =
-      try {
+  override fun stopOnDevice() {
+    awaitControl { stopTrackerRecording() }
+  }
+
+  override fun fetchOnDevice(): List<TrackerEntry> =
+      awaitControl {
+        // The link comes back by itself after the phone was off; wait for it, the outer fetch
+        // timeout still governs how long this may take.
         awaitConnected()
-        control.submit<Boolean> { fetchStoredRecording(listener) }.get(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
-      } catch (e: Exception) {
-        listener.onError("could not fetch the recording from the tracker: ${e.message ?: e.javaClass.simpleName}")
-        false
+        val entries = exerciseEntries()
+        entries.map { entry ->
+          val data =
+              api.fetchExercise(id, entry)
+                  .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
+                  .blockingGet()
+          fetchedFromDevice[entry.identifier] = entry
+          TrackerEntry(
+              id = entry.identifier,
+              startUtcMs = entry.date.toInstant(ZoneOffset.UTC).toEpochMilli(),
+              rrMs = data.hrSamples,
+          )
+        }
       }
+
+  override fun removeFromDevice(entries: List<TrackerEntry>) {
+    if (entries.isEmpty()) return
+    runCatching {
+      val removal =
+          control.submit {
+            for (entry in entries) {
+              val exercise = fetchedFromDevice[entry.id] ?: continue
+              runCatching {
+                api.removeExercise(id, exercise)
+                    .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
+                    .blockingAwait()
+              }
+              fetchedFromDevice.remove(entry.id)
+            }
+          }
+      try {
+        removal.get(REMOVE_TIMEOUT_S, TimeUnit.SECONDS)
+      } catch (e: InterruptedException) {
+        removal.cancel(true)
+        throw e
+      } catch (_: java.util.concurrent.TimeoutException) {
+        removal.cancel(true)
+      }
+    }
+  }
+
+  /** Runs work on the sensor's serial control thread, cancelling it when the caller is interrupted. */
+  private fun <T> awaitControl(work: () -> T): T {
+    val future = control.submit<T> { work() }
+    return try {
+      future.get()
+    } catch (e: InterruptedException) {
+      future.cancel(true)
+      throw e
+    } catch (e: java.util.concurrent.ExecutionException) {
+      throw e.cause ?: e
+    }
+  }
 
   override fun discardOnDevice() {
     control.execute {
       awaitConnected()
-      stopOnDevice()
+      stopTrackerRecording()
       runCatching {
         for (entry in exerciseEntries()) {
           api.removeExercise(id, entry).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingAwait()
@@ -230,6 +287,7 @@ class PolarH10Sensor(
       }
       onDeviceWanted = null
       onDeviceListener = null
+      fetchedFromDevice.clear()
     }
   }
 
@@ -325,6 +383,9 @@ class PolarH10Sensor(
         finishOnDeviceStart(null)
         return
       }
+      // The exercise start time is read from the strap later, so set its clock first (the stream
+      // path does the same). Recording matters more than the clock: carry on if it fails.
+      setOnDeviceClock(l)
       // The H10 keeps one kind of sample per recording; beat intervals carry both HR and RR.
       api.startRecording(
               id,
@@ -352,37 +413,16 @@ class PolarH10Sensor(
     result(error)
   }
 
-  private fun fetchStoredRecording(listener: SampleListener): Boolean {
-    stopOnDevice()
-    // The strap's own clock is not trusted: the recording ends when it was stopped just now.
-    val stoppedMs = System.currentTimeMillis()
-    var any = false
+  /** Sets the strap's clock before an on-device recording starts, so its exercise start is real. */
+  private fun setOnDeviceClock(l: SampleListener) {
     try {
-      for (entry in exerciseEntries()) {
-        val data =
-            api.fetchExercise(id, entry).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingGet()
-        val beats = data.hrSamples.filter { it > 0 }
-        var timeMs = stoppedMs - beats.sum()
-        for (rr in beats) {
-          timeMs += rr
-          listener.onHr(
-              Stamp(timeMs * 1_000_000L, clock.elapsedNs()),
-              HrSample(60_000 / rr, false, false, true, intArrayOf(rr)),
-          )
-          any = true
-        }
-        // It is on the phone now; the strap can forget it.
-        runCatching {
-          api.removeExercise(id, entry).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingAwait()
-        }
-      }
+      api.setLocalTime(id, LocalDateTime.now(ZoneOffset.UTC))
+          .timeout(CLOCK_SYNC_S, TimeUnit.SECONDS)
+          .blockingAwait()
+      l.onNote("clock_sync", "strap clock set to the phone time (UTC)")
     } catch (e: Exception) {
-      listener.onError("could not read the tracker recording: ${e.message ?: e.javaClass.simpleName}")
+      l.onError("could not set the strap clock: ${e.message ?: e.javaClass.simpleName}")
     }
-    onDeviceWanted = null
-    onDeviceListener = null
-    onDeviceResult = null
-    return any
   }
 
   private fun exerciseEntries(): List<PolarExerciseEntry> =
@@ -397,11 +437,14 @@ class PolarH10Sensor(
   }
 
   /** Always asks the strap: after an app restart this instance does not know it was recording. */
-  private fun stopOnDevice() {
+  private fun stopTrackerRecording() {
     onDeviceActive = false
     runCatching {
       api.stopRecording(id).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingAwait()
     }
+    onDeviceWanted = null
+    onDeviceListener = null
+    onDeviceResult = null
   }
 
   // Streaming. Everything below runs on the control thread.
@@ -655,6 +698,7 @@ class PolarH10Sensor(
     private const val CLOCK_WAIT_S = 3L
     private const val FIRST_DATA_S = 15L
     private const val OFFLINE_TIMEOUT_S = 60L
+    private const val REMOVE_TIMEOUT_S = 20L
     private const val CONNECT_WAIT_S = 60L
     private const val EXERCISE_ID = "TAIGA"
 

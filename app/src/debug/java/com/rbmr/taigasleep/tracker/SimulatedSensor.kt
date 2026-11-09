@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.tracker
 
+import java.io.IOException
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -43,15 +44,19 @@ class SimulatedSensor(
   private var config: StreamConfig? = null
   private var listener: SampleListener? = null
   private var onDevice = false
-  private val stored = mutableListOf<StoredSample>()
 
-  private sealed interface StoredSample {
-    data class Hr(val stamp: Stamp, val sample: HrSample) : StoredSample
+  /** One recording the simulated tracker keeps on itself, keyed by [id]. */
+  private class StoredEntry(val id: String, val startUtcMs: Long, val rrMs: MutableList<Int>)
 
-    data class Ecg(val stamp: Stamp, val batch: EcgBatch) : StoredSample
+  private val entries = mutableListOf<StoredEntry>()
+  private var entryCounter = 0
+  private var currentEntry: StoredEntry? = null
 
-    data class Acc(val stamp: Stamp, val batch: AccBatch) : StoredSample
-  }
+  /** How long [fetchOnDevice] waits before answering, to exercise the fetch timeout. */
+  var fetchDelayMs: Long = 0
+
+  /** When set, [fetchOnDevice] throws after this many entries, like a broken tracker read. */
+  var failFetchAfterEntries: Int? = null
 
   override fun recordingModes(config: StreamConfig): Set<RecordingMode> =
       setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE)
@@ -97,6 +102,7 @@ class SimulatedSensor(
     config = null
     this.listener = null
     onDevice = false
+    currentEntry = null
   }
 
   @Synchronized
@@ -108,35 +114,58 @@ class SimulatedSensor(
     this.config = config
     this.listener = listener
     onDevice = true
-    stored.clear()
+    // Each start is one exercise on the tracker; the service starts one, tests may add more.
+    val entry =
+        StoredEntry("sim-entry-${++entryCounter}", clock.phoneNs() / 1_000_000L, mutableListOf())
+    entries += entry
+    currentEntry = entry
     resetSchedule()
     onResult(null)
   }
 
   @Synchronized
-  override fun fetchOnDevice(listener: SampleListener): Boolean {
-    if (stored.isEmpty()) return false
-    for (sample in stored) {
-      when (sample) {
-        is StoredSample.Hr -> listener.onHr(sample.stamp, sample.sample)
-        is StoredSample.Ecg -> listener.onEcg(sample.stamp, sample.batch)
-        is StoredSample.Acc -> listener.onAcc(sample.stamp, sample.batch)
-      }
-    }
-    stored.clear()
+  override fun stopOnDevice() {
     onDevice = false
-    config = null
-    this.listener = null
-    return true
+    currentEntry = null
+  }
+
+  @Synchronized
+  override fun fetchOnDevice(): List<TrackerEntry> {
+    val delay = fetchDelayMs
+    if (delay > 0) Thread.sleep(delay)
+    val limit = failFetchAfterEntries
+    return entries.mapIndexed { index, entry ->
+      if (limit != null && index >= limit) {
+        throw IOException("simulated tracker read failure after $limit entries")
+      }
+      TrackerEntry(entry.id, entry.startUtcMs, entry.rrMs.toList())
+    }
+  }
+
+  @Synchronized
+  override fun removeFromDevice(entries: List<TrackerEntry>) {
+    val ids = entries.map { it.id }.toSet()
+    this.entries.removeAll { it.id in ids }
+    if (this.entries.isEmpty()) {
+      onDevice = false
+      currentEntry = null
+    }
   }
 
   @Synchronized
   override fun discardOnDevice() {
-    stored.clear()
+    entries.clear()
     onDevice = false
+    currentEntry = null
     config = null
     this.listener = null
   }
+
+  /** The entries still stored on the simulated tracker, for tests. */
+  @Synchronized fun storedEntries(): List<TrackerEntry> =
+      entries.map { TrackerEntry(it.id, it.startUtcMs, it.rrMs.toList()) }
+
+  @Synchronized fun storedEntryCount(): Int = entries.size
 
   private fun resetSchedule() {
     hrDue = 0
@@ -176,19 +205,19 @@ class SimulatedSensor(
     while (hrDue <= nowNs) {
       val stamp = stamp(hrDue, phoneMinusElapsed)
       val sample = nextHr()
-      if (onDevice) stored += StoredSample.Hr(stamp, sample) else l.onHr(stamp, sample)
+      if (onDevice) currentEntry?.rrMs?.addAll(sample.rrMs.toList()) else l.onHr(stamp, sample)
       hrDue += HR_PERIOD_NS
     }
     while (c.ecg && ecgDue <= nowNs) {
       val stamp = stamp(ecgDue, phoneMinusElapsed)
       val batch = nextEcg(ecgDue + phoneMinusElapsed)
-      if (onDevice) stored += StoredSample.Ecg(stamp, batch) else l.onEcg(stamp, batch)
+      if (!onDevice) l.onEcg(stamp, batch)
       ecgDue += ECG_PERIOD_NS
     }
     while (c.acc && accDue <= nowNs) {
       val stamp = stamp(accDue, phoneMinusElapsed)
       val batch = nextAcc(accDue + phoneMinusElapsed)
-      if (onDevice) stored += StoredSample.Acc(stamp, batch) else l.onAcc(stamp, batch)
+      if (!onDevice) l.onAcc(stamp, batch)
       accDue += ACC_PERIOD_NS
     }
   }

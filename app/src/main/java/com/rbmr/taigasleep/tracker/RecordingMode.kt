@@ -20,6 +20,16 @@ enum class RecordingMode(val wire: String) {
   }
 }
 
+/** One recording the tracker stored, identified by the tracker's own id for it. */
+data class TrackerEntry(
+    /** The tracker's identifier; the phone imports each one once. */
+    val id: String,
+    /** UTC milliseconds when the exercise started, in the tracker's clock. */
+    val startUtcMs: Long,
+    /** The stored beat intervals in milliseconds, in order. A value of 0 or less is a gap. */
+    val rrMs: List<Int>,
+)
+
 /**
  * A tracker that can hold a recording itself. The phone starts it, leaves it alone overnight, and
  * asks for the data at the end. Only [startStreams] style live work is part of [SleepSensor]; this
@@ -27,17 +37,23 @@ enum class RecordingMode(val wire: String) {
  */
 interface OnDeviceTracker {
   /**
-   * Starts capturing on the tracker itself, as soon as it is connected. Data stays there until
-   * [fetchOnDevice]. [onResult] is called once: null when the tracker is storing, else the reason
-   * it is not. After that the phone does not need the tracker until the recording is stopped.
+   * Starts capturing on the tracker itself, as soon as it is connected. Data stays there until it is
+   * fetched and removed. [onResult] is called once: null when the tracker is storing, else the
+   * reason it is not. After that the phone does not need the tracker until the recording is stopped.
    */
   fun startOnDevice(config: StreamConfig, listener: SampleListener, onResult: (error: String?) -> Unit)
 
+  /** Stops the tracker's recording, without fetching or removing anything. */
+  fun stopOnDevice()
+
   /**
-   * Replays everything captured since [startOnDevice] into [listener], as if it arrived live.
-   * Returns false when the tracker has no data.
+   * Reads what the tracker stored. Nothing is removed: the caller removes the entries once their
+   * samples are safely on the phone.
    */
-  fun fetchOnDevice(listener: SampleListener): Boolean
+  fun fetchOnDevice(): List<TrackerEntry>
+
+  /** Removes entries the phone has stored, keyed by their tracker ids. */
+  fun removeFromDevice(entries: List<TrackerEntry>)
 
   /** Stops capturing and removes the data from the tracker without downloading it. */
   fun discardOnDevice()

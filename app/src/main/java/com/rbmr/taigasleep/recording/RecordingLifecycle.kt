@@ -10,6 +10,8 @@ enum class LifecycleState {
   STOPPING,
   FINISHED,
   DISCARDED,
+  /** The tracker still holds part of the recording; a fetch can be tried again. */
+  FETCH_PENDING,
 }
 
 /** One thing the service has to do for a transition. The machine decides, the service performs. */
@@ -23,8 +25,11 @@ sealed interface LifecycleEffect {
   /** Ask the tracker to stop without waiting for it. */
   data object StopStreamsAsync : LifecycleEffect
 
-  /** Download the recording the tracker made, now that the recording is over. */
+  /** Stop the tracker, download its recording, write it and flush it. */
   data object FetchFromTracker : LifecycleEffect
+
+  /** Remove the tracker's copy, only after [FetchFromTracker] verified the phone's samples. */
+  data object RemoveFromTracker : LifecycleEffect
 
   /** Add the final "stop"/"force_stop" event and write the final meta.json state. */
   data class Finish(val phase: RecordingPhase) : LifecycleEffect
@@ -43,8 +48,11 @@ sealed interface LifecycleEffect {
  *
  * It has no Android dependencies, so every transition is unit-tested for both modes.
  */
-class RecordingLifecycle(val mode: RecordingMode) {
-  var state: LifecycleState = LifecycleState.IDLE
+class RecordingLifecycle(
+    val mode: RecordingMode,
+    initialState: LifecycleState = LifecycleState.IDLE,
+) {
+  var state: LifecycleState = initialState
     private set
 
   /** A transition is only allowed from [LifecycleState.RECORDING]. */
@@ -54,7 +62,10 @@ class RecordingLifecycle(val mode: RecordingMode) {
     return if (mode == RecordingMode.STREAM) listOf(LifecycleEffect.AcquireWakeLock) else emptyList()
   }
 
-  /** Graceful stop: close or fetch everything, then finish the recording. */
+  /**
+   * Graceful stop: close the streams, or fetch everything. An on-device stop stays in
+   * [LifecycleState.STOPPING] until [fetchSucceeded] or [fetchFailed] says how the fetch went.
+   */
   fun stop(): List<LifecycleEffect> {
     if (!beginStop()) return emptyList()
     return when (mode) {
@@ -63,13 +74,33 @@ class RecordingLifecycle(val mode: RecordingMode) {
               LifecycleEffect.StopStreams,
               LifecycleEffect.Finish(RecordingPhase.STOPPED),
           )
-      RecordingMode.ON_DEVICE ->
-          listOf(
-              LifecycleEffect.FetchFromTracker,
-              LifecycleEffect.StopStreams,
-              LifecycleEffect.Finish(RecordingPhase.STOPPED),
-          )
-    }.also { state = LifecycleState.FINISHED }
+              .also { state = LifecycleState.FINISHED }
+      RecordingMode.ON_DEVICE -> listOf(LifecycleEffect.FetchFromTracker)
+    }
+  }
+
+  /** The fetch is complete and verified: the tracker's copy may go and the recording is stopped. */
+  fun fetchSucceeded(): List<LifecycleEffect> {
+    if (state != LifecycleState.STOPPING) return emptyList()
+    state = LifecycleState.FINISHED
+    return listOf(
+        LifecycleEffect.RemoveFromTracker,
+        LifecycleEffect.Finish(RecordingPhase.STOPPED),
+    )
+  }
+
+  /** The fetch did not complete: keep the tracker's copy and offer a retry. */
+  fun fetchFailed(): List<LifecycleEffect> {
+    if (state != LifecycleState.STOPPING) return emptyList()
+    state = LifecycleState.FETCH_PENDING
+    return listOf(LifecycleEffect.Finish(RecordingPhase.FETCH_PENDING))
+  }
+
+  /** A new attempt from [LifecycleState.FETCH_PENDING]; its outcome is decided the same way. */
+  fun retryFetch(): List<LifecycleEffect> {
+    if (state != LifecycleState.FETCH_PENDING) return emptyList()
+    state = LifecycleState.STOPPING
+    return listOf(LifecycleEffect.FetchFromTracker)
   }
 
   /** Force stop: accept what is already on the phone, do not wait for the tracker. */
