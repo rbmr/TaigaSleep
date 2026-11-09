@@ -196,6 +196,22 @@ class RecordingRecoveryTest {
   }
 
   @Test
+  fun `a resumed on-device recording does not start the tracker again`() {
+    // A resume adopts the recording the tracker already stores...
+    assertTrue(RecordingRecovery.resumesParked(RecordingMode.ON_DEVICE))
+    assertFalse(
+        RecordingRecovery.startsOnTracker(
+            RecordingMode.ON_DEVICE,
+            parked = RecordingRecovery.resumesParked(RecordingMode.ON_DEVICE),
+        )
+    )
+    // ...while a recording the user starts still asks the tracker to begin.
+    assertTrue(RecordingRecovery.startsOnTracker(RecordingMode.ON_DEVICE, parked = false))
+    assertFalse(RecordingRecovery.startsOnTracker(RecordingMode.STREAM, parked = false))
+    assertFalse(RecordingRecovery.resumesParked(RecordingMode.STREAM))
+  }
+
+  @Test
   fun `an upload leaves the recording the phone still marks live to the service`() {
     assertEquals(
         RecoveryAction.RESUME,

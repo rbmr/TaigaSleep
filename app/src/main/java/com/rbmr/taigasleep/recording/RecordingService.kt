@@ -235,7 +235,7 @@ class RecordingService : Service() {
   }
 
   /** Picks up the recording that was running before this process or service instance died. */
-  private suspend fun resume(parked: Boolean = false, contact: Boolean = true) {
+  private suspend fun resume(contact: Boolean = true) {
     if (live != null) return
     val id = prefs.activeSessionId
     val dir = id?.let { store.dir(it) }
@@ -263,7 +263,9 @@ class RecordingService : Service() {
           leave(null)
           return
         }
-    attach(writer, sensor, meta.mode, parked, contact)
+    // A recording the tracker stores itself is already running there: it is adopted, never started
+    // a second time, which is what a resume during an on-device start would otherwise do.
+    attach(writer, sensor, meta.mode, parked = RecordingRecovery.resumesParked(meta.mode), contact)
   }
 
   /**
@@ -335,7 +337,7 @@ class RecordingService : Service() {
         end(s)
         return
       }
-      if (!parked) {
+      if (RecordingRecovery.startsOnTracker(mode, parked)) {
         tracker.startOnDevice(streamConfig, fanout) { error -> scope.launch { onDeviceStarted(error) } }
       }
     } else {
@@ -380,7 +382,7 @@ class RecordingService : Service() {
 
   /** Picks up the on-device recording that is running on the tracker, after the service was gone. */
   private suspend fun adopt(contact: Boolean): Live? {
-    if (live == null) resume(parked = true, contact = contact)
+    if (live == null) resume(contact = contact)
     return live
   }
 

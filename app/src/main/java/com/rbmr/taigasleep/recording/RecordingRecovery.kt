@@ -128,4 +128,11 @@ object RecordingRecovery {
       null
     }
   }
+
+  /** A recording the tracker already stores is adopted on resume, never started a second time. */
+  fun resumesParked(mode: RecordingMode): Boolean = mode == RecordingMode.ON_DEVICE
+
+  /** Whether attaching has to ask the tracker to start: never for a recording it already stores. */
+  fun startsOnTracker(mode: RecordingMode, parked: Boolean): Boolean =
+      mode == RecordingMode.ON_DEVICE && !parked
 }
