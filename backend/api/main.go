@@ -30,6 +30,7 @@ func main() {
 	})
 
 	api.Register(app)
+	app.RootCmd.AddCommand(storageCheckCommand(app))
 
 	if err := app.Start(); err != nil {
 		log.Fatal(err)

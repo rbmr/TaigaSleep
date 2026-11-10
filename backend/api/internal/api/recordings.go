@@ -246,6 +246,7 @@ func PutRecording(e *core.RequestEvent) error {
 			record.Set("owner", e.Auth.Id)
 			record.Set("complete", false)
 			record.Set("files", map[string]FileEntry{})
+			record.Set("stored_bytes", 0)
 			applyMeta(record, meta, raw)
 			saved = record
 			created = true
@@ -314,6 +315,9 @@ func DeleteRecording(e *core.RequestEvent) error {
 	err := e.App.RunInTransaction(func(txApp core.App) error {
 		record, err := ownRecording(txApp, e, e.Request.PathValue("id"))
 		if err != nil {
+			return err
+		}
+		if err := addAccountBytes(txApp, record.GetString("owner"), -int64(record.GetInt("stored_bytes"))); err != nil {
 			return err
 		}
 		return txApp.Delete(record)
