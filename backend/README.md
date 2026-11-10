@@ -633,6 +633,143 @@ setup; an unverified backup is not a backup.
 Keep the worker and API versions from the same commit. The worker only uses the
 public API, but the job payload shape is expected to stay in sync.
 
+Read the per-release notes for the version you are installing before you start:
+they live in [`docs/releases.md`](../docs/releases.md#upgrade-notes). No entry
+means there is nothing to do beyond this procedure.
+
+### Stale analysis results after an upgrade
+
+An analysis is keyed by recording, algorithm, version and params. The backend
+stores one row per key, and `POST /v1/recordings/{id}/analyses` returns the
+existing row when all four match. A release that changes the shape of a result
+without changing the algorithm version therefore keeps the old analysis: the
+worker never recomputes a succeeded run, and the API keeps serving the old
+payload. The app downloads a succeeded result when the run it shows has no
+cached payload for that id, and never downloads that id again, so changing a
+status in the database does not refresh it either.
+
+The app asks for a run only after an upload (when automatic analysis is on) or
+when the user asks for one from the night's analysis sheet. It does not look for
+runs that are missing, so an affected night is not repaired by opening the app.
+
+After such an upgrade, a night that was analysed before it can be ready and
+still show no sleep score and no statistics, or only the statistics the old
+result carried. The server lists its analysis as `succeeded`; it is not queued,
+and nothing will recompute it. The same happens to any night whose stored result
+predates the fields the current app reads.
+
+To rerun a night, delete its analyses and request them again. The new request
+creates analyses with new ids, which the app has not downloaded, so it fetches
+the new results. Do not reset a row's status instead: the app keeps the result
+of that id and would never download it again.
+
+Deleting a run does not touch the recording or its files, and no app data needs
+to be cleared. The app hears about the delete over the event stream, or reads it
+at the next open: the run leaves the night's list and History shows the night as
+processing again. The payload it had already downloaded stays on the phone under
+the old id; the new run has a different id, so that payload is not used for it.
+The app does not request a replacement on its own; automatic
+analysis only asks for a run as part of an upload. Request the new run with one
+of the routes below, or in the app by opening the night and choosing an analysis.
+A run that succeeds is downloaded while the app is open (events) or at the next
+open, because its id is new.
+
+#### Rerun a recording with the user's token
+
+This route replaces the runs of one recording and needs no superuser. `jq` is
+used only to read the token and the ids.
+
+```bash
+BASE=http://127.0.0.1:8090
+RECORDING_ID=<recording id>
+ALGORITHM=baseline
+
+TOKEN=$(curl -fsS -X POST "$BASE/v1/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"<password>"}' | jq -r .token)
+
+# 1. See the runs of this recording.
+curl -fsS "$BASE/v1/analyses?recording=$RECORDING_ID" \
+  -H "Authorization: Bearer $TOKEN" \
+  | jq -r '.items[] | [.id, .algorithm, .version, .status] | @tsv'
+
+# 2. Delete all of them. Deleting and requesting again is the replacement; a
+#    status update is not.
+curl -fsS "$BASE/v1/analyses?recording=$RECORDING_ID" \
+  -H "Authorization: Bearer $TOKEN" \
+  | jq -r '.items[].id' \
+  | while read -r id; do
+      curl -fsS -X DELETE "$BASE/v1/analyses/$id" \
+        -H "Authorization: Bearer $TOKEN"
+    done
+
+# 3. Ask for a new run. Add "version" and "params" if the old run used anything
+#    other than the newest worker version and the default parameters.
+curl -fsS -X POST "$BASE/v1/recordings/$RECORDING_ID/analyses" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"algorithm\":\"$ALGORITHM\"}"
+```
+
+The response is the queued analysis with its new id, and the worker claims it as
+usual. To replace the runs of every recording, use the loop below after the
+deletions; it requests the chosen algorithm for every complete recording and
+leaves recordings that are still uploading alone. It also adds a run to a
+complete recording that had none, so skip it when only particular nights should
+be replaced.
+
+```bash
+curl -fsS "$BASE/v1/recordings?complete=true&limit=200" \
+  -H "Authorization: Bearer $TOKEN" \
+  | jq -r '.items[].id' \
+  | while read -r id; do
+      curl -fsS -X POST "$BASE/v1/recordings/$id/analyses" \
+        -H "Authorization: Bearer $TOKEN" \
+        -H 'Content-Type: application/json' \
+        -d "{\"algorithm\":\"$ALGORITHM\"}"
+    done
+```
+
+#### Rerun from the operator side with the superuser token
+
+PocketBase's collection API is the operator's route to the same rows. It is
+superuser-only, and a superuser token cannot call `/v1`; use it to delete, then
+request the new runs with the user's token above or in the app.
+
+```bash
+BASE=http://127.0.0.1:8090
+RECORDING_ID=<recording id>
+ANALYSIS_ID=<analysis id>
+
+ADMIN=$(curl -fsS -X POST "$BASE/api/collections/_superusers/auth-with-password" \
+  -H 'Content-Type: application/json' \
+  -d '{"identity":"admin@example.com","password":"<password>"}' | jq -r .token)
+
+# The runs of one recording, with the key they are stored under.
+curl -fsS -G "$BASE/api/collections/analyses/records" \
+  -H "Authorization: $ADMIN" \
+  --data-urlencode "perPage=200" \
+  --data-urlencode "fields=id,recording,algorithm,version,status" \
+  --data-urlencode "filter=(recording='$RECORDING_ID')" \
+  | jq -r '.items[] | [.id, .recording, .algorithm, .version, .status] | @tsv'
+
+# Delete one run...
+curl -fsS -X DELETE "$BASE/api/collections/analyses/records/$ANALYSIS_ID" \
+  -H "Authorization: $ADMIN"
+
+# ...or every run of the recording.
+curl -fsS -G "$BASE/api/collections/analyses/records" \
+  -H "Authorization: $ADMIN" \
+  --data-urlencode "perPage=200" \
+  --data-urlencode "fields=id" \
+  --data-urlencode "filter=(recording='$RECORDING_ID')" \
+  | jq -r '.items[].id' \
+  | while read -r id; do
+      curl -fsS -X DELETE "$BASE/api/collections/analyses/records/$id" \
+        -H "Authorization: $ADMIN"
+    done
+```
+
 ## Security notes
 
 - No secrets, tokens or recordings are stored in this repository. `.env` files,
