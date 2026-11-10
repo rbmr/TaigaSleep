@@ -174,6 +174,9 @@ class ResultCache(private val root: File) {
     return File(root, safe(account)).also { it.mkdirs() }
   }
 
-  private fun safe(key: String): String =
-      key.map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("")
+  private fun safe(key: String): String = resultCacheDirectoryName(key)
 }
+
+/** The name one account or one recording key is kept under: every other character becomes `_`. */
+internal fun resultCacheDirectoryName(value: String): String =
+    value.map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("")

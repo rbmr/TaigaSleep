@@ -20,6 +20,8 @@ import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.sync.UploadScheduler
 import com.rbmr.taigasleep.sync.UploadStore
+import com.rbmr.taigasleep.sync.db.LegacyFilesMigration
+import com.rbmr.taigasleep.sync.db.TaigaDatabase
 import java.io.File
 import okhttp3.OkHttpClient
 
@@ -84,6 +86,25 @@ class AppContainer(private val application: Application) {
 
   val analysisSettingsStore: AnalysisSettingsStore by lazy {
     AnalysisSettingsStore(application)
+  }
+
+  /** Everything the app learned from the server, in one database. */
+  val database: TaigaDatabase by lazy { TaigaDatabase.open(application) }
+
+  /**
+   * The one-time move of the state that older versions kept in files into [database]. It reads the
+   * files of the same places the stores below read and leaves them untouched.
+   */
+  val legacyFilesMigration: LegacyFilesMigration by lazy {
+    LegacyFilesMigration(
+        recordingsRoot = recordingStore.root,
+        uploadPreferences = application.getSharedPreferences("uploads", Context.MODE_PRIVATE),
+        historyFile = File(application.filesDir, "history/remote-recordings.json"),
+        analysisRoot = File(application.filesDir, "analysis"),
+        deletePreferences = application.getSharedPreferences("deletes", Context.MODE_PRIVATE),
+        account = { remoteRepository.accountKey },
+        legacyAccount = { remoteRepository.legacyAccountKey },
+    )
   }
 
   val recordingLibrary: RecordingLibrary by lazy { RecordingLibrary(application) }

@@ -32,6 +32,13 @@ class TaigaApplication : Application() {
     registerActivityLifecycleCallbacks(lifecycleLogger)
     DebugTools.install(this)
     CoroutineScope(Dispatchers.IO).launch {
+      // Move the state an older version kept in files into the database, once. A file that cannot
+      // be read leaves the marker unset and is tried again on the next start; it never keeps the
+      // app from starting.
+      runCatching { container.legacyFilesMigration.migrate(container.database) }
+          .onFailure {
+            Diagnostics.log("legacy_migration_failed", mapOf("error" to it.toString()))
+          }
       // Apply the raw-retention setting to any recording whose cleanup time has passed.
       val sync = container.syncService
       sync.enforceRawRetention()
