@@ -202,11 +202,14 @@ do not leak.
 | --- | --- | --- |
 | `PUT /v1/workers/me` | worker | Body `{ "name", "version", "algorithms": [...] }`: announces what this worker can run. Refreshes its last-seen time. |
 | `POST /v1/analyses/claim` | worker | Body `{ "algorithms"?: [{ "id", "version"? }], "lease_seconds"? }`. Atomically takes the oldest queued analysis it can run and marks it `running`: `200` with the analysis (including `recording` and `params`), or `204` when there is nothing to do. |
+| `POST /v1/analyses/{id}/lease` | worker | Body `{ "lease_seconds"? }`. Extends the lease on an analysis this worker is running: `200` with the analysis. `409 not_leased` when the analysis was reassigned or the lease expired, and `404` when it is gone. |
 | `POST /v1/analyses/{id}/complete` | worker | Body `{ "result": {...} }`. Stores the result and marks it `succeeded`. `409 not_leased` if the worker no longer holds the lease. |
 | `POST /v1/analyses/{id}/fail` | worker | Body `{ "error", "retryable"? }`. A retryable failure goes back to `queued` until its attempts are used up; otherwise the analysis is `failed`. |
 
 A lease that expires puts the analysis back in the queue; the backend does this itself
-(on every claim and once a minute), so there is no requeue endpoint.
+(on every claim and once a minute), so there is no requeue endpoint. A job that can run
+longer than one lease extends it while it works, so an analysis is not requeued under a
+worker that is still busy with it.
 
 ## Events
 
