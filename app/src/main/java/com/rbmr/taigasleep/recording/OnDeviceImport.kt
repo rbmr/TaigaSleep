@@ -14,6 +14,14 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * How far one import got: entry [entry] of [entries] is being stored, with [samples] tracker
+ * samples on the phone for the entries read so far. An [entry] of 0 means no entry has started;
+ * an [entries] of 0 means the tracker has not said what it holds yet, which is while it is still
+ * being stopped and read.
+ */
+data class ImportProgress(val entry: Int, val entries: Int, val samples: Int)
+
 /** What one attempt to move a tracker's recording onto the phone did. */
 sealed interface OnDeviceFetch {
   /** The entries are stored and flushed; the caller may remove them from the tracker. */
@@ -38,6 +46,7 @@ class OnDeviceImport(
     private val tracker: OnDeviceTracker,
     private val clock: Clock,
     private val timeoutMs: Long = FETCH_TIMEOUT_MS,
+    private val onProgress: (ImportProgress) -> Unit = {},
 ) {
   private val cancelled = AtomicBoolean(false)
 
@@ -72,6 +81,8 @@ class OnDeviceImport(
 
   private fun run(): OnDeviceFetch {
     return try {
+      // Nothing is known about the tracker's copy yet: it is still being stopped and read.
+      report(ImportProgress(0, 0, 0))
       tracker.stopOnDevice()
       if (aborted()) return failed("fetch cancelled")
       repairUnaccountedSamples()?.let { return failed(it) }
@@ -87,11 +98,18 @@ class OnDeviceImport(
         return OnDeviceFetch.Imported(emptyList(), 0)
       }
       var imported = 0
-      for (entry in entries) {
+      var held = 0
+      for ((index, entry) in entries.withIndex()) {
         if (aborted()) return failed("fetch cancelled")
-        val result = importEntry(entry)
+        val number = index + 1
+        report(ImportProgress(number, entries.size, held))
+        val result = importEntry(entry) { written ->
+          report(ImportProgress(number, entries.size, held + written))
+        }
         if (result is EntryImport.Failed) return OnDeviceFetch.Failed(result.reason)
         imported += (result as EntryImport.Done).written
+        held += entry.rrMs.count { it > 0 }
+        report(ImportProgress(number, entries.size, held))
       }
       // The whole tracker copy must now be on the phone, not just the samples of this attempt.
       val fetchedSamples = entries.sumOf { entry -> entry.rrMs.count { it > 0 } }
@@ -134,7 +152,7 @@ class OnDeviceImport(
     return null
   }
 
-  private fun importEntry(entry: TrackerEntry): EntryImport {
+  private fun importEntry(entry: TrackerEntry, onWritten: (Int) -> Unit): EntryImport {
     val already = writer.importedOnDevice()[entry.id] ?: 0
     val expected = entry.rrMs.count { it > 0 } - already
     // Persist where the logs stand, so a process kill mid-entry rolls it back and imports it once.
@@ -164,6 +182,9 @@ class OnDeviceImport(
         return rollback(mark, written, "writing the fetched samples failed")
       }
       written++
+      // Long entries are reported as they are stored; a percentage of the whole would be invented,
+      // but the samples actually written are not.
+      if (written % PROGRESS_SAMPLES == 0) onWritten(written)
     }
     if (written != expected) {
       return rollback(mark, written, "the imported sample count does not match the fetched one")
@@ -192,10 +213,17 @@ class OnDeviceImport(
 
   private fun failed(reason: String) = OnDeviceFetch.Failed(reason)
 
+  private fun report(progress: ImportProgress) {
+    runCatching { onProgress(progress) }
+  }
+
   private fun aborted(): Boolean = cancelled.get() || Thread.currentThread().isInterrupted
 
   companion object {
     /** One timeout for stopping, reading, writing and flushing a tracker recording. */
     const val FETCH_TIMEOUT_MS = 60_000L
+
+    /** How many samples may be written between two progress reports. */
+    private const val PROGRESS_SAMPLES = 500
   }
 }
