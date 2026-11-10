@@ -138,6 +138,9 @@
   <string name="night_analysis">Analysis</string>
   <string name="night_analysis_choose">Choose an analysis</string>
   <string name="night_analysis_change">Change</string>
+  <string name="night_analysis_switch_line">%1$s · %2$s</string>
+  <string name="night_analysis_change_description">Analyzed with %1$s. Opens the analysis choice.</string>
+  <string name="night_analysis_choose_description">Choose an analysis. Opens the analysis choice.</string>
   <string name="night_analysis_manual">Manual</string>
   <string name="night_analysis_this_night">This night</string>
   <string name="night_analysis_add">Add an analysis</string>

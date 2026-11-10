@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -24,8 +25,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
@@ -106,18 +109,36 @@ internal fun RecordingBody(
           val name = run?.algorithm?.takeIf { it.isNotBlank() }?.let(AlgorithmNames::display)
           val label =
               if (name != null) {
-                stringResource(R.string.night_analyzed_with_algorithm, name) +
-                    " · " +
-                    stringResource(R.string.night_analysis_change)
+                stringResource(
+                    R.string.night_analysis_switch_line,
+                    stringResource(R.string.night_analyzed_with_algorithm, name),
+                    stringResource(R.string.night_analysis_change),
+                )
               } else {
                 stringResource(R.string.night_analysis_choose)
               }
-          Text(
-              text = label,
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.primary,
-              modifier = Modifier.padding(horizontal = 4.dp).clickable { onOpenAnalysis() },
-          )
+          val description =
+              if (name != null) {
+                stringResource(R.string.night_analysis_change_description, name)
+              } else {
+                stringResource(R.string.night_analysis_choose_description)
+              }
+          Box(
+              modifier =
+                  Modifier.padding(horizontal = 4.dp)
+                      .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                      .clip(RoundedCornerShape(12.dp))
+                      .clickable(role = Role.Button, onClick = onOpenAnalysis)
+                      .semantics(mergeDescendants = true) { contentDescription = description }
+                      .padding(horizontal = 8.dp, vertical = 10.dp),
+              contentAlignment = Alignment.CenterStart,
+          ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+          }
         }
       }
 
