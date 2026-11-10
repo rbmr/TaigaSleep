@@ -27,11 +27,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SelectableDates
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +48,10 @@ import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
@@ -56,6 +63,7 @@ import com.rbmr.taigasleep.ui.components.SettingsRow
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -80,6 +88,8 @@ fun PersonalDataScreen(onBack: () -> Unit) {
   var showDate by rememberSaveable { mutableStateOf(false) }
   var showSex by rememberSaveable { mutableStateOf(false) }
   var showWeight by rememberSaveable { mutableStateOf(false) }
+  var showBedtime by rememberSaveable { mutableStateOf(false) }
+  var showWakeTime by rememberSaveable { mutableStateOf(false) }
 
   Scaffold(
       containerColor = MaterialTheme.colorScheme.background,
@@ -125,6 +135,18 @@ fun PersonalDataScreen(onBack: () -> Unit) {
               subtitle = weightLabel(data),
               onClick = { showWeight = true },
           )
+          SettingsDivider()
+          SettingsRow(
+              title = stringResource(R.string.personal_usual_bedtime_title),
+              subtitle = timeLabel(data.usualBedtime),
+              onClick = { showBedtime = true },
+          )
+          SettingsDivider()
+          SettingsRow(
+              title = stringResource(R.string.personal_usual_wake_time_title),
+              subtitle = timeLabel(data.usualWakeTime),
+              onClick = { showWakeTime = true },
+          )
         }
       }
       item {
@@ -165,6 +187,26 @@ fun PersonalDataScreen(onBack: () -> Unit) {
         current = data.weightKg,
         onSave = viewModel::setWeightKg,
         onDismiss = { showWeight = false },
+    )
+  }
+
+  if (showBedtime) {
+    TimeOfDayDialog(
+        title = stringResource(R.string.personal_usual_bedtime_title),
+        current = data.usualBedtime,
+        defaultHour = 23,
+        onSave = viewModel::setUsualBedtime,
+        onDismiss = { showBedtime = false },
+    )
+  }
+
+  if (showWakeTime) {
+    TimeOfDayDialog(
+        title = stringResource(R.string.personal_usual_wake_time_title),
+        current = data.usualWakeTime,
+        defaultHour = 7,
+        onSave = viewModel::setUsualWakeTime,
+        onDismiss = { showWakeTime = false },
     )
   }
 }
@@ -330,6 +372,75 @@ private fun WeightDialog(current: Double?, onSave: (Double?) -> Unit, onDismiss:
         }
       },
   )
+}
+
+/**
+ * A time picker for the usual bedtime or wake time. The value is optional and can be cleared; a
+ * field that was never set opens at a sensible hour for the field it belongs to.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimeOfDayDialog(
+    title: String,
+    current: LocalTime?,
+    defaultHour: Int,
+    onSave: (LocalTime?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+  val is24Hour = android.text.format.DateFormat.is24HourFormat(LocalContext.current)
+  val state =
+      rememberTimePickerState(
+          initialHour = current?.hour ?: defaultHour,
+          initialMinute = current?.minute ?: 0,
+          is24Hour = is24Hour,
+      )
+
+  Dialog(onDismissRequest = onDismiss) {
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 6.dp,
+    ) {
+      Column(
+          modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState()),
+      ) {
+        Text(text = title, style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(12.dp))
+        TimePicker(state = state)
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          TextButton(
+              onClick = {
+                onSave(null)
+                onDismiss()
+              },
+              enabled = current != null,
+          ) {
+            Text(stringResource(R.string.personal_remove))
+          }
+          Spacer(Modifier.weight(1f))
+          TextButton(onClick = onDismiss) {
+            Text(stringResource(R.string.personal_cancel))
+          }
+          TextButton(
+              onClick = {
+                onSave(LocalTime.of(state.hour, state.minute))
+                onDismiss()
+              }
+          ) {
+            Text(stringResource(R.string.personal_save))
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun timeLabel(time: LocalTime?): String {
+  val value = time ?: return stringResource(R.string.personal_not_set)
+  val locale = LocalLocale.current.platformLocale
+  return value.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale))
 }
 
 @Composable

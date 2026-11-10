@@ -63,6 +63,8 @@
   <string name="personal_weight_label">Kilograms</string>
   <string name="personal_weight_value">%1$s kg</string>
   <string name="personal_weight_invalid">Enter a weight between 1 and 500 kg.</string>
+  <string name="personal_usual_bedtime_title">Usual bedtime</string>
+  <string name="personal_usual_wake_time_title">Usual wake time</string>
   <string name="personal_save">Save</string>
   <string name="personal_remove">Remove</string>
   <string name="personal_cancel">Cancel</string>
