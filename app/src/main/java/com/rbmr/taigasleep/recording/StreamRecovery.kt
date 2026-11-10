@@ -33,9 +33,12 @@ data class RecoveryStep(val kind: RecoveryStepKind, val reason: String)
  * - Bluetooth comes back on: reconnect at once and start the streams again.
  *
  * An HR sample ends the escalation, so the next stall starts at the restart step with the first
- * retry delay again. A link that is down is not a stalled stream: the sensor reconnects on its own,
- * and the timers of the current stage start again when it is back. A reconnect that does not bring
- * samples back therefore continues the backoff ladder instead of starting it over.
+ * retry delay again. A link that is down before any recovery started is not a stalled stream: the
+ * sensor reconnects on its own, and the timers of the current stage start again when it is back.
+ * Once a recovery is under way, however, it does not wait for the link: a reconnect attempt whose
+ * link never comes back is followed by the next attempt on the same backoff ladder, until samples
+ * arrive or the recording ends. A reconnect that does not bring samples back therefore continues
+ * the ladder instead of starting it over.
  *
  * The policy holds no Android types and is handed the elapsed clock, so it is unit-tested with a
  * fake clock. [RecordingMonitor] reports every HR sample and link change; the service performs the
@@ -90,9 +93,11 @@ class StreamRecoveryPolicy(startedAtMs: Long) {
 
   /** The steps a stalled stream needs now, usually none. */
   fun evaluate(nowMs: Long): List<RecoveryStep> {
-    if (!connected || bluetoothDown) return emptyList()
+    if (bluetoothDown) return emptyList()
     return when (stage) {
       Stage.CLEAR -> {
+        // Nothing to recover is not a stall: only a link the sensor says is up can be silent.
+        if (!connected) return emptyList()
         if (nowMs - lastSampleAtMs < HR_STALE_MS) return emptyList()
         stage = Stage.RESTARTED
         restartedAtMs = nowMs
@@ -105,6 +110,8 @@ class StreamRecoveryPolicy(startedAtMs: Long) {
         )
       }
       Stage.RESTARTED -> {
+        // The restart may itself have lost the link; that does not pause the ladder, or a link that
+        // never comes back would leave the recording with no further attempt at all.
         if (nowMs - restartedAtMs < RECONNECT_AFTER_MS) return emptyList()
         stage = Stage.RECONNECTING
         reconnects++
