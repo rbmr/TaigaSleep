@@ -181,6 +181,7 @@ variables and expand them in the unit/compose files:
 | `TAIGA_MAX_RECORDING_FILE_MB` | `64` | Bytes allowed for one stream file. |
 | `TAIGA_MAX_UPLOAD_CHUNK_MB` | `8` | Maximum upload chunk; keep it below PocketBase's 10 MB request-body cap. |
 | `TAIGA_MAX_META_KB` | `64` | Maximum `meta.json` size. |
+| `TAIGA_USER_QUOTA_GB` | `10` | Stored bytes one account may hold across all of its recordings; `0` removes the limit. |
 
 The API also reads `TAIGA_JOB_LEASE_S` as the default claim lease (default
 `1800`, clamped to 1 day) and `TAIGA_JOB_MAX_ATTEMPTS` as the retry limit for
@@ -290,6 +291,13 @@ Limits are configurable through `TAIGA_MAX_RECORDING_MB` (256),
 `TAIGA_MAX_UPLOAD_UNCOMPRESSED_CHUNK_MB` (16), `TAIGA_MAX_UPLOAD_MEMBERS` (10000) and
 `TAIGA_MAX_META_KB` (64). A request over a limit is answered with `413`.
 
+One account's recordings together are also limited by `TAIGA_USER_QUOTA_GB` (10 GB by
+default, `0` for no limit). The quota counts the bytes the recordings occupy as stored,
+which are the compressed bytes of a compressed file, and it is checked where uploads are
+accepted: a chunk that would take the account over the quota is refused with
+`413 storage_quota_exceeded` and nothing is written. Deleting a recording, or one of its
+files, frees the room again. An unset, negative or non-numeric value means the default.
+
 ### Analyses and the worker
 
 An analysis is one algorithm applied to one recording. Nothing creates one by itself:
@@ -302,8 +310,10 @@ row is the queue item, so there is no separate jobs resource:
    `POST /v1/analyses/claim` takes the oldest queued analysis it can run. The update is
    conditional inside a transaction, so exactly one caller gets it. The analysis is
    `running` for a lease (`TAIGA_JOB_LEASE_S`, default 1800 s).
-3. While it holds the lease, the worker may read the recording and its files through the
-   normal read endpoints (there are no worker-only copies).
+3. While it holds the lease, the worker may read that analysis, its recording and the
+   recording's files through the normal read endpoints (there are no worker-only copies).
+   A worker sees nothing else: `GET /v1/analyses` lists only the analyses it is holding,
+   and every other analysis or recording is `404`.
 4. `POST /v1/analyses/{id}/complete` stores the result; `POST /v1/analyses/{id}/fail`
    reports a failure. A retryable failure is requeued with exponential backoff up to
    `TAIGA_JOB_MAX_ATTEMPTS` (default 3); a permanent one stores the reason.
@@ -848,8 +858,11 @@ curl -fsS -G "$BASE/api/collections/analyses/records" \
 - PocketBase settings, including the optional backup S3 secret, live in
   `pb_data/data.db`. Set `TAIGA_ENCRYPTION_KEY` to encrypt them at rest.
 - Registration is disabled; there is one app user in the intended setup.
-- Worker credentials are separate from the app user. The worker cannot read
-  records directly.
+- Worker credentials are separate from the app user. The worker cannot read records
+  directly, and through the API it reads only the analysis it holds the lease of, with
+  that analysis's recording and files.
+- One account's recordings together are limited by `TAIGA_USER_QUOTA_GB` (10 GB by
+  default), so a leaked app account cannot fill the disk.
 - The admin dashboard is loopback-only in the examples.
 - The API is HTTP by default. Terminate TLS at the reverse proxy (Caddy does so
   automatically) before using it outside your LAN.
