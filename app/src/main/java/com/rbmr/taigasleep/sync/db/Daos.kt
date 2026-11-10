@@ -41,23 +41,41 @@ interface UploadStateDao {
 /** The server's recording list of one account and the run each recording shows. */
 @Dao
 interface RemoteRecordingDao {
-  @Query("SELECT * FROM remote_recording WHERE account = :account ORDER BY position")
+  @Query(
+      "SELECT * FROM remote_recording WHERE account = :account AND hidden = 0 ORDER BY position"
+  )
   fun observe(account: String): Flow<List<RemoteRecordingRow>>
 
-  @Query("SELECT * FROM remote_recording WHERE account = :account ORDER BY position")
+  @Query(
+      "SELECT * FROM remote_recording WHERE account = :account AND hidden = 0 ORDER BY position"
+  )
   suspend fun rows(account: String): List<RemoteRecordingRow>
 
-  @Query("SELECT * FROM remote_analysis WHERE account = :account ORDER BY recordingId, analysisId")
-  fun observeAnalyses(account: String): Flow<List<RemoteAnalysisRow>>
+  /**
+   * The recordings the server no longer has for this account, which no later list may show again.
+   */
+  @Query(
+      "SELECT recordingId FROM remote_recording WHERE account = :account AND hidden = 1 " +
+          "ORDER BY recordingId"
+  )
+  suspend fun hiddenIds(account: String): List<String>
+
+  @Query(
+      "SELECT COUNT(*) FROM remote_recording WHERE account = :account AND recordingId = :recordingId " +
+          "AND hidden = 1"
+  )
+  suspend fun isHidden(account: String, recordingId: String): Int
 
   @Query("SELECT * FROM remote_analysis WHERE account = :account ORDER BY recordingId, analysisId")
   suspend fun analysisRows(account: String): List<RemoteAnalysisRow>
 
   @Query("SELECT * FROM remote_selection WHERE account = :account ORDER BY recordingKey")
-  fun observeSelections(account: String): Flow<List<RemoteSelectionRow>>
-
-  @Query("SELECT * FROM remote_selection WHERE account = :account ORDER BY recordingKey")
   suspend fun selections(account: String): List<RemoteSelectionRow>
+
+  @Query(
+      "SELECT analysisId FROM remote_selection WHERE account = :account AND recordingKey = :recordingKey"
+  )
+  suspend fun selection(account: String, recordingKey: String): String?
 
   /** How many recordings this account's saved list holds; zero means no list was ever saved. */
   @Query("SELECT COUNT(*) FROM remote_recording WHERE account = :account")
@@ -72,39 +90,60 @@ interface RemoteRecordingDao {
   @Query("DELETE FROM remote_recording WHERE account = :account AND recordingId = :recordingId")
   suspend fun delete(account: String, recordingId: String)
 
+  /**
+   * The server no longer has this recording: the row stays, marked hidden, so a list fetched before
+   * the delete finished cannot show it again. A recording the saved list never held gets the marker
+   * alone, which is what a 404 for a recording that was only shown from a fresh read leaves.
+   */
+  @Transaction
+  suspend fun hide(account: String, recordingId: String) {
+    upsert(listOf(RemoteRecordingRow(account = account, recordingId = recordingId, hidden = true)))
+    deleteAnalyses(account, recordingId)
+  }
+
   @Query("DELETE FROM remote_analysis WHERE account = :account AND recordingId = :recordingId")
   suspend fun deleteAnalyses(account: String, recordingId: String)
 
   @Query("DELETE FROM remote_selection WHERE account = :account AND recordingKey = :recordingKey")
   suspend fun deleteSelection(account: String, recordingKey: String)
 
-  @Query("DELETE FROM remote_recording WHERE account = :account")
-  suspend fun deleteList(account: String)
-
-  @Query("DELETE FROM remote_analysis WHERE account = :account")
-  suspend fun deleteAllAnalyses(account: String)
-
-  @Query("UPDATE remote_recording SET account = :to WHERE account = :from")
+  @Query("UPDATE OR IGNORE remote_recording SET account = :to WHERE account = :from")
   suspend fun moveList(from: String, to: String)
 
-  @Query("UPDATE remote_analysis SET account = :to WHERE account = :from")
+  @Query("UPDATE OR IGNORE remote_analysis SET account = :to WHERE account = :from")
   suspend fun moveAnalyses(from: String, to: String)
 
-  @Query("UPDATE remote_selection SET account = :to WHERE account = :from")
+  @Query("UPDATE OR IGNORE remote_selection SET account = :to WHERE account = :from")
   suspend fun moveSelections(from: String, to: String)
 
-  /** Replaces the saved list of one account, leaving the run each recording shows untouched. */
+  /**
+   * Replaces the saved list of one account with what the server sent, leaving the run each recording
+   * shows and the recordings the server no longer has untouched.
+   */
   @Transaction
   suspend fun replace(
       account: String,
       rows: List<RemoteRecordingRow>,
       analyses: List<RemoteAnalysisRow>,
   ) {
-    deleteList(account)
-    deleteAllAnalyses(account)
-    if (rows.isNotEmpty()) upsert(rows)
-    if (analyses.isNotEmpty()) upsertAnalyses(analyses)
+    // Read first: the deletions below would otherwise take the markers with them.
+    val hidden = hiddenIds(account).toSet()
+    deleteVisible(account)
+    deleteVisibleAnalyses(account)
+    val kept = rows.filterNot { it.recordingId in hidden }
+    val runs = analyses.filterNot { it.recordingId in hidden }
+    if (kept.isNotEmpty()) upsert(kept)
+    if (runs.isNotEmpty()) upsertAnalyses(runs)
   }
+
+  @Query("DELETE FROM remote_recording WHERE account = :account AND hidden = 0")
+  suspend fun deleteVisible(account: String)
+
+  @Query(
+      "DELETE FROM remote_analysis WHERE account = :account AND recordingId NOT IN " +
+          "(SELECT recordingId FROM remote_recording WHERE account = :account AND hidden = 1)"
+  )
+  suspend fun deleteVisibleAnalyses(account: String)
 
   /** Replaces the runs one recording of one account lists, leaving its row where it is. */
   @Transaction
@@ -117,7 +156,11 @@ interface RemoteRecordingDao {
     if (rows.isNotEmpty()) upsertAnalyses(rows)
   }
 
-  /** Writes one account's saved list and runs under another key, for a list that changed naming. */
+  /**
+   * Writes one account's saved list, its runs and its choices under another key, for a list that
+   * changed naming. A row the new key already has stays as it is, so a marker for a recording the
+   * server no longer has is never overwritten.
+   */
   @Transaction
   suspend fun adopt(from: String, to: String) {
     moveList(from, to)

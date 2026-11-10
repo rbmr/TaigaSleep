@@ -15,7 +15,7 @@ import com.rbmr.taigasleep.sync.withoutRecordings
 internal suspend fun fetchRemoteList(
     session: RemoteSession,
     activeAccount: () -> String?,
-    hidden: () -> Set<String>,
+    hidden: suspend () -> Set<String>,
     save: suspend (account: String, list: RecordingSummaryListDto) -> Unit,
 ): RecordingSummaryListDto? {
   val fetched = session.api.recordingSummaries()

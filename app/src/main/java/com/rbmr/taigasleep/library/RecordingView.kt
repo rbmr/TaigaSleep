@@ -2,17 +2,15 @@ package com.rbmr.taigasleep.library
 
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingDto
-import com.rbmr.taigasleep.backend.RecordingSummaryDto
-import com.rbmr.taigasleep.backend.RecordingSummaryListDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.insights.StagerPreference
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
+import com.rbmr.taigasleep.sync.LibraryEntry
 import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.recordingIdOf
-import com.rbmr.taigasleep.sync.remoteKey
 import java.text.SimpleDateFormat
 import java.time.OffsetDateTime
 import java.util.Date
@@ -149,102 +147,53 @@ data class RecordingView(
 }
 
 /**
- * Merge the local recordings and the app's durable record state with what the analysis caches say a
- * recording shows. The server's list and the cached payloads are the only sources of analysis facts;
- * the sync record only says where the bytes are and whether they are moving.
+ * Merge the recordings on this phone with the entries the database publishes for the active account.
+ * An entry is one recording key with its sync state, the server's row and runs, the run it shows and
+ * the payloads this phone holds, read in one query; the phone's recordings are not in the database,
+ * so they are matched to an entry by their id.
  *
- * [overrides] carries a fresh recording and analysis list fetched by the recording screen, so a
- * recording with several analyses shows all of them before the next History refresh.
- *
- * [selectedAnalysisIds] is the run each recording shows, remembered by the cached History. It only
- * wins while it is one of the runs the caches list.
- *
- * [cachedResults] is the payloads this phone holds, by the History key of the recording they belong
- * to, as the database publishes them. It is read, never written: the store that keeps them is their
- * only owner.
- *
- * [hiddenRemoteIds] are recordings whose server copy is being deleted or is already gone. Their
- * server summary, their fresh override and their cached runs are left out, so History cannot show
- * a recording that the server no longer has. A local recording stays as the local recording it is.
+ * The server's row and the payloads are the only sources of analysis facts; the sync record only says
+ * where the bytes are and whether they are moving. An entry that is [LibraryEntry.hidden] loses its
+ * server row and its runs, so History cannot show a recording that the server no longer has, while a
+ * recording that is still on this phone stays as the recording it is.
  *
  * The phone's recording id is the server's recording id, so a local recording and its server copy
- * are matched by id.
+ * are matched by id. A recording the phone does not have is its own row under its remote key.
  */
-fun buildRecordings(
-    recordings: List<Recording>,
-    records: Map<String, UploadRecord>,
-    remote: RecordingSummaryListDto?,
-    overrides: Map<String, RemoteOverride> = emptyMap(),
-    hiddenRemoteIds: Set<String> = emptySet(),
-    selectedAnalysisIds: Map<String, String> = emptyMap(),
-    cachedResults: Map<String, List<AnalysisDto>> = emptyMap(),
-): List<RecordingView> {
-  val byId = remote?.items?.associateBy { it.recording.id }.orEmpty()
+fun buildRecordings(recordings: List<Recording>, entries: List<LibraryEntry>): List<RecordingView> {
+  val byKey = entries.associateBy { it.key }
   val localIds = recordings.map { it.id }.toSet()
   val merged = mutableListOf<RecordingView>()
   for (recording in recordings) {
-    val hidden = recording.id in hiddenRemoteIds
+    val entry = byKey[recording.id]
     merged +=
         buildRecording(
             key = recording.id,
             local = recording,
-            summary = byId[recording.id].takeUnless { hidden },
-            record = records[recording.id],
-            override = overrides[recording.id].takeUnless { hidden },
-            selectedAnalysisId = selectedAnalysisIds[recording.id],
-            cached = cachedResults[recording.id].orEmpty(),
+            entry = entry,
         )
   }
-  for (summary in remote?.items.orEmpty()) {
-    if (summary.recording.id in localIds) continue
-    if (summary.recording.id in hiddenRemoteIds) continue
-    val key = remoteKey(summary.recording.id)
-    merged +=
-        buildRecording(
-            key = key,
-            local = null,
-            summary = summary,
-            record = records[key],
-            override = overrides[key],
-            selectedAnalysisId = selectedAnalysisIds[key],
-            cached = cachedResults[key].orEmpty(),
-        )
-  }
-  // A recording opened directly by its recording id can be fresh before the next History refresh.
-  for ((key, override) in overrides) {
-    if (recordingIdOf(key) in hiddenRemoteIds) continue
-    if (merged.none { it.key == key }) {
-      merged +=
-          buildRecording(
-              key = key,
-              local = null,
-              summary = null,
-              record = records[key],
-              override = override,
-              selectedAnalysisId = selectedAnalysisIds[key],
-              cached = cachedResults[key].orEmpty(),
-          )
-    }
+  for (entry in entries) {
+    if (entry.key in localIds) continue
+    // A key without a server row is a sync state or a payload whose recording is not here: it is
+    // not a recording, so it is not a row in History.
+    if (entry.recording == null || entry.hidden) continue
+    merged += buildRecording(key = entry.key, local = null, entry = entry)
   }
   return merged.sortedWith(compareByDescending<RecordingView> { it.startUtcMs }.thenBy { it.device })
 }
 
-/** A fresh recording and analysis list from the server, kept only for the current process. */
-data class RemoteOverride(
-    val recording: RecordingDto,
-    val runs: List<Analysis>,
-)
-
 private fun buildRecording(
     key: String,
     local: Recording?,
-    summary: RecordingSummaryDto?,
-    record: UploadRecord?,
-    override: RemoteOverride?,
-    selectedAnalysisId: String?,
-    cached: List<AnalysisDto>,
+    entry: LibraryEntry?,
 ): RecordingView {
-  val remoteSession = override?.recording ?: summary?.recording
+  val shown = entry?.takeUnless { it.hidden }
+  val remoteSession = shown?.recording
+  val selectedAnalysisId = shown?.selectedAnalysisId
+  val cached = entry?.cachedResults.orEmpty()
+  val remoteRuns = shown?.runs.orEmpty()
+  val record = entry?.record
   val start = local?.startUtcMs ?: parseApiDate(remoteSession?.started_at.orEmpty())
   val end =
       local?.endUtcMs
@@ -258,20 +207,15 @@ private fun buildRecording(
           ?: remoteSession?.device?.takeIf { it.isNotBlank() }
           ?: ""
   val backupFromRecord = record?.backupState() ?: backupFromRemote(remoteSession)
-  val remoteRuns =
-      override?.runs
-          ?: summary?.analyses
-              ?.map { run -> run.toRun(downloaded = cached.any { it.id == run.id }) }
-              .orEmpty()
   // The server's list has the runs. A recording whose list is not on this phone at all is drawn from
   // the cached payloads instead, so an upgrade or a logged-out start does not lose a result it had.
   // A recording the server does list is never filled in from the cache: a run it no longer lists is
   // gone, not hidden.
   val cachedRuns =
-      if (summary == null && override == null) {
+      if (remoteSession == null) {
         cached.map { run -> run.toRun(downloaded = true) }
       } else {
-        remoteRuns
+        remoteRuns.map { run -> run.toRun(downloaded = cached.any { it.id == run.id }) }
       }
   val runs =
       cachedRuns.map { run ->

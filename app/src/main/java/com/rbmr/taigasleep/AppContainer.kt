@@ -13,6 +13,7 @@ import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.AppSyncEnvironment
 import com.rbmr.taigasleep.sync.LiveSync
 import com.rbmr.taigasleep.sync.PendingDeleteStore
+import com.rbmr.taigasleep.sync.RecordingRows
 import com.rbmr.taigasleep.sync.RemoteHistoryCache
 import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.SyncService
@@ -106,12 +107,22 @@ class AppContainer(private val application: Application) {
     )
   }
 
+  /**
+   * The one read of the library: every fact the screens show about a recording, in one query joined
+   * with the recordings on this phone. Every store that writes a row publishes through it.
+   */
+  val recordingRows: RecordingRows by lazy {
+    RecordingRows(
+        database.library(),
+        awaitLegacyImport = { legacyFilesMigration.awaitMigrated(database) },
+    )
+  }
+
   val remoteHistoryCache: RemoteHistoryCache by lazy {
     // The list of an older app holds recording summaries this version cannot read.
     File(application.filesDir, "history/remote-sessions.json").delete()
     RemoteHistoryCache(
         database.remoteRecordings(),
-        account = { remoteRepository.accountKey },
         awaitLegacyImport = { legacyFilesMigration.awaitMigrated(database) },
     )
   }

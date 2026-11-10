@@ -69,9 +69,13 @@ class PendingRecordingsTest {
     val nights =
         buildRecordings(
             recordings = local,
-            records = byKey,
-            remote = RecordingSummaryListDto(summaries),
-            cachedResults = cachedResults,
+            entries =
+                libraryEntries(
+                    remote = RecordingSummaryListDto(summaries),
+                    records = byKey,
+                    cachedResults = cachedResults,
+                    localIds = local.map { it.id }.toSet(),
+                ),
         )
     return pendingRecordings(nights, byKey)
   }

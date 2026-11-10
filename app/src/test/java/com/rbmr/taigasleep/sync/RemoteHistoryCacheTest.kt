@@ -23,13 +23,11 @@ import org.robolectric.annotation.Config
 class RemoteHistoryCacheTest {
   private lateinit var database: TaigaDatabase
   private lateinit var cache: RemoteHistoryCache
-  private var active: String? = null
 
   @Before
   fun setUp() {
     database = testDatabase()
-    active = account
-    cache = RemoteHistoryCache(database.remoteRecordings(), account = { active })
+    cache = RemoteHistoryCache(database.remoteRecordings())
   }
 
   @After
@@ -79,7 +77,7 @@ class RemoteHistoryCacheTest {
 
     val saved = runBlocking { cache.load(account) }
     assertEquals(listOf("20261024_223000-m1a2"), saved?.items?.map { it.recording.id })
-    assertTrue("20261023_223000-k3f9" in cache.removed.value)
+    assertTrue("20261023_223000-k3f9" in runBlocking { cache.removed(account) })
   }
 
   @Test
@@ -88,7 +86,7 @@ class RemoteHistoryCacheTest {
     runBlocking { cache.remove(account, "20261023_223000-k3f9") }
 
     val fetchedEarlier = twoRecordings()
-    val shown = fetchedEarlier.withoutRecordings(cache.removed.value)
+    val shown = fetchedEarlier.withoutRecordings(runBlocking { cache.removed(account) })
 
     assertEquals(listOf("20261024_223000-m1a2"), shown.items.map { it.recording.id })
   }
@@ -114,7 +112,7 @@ class RemoteHistoryCacheTest {
     }
 
     assertEquals(1, runBlocking { cache.load(account) }?.items?.size)
-    assertTrue(cache.removed.value.isEmpty())
+    assertTrue(runBlocking { cache.removed(account) }.isEmpty())
   }
 
   @Test
@@ -180,19 +178,13 @@ class RemoteHistoryCacheTest {
 
       cache.remove(account, "20261023_223000-k3f9")
     }
-    active = other
-    cache.refreshAccount()
-
     assertTrue(
         runBlocking { cache.load(other) }?.items?.any { it.recording.id == "20261023_223000-k3f9" } ==
             true
     )
-    assertTrue(cache.removed.value.isEmpty())
+    assertTrue(runBlocking { cache.removed(other) }.isEmpty())
 
-    active = account
-    cache.refreshAccount()
-
-    assertTrue("20261023_223000-k3f9" in cache.removed.value)
+    assertTrue("20261023_223000-k3f9" in runBlocking { cache.removed(account) })
   }
 
   @Test

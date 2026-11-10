@@ -677,6 +677,8 @@ private object SyncSurface {
           // Where the result payload is kept, and the live stream the library drives.
           "ResultCache",
           "LiveSyncTarget",
+          // One recording as the library query reads it: its rows, its runs and its payloads.
+          "LibraryEntry",
           // A night's key, which installed algorithm a recording can feed, and the server's list
           // without the recordings the app deleted.
           "remoteKey",

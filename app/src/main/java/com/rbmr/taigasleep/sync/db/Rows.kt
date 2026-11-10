@@ -57,6 +57,11 @@ data class RemoteRecordingRow(
     val sizeBytes: Long = 0,
     val created: String = "",
     val updated: String = "",
+    /**
+     * The server no longer has this recording for the account. The row stays so a list fetched
+     * before the delete finished cannot put the recording back; it is read only for that.
+     */
+    val hidden: Boolean = false,
 )
 
 /** The run one recording of one account shows, the row behind the saved selection. */

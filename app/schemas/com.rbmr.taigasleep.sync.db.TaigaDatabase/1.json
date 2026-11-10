@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "2ee8ca686367131a3cae144458d98863",
+    "identityHash": "0c3a352f36e48087a6468752522b6cad",
     "entities": [
       {
         "tableName": "upload_state",
@@ -93,7 +93,7 @@
       },
       {
         "tableName": "remote_recording",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account` TEXT NOT NULL, `recordingId` TEXT NOT NULL, `position` INTEGER NOT NULL, `state` TEXT NOT NULL, `device` TEXT NOT NULL, `startedAt` TEXT NOT NULL, `endedAt` TEXT, `durationS` REAL NOT NULL, `complete` INTEGER NOT NULL, `sizeBytes` INTEGER NOT NULL, `created` TEXT NOT NULL, `updated` TEXT NOT NULL, PRIMARY KEY(`account`, `recordingId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account` TEXT NOT NULL, `recordingId` TEXT NOT NULL, `position` INTEGER NOT NULL, `state` TEXT NOT NULL, `device` TEXT NOT NULL, `startedAt` TEXT NOT NULL, `endedAt` TEXT, `durationS` REAL NOT NULL, `complete` INTEGER NOT NULL, `sizeBytes` INTEGER NOT NULL, `created` TEXT NOT NULL, `updated` TEXT NOT NULL, `hidden` INTEGER NOT NULL, PRIMARY KEY(`account`, `recordingId`))",
         "fields": [
           {
             "fieldPath": "account",
@@ -164,6 +164,12 @@
             "fieldPath": "updated",
             "columnName": "updated",
             "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hidden",
+            "columnName": "hidden",
+            "affinity": "INTEGER",
             "notNull": true
           }
         ],
@@ -465,7 +471,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2ee8ca686367131a3cae144458d98863')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0c3a352f36e48087a6468752522b6cad')"
     ]
   }
 }

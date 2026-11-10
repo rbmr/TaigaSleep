@@ -35,6 +35,8 @@ abstract class TaigaDatabase : RoomDatabase() {
 
   abstract fun remoteRecordings(): RemoteRecordingDao
 
+  abstract fun library(): LibraryDao
+
   abstract fun analysisResults(): AnalysisResultDao
 
   abstract fun pendingDeletes(): PendingDeleteDao
