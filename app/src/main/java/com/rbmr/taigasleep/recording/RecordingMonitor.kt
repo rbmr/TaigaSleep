@@ -88,6 +88,7 @@ class RecordingMonitor(
 
   private var storageBytes = 0L
   private var storageError: String? = null
+  private var storageDropped = 0L
   private var sinceSyncMs: Long? = null
 
   init {
@@ -362,6 +363,7 @@ class RecordingMonitor(
   private fun evaluateStorage(nowNs: Long, events: MutableList<Pair<String, String>>) {
     val health = storageHealth()
     storageBytes = health.bytesWritten
+    storageDropped = health.droppedFrames
     sinceSyncMs = if (health.lastSyncNs > 0) (nowNs - health.lastSyncNs).coerceAtLeast(0) / NS_PER_MS else null
     val error = health.lastError
     if (error != null && error != storageError) {
@@ -388,7 +390,12 @@ class RecordingMonitor(
     val streamStates = streams.values.associate { it.kind to it.snapshot() }
     val power = RecordingState.Power(batteryPercent, batteryAgeMs(nowUtcMs), battery)
     val storage =
-        RecordingState.Storage(bytesWritten = storageBytes, lastError = storageError, sinceSyncMs = sinceSyncMs)
+        RecordingState.Storage(
+            bytesWritten = storageBytes,
+            lastError = storageError,
+            sinceSyncMs = sinceSyncMs,
+            droppedFrames = storageDropped,
+        )
     val contactState =
         RecordingState.Contact(
             state = contact,

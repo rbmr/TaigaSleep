@@ -22,6 +22,8 @@ data class StorageHealth(
     val lastError: String? = null,
     /** When the last fsync succeeded, 0 before the first one. */
     val lastSyncNs: Long = 0,
+    /** Frames a failed write cost so far; each was rolled back and is missing from the log. */
+    val droppedFrames: Long = 0,
 )
 
 /**
@@ -47,6 +49,7 @@ private constructor(
   private var errorEvents = 0
 
   private var failure: String? = null
+  private var failing = false
 
   private fun open(stream: Int, name: String) {
     logs[stream] = FrameLogWriter(File(dir, name), stream)
@@ -65,7 +68,11 @@ private constructor(
           bytesWritten = logs.values.sumOf { it.bytes },
           lastError = failure,
           lastSyncNs = lastSyncNs,
+          droppedFrames = droppedFrames(),
       )
+
+  /** Frames a failed write cost across all streams, so the loss is visible and not swallowed. */
+  private fun droppedFrames(): Long = logs.values.sumOf { it.droppedFrames }
 
   @Synchronized
   fun event(type: String, message: String) {
@@ -134,15 +141,28 @@ private constructor(
     return ok
   }
 
+  /**
+   * Returns false when the frame could not be written. The log has already been set back to its last
+   * good frame, so later frames are still stored; the failure and the dropped count are exposed
+   * through [storageHealth] and recorded as events.
+   */
   private fun append(stream: Int, payload: ByteArray): Boolean {
     if (closed) return false
     val log = logs[stream] ?: return false
     return try {
       log.append(payload)
+      if (failing) {
+        failing = false
+        errorEvent("writing to the phone works again (${droppedFrames()} frames dropped)")
+      }
       true
     } catch (e: IOException) {
       failure = e.message ?: "write failed"
       Log.e(TAG, "frame write failed", e)
+      if (!failing) {
+        failing = true
+        errorEvent("frame write failed (${droppedFrames()} frames dropped): $failure")
+      }
       false
     }
   }
