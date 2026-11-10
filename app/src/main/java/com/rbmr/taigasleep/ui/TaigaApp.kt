@@ -173,7 +173,15 @@ fun TaigaApp(
                       },
                       onOpenServer = { showRemote = true },
                   )
-              1 -> HomeScreen(onGuidanceClick = { showGuidance = true })
+              1 ->
+                  HomeScreen(
+                      onGuidanceClick = { showGuidance = true },
+                      onOpenRecording = { recordingId ->
+                        detailLocal = recordingId
+                        detailRemote = null
+                        detailAnalysis = null
+                      },
+                  )
               2 ->
                   SettingsScreen(
                       themeMode = themeMode,

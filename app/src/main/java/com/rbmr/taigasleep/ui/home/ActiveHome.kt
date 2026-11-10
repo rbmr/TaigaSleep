@@ -1,27 +1,37 @@
 package com.rbmr.taigasleep.ui.home
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.ui.components.ButtonSize
-import com.rbmr.taigasleep.ui.components.DestructiveButton
 import com.rbmr.taigasleep.ui.components.LogoVariant
 import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.ScreenHeader
-import com.rbmr.taigasleep.ui.components.SecondaryButton
 import com.rbmr.taigasleep.ui.components.TaigaCard
 
 internal enum class StopAction {
@@ -30,7 +40,10 @@ internal enum class StopAction {
   DISCARD,
 }
 
-/** Recording: the live numbers and the three ways to end it. Nothing else. */
+/**
+ * Recording: the live numbers, Stop as the one prominent action, and the two harsher ways to end
+ * the night behind the overflow.
+ */
 @Composable
 internal fun ActiveHome(
     state: HomeUiState.Recording,
@@ -53,34 +66,63 @@ internal fun ActiveHome(
     item { HomeLogo(LogoVariant.Sleeping, glow = true) }
     item { RecordingCard(state.status) }
     item {
-      PrimaryButton(
-          text = stringResource(R.string.rec_stop),
-          onClick = onStop,
-          enabled = !stopping,
-          size = ButtonSize.Large,
+      Row(
+          modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        PrimaryButton(
+            text = stringResource(R.string.rec_stop),
+            onClick = onStop,
+            enabled = !stopping,
+            size = ButtonSize.Large,
+            modifier = Modifier.weight(1f),
+        )
+        OverflowActions(
+            enabled = !stopping,
+            onForceStop = onForceStop,
+            onDiscard = onDiscard,
+        )
+      }
+    }
+  }
+}
+
+/** Force stop and Discard: the actions that are not the ordinary way to end a night. */
+@Composable
+private fun OverflowActions(
+    enabled: Boolean,
+    onForceStop: () -> Unit,
+    onDiscard: () -> Unit,
+) {
+  var open by remember { mutableStateOf(false) }
+  Box {
+    IconButton(onClick = { open = true }, enabled = enabled) {
+      Icon(
+          imageVector = Icons.Outlined.MoreVert,
+          contentDescription = stringResource(R.string.rec_more_actions),
       )
     }
-    item {
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SecondaryButton(
-            text = stringResource(R.string.rec_force_stop),
-            onClick = onForceStop,
-            enabled = !stopping,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Note(R.string.rec_force_stop_note)
-      }
-    }
-    item {
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        DestructiveButton(
-            text = stringResource(R.string.rec_discard),
-            onClick = onDiscard,
-            enabled = !stopping,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Note(R.string.rec_discard_note)
-      }
+    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+      DropdownMenuItem(
+          text = { Text(stringResource(R.string.rec_force_stop)) },
+          onClick = {
+            open = false
+            onForceStop()
+          },
+      )
+      DropdownMenuItem(
+          text = {
+            Text(
+                text = stringResource(R.string.rec_discard),
+                color = MaterialTheme.colorScheme.error,
+            )
+          },
+          onClick = {
+            open = false
+            onDiscard()
+          },
+      )
     }
   }
 }
@@ -135,17 +177,37 @@ private fun Note(res: Int) {
   )
 }
 
-/** The confirmation that stands between a tap and ending the recording one of three ways. */
+/**
+ * The confirmation that stands between a tap and ending the recording. Each text says what happens
+ * to the data in this mode, and the stop one says where the night goes next.
+ */
 @Composable
-internal fun ConfirmDialog(action: StopAction, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+internal fun ConfirmDialog(
+    action: StopAction,
+    onDevice: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
   val (title, body, label) =
       when (action) {
         StopAction.STOP ->
-            Triple(R.string.rec_stop_title, R.string.rec_stop_body, R.string.rec_stop)
+            Triple(
+                R.string.rec_stop_title,
+                if (onDevice) R.string.rec_stop_body_on_device else R.string.rec_stop_body,
+                R.string.rec_stop,
+            )
         StopAction.FORCE_STOP ->
-            Triple(R.string.rec_force_stop_title, R.string.rec_force_stop_note, R.string.rec_force_stop)
+            Triple(
+                R.string.rec_force_stop_title,
+                if (onDevice) R.string.rec_force_stop_body_on_device else R.string.rec_force_stop_body,
+                R.string.rec_force_stop,
+            )
         StopAction.DISCARD ->
-            Triple(R.string.rec_discard_title, R.string.rec_discard_body, R.string.rec_discard_confirm)
+            Triple(
+                R.string.rec_discard_title,
+                if (onDevice) R.string.rec_discard_body_on_device else R.string.rec_discard_body,
+                R.string.rec_discard_confirm,
+            )
       }
   AlertDialog(
       onDismissRequest = onDismiss,

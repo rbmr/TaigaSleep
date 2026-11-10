@@ -56,6 +56,9 @@ interface HomeWork {
   /** Try again to move a night the tracker still holds onto the phone. */
   fun fetchAgain(recordingId: String)
 
+  /** The user has seen the done card: Home goes back to the start flow. */
+  fun dismissFinishing()
+
   fun disconnect()
 
   fun startScan()
@@ -206,6 +209,11 @@ class HomeViewModel(
   fun fetchAgain() {
     val pending = state.value as? HomeUiState.FetchPending ?: return
     work.fetchAgain(pending.recordingId)
+  }
+
+  /** The done card has been read: the next stop starts from the ordinary Home state. */
+  fun dismissFinishing() {
+    work.dismissFinishing()
   }
 
   override fun onCleared() {

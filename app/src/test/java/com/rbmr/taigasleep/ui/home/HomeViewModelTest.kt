@@ -2,6 +2,8 @@ package com.rbmr.taigasleep.ui.home
 
 import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.recording.CaptureStatus
+import com.rbmr.taigasleep.recording.FinishingState
+import com.rbmr.taigasleep.recording.ImportProgress
 import com.rbmr.taigasleep.recording.PendingFetch
 import com.rbmr.taigasleep.recording.Phase
 import com.rbmr.taigasleep.tracker.ConnectionState
@@ -107,6 +109,10 @@ private class FakeWork : HomeWork {
     calls += "fetch:$recordingId"
   }
 
+  override fun dismissFinishing() {
+    calls += "dismiss"
+  }
+
   override fun disconnect() {
     calls += "disconnect"
   }
@@ -132,6 +138,12 @@ private fun config(
 
 private val tracker = TrackerView("Polar H10", ConnectionState.CONNECTED, 80)
 private val disconnected = TrackerView("Polar H10", ConnectionState.CONNECTING, 80)
+
+private fun finishing(
+    mode: RecordingMode = RecordingMode.STREAM,
+    step: FinishingState.Step,
+    fetch: ImportProgress? = null,
+) = FinishingState("20261023_223000", "Polar H10", mode, step, fetch)
 
 /** The seven states of the start flow, and both recording modes, without a phone. */
 class HomeStepTest {
@@ -230,6 +242,78 @@ class HomeStepTest {
         )
 
     assertTrue((state as HomeUiState.Recording).stopping)
+  }
+
+  @Test
+  fun `a stopped streamed night goes through stopping, saving and done`() {
+    val steps =
+        listOf(
+            FinishingState.Step.STOPPING_TRACKER,
+            FinishingState.Step.SAVING,
+            FinishingState.Step.DONE,
+        )
+
+    steps.forEach { step ->
+      val state =
+          homeState(
+              CaptureStatus(finishing = finishing(step = step)),
+              tracker,
+              config(),
+              HomeState.READY,
+              false,
+              SensorPicker(),
+          )
+
+      assertEquals(HomeUiState.Finishing(finishing(step = step)), state)
+      assertEquals(steps, (state as HomeUiState.Finishing).finishing.steps)
+    }
+  }
+
+  @Test
+  fun `an on-device night adds the fetch step and reports which entry it is on`() {
+    val fetch = ImportProgress(entry = 2, entries = 3, samples = 1_200)
+    val state =
+        homeState(
+            CaptureStatus(
+                finishing =
+                    finishing(mode = RecordingMode.ON_DEVICE, step = FinishingState.Step.FETCHING, fetch = fetch)
+            ),
+            tracker,
+            config(mode = RecordingMode.ON_DEVICE),
+            HomeState.READY,
+            false,
+            SensorPicker(),
+        )
+
+    val shown = state as HomeUiState.Finishing
+    assertEquals(
+        listOf(
+            FinishingState.Step.STOPPING_TRACKER,
+            FinishingState.Step.FETCHING,
+            FinishingState.Step.SAVING,
+            FinishingState.Step.DONE,
+        ),
+        shown.finishing.steps,
+    )
+    assertEquals(fetch, shown.finishing.fetch)
+    assertFalse(shown.done)
+  }
+
+  @Test
+  fun `the done state says the night is safe and keeps its id for the link`() {
+    val state =
+        homeState(
+            CaptureStatus(finishing = finishing(step = FinishingState.Step.DONE)),
+            null,
+            null,
+            HomeState.READY,
+            false,
+            SensorPicker(),
+        )
+
+    val shown = state as HomeUiState.Finishing
+    assertTrue(shown.done)
+    assertEquals("20261023_223000", shown.finishing.recordingId)
   }
 
   @Test
@@ -367,6 +451,54 @@ class HomeViewModelTest {
     model.fetchAgain()
 
     assertEquals(listOf("fetch:20261023_223000"), work.calls)
+  }
+
+  @Test
+  fun `the finishing steps of the service reach the screen`() {
+    val model = viewModel()
+    val finishing =
+        FinishingState(
+            "20261023_223000",
+            "Polar H10",
+            RecordingMode.ON_DEVICE,
+            FinishingState.Step.FETCHING,
+            ImportProgress(entry = 1, entries = 2, samples = 300),
+        )
+
+    status.value = CaptureStatus(finishing = finishing)
+
+    assertEquals(HomeUiState.Finishing(finishing), model.state.value)
+  }
+
+  @Test
+  fun `a failed fetch shows the reason and the retry goes to that recording`() {
+    val model = viewModel()
+    status.value =
+        CaptureStatus(
+            fetchPending =
+                PendingFetch(
+                    "20261023_223000",
+                    "Polar H10",
+                    1_792_798_200_000L,
+                    "the tracker did not answer",
+                )
+        )
+
+    val state = model.state.value as HomeUiState.FetchPending
+    assertEquals("the tracker did not answer", state.error)
+
+    model.fetchAgain()
+
+    assertEquals(listOf("fetch:20261023_223000"), work.calls)
+  }
+
+  @Test
+  fun `leaving the done card returns Home to the start flow`() {
+    val model = viewModel()
+
+    model.dismissFinishing()
+
+    assertEquals(listOf("dismiss"), work.calls)
   }
 
   @Test

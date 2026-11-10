@@ -95,6 +95,10 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
             RecordingService.fetch(app, recordingId)
           }
 
+          override fun dismissFinishing() {
+            RecordingRepository.dismissFinishing()
+          }
+
           override fun disconnect() {
             sensors.clear()
             prefs.lastSensor = null
