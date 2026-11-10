@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -130,7 +131,10 @@ class UploadStoreTest {
 
     assertNull(store.row("r1"))
     assertEquals(UploadPhase.QUEUED, store.row("r2")!!.phase)
-    assertEquals(setOf("r2"), runBlocking { store.records.first { it.isNotEmpty() } }.keys)
+    assertEquals(
+        setOf("r2"),
+        runBlocking { withTimeout(5_000) { store.records.first { it.keys == setOf("r2") } } }.keys,
+    )
   }
 
   @Test
