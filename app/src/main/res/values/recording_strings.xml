@@ -28,9 +28,9 @@
   <string name="rec_connection_connecting">Connecting…</string>
   <string name="rec_connection_disconnected">Not connected</string>
   <string name="rec_disconnect">Disconnect</string>
-  <string name="rec_select_sensor">Select sensor</string>
-  <string name="rec_sensor_none_title">No sensor connected</string>
-  <string name="rec_sensor_none_body">Select a Polar H10 to record heart rate, ECG and movement.</string>
+  <string name="rec_select_sensor">Select tracker</string>
+  <string name="rec_sensor_none_title">No tracker connected</string>
+  <string name="rec_sensor_none_body">Connect a tracker to start recording.</string>
   <string name="rec_data_settings">Data to record</string>
   <string name="rec_data_title">Data to record</string>
   <string name="rec_mode_title">Recording mode</string>
@@ -46,9 +46,9 @@
   <string name="rec_home_subtitle_active">Recording data from the sensor.</string>
   <string name="rec_scan_debug">debug</string>
 
-  <string name="rec_scan_title">Select your sensor</string>
-  <string name="rec_scan_searching">Searching for Polar H10…</string>
-  <string name="rec_scan_none">No sensor found yet. Wear the strap so it wakes up, then scan again.</string>
+  <string name="rec_scan_title">Select your tracker</string>
+  <string name="rec_scan_searching">Searching for trackers…</string>
+  <string name="rec_scan_none">No tracker found yet. Put it on so it wakes up, then scan again.</string>
   <string name="rec_scan_again">Scan again</string>
   <string name="rec_permission_denied">Bluetooth permission is needed to find and connect your sensor.</string>
 
@@ -64,7 +64,7 @@
   <string name="rec_guard_not_needed_title">Nothing to set up tonight</string>
   <string name="rec_guard_not_needed_body">This recording is stored on the tracker, so the phone may sleep. Stop in the morning to fetch it.</string>
 
-  <string name="rec_start_need_sensor">Connect a sensor to start.</string>
+  <string name="rec_start_need_sensor">Connect a tracker to start.</string>
   <string name="rec_start_need_ready">Set up preventing shutdown to start</string>
 
   <string name="rec_active_title">Recording</string>

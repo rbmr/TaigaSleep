@@ -149,16 +149,16 @@ internal fun SensorPickerSheet(
           text = stringResource(R.string.rec_scan_title),
           style = MaterialTheme.typography.titleLarge,
       )
-      Text(
-          text =
-              stringResource(
-                  if (picker.scanning) R.string.rec_scan_searching
-                  else if (picker.found.isEmpty()) R.string.rec_scan_none
-                  else R.string.rec_scan_title
-              ),
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
+      if (picker.scanning || picker.found.isEmpty()) {
+        Text(
+            text =
+                stringResource(
+                    if (picker.scanning) R.string.rec_scan_searching else R.string.rec_scan_none
+                ),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
       picker.found.forEach { s ->
         Row(
             modifier =
