@@ -28,6 +28,10 @@ type ClaimAlgorithm struct {
 	Version string `json:"version,omitempty"`
 }
 
+type LeaseRequest struct {
+	LeaseSeconds int `json:"lease_seconds,omitempty"`
+}
+
 type CompleteRequest struct {
 	Result json.RawMessage `json:"result"`
 }
@@ -85,6 +89,44 @@ func ClaimAnalysis(e *core.RequestEvent) error {
 	}
 	announceAnalysis(e.App, claimed, statusRunning) // the claim is raw SQL: no record hook ran
 	return e.JSON(http.StatusOK, serializeAnalysis(claimed, false))
+}
+
+// RenewAnalysis extends the lease of a running analysis for the worker that holds it.
+// The update is guarded by the current lease, so an expired or reassigned analysis
+// cannot be extended and a worker learns at once that it lost the work.
+func RenewAnalysis(e *core.RequestEvent) error {
+	var body LeaseRequest
+	if e.Request.ContentLength != 0 {
+		if err := json.NewDecoder(io.LimitReader(e.Request.Body, 65536)).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			return badRequest("invalid_body", "the body must be a JSON object")
+		}
+	}
+	id, worker := e.Request.PathValue("id"), e.Auth.Id
+	now := nowString()
+	result, err := e.App.DB().NewQuery(
+		"UPDATE analyses SET lease_until = {:lease}, updated = {:now} " +
+			"WHERE id = {:id} AND status = 'running' AND worker = {:worker} AND lease_until > {:now}",
+	).Bind(dbx.Params{
+		"lease": afterSeconds(leaseSeconds(body.LeaseSeconds)), "now": now, "id": id, "worker": worker,
+	}).Execute()
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		if _, err := e.App.FindRecordById("analyses", id); err != nil {
+			return notFound("analysis")
+		}
+		return conflict("not_leased", "this worker does not hold the analysis")
+	}
+	record, err := e.App.FindRecordById("analyses", id)
+	if err != nil {
+		return err
+	}
+	return e.JSON(http.StatusOK, serializeAnalysis(record, false))
 }
 
 func claim(txApp core.App, worker string, lease int, algorithms []ClaimAlgorithm) (*core.Record, error) {

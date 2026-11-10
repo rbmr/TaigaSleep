@@ -434,6 +434,20 @@ func Routes() []openAPIRoute {
 			Handler: ClaimAnalysis,
 		},
 		{
+			Method: http.MethodPost, Path: apiPrefix + "/analyses/{id}/lease", OperationID: "renewAnalysisLease", Tag: tagWorkers,
+			Summary: "Extend the lease on a running analysis",
+			Description: "Sets the lease to now plus the lease length, so a job that runs longer than one lease keeps its " +
+				"analysis. Only the worker that holds a live lease may renew it; the work being reassigned or its lease " +
+				"having expired is 409, and an analysis that no longer exists is 404.",
+			Access: accessWorker,
+			Params: []routeParam{pathParam("id", "The id of the analysis.")},
+			Body:   &routeBody{Optional: true, Description: "How long to extend the lease.", Schema: jsonBody(LeaseRequest{}, "").Schema},
+			Responses: withErrors([]routeResponse{
+				jsonResponse(200, "The analysis.", AnalysisView{}),
+			}, 400, 401, 403, 404, 409),
+			Handler: RenewAnalysis,
+		},
+		{
 			Method: http.MethodPost, Path: apiPrefix + "/analyses/{id}/complete", OperationID: "completeAnalysis", Tag: tagWorkers,
 			Summary: "Store the result of an analysis",
 			Description: "Marks the analysis succeeded. A result that does not match the analysis or breaks the contract " +

@@ -60,6 +60,8 @@ class FakeApi:
         announce_failures: int = 0,
         report_failures: int = 0,
         report_status: int | None = None,
+        renew_status: int | None = None,
+        lease_renewal: bool = True,
     ) -> None:
         self.token: str | None = None
         self.analyses = list(analyses or [])
@@ -68,9 +70,12 @@ class FakeApi:
         self.announce_failures = announce_failures
         self.report_failures = report_failures
         self.report_status = report_status
+        self.renew_status = renew_status
+        self.lease_renewal = lease_renewal
         self.expire_token = False
         self.logins = 0
         self.claims: list[dict[str, Any]] = []
+        self.renewals: list[dict[str, Any]] = []
         self.announced: list[dict[str, Any]] = []
         self.completed: list[dict[str, Any]] = []
         self.failed: list[dict[str, Any]] = []
@@ -96,6 +101,15 @@ class FakeApi:
             self.token = None
             raise ApiError("expired", status=401, code="unauthorized")
         return self.analyses.pop(0) if self.analyses else None
+
+    def renew(self, analysis_id: str, lease_seconds: int) -> dict[str, Any]:
+        self.renewals.append({"id": analysis_id, "lease_seconds": lease_seconds})
+        if self.renew_status is not None:
+            raise ApiError("refused", status=self.renew_status)
+        return {}
+
+    def supports_lease_renewal(self) -> bool:
+        return self.lease_renewal
 
     def recording(self, recording_id: str) -> dict[str, Any]:
         self.fetched.append(recording_id)
@@ -267,6 +281,91 @@ def test_success_completes_with_the_analysis_result() -> None:
     assert job["params"] == {"smooth_window_epochs": 5}
     assert job["worker"] == "worker-1"
     assert api.fetched == ["rec1"]
+
+
+def test_a_job_that_outlives_its_lease_keeps_renewing_and_completes() -> None:
+    api = FakeApi(analyses=[analysis()], files=hr_recording())
+
+    def outlive_the_lease() -> None:
+        deadline = time.monotonic() + 15
+        while len(api.renewals) < 3 and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+    runner = FakeRunner(on_run=outlive_the_lease)
+    worker = Worker(config(lease_seconds=1), api, runner, sleep=lambda _: None)
+
+    assert worker.run_once()
+
+    assert len(api.renewals) >= 3
+    assert all(item["id"] == "an1" and item["lease_seconds"] == 1 for item in api.renewals)
+    assert api.completed == [{"id": "an1", "result": {"model": "m"}}]
+    assert api.failed == []
+
+
+@pytest.mark.parametrize("status", [404, 409])
+def test_a_refused_renewal_stops_the_job_and_drops_the_work(status: int) -> None:
+    api = FakeApi(analyses=[analysis()], files=hr_recording(), renew_status=status)
+    release = threading.Event()
+
+    class HangingRunner(FakeRunner):
+        def run(self, job: Mapping[str, Any]) -> Outcome:
+            self.jobs.append(job)
+            release.wait(10)
+            return self.outcome
+
+        def terminate(self) -> None:
+            self.terminated = True
+            release.set()
+
+    runner = HangingRunner()
+    worker = Worker(config(lease_seconds=1), api, runner, sleep=lambda _: None)
+
+    assert worker.run_once()
+
+    assert runner.terminated
+    assert len(api.renewals) == 1
+    assert api.completed == [] and api.failed == []
+
+
+def test_a_long_job_warns_when_the_api_cannot_renew_leases(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("WARNING", logger="taiga_worker")
+    api = FakeApi(lease_renewal=False)
+    worker = Worker(
+        config(lease_seconds=60, job_timeout_s=120), api, FakeRunner(), sleep=lambda _: None
+    )
+
+    worker.run_once()
+
+    assert "cannot renew a lease" in caplog.text
+
+
+def test_a_long_job_on_a_renewing_api_does_not_warn(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("WARNING", logger="taiga_worker")
+    worker = Worker(
+        config(lease_seconds=60, job_timeout_s=120), FakeApi(), FakeRunner(), sleep=lambda _: None
+    )
+
+    worker.run_once()
+
+    assert "cannot renew a lease" not in caplog.text
+
+
+def test_a_job_that_fits_its_lease_does_not_warn_on_an_older_api(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("WARNING", logger="taiga_worker")
+    worker = Worker(
+        config(lease_seconds=60, job_timeout_s=60),
+        FakeApi(lease_renewal=False),
+        FakeRunner(),
+        sleep=lambda _: None,
+    )
+
+    worker.run_once()
+
+    assert "cannot renew a lease" not in caplog.text
 
 
 def test_the_recording_meta_becomes_a_meta_json() -> None:

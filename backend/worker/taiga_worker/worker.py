@@ -50,6 +50,7 @@ class Worker:
         self._capabilities: list[dict[str, Any]] | None = None
         self._algorithm_ids: list[str] = []
         self._announced_at: float | None = None
+        self._lease_checked = False
 
     def request_stop(self) -> None:
         self._stop.set()
@@ -156,9 +157,30 @@ class Worker:
         except ApiError as exc:
             self.log.warning("cannot announce algorithms yet: %s", exc)
 
+    def _check_lease_at_startup(self) -> None:
+        """Warn when a job may outlive its lease and this API cannot renew it."""
+
+        if self.config.job_timeout_s <= self.config.lease_seconds:
+            return
+        try:
+            renewable = self.api.supports_lease_renewal()
+        except ApiError as exc:
+            self.log.debug("cannot tell whether the API renews leases: %s", exc)
+            return
+        if not renewable:
+            self.log.warning(
+                "job timeout %ss is longer than the %ss lease and this API cannot renew a lease; "
+                "a job that runs past its lease is requeued and its result is refused",
+                self.config.job_timeout_s,
+                self.config.lease_seconds,
+            )
+
     def run_once(self) -> bool:
         """Claim and process at most one analysis. Returns True when one was processed."""
 
+        if not self._lease_checked:
+            self._lease_checked = True
+            self._check_lease_at_startup()
         self._announce_if_due()
         if not self._algorithm_ids:
             return False
@@ -183,6 +205,9 @@ class Worker:
         )
 
         outcome = self._process(analysis)
+        if outcome is None:
+            # The lease was refused while the job ran; the work is not ours to report.
+            return True
 
         if self.stopping:
             # The lease will expire and the API will requeue this analysis, so a
@@ -195,7 +220,28 @@ class Worker:
         self._report(analysis, outcome)
         return True
 
-    def _process(self, analysis: Mapping[str, Any]) -> Outcome:
+    def _keep_lease(self, analysis_id: str, stop: threading.Event, dropped: threading.Event) -> None:
+        """Renew the lease while the job runs, or stop the job when it is refused."""
+
+        interval = self.config.lease_seconds / 3
+        while not stop.wait(interval):
+            try:
+                self._call(lambda: self.api.renew(analysis_id, self.config.lease_seconds))
+            except ApiError as exc:
+                if exc.status in (404, 409):
+                    self.log.warning(
+                        "analysis %s is no longer leased to this worker (%s); dropping the work",
+                        analysis_id,
+                        exc,
+                    )
+                    dropped.set()
+                    self.runner.terminate()
+                    return
+                self.log.warning(
+                    "could not renew the lease on analysis %s (%s); retrying", analysis_id, exc
+                )
+
+    def _process(self, analysis: Mapping[str, Any]) -> Outcome | None:
         analysis_id = str(analysis.get("id") or "")
         recording_id = str(analysis.get("recording") or "")
         algorithm = str(analysis.get("algorithm") or "")
@@ -206,6 +252,30 @@ class Worker:
                 retryable=False,
             )
 
+        dropped = threading.Event()
+        stop = threading.Event()
+        keeper = threading.Thread(
+            target=self._keep_lease,
+            args=(analysis_id, stop, dropped),
+            name=f"lease-{analysis_id}",
+            daemon=True,
+        )
+        keeper.start()
+        try:
+            outcome = self._process_leased(analysis, analysis_id, recording_id, algorithm, dropped)
+        finally:
+            stop.set()
+            keeper.join(5)
+        return outcome
+
+    def _process_leased(
+        self,
+        analysis: Mapping[str, Any],
+        analysis_id: str,
+        recording_id: str,
+        algorithm: str,
+        dropped: threading.Event,
+    ) -> Outcome | None:
         # The lease on the analysis is what lets this worker read the recording.
         try:
             recording = self._call(lambda: self.api.recording(recording_id))
@@ -216,6 +286,9 @@ class Worker:
                 error=f"cannot fetch the recording: {exc}",
                 retryable=True,
             )
+
+        if dropped.is_set():
+            return None
 
         meta = recording.get("meta")
         if not isinstance(meta, dict) or not meta:
@@ -253,6 +326,9 @@ class Worker:
                         retryable=True,
                     )
 
+                if dropped.is_set():
+                    return None
+
                 # The API stores what the phone sent, so every file is checked,
                 # compressed or not, and cut back to its valid prefix.
                 check = verify_recording_file(destination, name)
@@ -288,6 +364,9 @@ class Worker:
                     retryable=False,
                 )
 
+            if dropped.is_set():
+                return None
+
             params = analysis.get("params")
             params = params if isinstance(params, dict) else {}
             outcome = self.runner.run(
@@ -303,6 +382,8 @@ class Worker:
                 }
             )
 
+        if dropped.is_set():
+            return None
         if not outcome.ok:
             return outcome
         # The subprocess answers {"analysis": {...}}; the API stores what is inside.

@@ -894,6 +894,55 @@ func TestLeasesAndRetries(t *testing.T) {
 	s.expectCode(404, "not_found", http.MethodPost, "/v1/analyses/"+again.ID+"/fail", worker, FailRequest{Error: "x"}, nil)
 }
 
+func TestLeaseRenewal(t *testing.T) {
+	s := newServer(t)
+	s.account("workers", "worker2@example.com", "worker-2")
+	alice, worker, other := s.tokens["alice"], s.tokens["worker"], s.tokens["worker2"]
+	id := "rec1"
+	s.expect(201, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "recording"), nil)
+	completeRecording(s, alice, id)
+	announce(s, "baseline", "1.0.0")
+	analysis := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, map[string]string{"algorithm": "baseline"}, nil))
+	lease := func() string {
+		t.Helper()
+		record, err := s.app.FindRecordById("analyses", analysis.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return record.GetString("lease_until")
+	}
+
+	// A user never renews, and nobody can renew work that is not leased to them.
+	s.expectCode(403, "forbidden", http.MethodPost, "/v1/analyses/"+analysis.ID+"/lease", alice, LeaseRequest{LeaseSeconds: 60}, nil)
+	s.expectCode(409, "not_leased", http.MethodPost, "/v1/analyses/"+analysis.ID+"/lease", worker, LeaseRequest{LeaseSeconds: 60}, nil)
+	s.expectCode(404, "not_found", http.MethodPost, "/v1/analyses/missing/lease", worker, nil, nil)
+
+	s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, ClaimRequest{LeaseSeconds: 60}, nil)
+	before := lease()
+
+	// Another worker holding nothing of this analysis cannot take it over.
+	s.expectCode(409, "not_leased", http.MethodPost, "/v1/analyses/"+analysis.ID+"/lease", other, LeaseRequest{LeaseSeconds: 600}, nil)
+	if got := lease(); got != before {
+		t.Fatalf("a refused renewal changed the lease from %q to %q", before, got)
+	}
+
+	// The worker that holds it extends the lease.
+	renewed := decode[AnalysisView](t, s.expect(200, http.MethodPost, "/v1/analyses/"+analysis.ID+"/lease", worker, LeaseRequest{LeaseSeconds: 600}, nil))
+	if renewed.ID != analysis.ID || renewed.Status != "running" {
+		t.Fatalf("renewed = %+v", renewed)
+	}
+	if after := lease(); after <= before {
+		t.Fatalf("lease was not extended: %q -> %q", before, after)
+	}
+
+	// An expired lease cannot be extended any more.
+	if _, err := s.app.DB().NewQuery("UPDATE analyses SET lease_until = {:past} WHERE id = {:id}").
+		Bind(dbx.Params{"past": pbDateMillis(time.Now().Add(-time.Hour).UnixMilli()), "id": analysis.ID}).Execute(); err != nil {
+		t.Fatal(err)
+	}
+	s.expectCode(409, "not_leased", http.MethodPost, "/v1/analyses/"+analysis.ID+"/lease", worker, LeaseRequest{LeaseSeconds: 600}, nil)
+}
+
 func TestAllErrorsUseOneShape(t *testing.T) {
 	s := newServer(t)
 	for _, call := range []struct{ method, path, token string }{
