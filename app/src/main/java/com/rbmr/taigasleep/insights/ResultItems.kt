@@ -36,6 +36,9 @@ data class MetricSpec(
 /** A number item as a display spec. Series and scores have their own components. */
 fun ResultItemDto.metricSpec(): MetricSpec? {
   if (kind != "number") return null
+  // Contract version 6 retired the recording length from the items; the night screen reads it
+  // from the recording itself. An older stored result still carries the item, so it is ignored.
+  if (id == "total_duration_s") return null
   val valueKind =
       when (unit) {
         "s" -> MetricValueKind.DURATION
