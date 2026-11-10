@@ -244,10 +244,12 @@ def derive(
 
     sleep_mask = np.isin(stage_values, [s for s in SLEEP_STAGES if s in supported])
     sleep_indices = np.nonzero(sleep_mask)[0]
+    scored_indices = np.nonzero(stage_values != "unknown")[0]
     if sleep_indices.size:
         first_sleep = int(sleep_indices[0])
         last_sleep = int(sleep_indices[-1])
-        latency = float(first_sleep * epoch_seconds)
+        first_scored = int(scored_indices[0])
+        latency = float(max(0, first_sleep - first_scored) * epoch_seconds)
         final_awakening = float((grid.count - (last_sleep + 1)) * epoch_seconds)
         wake_mask = stage_values == "wake"
         wake_between = wake_mask.copy()
