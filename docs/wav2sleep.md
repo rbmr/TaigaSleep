@@ -1,8 +1,8 @@
 # wav2sleep ECG stager
 
 `wav2sleep` is the first real ECG model behind the analysis contract in
-[`analysis-contract.md`](analysis-contract.md). It is an optional worker extra:
-a base worker does not install PyTorch, the upstream package or a checkpoint.
+[`analysis-contract.md`](analysis-contract.md). The default worker image
+contains it; a source checkout without the extra runs only the baseline stager.
 
 - **Model:** [joncarter1/wav2sleep](https://github.com/joncarter1/wav2sleep),
   ECG-only path of the cardio-respiratory model.
@@ -25,13 +25,25 @@ cd backend/worker
 uv sync --frozen --extra wav2sleep
 ```
 
-The extra is intentionally not part of the Docker image or CI. To build an image
-with it, copy the usual Dockerfile and add `--extra wav2sleep` to the two
-`uv sync` commands. Keep the checkpoint outside the image and mount it read-only.
+The extra is for a source checkout. The default worker image installs it and
+fetches the pinned checkpoint at build time, so the container needs neither a
+checkpoint mount nor network access while it runs. The image is about 1.6 GB;
+`WITH_WAV2SLEEP=false` builds the smaller baseline-only image for a constrained
+host:
+
+```bash
+docker build backend/worker -t taigasleep-worker
+docker build --build-arg WITH_WAV2SLEEP=false backend/worker -t taigasleep-worker-small
+```
+
+With Compose, set `WITH_WAV2SLEEP=false` in `deploy/.env`; the build argument is
+passed from `build.args`. The image contains the checkpoint at
+`/app/models/wav2sleep` and sets `TAIGA_WAV2SLEEP_CHECKPOINT` to it.
 
 ## Checkpoint
 
-Download the pinned checkpoint once on a machine with network access:
+The worker image already contains this checkpoint, verified at build time. A
+source install downloads it once on a machine with network access:
 
 ```bash
 cd backend
@@ -257,16 +269,24 @@ virtual memory at import:
 | `TAIGA_JOB_MEMORY_MB` | Result on the synthetic night |
 | --- | --- |
 | `1024` | Import failed under the address-space cap. |
+| `1280` | Import succeeded, but allocating the model input failed. |
 | `1536` | Passed. |
 | `2048` | Passed and is the recommended minimum. |
 | `3072` | Passed; same peak RSS, shorter runtime noise. |
 
-A practical minimum is a 2 vCPU, 4 GB RAM CPU-only machine with about 1.5 GB
-free disk for the extra. Set `TAIGA_JOB_MEMORY_MB=2048` (or `0` to disable the
-cap when the host has headroom) and keep `TAIGA_JOB_TIMEOUT_S` at its default.
-The worker logs a warning when wav2sleep is installed with a smaller limit.
-Numeric libraries are already limited to one thread; the adapter also calls
-`torch.set_num_threads(1)`.
+A practical minimum is a 2 vCPU, 4 GB RAM CPU-only machine. The default worker
+image is about 1.6 GB on disk; allow another 1 GB for recordings, the temporary
+copy one job downloads and the container image cache. Set
+`TAIGA_JOB_MEMORY_MB=2048` (or `0` to disable the cap when the host has
+headroom) and keep `TAIGA_JOB_TIMEOUT_S` at its default. Compose uses a 2 GB
+container limit and a 2048 MB job limit. The worker logs a warning when
+wav2sleep is installed with a smaller limit. Numeric libraries are already
+limited to one thread; the adapter also calls `torch.set_num_threads(1)`.
+
+On a 10 h synthetic night in the default image, `TAIGA_JOB_MEMORY_MB=2048`
+peaked at **746 MB** of RSS; the real-night table above peaked at 859 MB. The
+2 GB container limit leaves headroom for the supervisor, the torch import and
+page cache. A host below 4 GB should use the baseline-only image.
 
 ## Comparing with SleepECG
 
