@@ -96,13 +96,17 @@ internal fun RecordingBody(
     if (reading) {
       item { ResultPlaceholder() }
     } else {
-      item {
-        RecordingHeaderCard(
-            state = analysis?.let(::sleepScoreCardState),
-            processed = analysed,
-            onScoreClick = { if (run != null) onOpenSleepScore() },
-            onExplainExperimental = onExplainScore,
-        )
+      // A night with no result and nothing queued or running has no result coming; the status
+      // cards below say what it is, and the score card would contradict them.
+      if (showsScoreCard(status = state.status, hasResult = processed)) {
+        item {
+          RecordingHeaderCard(
+              state = analysis?.let(::sleepScoreCardState),
+              processed = analysed,
+              onScoreClick = { if (run != null) onOpenSleepScore() },
+              onExplainExperimental = onExplainScore,
+          )
+        }
       }
       if (state.remoteId != null) {
         item {
