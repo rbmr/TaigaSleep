@@ -50,7 +50,7 @@ SMOOTHING_EPOCHS = 5
 
 INFO = AlgorithmInfo(
     id="sleep-ecg",
-    version="1.0.0",
+    version="1.1.0",
     name="SleepECG",
     description=(
         "RR/ECG heartbeat-based stager from SleepECG. The bundled classifiers "

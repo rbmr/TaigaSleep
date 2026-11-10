@@ -263,7 +263,7 @@ def test_classifier_smoke(tmp_path: Path) -> None:
     )
     payload = output.to_dict()
     assert payload["model"] == "sleep-ecg"
-    assert payload["model_version"] == "1.0.0"
+    assert payload["model_version"] == "1.1.0"
     assert payload["stages"]["count"] == 10
     assert payload["capabilities"]["probabilities"] is True
     assert payload["capabilities"]["no_deep"] is True

@@ -135,7 +135,7 @@ The `algorithm` block adds:
 ```json
 "algorithm": {
   "id": "sleep-ecg",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "package": "sleepecg",
   "package_version": "0.6.0",
   "classifier": "wrn-gru-mesa",
