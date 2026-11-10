@@ -1,8 +1,6 @@
 package api
 
 import (
-	"encoding/json"
-	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -48,8 +46,8 @@ type WorkerAnnouncement struct {
 
 func PutWorker(e *core.RequestEvent) error {
 	var body WorkerAnnouncement
-	if err := json.NewDecoder(io.LimitReader(e.Request.Body, 524288)).Decode(&body); err != nil {
-		return badRequest("invalid_body", "the body must describe the worker and its algorithms")
+	if err := decodeBody(e, bodyLimitAnnouncement, &body, "the body must describe the worker and its algorithms", false); err != nil {
+		return err
 	}
 	name := strings.TrimSpace(body.Name)
 	if name == "" {

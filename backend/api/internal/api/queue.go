@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -62,10 +61,8 @@ func maxAttempts() int {
 // ClaimAnalysis hands the oldest queued analysis the worker can run to it, or 204.
 func ClaimAnalysis(e *core.RequestEvent) error {
 	var body ClaimRequest
-	if e.Request.ContentLength != 0 {
-		if err := json.NewDecoder(io.LimitReader(e.Request.Body, 65536)).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-			return badRequest("invalid_body", "the body must be a JSON object")
-		}
+	if err := decodeBody(e, bodyLimitQueue, &body, "the body must be a JSON object", true); err != nil {
+		return err
 	}
 	for _, algorithm := range body.Algorithms {
 		if !algorithmIDRE.MatchString(algorithm.ID) {
@@ -96,10 +93,8 @@ func ClaimAnalysis(e *core.RequestEvent) error {
 // cannot be extended and a worker learns at once that it lost the work.
 func RenewAnalysis(e *core.RequestEvent) error {
 	var body LeaseRequest
-	if e.Request.ContentLength != 0 {
-		if err := json.NewDecoder(io.LimitReader(e.Request.Body, 65536)).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-			return badRequest("invalid_body", "the body must be a JSON object")
-		}
+	if err := decodeBody(e, bodyLimitQueue, &body, "the body must be a JSON object", true); err != nil {
+		return err
 	}
 	id, worker := e.Request.PathValue("id"), e.Auth.Id
 	now := nowString()
@@ -204,8 +199,12 @@ func leasedAnalysis(txApp core.App, id, worker string) (*core.Record, error) {
 
 func CompleteAnalysis(e *core.RequestEvent) error {
 	var body CompleteRequest
-	if err := json.NewDecoder(io.LimitReader(e.Request.Body, 8*1024*1024)).Decode(&body); err != nil || len(body.Result) == 0 {
-		return badRequest("invalid_body", `the body must be {"result": {...}}`)
+	const expected = `the body must be {"result": {...}}`
+	if err := decodeBody(e, bodyLimitResult, &body, expected, false); err != nil {
+		return err
+	}
+	if len(body.Result) == 0 {
+		return badRequest("invalid_body", expected)
 	}
 	var invalid error
 	var saved *core.Record
@@ -257,8 +256,8 @@ func finish(txApp core.App, record *core.Record, status, message string) error {
 
 func FailAnalysis(e *core.RequestEvent) error {
 	var body FailRequest
-	if err := json.NewDecoder(io.LimitReader(e.Request.Body, 65536)).Decode(&body); err != nil {
-		return badRequest("invalid_body", `the body must be {"error": "...", "retryable": false}`)
+	if err := decodeBody(e, bodyLimitQueue, &body, `the body must be {"error": "...", "retryable": false}`, false); err != nil {
+		return err
 	}
 	var saved *core.Record
 	retryIn := 0

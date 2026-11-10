@@ -5,8 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
 
@@ -108,8 +106,8 @@ func serializeToken(record *core.Record) TokenView {
 
 func CreateToken(e *core.RequestEvent) error {
 	var body TokenRequest
-	if err := json.NewDecoder(io.LimitReader(e.Request.Body, 4096)).Decode(&body); err != nil {
-		return badRequest("invalid_body", `the body must be {"name": "..."}`)
+	if err := decodeBody(e, bodyLimitSmall, &body, `the body must be {"name": "..."}`, false); err != nil {
+		return err
 	}
 	name := strings.TrimSpace(body.Name)
 	if name == "" || len(name) > 60 {

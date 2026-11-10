@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -124,8 +123,8 @@ func analysisFor(e *core.RequestEvent, id string) (*core.Record, error) {
 
 func CreateAnalysis(e *core.RequestEvent) error {
 	var body AnalysisRequest
-	if err := json.NewDecoder(io.LimitReader(e.Request.Body, 32768)).Decode(&body); err != nil {
-		return badRequest("invalid_body", "the body must be a JSON object with an algorithm")
+	if err := decodeBody(e, bodyLimitAnalysis, &body, "the body must be a JSON object with an algorithm", false); err != nil {
+		return err
 	}
 	if !algorithmIDRE.MatchString(body.Algorithm) {
 		return badRequest("invalid_algorithm", "algorithm is not a valid algorithm id")
