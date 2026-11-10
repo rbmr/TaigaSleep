@@ -81,6 +81,12 @@ interface RemoteRecordingDao {
   )
   suspend fun selection(account: String, recordingKey: String): String?
 
+  /** The start time the server reported for one recording of this account's list. */
+  @Query(
+      "SELECT startedAt FROM remote_recording WHERE account = :account AND recordingId = :recordingId"
+  )
+  suspend fun startedAt(account: String, recordingId: String): String?
+
   /** How many recordings this account's saved list holds; zero means no list was ever saved. */
   @Query("SELECT COUNT(*) FROM remote_recording WHERE account = :account")
   suspend fun count(account: String): Int

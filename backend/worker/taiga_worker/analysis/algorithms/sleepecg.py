@@ -50,7 +50,7 @@ SMOOTHING_EPOCHS = 5
 
 INFO = AlgorithmInfo(
     id="sleep-ecg",
-    version="1.0.0",
+    version="1.1.0",
     name="SleepECG",
     description=(
         "RR/ECG heartbeat-based stager from SleepECG. The bundled classifiers "
@@ -82,6 +82,7 @@ INFO = AlgorithmInfo(
         "prefer_ecg": True,
         "age": None,
         "gender": None,
+        "weight": None,
         "max_nans": None,
         "min_beats_per_epoch": 5,
         "min_contact_fraction": 0.5,
@@ -105,6 +106,12 @@ INFO = AlgorithmInfo(
             },
             "age": {"type": ["integer", "null"], "minimum": 0, "maximum": 120},
             "gender": {"type": ["string", "null"], "enum": ["female", "male", None]},
+            "weight": {
+                "type": ["number", "null"],
+                "minimum": 1.0,
+                "maximum": 500.0,
+                "description": "Subject weight in kg. Recorded for classifiers that select it.",
+            },
             "max_nans": {
                 "type": ["number", "null"],
                 "minimum": 0.0,
@@ -183,6 +190,16 @@ def _params(raw: Mapping[str, Any] | None) -> dict[str, Any]:
         if gender not in {"female", "male"}:
             raise AnalysisError("invalid_params", "gender must be 'female' or 'male'")
     merged["gender"] = gender
+
+    weight = merged["weight"]
+    if weight is not None:
+        try:
+            weight = float(weight)
+        except (TypeError, ValueError) as exc:
+            raise AnalysisError("invalid_params", "weight must be a number") from exc
+        if not (1.0 <= weight <= 500.0):
+            raise AnalysisError("invalid_params", "weight must be between 1 and 500 kg")
+    merged["weight"] = weight
 
     max_nans = merged["max_nans"]
     if max_nans is not None:
@@ -423,8 +440,8 @@ def _run_classifier(
     elif config["gender"] == "male":
         gender = Gender.MALE
     subject = (
-        SubjectData(age=config["age"], gender=gender)
-        if config["age"] is not None or gender is not None
+        SubjectData(age=config["age"], gender=gender, weight=config["weight"])
+        if config["age"] is not None or gender is not None or config["weight"] is not None
         else None
     )
     record = SleepRecord(
@@ -626,6 +643,7 @@ class SleepEcgStager(Stager):
             "max_undefined_probability": float(config["max_undefined_probability"]),
             "age_provided": config["age"] is not None,
             "gender_provided": config["gender"] is not None,
+            "weight_provided": config["weight"] is not None,
             "sleepecg": sleepecg_version,
         }
         return StagingResult(

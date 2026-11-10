@@ -447,7 +447,8 @@ private object Architecture {
           "recording" to setOf("tracker", "diagnostics"),
           "guard" to setOf("tracker", "diagnostics"),
           "backend" to setOf("diagnostics"),
-          "sync" to setOf("recording", "backend", "insights", "diagnostics"),
+          "profile" to emptySet(),
+          "sync" to setOf("recording", "backend", "insights", "profile", "diagnostics"),
           "insights" to setOf("backend", "diagnostics"),
           "library" to setOf("recording", "sync", "insights", "backend", "diagnostics"),
           "ui" to
@@ -458,6 +459,7 @@ private object Architecture {
                   "backend",
                   "sync",
                   "insights",
+                  "profile",
                   "library",
                   "diagnostics",
               ),

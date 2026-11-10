@@ -5,6 +5,7 @@ import com.rbmr.taigasleep.insights.AnalysisSettingsStore
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.ApiCode
 import com.rbmr.taigasleep.backend.CheckResult
 import com.rbmr.taigasleep.backend.RemoteError
@@ -14,6 +15,7 @@ import com.rbmr.taigasleep.backend.TaigaNetworkException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.label
 import com.rbmr.taigasleep.backend.remoteErrorForCode
+import com.rbmr.taigasleep.profile.recordingStartDate
 import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.RecordingRecovery
 import com.rbmr.taigasleep.recording.RecordingService
@@ -201,7 +203,14 @@ class UploadWorker(
       val settings = AnalysisSettingsStore.of(context).settings.value
       val started =
           try {
-            AnalysisService.startAuto(api, localId, meta.config, settings)
+            AnalysisService.startAuto(
+                api,
+                localId,
+                meta.config,
+                settings,
+                context.appContainer.personalDataStore.data.value,
+                recordingStartDate(meta.startUtcMs, meta.timezone),
+            )
           } catch (e: TaigaHttpException) {
             // The bytes are safe on the server and only the analysis was refused, for example
             // because no worker offers the algorithm yet. The retry asks for it again.

@@ -5,7 +5,9 @@ import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.RemoteSession
 import com.rbmr.taigasleep.backend.TaigaClient
+import com.rbmr.taigasleep.profile.PersonalData
 import com.rbmr.taigasleep.recording.store.RecordingConfig
+import java.time.LocalDate
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -50,6 +52,12 @@ internal interface SyncEnvironment {
   /** The stream configuration behind a recording; a recording that is only on the server is HR only. */
   fun config(id: String): RecordingConfig
 
+  /** The personal data the user entered, used only as optional SleepECG model features. */
+  fun personalData(): PersonalData
+
+  /** The date the recording started on, or null when neither the phone nor the server list knows it. */
+  suspend fun startDate(id: String): LocalDate?
+
   suspend fun enqueueAuto(id: String)
 
   suspend fun enqueueManual(id: String)
@@ -77,12 +85,16 @@ internal interface SyncEnvironment {
       recordingId: String,
       config: RecordingConfig,
       algorithm: String,
+      personalData: PersonalData,
+      startDate: LocalDate?,
   ): List<StartedAnalysis>
 
   suspend fun startPreferred(
       api: TaigaClient,
       recordingId: String,
       config: RecordingConfig,
+      personalData: PersonalData,
+      startDate: LocalDate?,
   ): StartedAnalysis
 
   suspend fun installedAlgorithms(api: TaigaClient): Result<List<AlgorithmDto>>
@@ -137,6 +149,10 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
 
   override fun config(id: String): RecordingConfig = localRecordingConfig(app, id)
 
+  override fun personalData(): PersonalData = app.appContainer.personalDataStore.data.value
+
+  override suspend fun startDate(id: String): LocalDate? = startDateOf(app, id)
+
   override suspend fun enqueueAuto(id: String) = UploadScheduler.enqueueAuto(app, id)
 
   override suspend fun enqueueManual(id: String) = UploadScheduler.enqueueManual(app, id)
@@ -166,19 +182,32 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
       recordingId: String,
       config: RecordingConfig,
       algorithm: String,
+      personalData: PersonalData,
+      startDate: LocalDate?,
   ): List<StartedAnalysis> =
-      AnalysisService.startManual(api, recordingId, config, listOf(algorithm))
+      AnalysisService.startManual(
+          api,
+          recordingId,
+          config,
+          listOf(algorithm),
+          personalData,
+          startDate,
+      )
 
   override suspend fun startPreferred(
       api: TaigaClient,
       recordingId: String,
       config: RecordingConfig,
+      personalData: PersonalData,
+      startDate: LocalDate?,
   ): StartedAnalysis =
       AnalysisService.startPreferred(
           api,
           recordingId,
           config,
           app.appContainer.analysisSettingsStore.settings.value,
+          personalData,
+          startDate,
       )
 
   override suspend fun installedAlgorithms(api: TaigaClient): Result<List<AlgorithmDto>> =

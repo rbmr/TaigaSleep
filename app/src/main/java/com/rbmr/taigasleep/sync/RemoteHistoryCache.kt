@@ -60,6 +60,16 @@ class RemoteHistoryCache internal constructor(
     return dao.selection(accountKey, key)
   }
 
+  /**
+   * The server's start time of one recording in this account's saved list, or null when the list
+   * does not have it. The start date of a recording the phone no longer has is derived from it.
+   */
+  suspend fun startedAt(accountKey: String, recordingId: String): String? {
+    if (accountKey.isBlank() || recordingId.isBlank()) return null
+    awaitLegacyImport()
+    return dao.startedAt(accountKey, recordingId)
+  }
+
   /** Remember the run a recording shows. Null forgets it, as when the server no longer has a run. */
   suspend fun select(accountKey: String, key: String, analysisId: String?) {
     if (accountKey.isBlank() || key.isBlank()) return

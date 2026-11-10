@@ -62,6 +62,7 @@ fun SettingsScreen(
     onAboutClick: () -> Unit,
     onGuidanceClick: () -> Unit,
     onRemoteClick: () -> Unit,
+    onPersonalClick: () -> Unit,
 ) {
   val context = LocalContext.current
   val remoteRepository = remember { context.appContainer.remoteRepository }
@@ -187,6 +188,15 @@ fun SettingsScreen(
               },
           )
         }
+      }
+    }
+    item {
+      SettingsGroup(stringResource(R.string.settings_group_personal)) {
+        SettingsRow(
+            title = stringResource(R.string.settings_personal_title),
+            subtitle = stringResource(R.string.settings_personal_body),
+            onClick = onPersonalClick,
+        )
       }
     }
     item {

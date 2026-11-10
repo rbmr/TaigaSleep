@@ -3,7 +3,9 @@ package com.rbmr.taigasleep.sync
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.TaigaClient
 import com.rbmr.taigasleep.insights.AnalysisSettings
+import com.rbmr.taigasleep.profile.PersonalData
 import com.rbmr.taigasleep.recording.store.RecordingConfig
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 
 /** The server's newly requested run. */
@@ -30,6 +32,9 @@ fun manualChoices(
 /**
  * The one place that asks the server for analyses. Uploading and requesting are separate: a recording
  * can be safely on the server with no analysis, and manual requests can add more later.
+ *
+ * [personalData] and [startDate] only reach SleepECG: its classifiers use age, sex and weight as
+ * model features. An empty profile sends no parameters, and the other algorithms never get any.
  */
 internal object AnalysisService {
   /** After an upload: request the preferred compatible stager, or nothing when auto is off. */
@@ -38,10 +43,12 @@ internal object AnalysisService {
       recordingId: String,
       config: RecordingConfig,
       settings: AnalysisSettings,
+      personalData: PersonalData = PersonalData(),
+      startDate: LocalDate? = null,
   ): StartedAnalysis? {
     if (!settings.auto) return null
     val choice = autoChoice(config, installed(client), settings) ?: return null
-    return request(client, recordingId, choice)
+    return request(client, recordingId, choice, personalData, startDate)
   }
 
   /** A manual retry of a recording that has no analysis yet, regardless of the automatic setting. */
@@ -50,9 +57,11 @@ internal object AnalysisService {
       recordingId: String,
       config: RecordingConfig,
       settings: AnalysisSettings,
+      personalData: PersonalData = PersonalData(),
+      startDate: LocalDate? = null,
   ): StartedAnalysis {
     val choice = selectStager(config, installed(client), settings.preferenceOrder)
-    return request(client, recordingId, choice)
+    return request(client, recordingId, choice, personalData, startDate)
   }
 
   /** Ask for one or more explicit stagers. Unknown or incompatible ids are skipped. */
@@ -61,9 +70,11 @@ internal object AnalysisService {
       recordingId: String,
       config: RecordingConfig,
       ids: List<String>,
+      personalData: PersonalData = PersonalData(),
+      startDate: LocalDate? = null,
   ): List<StartedAnalysis> {
     val choices = manualChoices(config, installed(client), ids)
-    return choices.map { request(client, recordingId, it) }
+    return choices.map { request(client, recordingId, it, personalData, startDate) }
   }
 
   /** The algorithms the server reports, or the failure to read them. */
@@ -84,8 +95,16 @@ internal object AnalysisService {
       client: TaigaClient,
       recordingId: String,
       choice: StagerChoice,
+      personalData: PersonalData,
+      startDate: LocalDate?,
   ): StartedAnalysis {
-    val analysis = client.requestAnalysis(recordingId, choice.id, choice.version)
+    val analysis =
+        client.requestAnalysis(
+            recordingId,
+            choice.id,
+            choice.version,
+            analysisParams(choice.id, personalData, startDate),
+        )
     return StartedAnalysis(analysisId = analysis.id, status = analysis.status)
   }
 }

@@ -89,12 +89,29 @@ class SyncService internal constructor(
                 ?: return@withContext Result.failure(IllegalStateException("login required"))
         val recordingId = recordingIdOf(id)
         val config = environment.config(id)
+        val personalData = environment.personalData()
+        val startDate = environment.startDate(id)
         try {
           val started =
               if (algorithm == null) {
-                listOf(environment.startPreferred(session.api, recordingId, config))
+                listOf(
+                    environment.startPreferred(
+                        session.api,
+                        recordingId,
+                        config,
+                        personalData,
+                        startDate,
+                    )
+                )
               } else {
-                environment.startManual(session.api, recordingId, config, algorithm)
+                environment.startManual(
+                    session.api,
+                    recordingId,
+                    config,
+                    algorithm,
+                    personalData,
+                    startDate,
+                )
               }
           if (started.isEmpty()) {
             return@withContext Result.failure(

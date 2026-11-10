@@ -46,6 +46,28 @@
   <string name="appearance_done">Done</string>
   <string name="settings_about_title">About</string>
   <string name="settings_about_body">Taiga Sleep %1$s</string>
+  <string name="settings_group_personal">Personal data</string>
+  <string name="settings_personal_title">About you</string>
+  <string name="settings_personal_body">Optional details for SleepECG</string>
+
+  <string name="personal_title">Personal data</string>
+  <string name="personal_back">Back</string>
+  <string name="personal_group">About you</string>
+  <string name="personal_not_set">Not set</string>
+  <string name="personal_date_of_birth_title">Date of birth</string>
+  <string name="personal_sex_title">Biological sex</string>
+  <string name="personal_sex_body">SleepECG uses it as a model feature. Choose male or female; leave it empty if you prefer not to say.</string>
+  <string name="personal_sex_male">Male</string>
+  <string name="personal_sex_female">Female</string>
+  <string name="personal_weight_title">Weight</string>
+  <string name="personal_weight_label">Kilograms</string>
+  <string name="personal_weight_value">%1$s kg</string>
+  <string name="personal_weight_invalid">Enter a weight between 1 and 500 kg.</string>
+  <string name="personal_save">Save</string>
+  <string name="personal_remove">Remove</string>
+  <string name="personal_cancel">Cancel</string>
+  <string name="personal_privacy_title">Privacy</string>
+  <string name="personal_privacy_body">These details stay on this phone. A SleepECG analysis request sends only your age on the night of the recording, your sex and your weight; the date of birth itself is never sent or logged. They are stored with that analysis on your server. Only SleepECG uses them: wav2sleep and baseline ignore them. Leaving a field empty is fine, and SleepECG then masks the feature it cannot use and says so in the result.</string>
 
   <string name="about_group_project">Project</string>
   <string name="about_title">About</string>

@@ -39,9 +39,9 @@ Set `TAIGA_JOB_MEMORY_MB=2048`; 1024 MiB fails during the Keras/torch import.
    nights.
 2. **Record.** The beats are passed to `SleepRecord(heartbeat_times=...,`
    `recording_start_time=...)`. The start time is converted from the recording
-   UTC start into the recording timezone. Age/gender are passed only when the
-   analysis params provide them; otherwise the classifier handles missing
-   metadata as it does in training.
+   UTC start into the recording timezone. Age, gender and weight are passed only
+   when the analysis params provide them; otherwise the classifier handles
+   missing metadata as it does in training.
 3. **Features and classifier.** SleepECG extracts HRV time/frequency features
    and runs the selected Keras classifier. Its output includes an `UNDEFINED`
    column plus the classifier's classes; the adapter drops `UNDEFINED`,
@@ -78,13 +78,19 @@ removed when the dependency is fixed.
 ## Caveats: metadata and clock time
 
 SleepECG's MESA-trained classifiers use age, gender and recording start time as
-features. The app does not currently provide age/gender, so those features are
-masked. This is not a cosmetic difference. On the 9.4 h reference night,
-supplying plausible age/gender values changed SleepECG's wake total from
-128.5 min to roughly 90–105 min and raised wake/sleep agreement with wav2sleep
-from 78.6 % to about 86–87 %. On the 7.0 h night the same change moved wake the
-other way (134.5 min to 168–191 min), so metadata is a strong prior, not a
-simple correction.
+features. The app can supply age and gender from the optional personal data
+page in Settings; a field left empty is masked, and the result carries a warning
+that the metadata features are missing. This is not a cosmetic difference. On
+the 9.4 h reference night, supplying plausible age/gender values changed
+SleepECG's wake total from 128.5 min to roughly 90–105 min and raised wake/sleep
+agreement with wav2sleep from 78.6 % to about 86–87 %. On the 7.0 h night the
+same change moved wake the other way (134.5 min to 168–191 min), so metadata is
+a strong prior, not a simple correction.
+
+The app derives the age from the date of birth and the date the recording
+started, not from the date the analysis runs, so a re-analysis years later uses
+the same age. Weight is sent when it is filled in, but the bundled classifiers
+do not select it yet; it is recorded for classifiers that do.
 
 The recording start time matters too. Shifting the 9.4 h night's start time
 while keeping the signal unchanged produced wake totals from 126.5 min (21:00)
@@ -97,8 +103,8 @@ has seen H10 data during training. Use SleepECG for HR-only nights and as a
 comparison; use wav2sleep as the primary 4-class ECG model. Without PSG labels,
 a disagreement is not evidence that either model is right.
 
-If age/gender become available, pass them through the analysis params. A result
-without them includes a warning that the metadata features are masked.
+A result requested without age or gender includes a warning that the metadata
+features are masked.
 
 ## Parameters
 
@@ -108,6 +114,7 @@ without them includes a warning that the metadata features are masked.
 | `prefer_ecg` | `true` | Use the ECG heartbeat detector when ECG is present. |
 | `age` | `null` | Optional subject age passed to the classifier. |
 | `gender` | `null` | Optional `female`/`male` passed to the classifier. |
+| `weight` | `null` | Optional subject weight in kg, 1–500. Recorded for classifiers that select it. |
 | `max_nans` | `null` | Override the classifier's feature NaN threshold. |
 | `min_beats_per_epoch` | `5` | Minimum beats in a 30 s epoch. |
 | `min_contact_fraction` | `0.5` | Minimum HR contact fraction when the strap reports it. |
@@ -128,7 +135,7 @@ The `algorithm` block adds:
 ```json
 "algorithm": {
   "id": "sleep-ecg",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "package": "sleepecg",
   "package_version": "0.6.0",
   "classifier": "wrn-gru-mesa",
@@ -139,7 +146,7 @@ The `algorithm` block adds:
 ```
 
 `extras` records the classifier, beat source, beat/epoch counts, thresholds,
-smoothing window, and whether age/gender were provided.
+smoothing window, and whether age/gender/weight were provided.
 
 ## Benchmark
 
@@ -186,6 +193,15 @@ uv run --project worker --frozen --extra wav2sleep --extra sleepecg \
 wav2sleep is the primary 4-class ECG model and is preferred by the app when ECG
 is present. SleepECG is the fallback for HR-only recordings and a useful
 comparison because it uses a very different feature set and classifier.
+
+## Personal data
+
+The optional date of birth, biological sex and weight are entered in Settings →
+Personal data and kept on the phone. A SleepECG analysis request sends only the
+age on the recording's start date, `gender` as `female`/`male` and the weight in
+kg. The date of birth itself is never sent, logged or stored in a result. The
+derived age, sex and weight become the analysis `params` on the backend, so they
+are visible with that analysis. wav2sleep and baseline never receive them.
 
 ## Data handling
 

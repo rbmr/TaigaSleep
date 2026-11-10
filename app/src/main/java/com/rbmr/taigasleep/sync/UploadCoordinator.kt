@@ -8,9 +8,11 @@ import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.label
 import com.rbmr.taigasleep.insights.AnalysisSettings
+import com.rbmr.taigasleep.profile.PersonalData
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -43,6 +45,8 @@ internal object UploadCoordinator {
             analysisId = analysisId,
             config = { localRecordingConfig(context, key) },
             settings = container.analysisSettingsStore.settings.value,
+            personalData = container.personalDataStore.data.value,
+            startDate = startDateOf(context, key),
         )
       }
 
@@ -57,6 +61,8 @@ internal object UploadCoordinator {
       analysisId: String?,
       config: () -> RecordingConfig,
       settings: AnalysisSettings,
+      personalData: PersonalData = PersonalData(),
+      startDate: LocalDate? = null,
   ): Result<Unit> {
     val verified =
         try {
@@ -85,7 +91,14 @@ internal object UploadCoordinator {
 
       when {
         target == null -> {
-          AnalysisService.startPreferred(api, recordingId, config(), settings)
+          AnalysisService.startPreferred(
+              api,
+              recordingId,
+              config(),
+              settings,
+              personalData,
+              startDate,
+          )
         }
         target.isFailed ->
             api.requestAnalysis(
