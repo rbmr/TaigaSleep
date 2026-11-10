@@ -154,7 +154,7 @@ private constructor(
       if (failing) {
         failing = false
         failure = null
-        errorEvent("writing to the phone works again (${droppedFrames()} frames dropped)")
+        event("storage_ok", "writing to the phone works again (${droppedFrames()} frames dropped)")
       }
       true
     } catch (e: IOException) {
@@ -162,7 +162,7 @@ private constructor(
       Log.e(TAG, "frame write failed", e)
       if (!failing) {
         failing = true
-        errorEvent("frame write failed (${droppedFrames()} frames dropped): $failure")
+        event("storage_error", "frame write failed (${droppedFrames()} frames dropped): $failure")
       }
       false
     }
