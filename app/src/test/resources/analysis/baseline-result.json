@@ -19,7 +19,7 @@
       "unknown"
     ]
   },
-  "contract_version": 3,
+  "contract_version": 4,
   "extras": {
     "has_acc": true,
     "night_median_hr_bpm": 60.0,
@@ -48,7 +48,7 @@
       "value": 240.0
     },
     {
-      "explanation": "Time from the start of the recording to the first sleep epoch.",
+      "explanation": "Time from the first scored epoch to the first sleep epoch. Unscored time before it is not counted.",
       "group": "sleep",
       "id": "sleep_latency_s",
       "kind": "number",
@@ -60,7 +60,7 @@
       "value": 0.0
     },
     {
-      "explanation": "Share of the whole recording that was scored as sleep. Total sleep divided by total duration.",
+      "explanation": "Share of the scored recording that was scored as sleep. Total sleep divided by scored time, unavailable when less than half of the recording could be scored.",
       "group": "sleep",
       "id": "sleep_efficiency",
       "kind": "number",
@@ -144,7 +144,7 @@
       "value": 60.0
     },
     {
-      "explanation": "Beat-to-beat variation: the root mean square of successive RR-interval differences.",
+      "explanation": "Beat-to-beat variation from sleep epochs only: the root mean square of successive RR-interval differences, combined over uninterrupted stretches weighted by beat count.",
       "group": "heart",
       "id": "hrv_rmssd_ms",
       "kind": "number",
@@ -156,7 +156,7 @@
       "value": 28.3
     },
     {
-      "explanation": "Overall heart-rate variability: the standard deviation of the RR intervals.",
+      "explanation": "Overall heart-rate variability from sleep epochs only: the standard deviation of the RR intervals.",
       "group": "heart",
       "id": "hrv_sdnn_ms",
       "kind": "number",
@@ -168,7 +168,7 @@
       "value": 16.3
     },
     {
-      "explanation": "Number of clean RR intervals used for HRV after filtering.",
+      "explanation": "Number of clean RR intervals from sleep epochs used for HRV after filtering.",
       "group": "heart_support",
       "id": "hrv_rr_count",
       "kind": "number",
@@ -180,7 +180,7 @@
       "value": 720.0
     },
     {
-      "explanation": "Share of epochs with movement above 0.08 g.",
+      "explanation": "Share of epochs with movement above 0.08 g, measured from the night's median accelerometer magnitude.",
       "group": "movement",
       "id": "movement_index",
       "kind": "number",
@@ -192,7 +192,7 @@
       "value": 12.5
     },
     {
-      "explanation": "Average movement magnitude per epoch.",
+      "explanation": "Average movement per epoch, the deviation from the night's median accelerometer magnitude.",
       "group": "movement",
       "id": "movement_mean_g",
       "kind": "number",
@@ -204,7 +204,7 @@
       "value": 0.025
     },
     {
-      "explanation": "Number of epochs with movement above 0.08 g.",
+      "explanation": "Number of epochs with movement above 0.08 g, measured from the night's median accelerometer magnitude.",
       "group": "movement",
       "id": "movement_epochs",
       "kind": "number",
@@ -269,7 +269,7 @@
         {
           "id": "mean_stage_confidence",
           "label": "Mean stage confidence",
-          "value": 54.1,
+          "value": 56.9,
           "weight": 25.0
         },
         {
@@ -289,7 +289,7 @@
         "hr"
       ],
       "unit": "%",
-      "value": 88.5
+      "value": 89.2
     },
     {
       "components": [
@@ -383,7 +383,7 @@
     },
     "algorithm_source": "builtin",
     "citation": null,
-    "contract_version": 3,
+    "contract_version": 4,
     "homepage": "https://github.com/rbmr/TaigaSleep",
     "input_quality": {
       "clock_jumps": [],
@@ -427,7 +427,7 @@
     },
     "license": "GPL-3.0-or-later",
     "numpy": "2.5.4",
-    "peak_rss_mb": 41.4,
+    "peak_rss_mb": 50.7,
     "python": "3.14.0",
     "recording": {
       "duration_s": 240.0,
@@ -457,7 +457,7 @@
       }
     },
     "registry_errors": [],
-    "runtime_s": 0.029,
+    "runtime_s": 0.083,
     "worker": null
   },
   "stages": {
@@ -472,12 +472,12 @@
       false
     ],
     "confidence": [
+      0.719,
+      0.665,
+      0.61,
       0.555,
-      0.555,
-      0.555,
-      0.555,
-      0.555,
-      0.555,
+      0.5,
+      0.5,
       0.5,
       0.5
     ],

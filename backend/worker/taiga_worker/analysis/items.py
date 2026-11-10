@@ -35,7 +35,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Time to fall asleep",
         "s",
         "sleep",
-        "Time from the start of the recording to the first sleep epoch.",
+        "Time from the first scored epoch to the first sleep epoch. Unscored time before "
+        "it is not counted.",
         ("stages",),
     ),
     NumberItem(
@@ -43,7 +44,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Sleep efficiency",
         "%",
         "sleep",
-        "Share of the whole recording that was scored as sleep. Total sleep divided by total duration.",
+        "Share of the scored recording that was scored as sleep. Total sleep divided by "
+        "scored time, unavailable when less than half of the recording could be scored.",
         ("stages",),
     ),
     NumberItem(
@@ -99,7 +101,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "HRV RMSSD",
         "ms",
         "heart",
-        "Beat-to-beat variation: the root mean square of successive RR-interval differences.",
+        "Beat-to-beat variation from sleep epochs only: the root mean square of successive "
+        "RR-interval differences, combined over uninterrupted stretches weighted by beat count.",
         ("hr",),
     ),
     NumberItem(
@@ -107,7 +110,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "HRV SDNN",
         "ms",
         "heart",
-        "Overall heart-rate variability: the standard deviation of the RR intervals.",
+        "Overall heart-rate variability from sleep epochs only: the standard deviation of the "
+        "RR intervals.",
         ("hr",),
     ),
     NumberItem(
@@ -115,7 +119,7 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "RR intervals used",
         "count",
         "heart_support",
-        "Number of clean RR intervals used for HRV after filtering.",
+        "Number of clean RR intervals from sleep epochs used for HRV after filtering.",
         ("hr",),
     ),
     NumberItem(
@@ -123,7 +127,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Movement index",
         "%",
         "movement",
-        "Share of epochs with movement above 0.08 g.",
+        "Share of epochs with movement above 0.08 g, measured from the night's median "
+        "accelerometer magnitude.",
         ("acc",),
     ),
     NumberItem(
@@ -131,7 +136,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Average movement",
         "g",
         "movement",
-        "Average movement magnitude per epoch.",
+        "Average movement per epoch, the deviation from the night's median accelerometer "
+        "magnitude.",
         ("acc",),
     ),
     NumberItem(
@@ -139,7 +145,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Epochs with movement",
         "count",
         "movement",
-        "Number of epochs with movement above 0.08 g.",
+        "Number of epochs with movement above 0.08 g, measured from the night's median "
+        "accelerometer magnitude.",
         ("acc",),
     ),
     NumberItem(

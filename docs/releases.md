@@ -102,6 +102,19 @@ Rules:
   beyond the upgrade procedure.
 - The note is written with the release, not after a user reports the problem.
 
+### backend-v0.6.3
+
+- What changed: several stored figures now mean something else without a change to their ids or
+  the algorithm version. Sleep efficiency is total sleep divided by scored time and is absent when
+  less than half of a recording could be scored, sleep latency starts at the first scored epoch,
+  HRV uses sleep epochs only and never takes a difference across a gap in the RR data, and movement
+  is measured from the night's median accelerometer magnitude instead of a fixed 1 g.
+- After upgrading: delete the analyses of every recording analysed earlier and request them again,
+  as described under
+  [stale analysis results](../backend/README.md#stale-analysis-results-after-an-upgrade).
+- Without it: those nights keep the figures computed with the earlier definitions, so they do not
+  match a new analysis of the same recording.
+
 ## Signing key
 
 The release key is not in the repository. CI reads it from repository secrets:

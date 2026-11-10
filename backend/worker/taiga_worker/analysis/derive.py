@@ -53,7 +53,13 @@ ARTIFACT_CONTACT_THRESHOLD = 0.5
 MIN_RR_INTERVALS = 120
 RR_MIN_MS = 300.0
 RR_MAX_MS = 2000.0
+# A break between RR intervals longer than this fraction of the following interval
+# means at least one beat is missing, so no difference is taken across it.
+RR_GAP_FRACTION = 1.5
 MOVEMENT_THRESHOLD_G = 0.08
+# Efficiency is a share of the time the algorithm could score. Below this share of
+# the recording, that share is not representative and efficiency is not reported.
+MIN_SCORED_SHARE_FOR_EFFICIENCY = 0.5
 # A wake period is only an awakening when it lasts longer than two minutes.
 AWAKENING_MIN_SECONDS = 120.0
 
@@ -86,31 +92,109 @@ def _segments(mask: np.ndarray) -> list[tuple[int, int]]:
     return list(zip(starts.tolist(), ends.tolist()))
 
 
-def _clean_rr(rr_ms: np.ndarray) -> np.ndarray:
-    rr = np.asarray(rr_ms, dtype=np.float64)
-    rr = rr[np.isfinite(rr)]
-    rr = rr[(rr >= RR_MIN_MS) & (rr <= RR_MAX_MS)]
-    if rr.size >= 20:
-        median = float(np.median(rr))
+def _clean_rr_mask(rr_ms: np.ndarray) -> np.ndarray:
+    """Keep finite intervals inside the physiological band and near the median."""
+
+    keep = np.isfinite(rr_ms) & (rr_ms >= RR_MIN_MS) & (rr_ms <= RR_MAX_MS)
+    if np.sum(keep) >= 20:
+        median = float(np.median(rr_ms[keep]))
         if median > 0:
-            rr = rr[np.abs(rr - median) <= 0.5 * median]
-    return rr
+            keep &= np.abs(rr_ms - median) <= 0.5 * median
+    return keep
 
 
-def _hrv_values(recording: Recording, beats_s: Sequence[float] | None) -> tuple[np.ndarray | None, str | None]:
+def _rr_intervals(
+    recording: Recording, beats_s: Sequence[float] | None
+) -> tuple[np.ndarray | None, np.ndarray | None, str | None]:
+    """RR intervals with the recording time each one ends at, in sample order."""
+
     if beats_s is not None:
         beats = np.asarray(beats_s, dtype=np.float64)
         if beats.size >= 2:
-            return _clean_rr(np.diff(beats) * 1000.0), None
+            return beats[1:], np.diff(beats) * 1000.0, None
     hr = recording.hr
     if hr is None:
-        return None, "no_hr_stream"
+        return None, None, "no_hr_stream"
     if not hr.rr_ms:
-        return None, "no_rr_intervals"
-    rr = np.concatenate([np.asarray(values, dtype=np.float64) for values in hr.rr_ms])
-    if rr.size == 0:
-        return None, "no_rr_intervals"
-    return _clean_rr(rr), None
+        return None, None, "no_rr_intervals"
+    ends_s: list[np.ndarray] = []
+    rr: list[np.ndarray] = []
+    for sample_time, values in zip(hr.t_s, hr.rr_ms):
+        interval_values = np.asarray(values, dtype=np.float64)
+        if interval_values.size == 0:
+            continue
+        ends_s.append(np.full(interval_values.size, float(sample_time)))
+        rr.append(interval_values)
+    if not rr:
+        return None, None, "no_rr_intervals"
+    return np.concatenate(ends_s), np.concatenate(rr), None
+
+
+def _rr_segments(ends_s: np.ndarray, rr_ms: np.ndarray) -> list[np.ndarray]:
+    """Split intervals where a beat is missing, so no difference spans a gap.
+
+    Contiguous beats end one RR interval apart. A break that is clearly longer than
+    the interval that follows it means at least one beat (or a stretch of RR data)
+    is missing there.
+    """
+
+    if ends_s.size < 2:
+        return [rr_ms]
+    gaps = np.diff(ends_s) > RR_GAP_FRACTION * rr_ms[1:] / 1000.0
+    if not np.any(gaps):
+        return [rr_ms]
+    return [segment for segment in np.split(rr_ms, np.nonzero(gaps)[0] + 1) if segment.size]
+
+
+def _hrv_metrics(
+    recording: Recording,
+    beats_s: Sequence[float] | None,
+    *,
+    sleep_mask: np.ndarray,
+    epoch_seconds: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    ends_s, rr, reason = _rr_intervals(recording, beats_s)
+    if rr is None or ends_s is None:
+        status = "unsupported_device" if reason == "no_hr_stream" else "insufficient_data"
+        missing = _support(status, reason or "no_rr_intervals")
+        return (
+            {"hrv_rmssd_ms": None, "hrv_sdnn_ms": None, "hrv_rr_count": 0},
+            {"hrv_rmssd_ms": missing, "hrv_sdnn_ms": missing, "hrv_rr_count": missing},
+        )
+
+    keep = _clean_rr_mask(rr)
+    if sleep_mask.size:
+        epochs = np.clip(np.floor(ends_s / epoch_seconds).astype(np.int64), 0, sleep_mask.size - 1)
+        keep &= sleep_mask[epochs]
+    rr = rr[keep]
+    ends_s = ends_s[keep]
+
+    if rr.size < MIN_RR_INTERVALS:
+        missing = _support(
+            "insufficient_data", f"need_at_least_{MIN_RR_INTERVALS}_rr_intervals_in_sleep"
+        )
+        return (
+            {"hrv_rmssd_ms": None, "hrv_sdnn_ms": None, "hrv_rr_count": int(rr.size)},
+            {"hrv_rmssd_ms": missing, "hrv_sdnn_ms": missing, "hrv_rr_count": missing},
+        )
+
+    rmssd_sum = 0.0
+    weight_sum = 0
+    for segment in _rr_segments(ends_s, rr):
+        if segment.size < 2:
+            continue
+        diffs = np.diff(segment)
+        rmssd_sum += float(np.sqrt(np.mean(diffs**2))) * int(segment.size)
+        weight_sum += int(segment.size)
+    rmssd = rmssd_sum / weight_sum if weight_sum else 0.0
+    sdnn = float(np.std(rr, ddof=1)) if rr.size > 1 else 0.0
+    metrics = {
+        "hrv_rmssd_ms": round(rmssd, 1),
+        "hrv_sdnn_ms": round(sdnn, 1),
+        "hrv_rr_count": int(rr.size),
+    }
+    supported = _support("supported")
+    return metrics, {key: supported for key in metrics}
 
 
 def _hr_metrics(recording: Recording) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -133,29 +217,6 @@ def _hr_metrics(recording: Recording) -> tuple[dict[str, Any], dict[str, Any]]:
         "hr_mean_bpm": round(float(np.mean(values)), 1),
         "hr_min_bpm": round(float(np.min(values)), 1),
         "hr_max_bpm": round(float(np.max(values)), 1),
-    }
-    supported = _support("supported")
-    return metrics, {key: supported for key in metrics}
-
-
-def _hrv_metrics(recording: Recording, beats_s: Sequence[float] | None) -> tuple[dict[str, Any], dict[str, Any]]:
-    rr, reason = _hrv_values(recording, beats_s)
-    if rr is None or rr.size < MIN_RR_INTERVALS:
-        status = "unsupported_device" if reason == "no_hr_stream" else "insufficient_data"
-        if reason is None:
-            reason = f"need_at_least_{MIN_RR_INTERVALS}_rr_intervals"
-        missing = _support(status, reason)
-        return (
-            {"hrv_rmssd_ms": None, "hrv_sdnn_ms": None, "hrv_rr_count": int(0 if rr is None else rr.size)},
-            {"hrv_rmssd_ms": missing, "hrv_sdnn_ms": missing, "hrv_rr_count": missing},
-        )
-    diffs = np.diff(rr)
-    rmssd = float(np.sqrt(np.mean(diffs**2))) if diffs.size else 0.0
-    sdnn = float(np.std(rr, ddof=1)) if rr.size > 1 else 0.0
-    metrics = {
-        "hrv_rmssd_ms": round(rmssd, 1),
-        "hrv_sdnn_ms": round(sdnn, 1),
-        "hrv_rr_count": int(rr.size),
     }
     supported = _support("supported")
     return metrics, {key: supported for key in metrics}
@@ -231,14 +292,22 @@ def derive(
     unscored = float(counts["unknown"] * epoch_seconds)
 
     sleep_duration = float(sum(counts[s] for s in SLEEP_STAGES if s in supported) * epoch_seconds)
-    efficiency = None if total_duration <= 0 else round(sleep_duration / total_duration, 4)
+    scored_share = 0.0 if total_duration <= 0 else scored_duration / total_duration
+    if scored_share < MIN_SCORED_SHARE_FOR_EFFICIENCY:
+        efficiency = None
+        efficiency_support = _support("insufficient_data", "scored_time_below_half_of_recording")
+    else:
+        efficiency = round(sleep_duration / scored_duration, 4)
+        efficiency_support = _support("supported")
 
     sleep_mask = np.isin(stage_values, [s for s in SLEEP_STAGES if s in supported])
     sleep_indices = np.nonzero(sleep_mask)[0]
+    scored_indices = np.nonzero(stage_values != "unknown")[0]
     if sleep_indices.size:
         first_sleep = int(sleep_indices[0])
         last_sleep = int(sleep_indices[-1])
-        latency = float(first_sleep * epoch_seconds)
+        first_scored = int(scored_indices[0])
+        latency = float(max(0, first_sleep - first_scored) * epoch_seconds)
         final_awakening = float((grid.count - (last_sleep + 1)) * epoch_seconds)
         wake_mask = stage_values == "wake"
         wake_between = wake_mask.copy()
@@ -267,7 +336,12 @@ def derive(
             stage_support[key] = _stage_support(stage, supported, f"algorithm_does_not_distinguish_{stage}")
 
     hr_metrics, hr_support = _hr_metrics(recording)
-    hrv_metrics, hrv_support = _hrv_metrics(recording, beats_s)
+    hrv_metrics, hrv_support = _hrv_metrics(
+        recording,
+        beats_s,
+        sleep_mask=sleep_mask,
+        epoch_seconds=epoch_seconds,
+    )
     movement_metrics, movement_support = _movement_metrics(recording, grid)
 
     stage_support_status = "supported" if scored_count > 0 else "insufficient_data"
@@ -292,7 +366,6 @@ def derive(
         support[key] = _support("supported")
     for key in (
         "total_sleep_s",
-        "sleep_efficiency",
         "sleep_latency_s",
         "waso_s",
         "awakenings",
@@ -302,6 +375,7 @@ def derive(
             stage_support_status,
             None if stage_support_status == "supported" else "no_scored_epochs",
         )
+    support["sleep_efficiency"] = efficiency_support
     support.update(stage_support)
     support.update(hr_support)
     support.update(hrv_support)
@@ -516,6 +590,7 @@ __all__ = [
     "QUALITY_WEIGHTS",
     "QUALITY_WEIGHTS_VERSION",
     "AWAKENING_MIN_SECONDS",
+    "MIN_SCORED_SHARE_FOR_EFFICIENCY",
     "SLEEP_SCORE_WEIGHTS",
     "SLEEP_SCORE_VERSION",
 ]
