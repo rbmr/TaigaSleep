@@ -31,7 +31,7 @@
   <string name="trends_legend_min">Min</string>
   <string name="trends_legend_mean">Average</string>
   <string name="trends_schedule_summary">Bedtime %1$s · wake %2$s</string>
-  <string name="trends_schedule_spread">± %1$d / %2$d min · over %3$d nights</string>
+  <string name="trends_schedule_spread">Bedtime ± %1$d min · wake ± %2$d min · over %3$d nights</string>
   <string name="trends_summary_time">Average %1$s over %2$d nights</string>
   <string name="trends_summary_whole">Average %1$d over %2$d nights</string>
   <string name="trends_summary_percent">Average %1$d%% over %2$d nights</string>
