@@ -63,6 +63,7 @@ private data class InactiveView(
 private fun HomeUiState.inactive(): InactiveView? =
     when (this) {
       is HomeUiState.Recording -> null
+      is HomeUiState.Finishing -> null
       is HomeUiState.FetchPending -> null
       is HomeUiState.NoTracker ->
           InactiveView(null, null, guard, canStart = false, picker.denied, error)
@@ -89,7 +90,7 @@ private fun HomeUiState.inactive(): InactiveView? =
  * card are the files around this one.
  */
 @Composable
-fun HomeScreen(onGuidanceClick: () -> Unit) {
+fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
   val context = LocalContext.current
   val factory = remember { HomeFactory(context) }
   val viewModel: HomeViewModel = viewModel(factory = factory)
@@ -158,6 +159,16 @@ fun HomeScreen(onGuidanceClick: () -> Unit) {
               onForceStop = { confirm = StopAction.FORCE_STOP },
               onDiscard = { confirm = StopAction.DISCARD },
           )
+      is HomeUiState.Finishing ->
+          FinishingHome(
+              state = current,
+              onOpenRecording = {
+                // Opening the night is what the done card is for; Home goes back to its start flow.
+                viewModel.dismissFinishing()
+                onOpenRecording(current.finishing.recordingId)
+              },
+              onDismiss = viewModel::dismissFinishing,
+          )
       is HomeUiState.FetchPending ->
           FetchPendingHome(state = current, onFetchAgain = viewModel::fetchAgain)
       else ->
@@ -204,6 +215,7 @@ fun HomeScreen(onGuidanceClick: () -> Unit) {
   confirm?.let { action ->
     ConfirmDialog(
         action = action,
+        onDevice = (state as? HomeUiState.Recording)?.onDevice == true,
         onDismiss = { confirm = null },
         onConfirm = {
           confirm = null

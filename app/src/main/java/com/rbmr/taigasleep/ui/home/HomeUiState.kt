@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.ui.home
 
 import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.recording.CaptureStatus
+import com.rbmr.taigasleep.recording.FinishingState
 import com.rbmr.taigasleep.recording.Phase
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.FoundSensor
@@ -47,6 +48,9 @@ data class SensorPicker(
  * The start flow of docs/architecture.md as named states: connect a tracker ([NoTracker],
  * [Connecting]), configure what to record ([Configure]), the preventing-shutdown flow when the
  * mode needs it ([NeedsGuard]), start ([ReadyToStart]) and the recording itself ([Recording]).
+ *
+ * A stopped recording is finished before Home returns to the start flow: [Finishing] carries the
+ * steps it goes through and the card that says the night is safe.
  *
  * The states are produced by [homeState], a pure function of the tracker, the chosen configuration,
  * the readiness answer and the recording state.
@@ -104,6 +108,25 @@ sealed interface HomeUiState {
       override val error: String? = null,
   ) : HomeUiState
 
+  /**
+   * A recording that was stopped and is being finished: the steps that apply to its mode, and the
+   * done card while the user can safely take the tracker off.
+   */
+  data class Finishing(
+      val finishing: FinishingState,
+      override val picker: SensorPicker = SensorPicker(),
+  ) : HomeUiState {
+    override val guard: HomeState?
+      get() = null
+
+    override val error: String?
+      get() = null
+
+    /** The night is on the phone; the card offers the link to it and a way back to Home. */
+    val done: Boolean
+      get() = finishing.done
+  }
+
   /** The tracker still holds a night; the only action is to fetch it again. */
   data class FetchPending(
       val recordingId: String,
@@ -115,7 +138,7 @@ sealed interface HomeUiState {
       get() = null
   }
 
-  /** A recording is running, with the three ways to end it. */
+  /** A recording is running: Stop, and the other two ways to end it behind the overflow. */
   data class Recording(
       val status: CaptureStatus,
       override val picker: SensorPicker = SensorPicker(),
@@ -129,6 +152,10 @@ sealed interface HomeUiState {
     /** The mode the running recording was started with; the service reports whether it streams. */
     val mode: RecordingMode
       get() = if (status.liveStreaming) RecordingMode.STREAM else RecordingMode.ON_DEVICE
+
+    /** The night is on the tracker, so the confirmations say it has to be fetched first. */
+    val onDevice: Boolean
+      get() = mode == RecordingMode.ON_DEVICE
 
     val stopping: Boolean
       get() = status.phase == Phase.STOPPING
@@ -148,6 +175,7 @@ internal fun homeState(
     configuring: Boolean,
     picker: SensorPicker,
 ): HomeUiState {
+  status.finishing?.let { return HomeUiState.Finishing(it, picker) }
   if (status.phase != Phase.IDLE) return HomeUiState.Recording(status, picker)
   status.fetchPending?.let {
     return HomeUiState.FetchPending(it.recordingId, it.sensorName, it.error, picker)

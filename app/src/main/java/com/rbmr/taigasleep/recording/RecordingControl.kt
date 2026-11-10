@@ -428,21 +428,41 @@ class RecordingControl(
       leave(null)
       return
     }
-    RecordingRepository.update { it.copy(phase = Phase.STOPPING) }
+    if (forced) {
+      RecordingRepository.update { it.copy(phase = Phase.STOPPING) }
+      s.monitor.onPhase(RecordingState.Phase.STOPPING)
+      s.jobs.forEach { it.cancel() }
+      apply(s, s.lifecycle.forceStop())
+      end(s)
+      return
+    }
+    val finishing =
+        FinishingState(
+            recordingId = s.writer.meta.recordingId,
+            sensorName = s.writer.meta.sensorName,
+            mode = s.mode,
+            step = FinishingState.Step.STOPPING_TRACKER,
+        )
+    RecordingRepository.setFinishing(finishing)
     s.monitor.onPhase(RecordingState.Phase.STOPPING)
     s.jobs.forEach { it.cancel() }
-    if (!forced && s.mode == RecordingMode.ON_DEVICE) {
+    if (s.mode == RecordingMode.ON_DEVICE) {
       // Stop, fetch, persist, verify; only a verified import removes the tracker's copy.
       s.lifecycle.stop()
-      fetchFromTracker(s)
+      fetchFromTracker(s, finishing)
     } else {
-      apply(s, if (forced) s.lifecycle.forceStop() else s.lifecycle.stop())
-      end(s)
+      // The tracker is closed first, then the recording on disk is finished: the two steps the
+      // screen shows for a streamed night.
+      val effects = s.lifecycle.stop()
+      apply(s, effects.filter { it !is LifecycleEffect.Finish })
+      RecordingRepository.setFinishing(finishing.copy(step = FinishingState.Step.SAVING))
+      apply(s, effects.filterIsInstance<LifecycleEffect.Finish>())
+      end(s, done = finishing)
     }
   }
 
   /** The on-device part of a stop: one timeout, then either a finished night or a retry. */
-  private suspend fun fetchFromTracker(s: Live) {
+  private suspend fun fetchFromTracker(s: Live, finishing: FinishingState) {
     val tracker = s.sensor as? OnDeviceTracker
     if (tracker == null) {
       failFetch(s, "this tracker cannot hand over the recording")
@@ -453,19 +473,32 @@ class RecordingControl(
       failFetch(s, "could not record that the fetch is still pending")
       return
     }
-    when (val result = OnDeviceImport(s.writer, tracker, clock).fetch()) {
+    val fetcher =
+        OnDeviceImport(s.writer, tracker, clock) { progress ->
+          RecordingRepository.setFinishing(finishing.fetched(imported = progress))
+        }
+    when (val result = fetcher.fetch()) {
       is OnDeviceFetch.Imported -> {
         // The night is on the phone: finish the recording, then take the tracker's copy away. A
         // process that dies in between leaves a removal still to do, not a fetch that repeats.
         if (!s.writer.markTrackerRemoval(result.entries.map { it.id })) {
           s.writer.event("error", "the tracker copy could not be remembered for removal")
         }
+        RecordingRepository.setFinishing(finishing.copy(step = FinishingState.Step.SAVING))
         apply(s, s.lifecycle.fetchSucceeded())
-        end(s)
+        end(s, done = finishing)
       }
       is OnDeviceFetch.Failed -> failFetch(s, result.reason)
     }
   }
+
+  /** Keeps the stopping step until the tracker says what it holds; after that it is the fetch. */
+  private fun FinishingState.fetched(imported: ImportProgress) =
+      if (imported.entries == 0) {
+        copy(step = FinishingState.Step.STOPPING_TRACKER, fetch = null)
+      } else {
+        copy(step = FinishingState.Step.FETCHING, fetch = imported)
+      }
 
   /** A failed fetch keeps the tracker's copy and leaves the recording ready for another attempt. */
   private suspend fun failFetch(s: Live, reason: String) {
@@ -514,14 +547,27 @@ class RecordingControl(
       leavePending(meta, host.message(RecordingMessage.FETCH_RECOVERY))
       return
     }
-    when (val result = OnDeviceImport(writer, tracker, clock).fetch()) {
+    val finishing =
+        FinishingState(
+            recordingId = meta.recordingId,
+            sensorName = meta.sensorName,
+            mode = meta.mode,
+            step = FinishingState.Step.FETCHING,
+        )
+    RecordingRepository.setFinishing(finishing)
+    val fetcher =
+        OnDeviceImport(writer, tracker, clock) { progress ->
+          RecordingRepository.setFinishing(finishing.fetched(imported = progress))
+        }
+    when (val result = fetcher.fetch()) {
       is OnDeviceFetch.Imported -> {
         if (!writer.markTrackerRemoval(result.entries.map { it.id })) {
           writer.event("error", "the tracker copy could not be remembered for removal")
         }
+        RecordingRepository.setFinishing(finishing.copy(step = FinishingState.Step.SAVING))
         writer.finish(RecordingPhase.STOPPED, "recording fetched from the tracker")
         report(TrackerCleanup(dir, tracker).retry(), writer::event)
-        RecordingRepository.setIdle()
+        RecordingRepository.setFinishing(finishing.copy(step = FinishingState.Step.DONE))
         host.onFetchCompleted(meta.recordingId)
       }
       is OnDeviceFetch.Failed -> {
@@ -649,7 +695,7 @@ class RecordingControl(
     }
   }
 
-  private fun end(s: Live, pending: PendingFetch? = null) {
+  private fun end(s: Live, pending: PendingFetch? = null, done: FinishingState? = null) {
     Diagnostics.log("service_stop", mapOf("state" to s.writer.meta.state.name.lowercase()))
     Diagnostics.markCleanShutdown("recording_ended")
     s.jobs.forEach { it.cancel() }
@@ -658,7 +704,11 @@ class RecordingControl(
     host.activeSessionId = null
     host.cancelWatchdog()
     releaseWakeLock(s)
-    if (pending != null) RecordingRepository.setFetchPending(pending) else RecordingRepository.setIdle()
+    when {
+      pending != null -> RecordingRepository.setFetchPending(pending)
+      done != null -> RecordingRepository.setFinishing(done.copy(step = FinishingState.Step.DONE))
+      else -> RecordingRepository.setIdle()
+    }
     host.refreshRecordings()
     if (pending == null &&
         s.lifecycle.state != LifecycleState.DISCARDED &&

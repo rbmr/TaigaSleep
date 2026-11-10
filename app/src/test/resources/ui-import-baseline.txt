@@ -13,10 +13,11 @@ components/TaigaBottomBar.kt 0
 components/TaigaLogo.kt 0
 home/ActiveHome.kt 0
 home/DataSheet.kt 1
+home/FinishingHome.kt 1
 home/GuardCard.kt 1
 home/HomeFactory.kt 11
 home/HomeScreen.kt 3
-home/HomeUiState.kt 6
+home/HomeUiState.kt 7
 home/RecordingCard.kt 4
 home/SensorPickerSheet.kt 3
 recording/AnalysisSheet.kt 1

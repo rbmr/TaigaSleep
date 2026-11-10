@@ -39,6 +39,8 @@ data class CaptureStatus(
     val error: String? = null,
     /** Set instead of [phase] when the tracker still holds a night that must be fetched again. */
     val fetchPending: PendingFetch? = null,
+    /** The steps a stopped recording is going through, until the user leaves the done card. */
+    val finishing: FinishingState? = null,
 )
 
 /** Observable recorder state: written by [RecordingService], read by the UI. */
@@ -57,6 +59,22 @@ object RecordingRepository {
 
   internal fun setFetchPending(pending: PendingFetch) {
     _status.value = CaptureStatus(fetchPending = pending)
+  }
+
+  /** Publishes how far a stopped recording got; the done card stays until it is dismissed. */
+  internal fun setFinishing(finishing: FinishingState) {
+    _status.value =
+        CaptureStatus(
+            phase = if (finishing.done) Phase.IDLE else Phase.STOPPING,
+            recordingId = finishing.recordingId,
+            sensorName = finishing.sensorName,
+            finishing = finishing,
+        )
+  }
+
+  /** The user has seen the done card: Home goes back to the start flow. */
+  internal fun dismissFinishing() {
+    if (_status.value.finishing != null) setIdle()
   }
 
   /** Re-reads the recording list from disk (cheap for the handful of recordings kept on the phone). */
