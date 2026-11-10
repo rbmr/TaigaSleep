@@ -43,10 +43,32 @@ fun isRawCleanupDue(mode: RawRetentionMode, uploadedAtMs: Long, nowMs: Long): Bo
   return nowMs >= uploadedAtMs + delay
 }
 
+/**
+ * True when the raw streams of a recording in [state] may leave this phone: it is finished, the
+ * server confirmed the whole upload, and the cleanup time of [mode] has passed. A recording that is
+ * still being written, or whose rest is still on the tracker, is never cleaned up: its samples may
+ * still arrive.
+ */
+internal fun rawCleanupApplies(
+    state: RecordingPhase,
+    record: UploadRecord?,
+    mode: RawRetentionMode,
+    nowMs: Long,
+): Boolean {
+  if (state.unfinished) return false
+  if (record == null || record.keepRawOnPhone) return false
+  val confirmedAt = record.uploadConfirmedAt() ?: return false
+  return isRawCleanupDue(mode, confirmedAt, nowMs)
+}
+
 /** The outcome of an explicit raw action on one recording. */
 sealed interface RawActionResult {
   data object Done : RawActionResult
   data object NothingToDelete : RawActionResult
+  /**
+   * The recording is not finished, or the rest of it is still on the tracker. Nothing is removed
+   * from a recording that can still grow.
+   */
   data object Recording : RawActionResult
   data object NotUploaded : RawActionResult
   data class Failed(val detail: String?) : RawActionResult
@@ -66,11 +88,8 @@ internal object RawRetention {
         val recordings = context.appContainer.recordingStore
         var changed = false
         for (recording in recordings.list()) {
-          if (recording.state == RecordingPhase.RECORDING) continue
-          val record = store.record(recording.id) ?: continue
-          if (record.keepRawOnPhone) continue
-          val confirmedAt = record.uploadConfirmedAt() ?: continue
-          if (!isRawCleanupDue(mode, confirmedAt, nowMs)) continue
+          val record = store.record(recording.id)
+          if (!rawCleanupApplies(recording.state, record, mode, nowMs)) continue
           val trimmed =
               runCatching {
                     trim(recording.dir, recordings.lastFrameMs(recording.dir))
@@ -92,7 +111,7 @@ internal object RawRetention {
         val recordings = context.appContainer.recordingStore
         val dir = recordings.dir(localId)
         val meta = RecordingMeta.read(dir) ?: return@withContext RawActionResult.NothingToDelete
-        if (meta.state == RecordingPhase.RECORDING) return@withContext RawActionResult.Recording
+        if (meta.state.unfinished) return@withContext RawActionResult.Recording
         val record = context.appContainer.uploadStore.record(localId)
         if (record?.uploadConfirmedAt() == null) return@withContext RawActionResult.NotUploaded
         if (!hasStreams(dir)) return@withContext RawActionResult.NothingToDelete

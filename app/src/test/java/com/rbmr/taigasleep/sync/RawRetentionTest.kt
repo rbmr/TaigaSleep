@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.sync
 
+import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.sync.db.TaigaDatabase
 import com.rbmr.taigasleep.sync.db.storeScope
 import com.rbmr.taigasleep.sync.db.testDatabase
@@ -94,6 +95,53 @@ class RawRetentionTest {
                 updatedAtMs = 10,
             )
             .uploadConfirmedAt()
+    )
+  }
+
+  @Test
+  fun `a recording that can still grow is never trimmed`() {
+    val confirmed =
+        UploadRecord(
+            id = "confirmed",
+            onServer = true,
+            phase = UploadPhase.PROCESSING,
+            uploadedAtMs = 1_000,
+            updatedAtMs = 2_000,
+        )
+    val now = Long.MAX_VALUE
+
+    // The tracker still holds part of the night: fetching it adds samples to the raw files.
+    assertFalse(
+        rawCleanupApplies(RecordingPhase.FETCH_PENDING, confirmed, RawRetentionMode.IMMEDIATE, now)
+    )
+    assertFalse(
+        rawCleanupApplies(RecordingPhase.RECORDING, confirmed, RawRetentionMode.IMMEDIATE, now)
+    )
+    // A finished recording with a confirmed upload is trimmed as before.
+    assertTrue(
+        rawCleanupApplies(RecordingPhase.STOPPED, confirmed, RawRetentionMode.IMMEDIATE, now)
+    )
+    assertTrue(
+        rawCleanupApplies(RecordingPhase.FORCED_STOP, confirmed, RawRetentionMode.IMMEDIATE, now)
+    )
+    // The other rules still hold: never without a confirmation, and not when the user kept the raw
+    // files on the phone.
+    assertFalse(
+        rawCleanupApplies(
+            RecordingPhase.FETCH_PENDING,
+            UploadRecord(id = "queued", phase = UploadPhase.QUEUED),
+            RawRetentionMode.IMMEDIATE,
+            now,
+        )
+    )
+    assertFalse(rawCleanupApplies(RecordingPhase.STOPPED, null, RawRetentionMode.IMMEDIATE, now))
+    assertFalse(
+        rawCleanupApplies(
+            RecordingPhase.STOPPED,
+            confirmed.copy(keepRawOnPhone = true),
+            RawRetentionMode.IMMEDIATE,
+            now,
+        )
     )
   }
 

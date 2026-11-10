@@ -16,6 +16,14 @@ enum class RecordingPhase(val wire: String) {
   /** The tracker still holds part of the night; fetching it again is the only way to finish. */
   FETCH_PENDING("fetch_pending");
 
+  /**
+   * The recording is not finished: its streams may still grow, so nothing may upload it or remove
+   * its raw files. A recording becomes finished once the recording stops, and a [FETCH_PENDING] one
+   * once the rest of it has arrived from the tracker.
+   */
+  val unfinished: Boolean
+    get() = this == RECORDING || this == FETCH_PENDING
+
   companion object {
     fun fromWire(value: String?): RecordingPhase =
         entries.firstOrNull { it.wire == value } ?: INTERRUPTED

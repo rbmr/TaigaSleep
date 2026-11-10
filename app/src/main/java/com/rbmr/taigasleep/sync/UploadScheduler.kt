@@ -114,7 +114,8 @@ internal object UploadScheduler {
     }
     val account = context.appContainer.remoteRepository.accountKey ?: return
     local.forEach { recording ->
-      if (recording.state == RecordingPhase.RECORDING) return@forEach
+      // A recording that is not finished is never queued: the service enqueues it when it ends.
+      if (recording.state.unfinished) return@forEach
       // A recording that is processing is on the server already; its result comes from the live stream.
       if (store.record(recording.id, account)?.phase == UploadPhase.PROCESSING) return@forEach
       if (settings.enabled) enqueueAuto(context, recording.id)
@@ -133,6 +134,9 @@ internal object UploadScheduler {
         val settings = UploadSettings.get(context).autoUpload.value
         val store = context.appContainer.uploadStore
         for (recording in context.appContainer.recordingStore.list()) {
+          // A recording waiting for its tracker copy stays out of the queue: the completed fetch
+          // queues it as a new upload, with every sample in the files.
+          if (recording.state == RecordingPhase.FETCH_PENDING) continue
           if (recording.state == RecordingPhase.RECORDING &&
               RecordingService.running) {
             continue
