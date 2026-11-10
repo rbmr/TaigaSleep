@@ -71,6 +71,37 @@ Android keeps the app's data when the new `versionCode` is higher, and refuses a
 (`major * 1000000 + minor * 1000 + patch`), so it only ever increases; a build
 with the same version can be reinstalled over another one.
 
+## Upgrade notes
+
+[`backend/README.md`](../backend/README.md#upgrade) is the upgrade procedure.
+Notes here say what that procedure cannot: what to do after upgrading a
+particular release, if anything. They are listed newest first, one subsection
+per release, titled with its tag. The operator reads the entry for the version
+being installed before starting.
+
+Template:
+
+```markdown
+### backend-v0.7.0
+
+- What changed: <the result field, deployment step or other change>.
+- After upgrading: <the command or app action, or "nothing">.
+- Without it: <what the operator sees if the step is skipped>.
+```
+
+Rules:
+
+- A change to the stored analysis result (a field, its type, its meaning or the
+  set of statistics) must add a note. When the algorithm version is not bumped,
+  existing analyses keep their old payload and are not recomputed, so the note
+  must say they have to be deleted and requested again and must link to the
+  stale-results steps in the backend upgrade section. A version bump avoids the
+  stale payload, because a request then creates a new analysis, but existing
+  nights still need a request; say that too.
+- A release with no operator action needs no entry; no entry means nothing to do
+  beyond the upgrade procedure.
+- The note is written with the release, not after a user reports the problem.
+
 ## Signing key
 
 The release key is not in the repository. CI reads it from repository secrets:
