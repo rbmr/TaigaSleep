@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="server_title">Server</string>
+  <string name="server_back">Back</string>
+  <string name="server_kicker">ANALYSIS SERVER</string>
+
+  <string name="server_page_server">Server</string>
+  <string name="server_page_account">Account</string>
+  <string name="server_page_status">Status</string>
+  <string name="server_page_server_body">The address Taiga uploads recordings to.</string>
+  <string name="server_page_account_body">The email and password Taiga logs in with.</string>
+  <string name="server_page_status_body">Whether Taiga can reach the server and is logged in.</string>
+  <string name="server_progress">Page %1$d of %2$d: %3$s</string>
+  <string name="server_previous_page">Previous</string>
+  <string name="server_next_page">Next</string>
+
+  <string name="server_url_label">Server URL</string>
+  <string name="server_url_placeholder">https://sleep.example.com</string>
+  <string name="server_check_server">Check server</string>
+  <string name="server_retry">Retry</string>
+  <string name="server_checking">Checking…</string>
+  <string name="server_address_ok">Server reachable</string>
+  <string name="server_address_failed">Server not reachable</string>
+
+  <string name="server_email_label">Email</string>
+  <string name="server_password_label">Password</string>
+  <string name="server_show_password">Show password</string>
+  <string name="server_hide_password">Hide password</string>
+  <string name="server_login">Log in</string>
+
+  <string name="server_status_none">No server connected</string>
+  <string name="server_status_unreachable">Server not reachable</string>
+  <string name="server_status_not_logged_in">Not logged in</string>
+  <string name="server_status_connected">Connected</string>
+  <string name="server_status_none_body">No server is set up, or it is unavailable.</string>
+  <string name="server_status_unreachable_body">The server did not answer the last check.</string>
+  <string name="server_status_not_logged_in_body">You are not logged in, or your login failed.</string>
+  <string name="server_status_connected_body">The server is available, and you are logged in.</string>
+  <string name="server_last_check">Last check: %1$s</string>
+  <string name="server_check_connection">Check connection</string>
+
+  <string name="server_logout">Log out</string>
+  <string name="server_logout_title">Log out of the server?</string>
+  <string name="server_logout_body">Taiga forgets the saved token on this phone only; it is not revoked on the server. Recordings stay on the phone and finish normally.</string>
+  <string name="server_logout_confirm">Log out</string>
+  <string name="server_cancel">Cancel</string>
+
+  <!-- The settings row summary; the Status page has its own wording. -->
+  <string name="server_state_not_configured">No server connected</string>
+  <string name="server_state_connected">Connected as %1$s</string>
+  <string name="server_state_login_needed_short">Login needed</string>
+  <string name="server_state_unreachable_short">Server unreachable</string>
+
+  <string name="server_error_invalid_url">This server URL is not a valid URL. Use the full address, for example https://sleep.example.com.</string>
+  <string name="server_error_unknown_host">The server address could not be found. Check the URL for spelling mistakes.</string>
+  <string name="server_error_insecure_url">Plain HTTP is only allowed on a local or private network. Use HTTPS for any other address.</string>
+  <string name="server_error_missing_credentials">Enter the email and password.</string>
+  <string name="server_error_unreachable">Cannot reach the server. Check the address and that the server is running.</string>
+  <string name="server_error_not_taiga">Something answered at that address, but it is not a Taiga Sleep server.</string>
+  <string name="server_error_bad_credentials">The email or password is wrong.</string>
+  <string name="server_error_session_expired">The login has expired. Enter your password to log in again.</string>
+  <string name="server_error_storage_full">Server storage full</string>
+  <string name="server_error_api_unversioned">This server does not report an API version, so it is older than this app, which needs API version %1$d. Update the server.</string>
+  <string name="server_error_api_server_old">The server is older than this app. The app speaks API version %1$d; the server speaks API version %2$d. Update the server.</string>
+  <string name="server_error_api_app_old">This app is older than the server. The app speaks API version %1$d; the server speaks API version %2$d. Update the app.</string>
+  <string name="server_error_http">The server answered with error %1$d.</string>
+  <string name="server_error_malformed">The server sent an unexpected response.</string>
+
+  <string name="server_login_prompt">Server login needed</string>
+  <string name="server_login_prompt_action">Fix</string>
+</resources>

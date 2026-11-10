@@ -138,17 +138,17 @@ fun SettingsScreen(
     item {
       SettingsGroup(stringResource(R.string.settings_group_server)) {
         SettingsRow(
-            title = stringResource(R.string.settings_remote_title),
+            title = stringResource(R.string.settings_server_title),
             subtitle =
                 when (val state = remoteStatus) {
                   RemoteStatus.NotConfigured ->
-                      stringResource(R.string.remote_state_not_configured)
+                      stringResource(R.string.server_state_not_configured)
                   is RemoteStatus.Connected ->
-                      stringResource(R.string.remote_state_connected, state.email)
+                      stringResource(R.string.server_state_connected, state.email)
                   is RemoteStatus.LoginNeeded ->
-                      stringResource(R.string.remote_state_login_needed_short)
+                      stringResource(R.string.server_state_login_needed_short)
                   is RemoteStatus.Unreachable ->
-                      stringResource(R.string.remote_state_unreachable_short)
+                      stringResource(R.string.server_state_unreachable_short)
                 },
             subtitleColor =
                 when (remoteStatus) {

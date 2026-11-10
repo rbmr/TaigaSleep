@@ -18,7 +18,7 @@
 
   <string name="settings_kicker">SETTINGS</string>
   <string name="settings_title">Settings</string>
-  <string name="settings_group_server">Analysis server</string>
+  <string name="settings_group_server">Server</string>
   <string name="settings_group_analysis">Analysis</string>
   <string name="settings_analysis_auto_title">Analyze automatically</string>
   <string name="settings_analysis_auto_body">Request the first compatible algorithm in the preferred order after an upload.</string>
@@ -34,7 +34,7 @@
   <string name="settings_group_app">App</string>
   <string name="settings_prevent_title">Preventing shutdown</string>
   <string name="settings_prevent_body">Keep Taiga alive overnight</string>
-  <string name="settings_remote_title">Remote</string>
+  <string name="settings_server_title">Server</string>
   <string name="settings_appearance_title">Appearance</string>
   <string name="settings_appearance_body">System, light or dark</string>
   <string name="settings_appearance_body_system">Follow system</string>
@@ -57,7 +57,7 @@
   <string name="about_license_title">License</string>
   <string name="about_license_subtitle">GPL-3.0</string>
   <string name="about_privacy_title">Privacy</string>
-  <string name="about_privacy_body">Recordings stay on your phone unless you configure a remote and upload them. There is no analytics or tracking in the app.</string>
+  <string name="about_privacy_body">Recordings stay on your phone unless you connect a server and upload them. There is no analytics or tracking in the app.</string>
   <string name="about_built_title">Built with</string>
   <string name="about_built_body">Kotlin, Jetpack Compose and the Polar BLE SDK. Sleep staging uses wav2sleep (MIT) and SleepECG (BSD-3-Clause).</string>
   <string name="about_disclaimer">Taiga Sleep is not a medical device.</string>

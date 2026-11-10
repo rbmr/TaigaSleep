@@ -79,8 +79,8 @@ fun TaigaApp(
   var detailAnalysis by rememberSaveable { mutableStateOf<String?>(null) }
   // Prompt once per process; a successful check arms it again for a later expiry.
   var promptedLogin by remember { mutableStateOf(false) }
-  val loginPrompt = stringResource(R.string.remote_login_prompt)
-  val loginAction = stringResource(R.string.remote_login_prompt_action)
+  val loginPrompt = stringResource(R.string.server_login_prompt)
+  val loginAction = stringResource(R.string.server_login_prompt_action)
 
   // The same check as the Remote screen, without a password. Recording never waits for it.
   LifecycleResumeEffect(Unit) {
