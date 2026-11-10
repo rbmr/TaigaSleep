@@ -426,7 +426,6 @@ data class StageTimelineDto(
     val segments: List<StageSegmentDto> = emptyList(),
     val confidence: JsonElement? = null,
     val artifacts: JsonElement? = null,
-    val probabilities: JsonElement? = null,
 )
 
 /**
@@ -491,7 +490,6 @@ data class AnalysisResultDto(
     val items: List<ResultItemDto> = emptyList(),
     val capabilities: JsonObject? = null,
     val provenance: JsonObject? = null,
-    val extras: JsonObject? = null,
     val warnings: List<String> = emptyList(),
 )
 
@@ -556,15 +554,10 @@ data class AlgorithmDto(
     val name: String = "",
     val description: String = "",
     val license: String = "",
-    val citation: JsonElement? = null,
-    val homepage: JsonElement? = null,
     val needs: List<AlgorithmNeedDto> = emptyList(),
     val epoch_seconds: Int = 30,
-    val stage_scheme: String = "",
     val supported_stages: List<String> = emptyList(),
     val capabilities: List<String> = emptyList(),
-    val default_params: JsonObject? = null,
-    val params_schema: JsonObject? = null,
 )
 
 @Serializable

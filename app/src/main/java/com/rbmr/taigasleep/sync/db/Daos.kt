@@ -155,12 +155,6 @@ interface AnalysisResultDao {
   @Query("SELECT * FROM analysis_result WHERE account = :account ORDER BY recordingKey, analysisId")
   fun observe(account: String): Flow<List<AnalysisResultRow>>
 
-  @Query(
-      "SELECT * FROM analysis_result WHERE account = :account AND recordingKey = :recordingKey " +
-          "ORDER BY analysisId"
-  )
-  fun observeFor(account: String, recordingKey: String): Flow<List<AnalysisResultRow>>
-
   @Query("SELECT * FROM analysis_result WHERE account = :account ORDER BY recordingKey, analysisId")
   suspend fun rows(account: String): List<AnalysisResultRow>
 

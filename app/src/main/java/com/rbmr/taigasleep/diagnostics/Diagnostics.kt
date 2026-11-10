@@ -14,8 +14,6 @@ import java.util.TimeZone
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
 /**
  * Crash and kill diagnostics: append-only JSONL under `getExternalFilesDir(null)/diagnostics/`.
@@ -141,24 +139,6 @@ object Diagnostics {
 
   fun onLowMemory() {
     log("low_memory", mapOf("memory" to memoryOrNull()))
-  }
-
-  /** Zips the diagnostics directory into the cache dir for sharing. Blocking: call off main. */
-  fun exportZip(context: Context): File {
-    synchronized(lock) { store }?.sync()
-    val dir = diagnosticsDir(context)
-    val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(Date())
-    context.cacheDir.listFiles { f -> f.name.startsWith("diagnostics_") && f.name.endsWith(".zip") }
-        ?.forEach { it.delete() }
-    val zip = File(context.cacheDir, "diagnostics_$stamp.zip")
-    ZipOutputStream(zip.outputStream().buffered()).use { out ->
-      for (file in dir.listFiles()?.filter { it.isFile }?.sortedBy { it.name } ?: emptyList()) {
-        out.putNextEntry(ZipEntry("diagnostics/${file.name}"))
-        file.inputStream().use { it.copyTo(out) }
-        out.closeEntry()
-      }
-    }
-    return zip
   }
 
   fun diagnosticsDir(context: Context): File =

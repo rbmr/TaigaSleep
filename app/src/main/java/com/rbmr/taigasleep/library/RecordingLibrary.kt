@@ -85,9 +85,6 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   override suspend fun uploadedElsewhere(localId: String): Boolean =
       uploads.otherAccount(localId) != null
 
-  /** Fetch the server's recording list and cache it. Does not touch local recordings. */
-  suspend fun refreshList(): Result<Unit> = fetchList().map { }
-
   /**
    * Reads the list, saves it for [session]'s account and returns what was saved, or null when the
    * session ended during the fetch.

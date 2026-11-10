@@ -51,10 +51,6 @@ class UploadSettings private constructor(context: Context) {
     update(_autoUpload.value.copy(chargingOnly = chargingOnly))
   }
 
-  fun setAutoUpload(settings: AutoUploadSettings) {
-    update(settings)
-  }
-
   fun setCompressUploads(compress: Boolean) {
     prefs.edit().putBoolean(KEY_COMPRESS, compress).apply()
     _compressUploads.value = compress
@@ -75,36 +71,12 @@ class UploadSettings private constructor(context: Context) {
     _autoUpload.value = settings
   }
 
-  private fun load(): AutoUploadSettings {
-    if (!prefs.contains(KEY_ENABLED)) {
-      migrateLegacyMode()
-    }
-    return AutoUploadSettings(
-        enabled = prefs.getBoolean(KEY_ENABLED, true),
-        wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, true),
-        chargingOnly = prefs.getBoolean(KEY_CHARGING_ONLY, false),
-    )
-  }
-
-  /** The first build used a single auto_transfer mode. Keep the user's choice on upgrade. */
-  private fun migrateLegacyMode() {
-    val legacy = prefs.getString(LEGACY_KEY, null) ?: return
-    val migrated =
-        when (legacy) {
-          "ALWAYS" -> AutoUploadSettings(enabled = true, wifiOnly = false, chargingOnly = false)
-          "WIFI_ONLY" -> AutoUploadSettings(enabled = true, wifiOnly = true, chargingOnly = false)
-          "WIFI_CHARGING" -> AutoUploadSettings(enabled = true, wifiOnly = true, chargingOnly = true)
-          "NEVER" -> AutoUploadSettings(enabled = false, wifiOnly = true, chargingOnly = false)
-          else -> return
-        }
-    prefs
-        .edit()
-        .putBoolean(KEY_ENABLED, migrated.enabled)
-        .putBoolean(KEY_WIFI_ONLY, migrated.wifiOnly)
-        .putBoolean(KEY_CHARGING_ONLY, migrated.chargingOnly)
-        .remove(LEGACY_KEY)
-        .apply()
-  }
+  private fun load(): AutoUploadSettings =
+      AutoUploadSettings(
+          enabled = prefs.getBoolean(KEY_ENABLED, true),
+          wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, true),
+          chargingOnly = prefs.getBoolean(KEY_CHARGING_ONLY, false),
+      )
 
   companion object {
     private const val KEY_ENABLED = "auto_upload_enabled"
@@ -112,7 +84,6 @@ class UploadSettings private constructor(context: Context) {
     private const val KEY_CHARGING_ONLY = "auto_upload_charging_only"
     private const val KEY_COMPRESS = "upload_compress"
     private const val KEY_RAW_RETENTION = "raw_retention"
-    private const val LEGACY_KEY = "auto_transfer"
 
     @Volatile private var instance: UploadSettings? = null
 

@@ -14,14 +14,6 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
-/**
- * The database keeps everything the app learned from the server. Every row is keyed by the account
- * key of `RemoteRepository.accountKey`, so a row can never be read under another account. A blank
- * account is state that carried no account when it was written: it belongs to the first account
- * that logs in.
- */
-internal const val NO_ACCOUNT = ""
-
 /** The sync state of one recording for one account. */
 @Entity(tableName = "upload_state", primaryKeys = ["account", "recordingId"])
 data class UploadStateRow(

@@ -74,15 +74,7 @@ data class UploadRecord(
     val keepRawOnPhone: Boolean = false,
     /** Analyses the user requested explicitly. A finished manual run wins the default selection. */
     val manualAnalysisIds: List<String> = emptyList(),
-) {
-  val isPending: Boolean
-    get() =
-        phase == UploadPhase.LOCAL ||
-            phase == UploadPhase.QUEUED ||
-            phase == UploadPhase.UPLOADING ||
-            phase == UploadPhase.PROCESSING ||
-            phase == UploadPhase.FAILED
-}
+)
 
 /**
  * When the server confirmed that this recording is complete, or null while it has not. Full

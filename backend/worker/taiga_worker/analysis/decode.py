@@ -270,14 +270,6 @@ def _reconstruct_linear(first: int, last: int, n: int) -> np.ndarray:
     return first + (span * idx) // (n - 1)
 
 
-def _cat(items: Sequence[np.ndarray], dtype, shape_tail: tuple[int, ...] = ()) -> np.ndarray:
-    if not items:
-        return np.empty((0,) + shape_tail, dtype=dtype)
-    if shape_tail:
-        return np.concatenate(items, axis=0).astype(dtype, copy=False)
-    return np.concatenate(items).astype(dtype, copy=False)
-
-
 def _relative_from_elapsed(
     elapsed_ns: np.ndarray,
     phone_ns: np.ndarray,
