@@ -10,7 +10,8 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-private val LightColors =
+// The two schemes are internal so the contrast test can measure the values they ship.
+internal val LightColors =
     lightColorScheme(
         primary = Color(0xFF1F6F5C),
         onPrimary = Color(0xFFFFFFFF),
@@ -41,7 +42,7 @@ private val LightColors =
         surfaceContainerHighest = Color(0xFFEAF1EC),
     )
 
-private val DarkColors =
+internal val DarkColors =
     darkColorScheme(
         primary = Color(0xFF3DD6B0),
         onPrimary = Color(0xFF06241C),

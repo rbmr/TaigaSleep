@@ -156,6 +156,7 @@
   <string name="night_analysis_status_failed">Failed</string>
   <string name="night_sheet_close">Close</string>
   <string name="night_metric_insufficient">Not enough data</string>
+  <string name="night_metric_source">Source: %1$s</string>
   <string name="night_chart_fullscreen">Full screen</string>
   <string name="night_chart_close_fullscreen">Close full screen</string>
   <string name="night_chart_no_value">No data</string>
