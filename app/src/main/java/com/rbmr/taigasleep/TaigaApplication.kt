@@ -9,6 +9,7 @@ import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.guard.GuidanceStore
 import com.rbmr.taigasleep.guard.Readiness
 import com.rbmr.taigasleep.guard.ReadinessState
+import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.RecordingHooks
 import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.tracker.RecordingMode
@@ -41,6 +42,10 @@ class TaigaApplication : Application() {
     CoroutineScope(Dispatchers.IO).launch {
       // Apply the raw-retention setting to any recording whose cleanup time has passed.
       container.syncService.enforceRawRetention()
+    }
+    container.scope.launch {
+      // An export a share target may still be reading is kept for an hour, then removed.
+      Exporter.cleanupOnStart(this@TaigaApplication)
     }
   }
 

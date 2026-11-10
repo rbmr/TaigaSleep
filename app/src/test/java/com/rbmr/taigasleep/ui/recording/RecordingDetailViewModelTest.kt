@@ -14,6 +14,9 @@ import com.rbmr.taigasleep.library.BackupState
 import com.rbmr.taigasleep.library.RecordingSource
 import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.library.RecordingView
+import com.rbmr.taigasleep.recording.ExportContents
+import com.rbmr.taigasleep.recording.ExportProgress
+import com.rbmr.taigasleep.recording.ExportResult
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.sync.RawActionResult
@@ -22,6 +25,7 @@ import com.rbmr.taigasleep.sync.UploadFailure
 import java.io.File
 import java.io.IOException
 import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -104,6 +108,14 @@ private class FakeWork : RecordingWork {
   /** What restoring the files does to the phone, such as writing them and restoring the night. */
   var restores: () -> Unit = {}
 
+  /** The progress the archive writer would report while it runs. */
+  var progressReports: List<ExportProgress> = emptyList()
+
+  /** When set, the export waits for it before returning, so a test can read the state it reports. */
+  var shareGate: CompletableDeferred<Unit>? = null
+  var lastContents: ExportContents? = null
+  var lastResults: List<ExportResult> = emptyList()
+
   override suspend fun refreshRecordings() {
     calls += "refreshRecordings"
   }
@@ -135,9 +147,17 @@ private class FakeWork : RecordingWork {
     return restore
   }
 
-  override suspend fun share(localId: String, onProgress: (Float) -> Unit): Result<Unit> {
+  override suspend fun share(
+      localId: String,
+      contents: ExportContents,
+      results: List<ExportResult>,
+      onProgress: (ExportProgress) -> Unit,
+  ): Result<Unit> {
     calls += "share:$localId"
-    onProgress(1f)
+    lastContents = contents
+    lastResults = results
+    progressReports.forEach(onProgress)
+    shareGate?.await()
     return share
   }
 
@@ -560,20 +580,34 @@ class RecordingDetailViewModelTest {
   }
 
   @Test
-  fun `an export of a night with raw data only zips it`() {
+  fun `an export shares the recording as it was made and keeps the archive for the target`() {
     val model = viewModel()
+    model.openDetails()
 
     model.export()
 
-    assertEquals(listOf("share:local"), work.calls.filter { it.startsWith("share:") || it.startsWith("restore:") })
+    assertEquals(
+        listOf("share:local"),
+        work.calls.filter { it.startsWith("share:") || it.startsWith("restore:") },
+    )
+    // The default export is the recording as it was made: the raw files and the metadata.
+    assertEquals(
+        ExportContents(raw = true, metadata = true, results = false),
+        work.lastContents,
+    )
+    // Nothing removes the archive when the sheet returns: a target may still read it.
+    assertTrue(work.calls.none { it.startsWith("discard") })
     assertFalse(model.state.value.exportBusy)
     assertNull(model.state.value.exportPhase)
+    assertFalse(model.state.value.showDetails)
   }
 
   @Test
   fun `an export of a server-only night restores the raw files first`() {
     library.recordings.value = listOf(recording(hasRaw = false))
     val model = viewModel()
+    model.setExportRaw(true)
+    model.setExportMetadata(true)
 
     model.export()
 
@@ -581,6 +615,91 @@ class RecordingDetailViewModelTest {
         listOf("restore:local:r1", "share:local"),
         work.calls.filter { it.startsWith("share:") || it.startsWith("restore:") },
     )
+  }
+
+  @Test
+  fun `a night whose raw files were deleted defaults to its metadata alone`() {
+    library.recordings.value = listOf(recording(hasRaw = false))
+    val model = viewModel()
+
+    assertEquals(
+        ExportContents(raw = false, metadata = true, results = false),
+        model.state.value.exportContents,
+    )
+
+    model.export()
+
+    // No download for a part the user did not ask for.
+    assertFalse(work.calls.any { it.startsWith("restore:") })
+    assertEquals(ExportContents(raw = false, metadata = true, results = false), work.lastContents)
+  }
+
+  @Test
+  fun `results only exports the payload the phone already saved and nothing else`() {
+    library.cached = payload("a1")
+    library.recordings.value =
+        listOf(recording(analyses = listOf(run("a1").copy(resultDownloaded = true))))
+    val model = viewModel()
+    model.setExportRaw(false)
+    model.setExportMetadata(false)
+    model.setExportResults(true)
+
+    model.export()
+
+    assertFalse(work.calls.any { it.startsWith("restore:") })
+    assertEquals(ExportContents(raw = false, metadata = false, results = true), work.lastContents)
+    assertEquals(1, work.lastResults.size)
+    assertEquals("analysis-a1.json", work.lastResults.single().name)
+    assertTrue("\"a1\"" in work.lastResults.single().json)
+  }
+
+  @Test
+  fun `results that were never saved cannot be exported`() {
+    val model = viewModel()
+    model.setExportRaw(false)
+    model.setExportMetadata(false)
+    model.setExportResults(true)
+
+    assertFalse(model.state.value.canExport)
+
+    model.export()
+
+    assertFalse(work.calls.any { it.startsWith("share:") })
+    assertTrue(
+        model.state.value.actionError.orEmpty().contains("no copy of this night is available")
+    )
+  }
+
+  @Test
+  fun `a short export shows that work is happening instead of a percentage`() {
+    val gate = CompletableDeferred<Unit>()
+    work.shareGate = gate
+    work.progressReports = listOf(ExportProgress(doneBytes = 1, totalBytes = 2))
+    val model = viewModel()
+
+    model.export()
+
+    assertTrue(model.state.value.exportBusy)
+    assertNull(model.state.value.exportProgress)
+    gate.complete(Unit)
+    assertFalse(model.state.value.exportBusy)
+  }
+
+  @Test
+  fun `a large export reports its percentage and its bytes`() {
+    val total = 80L * 1024 * 1024
+    val gate = CompletableDeferred<Unit>()
+    work.shareGate = gate
+    work.progressReports = listOf(ExportProgress(doneBytes = total / 2, totalBytes = total))
+    val model = viewModel()
+
+    model.export()
+
+    assertEquals(0.5f, model.state.value.exportProgress!!, 0.001f)
+    assertEquals(total / 2, model.state.value.exportDoneBytes)
+    assertEquals(total, model.state.value.exportTotalBytes)
+    gate.complete(Unit)
+    assertNull(model.state.value.exportProgress)
   }
 
   @Test

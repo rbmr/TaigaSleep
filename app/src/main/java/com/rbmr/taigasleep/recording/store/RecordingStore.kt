@@ -2,6 +2,8 @@ package com.rbmr.taigasleep.recording.store
 
 import android.content.Context
 import com.rbmr.taigasleep.appContainer
+import com.rbmr.taigasleep.recording.ExportContents
+import com.rbmr.taigasleep.recording.RecordingExport
 import com.rbmr.taigasleep.tracker.RecordingMode
 import java.io.File
 import java.nio.ByteBuffer
@@ -9,8 +11,6 @@ import java.nio.ByteOrder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 import kotlin.random.Random
 
 data class Recording(
@@ -135,35 +135,15 @@ class RecordingStore(val root: File) {
 
   fun delete(id: String): Boolean = File(root, id).takeIf { it.isDirectory }?.deleteRecursively() ?: false
 
-  /** Zips the recording directory to [out]; the archive is never kept beyond the share. */
+  /** Zips the whole recording directory to [out]; the archive is never kept beyond the share. */
   fun zip(id: String, out: File, onProgress: (Float) -> Unit = {}) {
-    val dir = File(root, id)
-    val files =
-        dir.listFiles()
-            ?.filter { it.isFile && !it.name.endsWith(".tmp") && it.name != SYNC_FILE }
-            ?.sortedBy { it.name }
-            ?: emptyList()
-    val total = files.sumOf { it.length() }
-    var written = 0L
-    ZipOutputStream(out.outputStream().buffered()).use { zip ->
-      for (f in files) {
-        zip.putNextEntry(ZipEntry("$id/${f.name}"))
-        f.inputStream().use { input ->
-          val buffer = ByteArray(64 * 1024)
-          while (true) {
-            val read = input.read(buffer)
-            if (read <= 0) break
-            zip.write(buffer, 0, read)
-            written += read
-            if (total > 0) {
-              onProgress((written.toDouble() / total.toDouble()).toFloat().coerceIn(0f, 1f))
-            }
-          }
-        }
-        zip.closeEntry()
-      }
-    }
-    onProgress(1f)
+    RecordingExport.write(
+        id = id,
+        dir = File(root, id),
+        out = out,
+        contents = ExportContents(),
+        onProgress = { onProgress(it.fraction) },
+    )
   }
 
   companion object {

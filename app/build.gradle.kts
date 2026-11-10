@@ -121,7 +121,13 @@ android {
     buildConfig = true
   }
 
-  testOptions { unitTests.isReturnDefaultValues = true }
+  testOptions {
+    unitTests.isReturnDefaultValues = true
+    unitTests.all { test ->
+      // The opt-in export benchmark reads this; a test JVM does not inherit the build's properties.
+      System.getProperty("taiga.benchmark")?.let { test.systemProperty("taiga.benchmark", it) }
+    }
+  }
 
   lint {
     baseline = file("lint-baseline.xml")

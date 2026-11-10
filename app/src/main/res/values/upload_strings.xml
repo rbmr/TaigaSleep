@@ -72,6 +72,7 @@
   <string name="night_details_not_uploaded">Not uploaded</string>
   <string name="night_details_downloading">Downloading raw data… %1$d%%</string>
   <string name="night_details_zipping">Building export… %1$d%%</string>
+  <string name="night_details_zipping_bytes">%1$s of %2$s</string>
   <string name="night_details_preparing">Preparing export…</string>
   <string name="night_details_delete_raw">Delete raw data on this phone</string>
   <string name="night_details_download_raw">Download raw data</string>
@@ -81,6 +82,11 @@
   <string name="night_raw_delete_failed">Could not delete the raw data.</string>
   <string name="night_raw_not_uploaded">Upload the recording before deleting its raw data.</string>
   <string name="night_export_action">Export</string>
+  <string name="night_export_contents">What to export</string>
+  <string name="night_export_raw">Raw recording</string>
+  <string name="night_export_metadata">Metadata</string>
+  <string name="night_export_results">Analysis results</string>
+  <string name="night_export_results_missing">No saved result on this phone.</string>
   <string name="night_delete_action">Delete</string>
   <string name="night_discard_action">Discard</string>
   <string name="night_kicker">NIGHT</string>

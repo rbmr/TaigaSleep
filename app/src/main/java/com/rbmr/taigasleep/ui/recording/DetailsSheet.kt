@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -20,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
@@ -35,6 +38,9 @@ import com.rbmr.taigasleep.ui.theme.taiga
 internal fun RecordingDetailsSheet(
     state: RecordingDetailUiState,
     onDismiss: () -> Unit,
+    onExportRaw: (Boolean) -> Unit,
+    onExportMetadata: (Boolean) -> Unit,
+    onExportResults: (Boolean) -> Unit,
     onExport: () -> Unit,
     onDownloadRaw: () -> Unit,
     onDeleteRaw: () -> Unit,
@@ -111,6 +117,17 @@ internal fun RecordingDetailsSheet(
               Text(text = stringResource(R.string.night_details_download_raw))
             }
       }
+      DetailRow(
+          label = stringResource(R.string.night_details_server),
+          value =
+              when {
+                state.remoteId == null -> stringResource(R.string.night_details_not_uploaded)
+                else ->
+                    state.remoteCreatedAtMs?.takeIf { it > 0 }?.let {
+                      formatRecordingDateAndTime(it)
+                    } ?: stringResource(R.string.night_value_none)
+              },
+      )
       if (state.exportBusy) {
         val percent = ((state.exportProgress ?: 0f) * 100).toInt().coerceIn(0, 100)
         if (state.exportProgress != null) {
@@ -126,24 +143,60 @@ internal fun RecordingDetailsSheet(
                 when (state.exportPhase) {
                   ExportPhase.DOWNLOADING ->
                       stringResource(R.string.night_details_downloading, percent)
-                  ExportPhase.ZIPPING -> stringResource(R.string.night_details_zipping, percent)
+                  ExportPhase.ZIPPING ->
+                      if (state.exportProgress == null) {
+                        stringResource(R.string.night_details_preparing)
+                      } else {
+                        stringResource(R.string.night_details_zipping, percent)
+                      }
                   null -> stringResource(R.string.night_details_preparing)
                 },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (state.exportPhase == ExportPhase.ZIPPING && state.exportProgress != null) {
+          Text(
+              text =
+                  stringResource(
+                      R.string.night_details_zipping_bytes,
+                      Formatter.formatShortFileSize(context, state.exportDoneBytes),
+                      Formatter.formatShortFileSize(context, state.exportTotalBytes),
+                  ),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
       }
-      DetailRow(
-          label = stringResource(R.string.night_details_server),
-          value =
-              when {
-                state.remoteId == null -> stringResource(R.string.night_details_not_uploaded)
-                else ->
-                    state.remoteCreatedAtMs?.takeIf { it > 0 }?.let {
-                      formatRecordingDateAndTime(it)
-                    } ?: stringResource(R.string.night_value_none)
-              },
+      Text(
+          text = stringResource(R.string.night_export_contents),
+          style = MaterialTheme.typography.titleSmall,
+          modifier = Modifier.padding(top = 12.dp),
       )
+      ExportOption(
+          label = stringResource(R.string.night_export_raw),
+          checked = state.exportRaw,
+          enabled = state.rawExportable && !state.exportBusy,
+          onChange = onExportRaw,
+      )
+      ExportOption(
+          label = stringResource(R.string.night_export_metadata),
+          checked = state.exportMetadata,
+          enabled = state.metadataExportable && !state.exportBusy,
+          onChange = onExportMetadata,
+      )
+      ExportOption(
+          label = stringResource(R.string.night_export_results),
+          checked = state.exportResults,
+          enabled = state.resultsExportable && !state.exportBusy,
+          onChange = onExportResults,
+      )
+      if (!state.resultsExportable) {
+        Text(
+            text = stringResource(R.string.night_export_results_missing),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
       Row(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -166,6 +219,30 @@ internal fun RecordingDetailsSheet(
         )
       }
     }
+  }
+}
+
+@Composable
+private fun ExportOption(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+  Row(
+      modifier =
+          Modifier.fillMaxWidth()
+              .toggleable(
+                  value = checked,
+                  enabled = enabled,
+                  role = Role.Checkbox,
+                  onValueChange = onChange,
+              )
+              .padding(vertical = 2.dp),
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(text = label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+    Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
   }
 }
 

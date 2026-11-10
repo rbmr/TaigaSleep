@@ -275,6 +275,34 @@ only completes a delete of the account that asked. Raw cleanup counts only a
 confirmation made by the active account, so switching servers cannot trim files
 the new server never received.
 
+## Exporting a recording
+
+Open a night and use its **Night details** sheet to export it. The sheet chooses what
+the archive contains:
+
+- **Raw recording** — the stream logs (`hr.log`, `ecg.log`, `acc.log`).
+- **Metadata** — everything that is not a stream log: `meta.json`, the event log and
+  any other file of the recording directory.
+- **Analysis results** — the payload of every run this phone has already saved, one
+  JSON file per run under `analysis/`.
+
+Raw and metadata are selected by default because they are the recording as it was
+made; analysis results are opt-in, and a night without a saved result does not offer
+them. Any combination works, including results only.
+
+The archive is built in the cache directory while the sheet reports how far it is: an
+indeterminate bar for a short export and a percentage with the bytes written for a
+large one. Stream logs are stored in the archive without deflating them, which is what
+made a large night take seconds before. The archive goes to the share sheet and stays
+in the cache until the next export replaces it; exports an earlier run left are removed
+when the app starts, but only once they are an hour old, because a share target can
+still be reading the file after the chooser has closed.
+
+An export never asks for an analysis and never downloads a result: it writes the
+payloads the result cache already holds. The only server round trip is the existing
+restore of the raw files, and only when raw data is selected for a night whose copy
+was deleted from this phone.
+
 ## Deleting a recording
 
 Open a night and use its **Night details** sheet to export or delete it.
