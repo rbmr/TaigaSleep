@@ -12,8 +12,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Opt-in ML stager. The base worker (and its Docker image) stays small and
-# does not install torch, wav2sleep or a model checkpoint.
+# Opt-in ML stager for source installs. The published default Docker image
+# already includes it; without the extra, a source environment installs neither
+# torch, wav2sleep nor a model checkpoint.
 wav2sleep = [
     "torch>=2.7.1",
     "wav2sleep @ git+https://github.com/joncarter1/wav2sleep@278e30463c8149c4e6899b8784da492fec695bd9 ; python_version >= '3.11'",
