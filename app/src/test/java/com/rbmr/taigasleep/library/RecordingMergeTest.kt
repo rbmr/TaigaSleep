@@ -27,6 +27,7 @@ import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -34,9 +35,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -44,8 +43,6 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class RecordingMergeTest {
-  @get:Rule val temporary = TemporaryFolder()
-
   private val account = "https://sleep.example|me@example.com"
 
   private lateinit var database: TaigaDatabase
@@ -78,11 +75,12 @@ class RecordingMergeTest {
           sensorName = "Polar H10",
       )
 
-  /** A result cache holding [runs] for the local night, as the app keeps finished payloads. */
-  private fun cacheWith(vararg runs: AnalysisDto): ResultCache =
-      ResultCache(temporary.newFolder("results")).also { cache ->
-        runs.forEach { run -> cache.save(account, "local", run.id, run) }
-      }
+  /** The payloads the app keeps for the local night, as the database publishes them. */
+  private fun cacheWith(vararg runs: AnalysisDto): Map<String, List<AnalysisDto>> {
+    val results = ResultCache(database.analysisResults())
+    runs.forEach { run -> runBlocking { results.save(account, "local", run.id, run) } }
+    return runBlocking { results.observe(account).first() }
+  }
 
   @Test
   fun aFinishedLocalResultSurvivesWithoutTheServer() {
@@ -105,8 +103,7 @@ class RecordingMergeTest {
                 listOf(local),
                 mapOf("local" to record),
                 null,
-                results = cache,
-                account = account,
+                cachedResults = cache,
             )
             .single()
 
@@ -135,8 +132,7 @@ class RecordingMergeTest {
                 listOf(local),
                 mapOf("local" to uploaded),
                 null,
-                results = cache,
-                account = account,
+                cachedResults = cache,
             )
             .single()
 
@@ -158,8 +154,7 @@ class RecordingMergeTest {
                 listOf(local),
                 mapOf("local" to record),
                 remote,
-                results = cache,
-                account = account,
+                cachedResults = cache,
             )
             .single()
 
@@ -262,8 +257,7 @@ class RecordingMergeTest {
                 listOf(local),
                 mapOf("local" to runBlocking { store.record("local")!! }),
                 null,
-                results = cache,
-                account = account,
+                cachedResults = cache,
             )
             .single()
 
@@ -284,13 +278,10 @@ class RecordingMergeTest {
             ),
             RecordingSummaryDto(recording = recording(id = "kept")),
         )
-    val history =
-        RemoteHistoryCache(File(temporary.newFolder("history-gone"), "remote-recordings.json")) {
-          account
-        }
-    history.save(account, remote)
+    val history = RemoteHistoryCache(database.remoteRecordings(), account = { account })
+    runBlocking { history.save(account, remote) }
 
-    history.remove(account, "gone")
+    runBlocking { history.remove(account, "gone") }
 
     val nights =
         buildRecordings(emptyList(), emptyMap(), remote, hiddenRemoteIds = history.removed.value)
@@ -441,8 +432,7 @@ class RecordingMergeTest {
                 listOf(trimmed),
                 mapOf("local" to record),
                 null,
-                results = cache,
-                account = account,
+                cachedResults = cache,
             )
             .single()
 
@@ -564,8 +554,7 @@ class RecordingMergeTest {
                 listOf(local),
                 mapOf("local" to record),
                 remote,
-                results = cache,
-                account = account,
+                cachedResults = cache,
             )
             .single()
 
@@ -588,8 +577,7 @@ class RecordingMergeTest {
                 listOf(local),
                 mapOf("local" to record),
                 null,
-                results = cache,
-                account = account,
+                cachedResults = cache,
             )
             .single()
 

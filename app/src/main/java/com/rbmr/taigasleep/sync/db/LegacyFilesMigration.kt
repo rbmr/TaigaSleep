@@ -1,13 +1,13 @@
 package com.rbmr.taigasleep.sync.db
 
 import android.content.SharedPreferences
+import com.rbmr.taigasleep.backend.AnalysisDto
+import com.rbmr.taigasleep.backend.AnalysisResultDto
+import com.rbmr.taigasleep.backend.RecordingSummaryListDto
 import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.PendingDelete
-import com.rbmr.taigasleep.sync.RemoteHistoryCache
-import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.UploadRecord
-import com.rbmr.taigasleep.sync.resultCacheDirectoryName
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +22,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Moves what an older version kept in separate files into [TaigaDatabase], once. Every source it
@@ -214,7 +215,7 @@ class LegacyFilesMigration(
       legacy: String?,
       accounts: Set<String>,
   ): HistoryRows {
-    val cache = RemoteHistoryCache(historyFile, account = { active })
+    val cache = LegacyHistoryFile(historyFile)
     val adopt =
         legacy?.takeIf { it != active }?.let { old ->
           if (cache.load(active) == null && cache.load(old) != null) old else null
@@ -234,7 +235,11 @@ class LegacyFilesMigration(
     for ((savedUnder, owner) in documents) {
       cache.load(savedUnder)?.items?.forEachIndexed { position, item ->
         recordings += item.recording.toRow(owner, position)
-        analyses += item.analyses.map { run -> run.toRemoteAnalysisRow(owner) }
+        // The row groups its runs by the recording the list puts them under, which is what a read
+        // of the list needs to put them back together.
+        analyses += item.analyses.map { run ->
+          run.copy(recording = item.recording.id).toRemoteAnalysisRow(owner)
+        }
       }
       cache.selected(savedUnder).forEach { (key, analysisId) ->
         if (key.isNotBlank() && analysisId.isNotBlank()) {
@@ -262,7 +267,6 @@ class LegacyFilesMigration(
               }
 
   private fun readResults(directory: File, account: String): List<AnalysisResultRow> {
-    val cache = ResultCache(directory)
     // A run keyed per analysis wins over the recording's single payload of the same run.
     val rows = linkedMapOf<Pair<String, String>, AnalysisResultRow>()
     val perAnalysis = mutableSetOf<Pair<String, String>>()
@@ -270,7 +274,7 @@ class LegacyFilesMigration(
         .orEmpty()
         .sortedBy { it.name }) {
       val stem = file.name.removeSuffix(".json")
-      val analysis = cache.load(NO_ACCOUNT, stem) ?: continue
+      val analysis = readLegacyAnalysis(file) ?: continue
       if (analysis.id.isBlank()) continue
       val key = recordingKeyOf(stem, analysis.id)
       val id = key to analysis.id
@@ -396,6 +400,95 @@ internal class LegacyPendingDeleteFile(private val prefs: SharedPreferences) {
     const val KEY = "pending_remote_deletes"
   }
 }
+
+/**
+ * The `remote-recordings.json` document of an older version, in both the account-keyed format and
+ * the single-account one. Only [LegacyFilesMigration] reads it.
+ */
+internal class LegacyHistoryFile(private val file: File) {
+  fun load(accountKey: String): RecordingSummaryListDto? {
+    if (accountKey.isBlank()) return null
+    return runCatching { read()?.accounts?.get(accountKey)?.recordings }.getOrNull()
+  }
+
+  fun selected(accountKey: String): Map<String, String> {
+    if (accountKey.isBlank()) return emptyMap()
+    return runCatching { read()?.accounts?.get(accountKey)?.selected }.getOrNull().orEmpty()
+  }
+
+  private fun read(): StoredHistories? {
+    if (!file.isFile) return null
+    return runCatching {
+          val element = rowJson.parseToJsonElement(file.readText())
+          if ((element as? JsonObject)?.containsKey(KEY_ACCOUNTS) == true) {
+            rowJson.decodeFromJsonElement<StoredHistories>(element)
+          } else {
+            val legacy = rowJson.decodeFromJsonElement<LegacyCachedRemoteHistory>(element)
+            StoredHistories(
+                mapOf(
+                    legacy.accountKey to
+                        CachedRemoteHistory(legacy.recordings, legacy.selected)
+                )
+            )
+          }
+        }
+        .getOrNull()
+  }
+
+  private companion object {
+    const val KEY_ACCOUNTS = "accounts"
+  }
+}
+
+/**
+ * One payload file of an older version's results cache, read as the API v1 shapes it. An older app
+ * cached the flat payload, where the fields of the result sat beside the id; such a file is the
+ * result of a finished run. Only [LegacyFilesMigration] reads these.
+ */
+internal fun readLegacyAnalysis(file: File): AnalysisDto? {
+  if (!file.isFile) return null
+  return runCatching {
+        val root = rowJson.parseToJsonElement(file.readText()) as JsonObject
+        if ("result" in root || "algorithm" in root) {
+          rowJson.decodeFromJsonElement<AnalysisDto>(root)
+        } else {
+          val result = rowJson.decodeFromJsonElement<AnalysisResultDto>(root)
+          AnalysisDto(
+              id = root["id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+              recording = root["session"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+              algorithm = result.model,
+              version = result.model_version,
+              status = "succeeded",
+              result = result,
+          )
+        }
+      }
+      .getOrNull()
+}
+
+/** The name one account or one recording key was kept under: every other character became `_`. */
+internal fun resultCacheDirectoryName(value: String): String =
+    value.map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("")
+
+/** The list one account's entry in the history document held. */
+@Serializable
+private data class CachedRemoteHistory(
+    val recordings: RecordingSummaryListDto = RecordingSummaryListDto(),
+    /** The run each recording shows, by recording key. */
+    val selected: Map<String, String> = emptyMap(),
+)
+
+/** The account-keyed history document an older version wrote. */
+@Serializable
+private data class StoredHistories(val accounts: Map<String, CachedRemoteHistory> = emptyMap())
+
+/** The single-account history document an even older version wrote. */
+@Serializable
+private data class LegacyCachedRemoteHistory(
+    val accountKey: String = "",
+    val recordings: RecordingSummaryListDto = RecordingSummaryListDto(),
+    val selected: Map<String, String> = emptyMap(),
+)
 
 /**
  * The account-keyed document of one recording, as an older version wrote it. It ports directly to

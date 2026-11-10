@@ -17,15 +17,18 @@ import com.rbmr.taigasleep.sync.RecordingSnapshot
 import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.compatible
 import com.rbmr.taigasleep.sync.remoteKey
-import com.rbmr.taigasleep.sync.withoutRecordings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -35,8 +38,11 @@ import kotlinx.coroutines.withContext
  * The one place that turns local recordings, the app's durable recording state and the cached server
  * summaries into [RecordingView] snapshots. The UI reads this and never merges the stores itself.
  *
- * The raw bytes and the analyses stay independent: [RecordingView.backup] says where the bytes are and
- * [RecordingView.analyses] lists every requested result. [RecordingView.status] is only a derived display summary.
+ * The server's list, the run each recording shows and the cached payloads come from the database as
+ * queries, so a write anywhere in the app reaches the screens without a reload: this class publishes
+ * those flows joined with the recordings on disk. The raw bytes and the analyses stay independent:
+ * [RecordingView.backup] says where the bytes are and [RecordingView.analyses] lists every requested
+ * result. [RecordingView.status] is only a derived display summary.
  */
 class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, RecordingSource {
   private val context = context.applicationContext
@@ -48,12 +54,8 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   private val uploads = context.appContainer.uploadStore
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-  private val remoteSummaries = MutableStateFlow<RecordingSummaryListDto?>(null)
   private val overrides = MutableStateFlow<Map<String, RemoteOverride>>(emptyMap())
-  /** The run each recording shows, remembered by the cached History. */
-  private val selectedAnalyses = MutableStateFlow<Map<String, String>>(emptyMap())
   private var loadedAccount: String? = null
-  private val historyLock = Any()
 
   /**
    * Recordings whose server copy must not be shown: a delete is queued for them, or it completed
@@ -63,7 +65,28 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
    */
   private val hiddenRemotely: StateFlow<Set<String>> =
       combine(deletes.pending, history.removed) { pending, removed -> pending.keys + removed }
-          .stateIn(scope, SharingStarted.Eagerly, deletes.pending.value.keys)
+          .stateIn(scope, SharingStarted.Eagerly, deletes.pending.value.keys + history.removed.value)
+
+  /** The saved server list of the account that is active now, as the database publishes it. */
+  @OptIn(ExperimentalCoroutinesApi::class)
+  private val remoteSummaries: StateFlow<RecordingSummaryListDto?> =
+      remote.accounts
+          .flatMapLatest { account -> history.observe(account.orEmpty()).onStart { emit(null) } }
+          .stateIn(scope, SharingStarted.Eagerly, null)
+
+  /** The run each recording of the active account shows, as the database publishes it. */
+  @OptIn(ExperimentalCoroutinesApi::class)
+  private val selectedAnalyses: StateFlow<Map<String, String>> =
+      remote.accounts
+          .flatMapLatest { account -> history.observeSelected(account.orEmpty()) }
+          .stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
+  /** The payloads this phone holds for the active account, by the History key they belong to. */
+  @OptIn(ExperimentalCoroutinesApi::class)
+  private val cachedResults: StateFlow<Map<String, List<AnalysisDto>>> =
+      remote.accounts
+          .flatMapLatest { account -> results.observe(account.orEmpty()) }
+          .stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
   /** The one connection state, shared with the screens so they do not touch the remote store. */
   override val remoteStatus = remote.status
@@ -71,70 +94,56 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   /** The active account, which scopes everything the rows below are built from. */
   private fun account(): String = remote.accountKey.orEmpty()
 
-  override val recordings: StateFlow<List<RecordingView>> =
+  /** The stores a History row is built from, the selection and the fresh reads included. */
+  private val libraryState: Flow<LibraryState> =
       combine(
-              combine(
-                  RecordingRepository.sessions,
-                  sync.records,
-                  remoteSummaries,
-                  overrides,
-                  hiddenRemotely,
-              ) { local, records, summary, fresh, hidden ->
-                HistoryInputs(local, records, summary, fresh, hidden)
-              },
-              selectedAnalyses,
-          ) { inputs, selected ->
+              RecordingRepository.sessions,
+              sync.records,
+              remoteSummaries,
+              hiddenRemotely,
+          ) { local, records, summary, hidden ->
+            LibraryState(local, records, summary, hidden)
+          }
+          .combine(selectedAnalyses) { state, selected -> state.copy(selected = selected) }
+          .combine(overrides) { state, fresh -> state.copy(overrides = fresh) }
+
+  override val recordings: StateFlow<List<RecordingView>> =
+      combine(libraryState, cachedResults) { state, cached ->
             buildRecordings(
-                recordings = inputs.local,
-                records = inputs.records,
-                remote = inputs.remote,
-                overrides = inputs.overrides,
-                hiddenRemoteIds = inputs.hidden,
-                selectedAnalysisIds = selected,
-                results = results,
-                account = account(),
+                recordings = state.local,
+                records = state.records,
+                remote = state.remote,
+                overrides = state.overrides,
+                hiddenRemoteIds = state.hidden,
+                selectedAnalysisIds = state.selected,
+                cachedResults = cached,
             )
           }
           .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
   init {
-    // A delete that completed dropped the recording from the cached list; the copy in memory goes too.
-    scope.launch {
-      history.removed.collect { removed ->
-        if (removed.isNotEmpty()) {
-          remoteSummaries.update { it?.withoutRecordings(removed) }
-        }
-      }
-    }
     reload()
   }
 
-  /** Re-read the cached server list, for example after the account or the app resumed. */
+  /** Catch up with a change of account, for example after the app resumed. */
   override fun reload() {
+    // Every store that publishes account-scoped rows follows the account that is active now.
     history.refreshAccount()
     val account = remote.accountKey
     if (account != loadedAccount) {
       // A fresh recording list belongs to one account; never show it after switching accounts.
       overrides.value = emptyMap()
-      selectedAnalyses.value = emptyMap()
+      // What an older version saved under the address and the email belongs to this account now.
+      val legacy = remote.legacyAccountKey
+      if (account != null && legacy != null) scope.launch { history.adopt(legacy, account) }
     }
-    if (account == null) {
-      loadedAccount = null
-      remoteSummaries.value = null
-      return
-    }
-    // What an older version saved under the address and the email belongs to this account now.
-    remote.legacyAccountKey?.let { history.adopt(it, account) }
-    if (account == loadedAccount) return
     loadedAccount = account
-    remoteSummaries.value = history.load(account)
-    selectedAnalyses.value = history.selected(account)
   }
 
   override fun recording(key: String): RecordingView? = recordings.value.firstOrNull { it.key == key }
 
   /** The full cached payload for one analysis, if the active account's copy is on this phone. */
-  override fun cachedResult(key: String, analysisId: String?): AnalysisDto? =
+  override suspend fun cachedResult(key: String, analysisId: String?): AnalysisDto? =
       results.load(account(), key, analysisId)
 
   /** Whether another account already has a server copy of this recording. */
@@ -142,24 +151,26 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
       uploads.otherAccount(localId) != null
 
   /** Fetch the server's recording list and cache it. Does not touch local recordings. */
-  suspend fun refreshList(): Result<Unit> =
+  suspend fun refreshList(): Result<Unit> = fetchList().map { }
+
+  /**
+   * Reads the list, saves it for [session]'s account and returns what was saved, or null when the
+   * session ended during the fetch.
+   */
+  private suspend fun fetchList(): Result<RecordingSummaryListDto?> =
       withContext(Dispatchers.IO) {
         val session =
             remote.session()
                 ?: return@withContext Result.failure(IllegalStateException("login required"))
         try {
-          fetchRemoteList(
-              session = session,
-              activeAccount = { remote.accountKey },
-              hidden = ::hiddenNow,
-              save = { account, list ->
-                synchronized(historyLock) {
-                  history.save(account, list)
-                  remoteSummaries.value = list
-                }
-              },
+          Result.success(
+              fetchRemoteList(
+                  session = session,
+                  activeAccount = { remote.accountKey },
+                  hidden = ::hiddenNow,
+                  save = { account, list -> history.save(account, list) },
+              )
           )
-          Result.success(Unit)
         } catch (e: TaigaUnauthorizedException) {
           if (remote.accountKey == session.account) remote.logout()
           Result.failure(e)
@@ -274,7 +285,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   override suspend fun reconcile() {
     withContext(Dispatchers.IO) {
       reload()
-      if (refreshList().isFailure) return@withContext
+      val fetched = fetchList().getOrNull() ?: return@withContext
       val hidden = hiddenNow()
       val records = sync.records.value
       // The recordings as the screens see them now, with the list that was just fetched. They
@@ -283,12 +294,11 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
           buildRecordings(
               recordings = context.appContainer.recordingStore.list(),
               records = records,
-              remote = remoteSummaries.value,
+              remote = fetched,
               overrides = overrides.value,
               hiddenRemoteIds = hidden,
               selectedAnalysisIds = selectedAnalyses.value,
-              results = results,
-              account = account(),
+              cachedResults = cachedResults.value,
           )
       for (pending in pendingRecordings(current, records)) {
         if (pending.recordingId in hidden) continue
@@ -325,26 +335,20 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
 
   /**
    * Keeps the cached History list in line with a recording that was just read, so a cold start
-   * shows it too. Only what History shows is written to disk, which keeps an upload (a change of
-   * the recording per chunk) from rewriting the cache each time.
+   * shows it too. Only what History shows is written, which keeps an upload (a change of
+   * the recording per chunk) from rewriting the row each time.
    */
-  private fun rememberSummary(snapshot: RecordingSnapshot) {
+  private suspend fun rememberSummary(snapshot: RecordingSnapshot) {
     if (snapshot.recording.id in hiddenNow()) return
+    val account = remote.accountKey ?: return
     val fresh = RecordingSummaryDto(snapshot.recording, snapshot.analyses)
-    var changed = false
-    remoteSummaries.update { list ->
-      if (list == null) return@update null
-      val at = list.items.indexOfFirst { it.recording.id == fresh.recording.id }
-      val old = list.items.getOrNull(at)
-      changed =
-          old == null ||
-              old.analyses != fresh.analyses ||
-              old.recording.complete != fresh.recording.complete
-      RecordingSummaryListDto(
-          if (at >= 0) list.items.toMutableList().also { it[at] = fresh } else list.items + fresh
-      )
+    val current = remoteSummaries.value?.items?.firstOrNull { it.recording.id == fresh.recording.id }
+    if (current != null &&
+        current.analyses == fresh.analyses &&
+        current.recording.complete == fresh.recording.complete) {
+      return
     }
-    if (changed) saveSummaries()
+    history.saveSummary(account, fresh)
   }
 
   /**
@@ -352,12 +356,9 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
    * state: which run to show is a property of the row, and the run itself belongs to the server.
    */
   private fun rememberSelected(key: String, analysisId: String?) {
+    val account = remote.accountKey ?: return
     if (selectedAnalyses.value[key] == analysisId) return
-    selectedAnalyses.update {
-      if (analysisId == null) it - key else it + (key to analysisId)
-    }
-    val account = remote.accountKey
-    if (account != null) history.select(account, key, analysisId)
+    scope.launch { history.select(account, key, analysisId) }
   }
 
   /**
@@ -365,7 +366,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
    * the saved copy, so History cannot keep it with an error. Its sync state says it is only on this
    * phone when the phone still has the recording.
    */
-  private fun forget(key: String, recordingId: String) {
+  private suspend fun forget(key: String, recordingId: String) {
     overrides.update { it - key }
     dropRemote(recordingId)
   }
@@ -375,8 +376,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
    * recording with no copy on the phone stays out of lists fetched later, so an older fetch cannot
    * add it back; one that is still on the phone can be uploaded again, so it is only dropped now.
    */
-  private fun dropRemote(recordingId: String) {
-    remoteSummaries.update { it?.withoutRecordings(setOf(recordingId)) }
+  private suspend fun dropRemote(recordingId: String) {
     val onPhone = context.appContainer.recordingStore.dir(recordingId).isDirectory
     remote.accountKey?.let { history.remove(it, recordingId, keepOut = !onPhone) }
   }
@@ -387,25 +387,17 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
    */
   private fun hiddenNow(): Set<String> = deletes.pending.value.keys + history.removed.value
 
-  private fun saveSummaries() {
-    synchronized(historyLock) {
-      val list = remoteSummaries.value ?: return
-      val account = remote.accountKey ?: return
-      if (account != loadedAccount) return
-      history.save(account, list.withoutRecordings(hiddenNow()))
-    }
-  }
-
   companion object {
     private val HR_ONLY = RecordingConfig(hr = true, ecg = false, acc = false)
   }
 }
 
-/** The five stores a History row is built from, taken together so the selection can join them. */
-private data class HistoryInputs(
+/** The stores a History row is built from, taken together so the selection can join them. */
+private data class LibraryState(
     val local: List<Recording>,
     val records: Map<String, UploadRecord>,
     val remote: RecordingSummaryListDto?,
-    val overrides: Map<String, RemoteOverride>,
     val hidden: Set<String>,
+    val selected: Map<String, String> = emptyMap(),
+    val overrides: Map<String, RemoteOverride> = emptyMap(),
 )

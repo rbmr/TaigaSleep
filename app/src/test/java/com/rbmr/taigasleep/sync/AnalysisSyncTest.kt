@@ -12,8 +12,6 @@ import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.sync.db.TaigaDatabase
 import com.rbmr.taigasleep.sync.db.storeScope
 import com.rbmr.taigasleep.sync.db.testDatabase
-import java.io.File
-import java.nio.file.Files
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -86,7 +84,6 @@ private const val ACCOUNT = "https://sleep.example|u1"
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class AnalysisSyncTest {
-  private lateinit var root: File
   private lateinit var results: ResultCache
   private lateinit var database: TaigaDatabase
   private lateinit var scope: CoroutineScope
@@ -95,9 +92,8 @@ class AnalysisSyncTest {
 
   @Before
   fun setUp() {
-    root = Files.createTempDirectory("taiga-sync").toFile()
-    results = ResultCache(root)
     database = testDatabase()
+    results = ResultCache(database.analysisResults())
     scope = storeScope()
     store = UploadStore(database.uploadStates(), accounts, scope)
   }
@@ -106,7 +102,6 @@ class AnalysisSyncTest {
   fun tearDown() {
     scope.cancel()
     database.close()
-    root.deleteRecursively()
   }
 
   /** The store's row for one recording, as the database has it once the write returned. */
@@ -133,10 +128,10 @@ class AnalysisSyncTest {
     val record = record("r1")!!
     assertEquals(UploadPhase.DONE, record.phase)
     assertTrue(record.onServer)
-    assertTrue(results.has(ACCOUNT, "r1", "a1"))
+    assertTrue(runBlocking { results.has(ACCOUNT, "r1", "a1") })
     assertEquals(
         81.0,
-        results.load(ACCOUNT, "r1", "a1")?.result?.items?.single()?.value ?: 0.0,
+        runBlocking { results.load(ACCOUNT, "r1", "a1") }?.result?.items?.single()?.value ?: 0.0,
         0.001,
     )
   }
@@ -221,8 +216,8 @@ class AnalysisSyncTest {
 
     runBlocking { AnalysisSync(client, accountStore, results, ACCOUNT).refresh("r1", "r1") }
 
-    assertTrue(results.has(ACCOUNT, "r1", "a1"))
-    assertFalse(results.has(other, "r1", "a1"))
+    assertTrue(runBlocking { results.has(ACCOUNT, "r1", "a1") })
+    assertFalse(runBlocking { results.has(other, "r1", "a1") })
     assertEquals(UploadPhase.DONE, runBlocking { accountStore.record("r1", ACCOUNT) }?.phase)
     assertNull(runBlocking { accountStore.record("r1", other) })
   }

@@ -6,13 +6,10 @@ import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingSummaryDto
 import com.rbmr.taigasleep.backend.RecordingSummaryListDto
 import com.rbmr.taigasleep.sync.PendingDelete
-import com.rbmr.taigasleep.sync.RemoteHistoryCache
-import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.UploadStore
-import com.rbmr.taigasleep.sync.resultCacheDirectoryName
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.CoroutineScope
@@ -264,6 +261,54 @@ class LegacyFilesMigrationTest {
     )
   }
 
+  @Test
+  fun `the flat payload of an older version is read as the finished run it holds`() {
+    // The flat shape the app cached before API v1: the result's fields sit beside the id.
+    val file =
+        File(root, "night-a1.json").apply {
+          writeText(
+              """
+              {"id":"a1","session":"s1","model":"sleep-ecg","model_version":"1.0.0","status":"done",
+               "contract_version":3,
+               "stages":{"epoch_seconds":30,"start_unix_ms":1000,"count":2,
+                         "segments":[{"stage":"deep","count":2}]},
+               "sleep_quality":{"score":77.0},
+               "metrics":{"total_sleep_s":60.0},"warnings":["short"]}
+              """
+                  .trimIndent()
+          )
+        }
+
+    val loaded = readLegacyAnalysis(file)
+
+    assertNotNull(loaded)
+    assertEquals("a1", loaded?.id)
+    assertEquals("s1", loaded?.recording)
+    assertEquals("sleep-ecg", loaded?.algorithm)
+    assertEquals("1.0.0", loaded?.version)
+    assertTrue(loaded?.isSucceeded == true)
+    assertTrue(loaded?.result?.items?.isEmpty() == true)
+    assertEquals("deep", loaded?.result?.stages?.segments?.single()?.stage)
+    assertEquals(listOf("short"), loaded?.result?.warnings)
+  }
+
+  @Test
+  fun `a payload file that is not an analysis is ignored`() {
+    val file = File(root, "night-a1.json").apply { writeText("[1,2,3]") }
+
+    assertNull(readLegacyAnalysis(file))
+    assertNull(readLegacyAnalysis(File(root, "missing.json")))
+  }
+
+  @Test
+  fun `a history file that cannot be read is ignored`() {
+    val file = File(root, "history/remote-recordings.json").apply { writeJson("not json") }
+    val cache = LegacyHistoryFile(file)
+
+    assertNull(cache.load(A))
+    assertTrue(cache.selected(A).isEmpty())
+  }
+
   private fun assertUploadStatesMatchTheFiles(expected: Map<String, Map<String, UploadRecord>>) {
     for ((account, records) in expected) {
       assertEquals(
@@ -276,12 +321,12 @@ class LegacyFilesMigrationTest {
   }
 
   private fun assertRemoteHistoryMatchesTheStore(accounts: List<String>, legacy: String? = null) {
-    val cache = RemoteHistoryCache(fixture.historyFile, account = { A })
-    // The app moves a list saved under the address and the email to the account key on start.
-    if (legacy != null) cache.adopt(legacy, A)
+    val cache = LegacyHistoryFile(fixture.historyFile)
     for (account in accounts) {
-      val stored = cache.load(account)
-      assertNotNull("the fixture has no list for $account", stored)
+      // The app moves a list saved under the address and the email to the account key on start.
+      val savedUnder = legacy ?: account
+      val stored = cache.load(savedUnder)
+      assertNotNull("the fixture has no list for $savedUnder", stored)
       val recordings = runBlocking { database.remoteRecordings().rows(account) }
       val runs = runBlocking { database.remoteRecordings().analysisRows(account) }
       val migrated =
@@ -302,7 +347,7 @@ class LegacyFilesMigrationTest {
           )
       assertEquals(expected, migrated)
       assertEquals(
-          cache.selected(account),
+          cache.selected(savedUnder),
           runBlocking { database.remoteRecordings().selections(account) }
               .associate { it.recordingKey to it.analysisId },
       )
@@ -310,9 +355,8 @@ class LegacyFilesMigrationTest {
   }
 
   private fun assertAnalysisResultsMatchTheStore(runs: List<Triple<String, String, String>>) {
-    val results = ResultCache(fixture.analysisRoot)
     for ((account, key, analysisId) in runs) {
-      val stored = results.load(account, key, analysisId)
+      val stored = legacyPayload(account, key, analysisId)
       assertNotNull("the fixture has no payload for $key/$analysisId", stored)
       val migrated = runBlocking { database.analysisResults().row(account, key, analysisId) }
       assertEquals(stored, migrated?.toAnalysisDto())
@@ -328,6 +372,27 @@ class LegacyFilesMigrationTest {
           runBlocking { database.analysisResults().rows(account) }.size,
       )
     }
+  }
+
+  /**
+   * One payload as an older version's results cache kept it: per analysis first, then per night.
+   * The files an even older version left directly under the root belong to the logged-in account.
+   */
+  private fun legacyPayload(account: String, key: String, analysisId: String): AnalysisDto? {
+    val directories =
+        listOf(File(fixture.analysisRoot, resultCacheDirectoryName(account)), fixture.analysisRoot)
+    for (directory in directories) {
+      readLegacyAnalysis(File(directory, "${resultCacheDirectoryName("$key-$analysisId")}.json"))
+          ?.let {
+            return it
+          }
+      readLegacyAnalysis(File(directory, "${resultCacheDirectoryName(key)}.json"))
+          ?.takeIf { it.id == analysisId }
+          ?.let {
+            return it
+          }
+    }
+    return null
   }
 
   private fun assertPendingDeletesMatchTheFiles(expected: Map<String, PendingDelete>) {

@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -58,6 +59,10 @@ interface RemoteRecordingDao {
   @Query("SELECT * FROM remote_selection WHERE account = :account ORDER BY recordingKey")
   suspend fun selections(account: String): List<RemoteSelectionRow>
 
+  /** How many recordings this account's saved list holds; zero means no list was ever saved. */
+  @Query("SELECT COUNT(*) FROM remote_recording WHERE account = :account")
+  suspend fun count(account: String): Int
+
   @Upsert suspend fun upsert(rows: List<RemoteRecordingRow>)
 
   @Upsert suspend fun upsertAnalyses(rows: List<RemoteAnalysisRow>)
@@ -72,6 +77,53 @@ interface RemoteRecordingDao {
 
   @Query("DELETE FROM remote_selection WHERE account = :account AND recordingKey = :recordingKey")
   suspend fun deleteSelection(account: String, recordingKey: String)
+
+  @Query("DELETE FROM remote_recording WHERE account = :account")
+  suspend fun deleteList(account: String)
+
+  @Query("DELETE FROM remote_analysis WHERE account = :account")
+  suspend fun deleteAllAnalyses(account: String)
+
+  @Query("UPDATE remote_recording SET account = :to WHERE account = :from")
+  suspend fun moveList(from: String, to: String)
+
+  @Query("UPDATE remote_analysis SET account = :to WHERE account = :from")
+  suspend fun moveAnalyses(from: String, to: String)
+
+  @Query("UPDATE remote_selection SET account = :to WHERE account = :from")
+  suspend fun moveSelections(from: String, to: String)
+
+  /** Replaces the saved list of one account, leaving the run each recording shows untouched. */
+  @Transaction
+  suspend fun replace(
+      account: String,
+      rows: List<RemoteRecordingRow>,
+      analyses: List<RemoteAnalysisRow>,
+  ) {
+    deleteList(account)
+    deleteAllAnalyses(account)
+    if (rows.isNotEmpty()) upsert(rows)
+    if (analyses.isNotEmpty()) upsertAnalyses(analyses)
+  }
+
+  /** Replaces the runs one recording of one account lists, leaving its row where it is. */
+  @Transaction
+  suspend fun replaceAnalyses(
+      account: String,
+      recordingId: String,
+      rows: List<RemoteAnalysisRow>,
+  ) {
+    deleteAnalyses(account, recordingId)
+    if (rows.isNotEmpty()) upsertAnalyses(rows)
+  }
+
+  /** Writes one account's saved list and runs under another key, for a list that changed naming. */
+  @Transaction
+  suspend fun adopt(from: String, to: String) {
+    moveList(from, to)
+    moveAnalyses(from, to)
+    moveSelections(from, to)
+  }
 }
 
 /** The downloaded payloads of one account, one row per run and recording key. */

@@ -11,7 +11,6 @@ import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
-import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.recordingIdOf
 import com.rbmr.taigasleep.sync.remoteKey
 import java.text.SimpleDateFormat
@@ -151,14 +150,18 @@ data class RecordingView(
 
 /**
  * Merge the local recordings and the app's durable record state with what the analysis caches say a
- * recording shows. The server's list and the result cache are the only sources of analysis facts; the
- * sync record only says where the bytes are and whether they are moving.
+ * recording shows. The server's list and the cached payloads are the only sources of analysis facts;
+ * the sync record only says where the bytes are and whether they are moving.
  *
  * [overrides] carries a fresh recording and analysis list fetched by the recording screen, so a
  * recording with several analyses shows all of them before the next History refresh.
  *
  * [selectedAnalysisIds] is the run each recording shows, remembered by the cached History. It only
  * wins while it is one of the runs the caches list.
+ *
+ * [cachedResults] is the payloads this phone holds, by the History key of the recording they belong
+ * to, as the database publishes them. It is read, never written: the store that keeps them is their
+ * only owner.
  *
  * [hiddenRemoteIds] are recordings whose server copy is being deleted or is already gone. Their
  * server summary, their fresh override and their cached runs are left out, so History cannot show
@@ -174,8 +177,7 @@ fun buildRecordings(
     overrides: Map<String, RemoteOverride> = emptyMap(),
     hiddenRemoteIds: Set<String> = emptySet(),
     selectedAnalysisIds: Map<String, String> = emptyMap(),
-    results: ResultCache? = null,
-    account: String = "",
+    cachedResults: Map<String, List<AnalysisDto>> = emptyMap(),
 ): List<RecordingView> {
   val byId = remote?.items?.associateBy { it.recording.id }.orEmpty()
   val localIds = recordings.map { it.id }.toSet()
@@ -190,8 +192,7 @@ fun buildRecordings(
             record = records[recording.id],
             override = overrides[recording.id].takeUnless { hidden },
             selectedAnalysisId = selectedAnalysisIds[recording.id],
-            results = results,
-            account = account,
+            cached = cachedResults[recording.id].orEmpty(),
         )
   }
   for (summary in remote?.items.orEmpty()) {
@@ -206,8 +207,7 @@ fun buildRecordings(
             record = records[key],
             override = overrides[key],
             selectedAnalysisId = selectedAnalysisIds[key],
-            results = results,
-            account = account,
+            cached = cachedResults[key].orEmpty(),
         )
   }
   // A recording opened directly by its recording id can be fresh before the next History refresh.
@@ -222,8 +222,7 @@ fun buildRecordings(
               record = records[key],
               override = override,
               selectedAnalysisId = selectedAnalysisIds[key],
-              results = results,
-              account = account,
+              cached = cachedResults[key].orEmpty(),
           )
     }
   }
@@ -243,8 +242,7 @@ private fun buildRecording(
     record: UploadRecord?,
     override: RemoteOverride?,
     selectedAnalysisId: String?,
-    results: ResultCache?,
-    account: String,
+    cached: List<AnalysisDto>,
 ): RecordingView {
   val remoteSession = override?.recording ?: summary?.recording
   val start = local?.startUtcMs ?: parseApiDate(remoteSession?.started_at.orEmpty())
@@ -263,17 +261,15 @@ private fun buildRecording(
   val remoteRuns =
       override?.runs
           ?: summary?.analyses
-              ?.map { run ->
-                run.toRun(downloaded = results?.has(account, key, run.id) == true)
-              }
+              ?.map { run -> run.toRun(downloaded = cached.any { it.id == run.id }) }
               .orEmpty()
   // The server's list has the runs. A recording whose list is not on this phone at all is drawn from
-  // the result cache instead, so an upgrade or a logged-out start does not lose a result it had.
+  // the cached payloads instead, so an upgrade or a logged-out start does not lose a result it had.
   // A recording the server does list is never filled in from the cache: a run it no longer lists is
   // gone, not hidden.
   val cachedRuns =
       if (summary == null && override == null) {
-        results?.cached(account, key).orEmpty().map { run -> run.toRun(downloaded = true) }
+        cached.map { run -> run.toRun(downloaded = true) }
       } else {
         remoteRuns
       }

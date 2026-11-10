@@ -45,7 +45,7 @@ class AppContainer(private val application: Application) {
 
   /**
    * The one-time move of the state that older versions kept in files into [database]. It reads the
-   * files of the same places the stores below read and leaves them untouched.
+   * files of the places older versions wrote and leaves them untouched.
    */
   val legacyFilesMigration: LegacyFilesMigration by lazy {
     LegacyFilesMigration(
@@ -99,14 +99,20 @@ class AppContainer(private val application: Application) {
     )
   }
 
-  val resultCache: ResultCache by lazy { ResultCache(File(application.filesDir, "analysis")) }
+  val resultCache: ResultCache by lazy {
+    ResultCache(
+        database.analysisResults(),
+        awaitLegacyImport = { legacyFilesMigration.awaitMigrated(database) },
+    )
+  }
 
   val remoteHistoryCache: RemoteHistoryCache by lazy {
     // The list of an older app holds recording summaries this version cannot read.
     File(application.filesDir, "history/remote-sessions.json").delete()
     RemoteHistoryCache(
-        File(application.filesDir, "history/remote-recordings.json"),
+        database.remoteRecordings(),
         account = { remoteRepository.accountKey },
+        awaitLegacyImport = { legacyFilesMigration.awaitMigrated(database) },
     )
   }
 

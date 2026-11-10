@@ -16,7 +16,7 @@ internal suspend fun fetchRemoteList(
     session: RemoteSession,
     activeAccount: () -> String?,
     hidden: () -> Set<String>,
-    save: (account: String, list: RecordingSummaryListDto) -> Unit,
+    save: suspend (account: String, list: RecordingSummaryListDto) -> Unit,
 ): RecordingSummaryListDto? {
   val fetched = session.api.recordingSummaries()
   if (activeAccount() != session.account) return null

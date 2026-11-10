@@ -25,7 +25,7 @@ interface RecordingSource : LibrarySource {
   fun recording(key: String): RecordingView?
 
   /** The full cached payload for one analysis, if it is on this phone. */
-  fun cachedResult(key: String, analysisId: String?): AnalysisDto?
+  suspend fun cachedResult(key: String, analysisId: String?): AnalysisDto?
 
   /** Refresh one recording and its analyses, once. */
   suspend fun refreshRecording(

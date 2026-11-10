@@ -54,7 +54,7 @@ private class FakeLibrary(initial: List<RecordingView>) : RecordingSource {
   override fun recording(key: String): RecordingView? =
       recordings.value.firstOrNull { it.key == key }
 
-  override fun cachedResult(key: String, analysisId: String?): AnalysisDto? = cached
+  override suspend fun cachedResult(key: String, analysisId: String?): AnalysisDto? = cached
 
   override suspend fun refreshRecording(
       key: String,

@@ -301,7 +301,7 @@ class RecordingDetailViewModel(
   }
 
   /** The selected run can change and its payload can arrive while the screen is open. */
-  private fun followSelectedResult(recording: RecordingView) {
+  private suspend fun followSelectedResult(recording: RecordingView) {
     val selected = recording.analysisId
     if (selected == lastSelected && recording.resultDownloaded == lastDownloaded) return
     val first = !observedRecording
