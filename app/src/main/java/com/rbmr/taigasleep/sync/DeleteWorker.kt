@@ -37,8 +37,6 @@ class DeleteWorker(
         // Already gone, or not visible to this account. Either way there is nothing left to do.
         complete(recordingId)
         Result.success()
-      } else if (e.status == 401 || e.status == 403) {
-        Result.retry()
       } else {
         Result.retry()
       }
