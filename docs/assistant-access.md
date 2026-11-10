@@ -7,8 +7,8 @@ and it cannot change anything.
 
 ## Make a token
 
-In the app: **Settings → Server → Access tokens → New token**. Give it a name, create it,
-and copy the token when it appears. It is shown once; the server keeps only a hash of it.
+In the app: **Settings → Server → Access tokens**. Give the token a name, tap **Create
+token**, and copy it when it appears. It is shown once; the server keeps only a hash of it.
 The list shows each token by its name, its last characters and when it was made, and a
 token you no longer want is revoked there and stops working at once.
 
