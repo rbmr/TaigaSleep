@@ -171,6 +171,83 @@ def test_refresh_gives_a_working_token(api: Backend) -> None:
     assert_error(api.post("/v1/auth/refresh"), 401, "unauthorized")
 
 
+def test_an_access_token_reads_the_accounts_data_and_cannot_write(api: Backend) -> None:
+    """The requests of docs/assistant-access.md against the real server."""
+
+    user, other = api.user_a, api.user_b
+    algorithm = unique("alg")
+    api.offer(api.worker, manifest(algorithm))
+    recording = api.make_recording(user)
+    analysis = api.request_analysis(user, recording, algorithm, expect=201).json()
+    claimed = api.claim(api.worker, algorithm, expect=200).json()
+    assert claimed["id"] == analysis["id"]
+    api.post(
+        f"/v1/analyses/{analysis['id']}/complete",
+        token=api.worker,
+        json={"result": result(algorithm)},
+        expect=200,
+    )
+
+    # Make a token with the account's login, as the doc does; the token is shown once.
+    created = api.post("/v1/tokens", token=user, json={"name": "my assistant"}, expect=201).json()
+    token = created["token"]
+    assert token.startswith("ts_")
+    assert created["name"] == "my assistant" and created["hint"] == token[-4:]
+    listed_tokens = api.get("/v1/tokens", token=user, expect=200).json()["items"]
+    assert [item["id"] for item in listed_tokens].count(created["id"]) == 1
+    assert all("token" not in item for item in listed_tokens)
+
+    # The examples: the recordings, one recording, its analyses, all analyses, one analysis.
+    recordings = api.get("/v1/recordings?limit=20", token=token, expect=200).json()
+    assert recording in [item["id"] for item in recordings["items"]]
+    one = api.get(f"/v1/recordings/{recording}", token=token, expect=200).json()
+    assert one["meta"]["session_id"] == recording and one["complete"] is True
+    analyses = api.get(
+        f"/v1/recordings/{recording}/analyses?expand=result", token=token, expect=200
+    ).json()
+    assert [item["id"] for item in analyses["items"]] == [analysis["id"]]
+    assert analyses["items"][0]["result"]["items"]
+    everything = api.get("/v1/analyses?limit=200&expand=result", token=token, expect=200).json()
+    mine = [item for item in everything["items"] if item["id"] == analysis["id"]]
+    assert mine and mine[0]["result"]["stages"]
+    single = api.get(f"/v1/analyses/{analysis['id']}", token=token, expect=200).json()
+    assert single["summary"] is not None and single["result"] is not None
+
+    # Another account's data stays not found, and its own token sees none of it.
+    own_token = api.post("/v1/tokens", token=other, json={"name": "other"}, expect=201).json()["token"]
+    assert_error(api.get(f"/v1/recordings/{recording}", token=own_token), 404, "not_found")
+    assert_error(api.get(f"/v1/analyses/{analysis['id']}", token=own_token), 404, "not_found")
+    assert recording not in [
+        item["id"] for item in api.get("/v1/recordings", token=own_token, expect=200).json()["items"]
+    ]
+
+    # Every write is refused, and so are the raw files.
+    files = f"/v1/recordings/{recording}/files"
+    new_recording = unique("token-write")
+    for method, path, body in [
+        ("PUT", f"/v1/recordings/{new_recording}", fx.meta(new_recording)),
+        ("PATCH", f"/v1/recordings/{recording}", {"complete": True}),
+        ("DELETE", f"/v1/recordings/{recording}", None),
+        ("PATCH", f"{files}/hr.log", None),
+        ("DELETE", f"{files}/hr.log", None),
+        ("GET", files, None),
+        ("GET", f"{files}/hr.log", None),
+        ("POST", f"/v1/recordings/{recording}/analyses", {"algorithm": algorithm}),
+        ("DELETE", f"/v1/analyses/{analysis['id']}", None),
+        ("POST", "/v1/tokens", {"name": "another"}),
+        ("DELETE", f"/v1/tokens/{created['id']}", None),
+        ("GET", "/v1/me", None),
+    ]:
+        assert_error(api.request(method, path, token=token, json=body), 403, "forbidden")
+    assert api.get(f"/v1/recordings/{recording}", token=user, expect=200).json()["complete"] is True
+
+    # Revoking it stops it at once.
+    assert_error(api.delete(f"/v1/tokens/{created['id']}", token=other), 404, "not_found")
+    api.delete(f"/v1/tokens/{created['id']}", token=user, expect=204)
+    assert_error(api.get("/v1/recordings", token=token), 401, "unauthorized")
+    assert_error(api.get(f"/v1/analyses/{analysis['id']}", token=token), 401, "unauthorized")
+
+
 def test_roles_are_enforced(api: Backend) -> None:
     user, worker = api.user_a, api.worker
     recording = api.make_recording(user)

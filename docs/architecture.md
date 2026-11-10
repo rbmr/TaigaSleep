@@ -55,6 +55,7 @@ The full list, and nothing else:
 | Create, read, update, delete a recording | the recording row and its metadata |
 | Upload, download, delete a recording's files | bulk raw storage, compressed or not, the sender decides |
 | Create, read, delete an analysis | results are created once, filled by the worker, then immutable |
+| Create, list, revoke access tokens | a read-only credential for the user's own assistant or script |
 | List algorithms | so the user can choose how a recording is analysed |
 | Log in, check the token | authentication |
 | Health, version | reachability and compatibility |

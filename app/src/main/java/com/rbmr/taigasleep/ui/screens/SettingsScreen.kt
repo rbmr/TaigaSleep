@@ -62,6 +62,7 @@ fun SettingsScreen(
     onAboutClick: () -> Unit,
     onGuidanceClick: () -> Unit,
     onRemoteClick: () -> Unit,
+    onTokensClick: () -> Unit,
     onPersonalClick: () -> Unit,
 ) {
   val context = LocalContext.current
@@ -162,6 +163,14 @@ fun SettingsScreen(
                 },
             onClick = onRemoteClick,
         )
+        if (remoteStatus !is RemoteStatus.NotConfigured) {
+          SettingsDivider()
+          SettingsRow(
+              title = stringResource(R.string.tokens_title),
+              subtitle = stringResource(R.string.tokens_body),
+              onClick = onTokensClick,
+          )
+        }
       }
     }
     if (remoteStatus !is RemoteStatus.NotConfigured) {

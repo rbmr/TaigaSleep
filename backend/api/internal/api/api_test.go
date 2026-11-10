@@ -259,6 +259,7 @@ func TestPocketBaseRecordAPIIsClosed(t *testing.T) {
 		"/api/collections/analyses/records",
 		"/api/collections/users/records",
 		"/api/collections/workers/records",
+		"/api/collections/access_tokens/records",
 	} {
 		status, _, _ := s.call(http.MethodGet, path, s.tokens["alice"], nil, nil)
 		if status != 403 && status != 404 {
@@ -963,6 +964,139 @@ func TestLeaseRenewal(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.expectCode(409, "not_leased", http.MethodPost, "/v1/analyses/"+analysis.ID+"/lease", worker, LeaseRequest{LeaseSeconds: 600}, nil)
+}
+
+// createToken makes an access token for the account and returns what the creation
+// answered: the only time the token itself is visible.
+func createToken(s *server, account, name string) TokenView {
+	s.t.Helper()
+	status, header, body := s.call(http.MethodPost, "/v1/tokens", s.tokens[account], TokenRequest{Name: name}, nil)
+	if status != 201 {
+		s.t.Fatalf("create token = %d %s", status, body)
+	}
+	created := decode[TokenView](s.t, body)
+	if header.Get("Location") != "/v1/tokens/"+created.ID {
+		s.t.Fatalf("create token location = %q", header.Get("Location"))
+	}
+	return created
+}
+
+// TestAccessTokensAreReadOnly is the contract of a personal access token: it reads the
+// owner's recordings, analyses and results, sees nothing of another account, is refused
+// on every write, and stops working when it is revoked.
+func TestAccessTokensAreReadOnly(t *testing.T) {
+	s := newServer(t)
+	alice, bob, worker := s.tokens["alice"], s.tokens["bob"], s.tokens["worker"]
+	id := "rec1"
+	s.expect(201, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "stopped"), nil)
+	completeRecording(s, alice, id)
+	announce(s, "baseline", "1.0.0")
+	analysis := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, map[string]string{"algorithm": "baseline"}, nil))
+	s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil)
+	s.expect(200, http.MethodPost, "/v1/analyses/"+analysis.ID+"/complete", worker,
+		CompleteRequest{Result: mustJSON(t, validResult("baseline", "1.0.0"))}, nil)
+
+	created := createToken(s, "alice", "my assistant")
+	if !strings.HasPrefix(created.Token, tokenPrefix) || len(created.Token) < 40 || created.Name != "my assistant" ||
+		created.ID == "" || created.Created == "" {
+		t.Fatalf("created = %+v", created)
+	}
+	// Only the hash is stored, and the list never carries the token again.
+	aliceAccount, err := s.app.FindAuthRecordByEmail("users", "alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := s.app.FindRecordById("access_tokens", created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.GetString("hash") != tokenHash(created.Token) || record.GetString("hash") == created.Token {
+		t.Fatalf("stored hash = %q", record.GetString("hash"))
+	}
+	if record.GetString("hint") != created.Token[len(created.Token)-4:] || record.GetString("owner") != aliceAccount.Id {
+		t.Fatalf("stored token = %+v", record)
+	}
+	list := decode[TokenList](t, s.expect(200, http.MethodGet, "/v1/tokens", alice, nil, nil))
+	if len(list.Items) != 1 || list.Items[0].ID != created.ID || list.Items[0].Token != "" {
+		t.Fatalf("list = %+v", list)
+	}
+	s.expectCode(400, "invalid_body", http.MethodPost, "/v1/tokens", alice, TokenRequest{Name: " "}, nil)
+	if got := decode[TokenList](t, s.expect(200, http.MethodGet, "/v1/tokens", bob, nil, nil)); len(got.Items) != 0 {
+		t.Fatalf("bob lists %+v", got)
+	}
+
+	// The token reads the owner's data.
+	recordings := decode[RecordingList](t, s.expect(200, http.MethodGet, "/v1/recordings", created.Token, nil, nil))
+	if recordings.Total != 1 || recordings.Items[0].ID != id {
+		t.Fatalf("recordings through the token = %+v", recordings)
+	}
+	if got := decode[RecordingView](t, s.expect(200, http.MethodGet, "/v1/recordings/"+id, created.Token, nil, nil)); got.Complete != true {
+		t.Fatalf("recording through the token = %+v", got)
+	}
+	analyses := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses?expand=result", created.Token, nil, nil))
+	if analyses.Total != 1 || analyses.Items[0].ID != analysis.ID || analyses.Items[0].Result == nil {
+		t.Fatalf("analyses through the token = %+v", analyses)
+	}
+	if got := decode[AnalysisView](t, s.expect(200, http.MethodGet, "/v1/analyses/"+analysis.ID, created.Token, nil, nil)); got.Summary == nil || got.Result == nil {
+		t.Fatalf("analysis through the token = %+v", got)
+	}
+	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/analyses", created.Token, nil, nil)); got.Total != 1 {
+		t.Fatalf("recording analyses through the token = %+v", got)
+	}
+
+	// Another account's recording and analysis stay not found, and its own token sees nothing.
+	bobToken := createToken(s, "bob", "bob's script")
+	s.expectCode(404, "not_found", http.MethodGet, "/v1/recordings/"+id, bobToken.Token, nil, nil)
+	s.expectCode(404, "not_found", http.MethodGet, "/v1/analyses/"+analysis.ID, bobToken.Token, nil, nil)
+	s.expectCode(404, "not_found", http.MethodGet, "/v1/recordings/"+id+"/analyses", bobToken.Token, nil, nil)
+	if got := decode[RecordingList](t, s.expect(200, http.MethodGet, "/v1/recordings", bobToken.Token, nil, nil)); got.Total != 0 {
+		t.Fatalf("bob's token sees %d recordings", got.Total)
+	}
+
+	// Every write route refuses it, and so do the raw files and the other roles' routes.
+	for _, call := range []struct {
+		method, path string
+		body         any
+	}{
+		{http.MethodPut, "/v1/recordings/new-recording", testMeta("new-recording", "recording")},
+		{http.MethodPatch, "/v1/recordings/" + id, map[string]bool{"complete": true}},
+		{http.MethodDelete, "/v1/recordings/" + id, nil},
+		{http.MethodPatch, "/v1/recordings/" + id + "/files/hr.log", []byte("more")},
+		{http.MethodDelete, "/v1/recordings/" + id + "/files/hr.log", nil},
+		{http.MethodPost, "/v1/recordings/" + id + "/analyses", map[string]string{"algorithm": "baseline"}},
+		{http.MethodDelete, "/v1/analyses/" + analysis.ID, nil},
+		{http.MethodPost, "/v1/tokens", TokenRequest{Name: "another"}},
+		{http.MethodDelete, "/v1/tokens/" + created.ID, nil},
+		{http.MethodPost, "/v1/auth/refresh", nil},
+		{http.MethodPut, "/v1/workers/me", map[string]string{"name": "x"}},
+		{http.MethodPost, "/v1/analyses/claim", nil},
+		{http.MethodPost, "/v1/analyses/" + analysis.ID + "/lease", nil},
+		{http.MethodPost, "/v1/analyses/" + analysis.ID + "/complete", map[string]any{"result": map[string]any{}}},
+		{http.MethodPost, "/v1/analyses/" + analysis.ID + "/fail", map[string]string{"error": "x"}},
+		{http.MethodGet, "/v1/recordings/" + id + "/files", nil},
+		{http.MethodGet, "/v1/recordings/" + id + "/files/hr.log", nil},
+		{http.MethodGet, "/v1/algorithms", nil},
+		{http.MethodGet, "/v1/events", nil},
+		{http.MethodGet, "/v1/me", nil},
+	} {
+		s.expectCode(403, "forbidden", call.method, call.path, created.Token, call.body, nil)
+	}
+	// A HEAD answer has no body, so only its status can refuse the raw files.
+	if status, _, _ := s.call(http.MethodHead, "/v1/recordings/"+id+"/files/hr.log", created.Token, nil, nil); status != 403 {
+		t.Fatalf("HEAD through the token = %d", status)
+	}
+	// None of that changed anything.
+	if got := decode[TokenList](t, s.expect(200, http.MethodGet, "/v1/tokens", alice, nil, nil)); len(got.Items) != 1 {
+		t.Fatalf("the refused writes changed the token list: %+v", got)
+	}
+	s.expect(200, http.MethodGet, "/v1/recordings/"+id, alice, nil, nil)
+
+	// A token belongs to one account: another account cannot revoke it.
+	s.expectCode(404, "not_found", http.MethodDelete, "/v1/tokens/"+created.ID, bob, nil, nil)
+	s.expect(204, http.MethodDelete, "/v1/tokens/"+created.ID, alice, nil, nil)
+	s.expectCode(401, "unauthorized", http.MethodGet, "/v1/recordings", created.Token, nil, nil)
+	s.expectCode(401, "unauthorized", http.MethodGet, "/v1/analyses/"+analysis.ID, created.Token, nil, nil)
+	s.expect(404, http.MethodDelete, "/v1/tokens/"+created.ID, alice, nil, nil)
 }
 
 func TestAllErrorsUseOneShape(t *testing.T) {

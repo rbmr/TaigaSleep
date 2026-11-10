@@ -18,8 +18,9 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
   `HEAD` are idempotent.
 - **JSON, snake_case, RFC 3339 UTC timestamps.** File bytes and the event stream are the
   only exceptions.
-- **Authentication** is `Authorization: Bearer <token>` from `POST /v1/auth/login`.
-  Endpoints say whether they take a `user`, a `worker` or are public.
+- **Authentication** is `Authorization: Bearer <token>` from `POST /v1/auth/login`, or a
+  read-only access token from `POST /v1/tokens`. Endpoints say whether they take a `user`,
+  a `worker`, a `token` or are public.
 - **Ownership.** A user only ever sees their own recordings and analyses. Anything that
   belongs to someone else is `404`, never `403`, so ids do not leak.
 - **Status codes.** `200` with a body, `201` with a body and `Location` when something was
@@ -89,6 +90,24 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
 
 Accounts are created by the operator in the admin UI. There is no sign-up endpoint.
 
+## Access tokens
+
+A user can make a **read-only access token** for their own assistant or script, so it can
+read their data without their password and without being able to change anything. It is
+shown once, when it is created; the backend stores only its SHA-256 hash. See
+[`assistant-access.md`](assistant-access.md) for how to use one.
+
+| Method and path | Auth | Purpose |
+| --- | --- | --- |
+| `POST /v1/tokens` | user | Body `{ "name" }`. Answers `201` with the token (`id`, `name`, `hint`, `created`, `token`), which is the only time `token` is in an answer. |
+| `GET /v1/tokens` | user | The account's tokens without the secret (`id`, `name`, `hint`, `created`). |
+| `DELETE /v1/tokens/{id}` | user | Revokes it; it stops working at once. `204`. |
+
+A token may call the routes marked **token** below: it reads the owner's recordings
+(metadata only), analyses and results. Everything else is `403`, including the raw files,
+every write, `/v1/me`, `/v1/events` and the token routes themselves. A recording or
+analysis of another account is `404`, like any other caller's. A revoked token is `401`.
+
 ## Recordings
 
 A recording is created by its owner at an id the client chooses (`[A-Za-z0-9_-]`, 1 to 40
@@ -116,9 +135,9 @@ recording is sealed.
 
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
-| `GET /v1/recordings` | user | List own recordings. Query: `state`, `complete`, `from`, `to`, `sort` (`started_at`, `-started_at`, `created`, `-created`, `duration_s`, `-duration_s`). |
+| `GET /v1/recordings` | user, token | List own recordings. Query: `state`, `complete`, `from`, `to`, `sort` (`started_at`, `-started_at`, `created`, `-created`, `duration_s`, `-duration_s`). |
 | `PUT /v1/recordings/{id}` | user | Body is the recording's `meta.json`, whose `session_id` must equal `{id}`. Creates (`201`) or replaces the metadata (`200`). `409 recording_complete` once sealed, `409 id_taken` if another user has the id. |
-| `GET /v1/recordings/{id}` | user, worker with a lease | The recording. |
+| `GET /v1/recordings/{id}` | user, token, worker with a lease | The recording. |
 | `PATCH /v1/recordings/{id}` | user | Body `{ "complete": true }`: seals the recording. `409 recording_in_progress` if `meta.state` is still `recording` or `fetch_pending`, `422 no_data` if it has no stream file. Nothing else can be patched, and a sealed recording cannot be unsealed. |
 | `DELETE /v1/recordings/{id}` | user | Deletes the recording, its files and its analyses. `204`. |
 
@@ -179,9 +198,9 @@ present depends on the data and the algorithm.
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
 | `POST /v1/recordings/{id}/analyses` | user | Body `{ "algorithm", "version"?, "params"? }`. The version defaults to the newest a worker offers, ignoring workers that stopped announcing themselves (`TAIGA_WORKER_TTL_S`, 900 s) unless none is left. Creates a queued analysis (`201`) or returns the existing one for the same recording, algorithm, version and params (`200`). A failed existing one is replaced by a fresh queued one (`201`), which is how a retry is made. `409 recording_incomplete` before the recording is sealed, `422 unknown_algorithm` when no worker offers it. |
-| `GET /v1/recordings/{id}/analyses` | user | Analyses of one recording. Without `result` unless `expand=result`. |
-| `GET /v1/analyses` | user, worker | A user sees their own analyses; a worker sees only the ones it holds the lease of. Query: `recording`, `status`, `expand=result`, `sort` (`created`, `-created`). Without `result` unless expanded. |
-| `GET /v1/analyses/{id}` | user, worker | One analysis, with `summary` and `result`. A worker only while it holds the lease. |
+| `GET /v1/recordings/{id}/analyses` | user, token | Analyses of one recording. Without `result` unless `expand=result`. |
+| `GET /v1/analyses` | user, token, worker | A user sees their own analyses; a worker sees only the ones it holds the lease of. Query: `recording`, `status`, `expand=result`, `sort` (`created`, `-created`). Without `result` unless expanded. |
+| `GET /v1/analyses/{id}` | user, token, worker | One analysis, with `summary` and `result`. A worker only while it holds the lease. |
 | `DELETE /v1/analyses/{id}` | user | Removes it; a running one is cancelled, and the worker's next call about it gets `404`. `204`. |
 
 ## Algorithms

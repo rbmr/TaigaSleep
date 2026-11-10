@@ -63,6 +63,9 @@ func Register(app core.App) {
 // RegisterRoutes mounts every declared route. Each handler runs behind the route's
 // access check and the error shape, so no endpoint can skip either.
 func RegisterRoutes(router *router.Router[*core.RequestEvent]) {
+	// Bound after PocketBase's own auth loading, which the router registered first: a
+	// login token is read there, and only a request without one is tried as an access token.
+	router.BindFunc(loadAccessToken)
 	for _, route := range Routes() {
 		required, handler := route.Access, route.Handler
 		router.Route(route.Method, route.Path, handle(func(e *core.RequestEvent) error {
@@ -191,11 +194,44 @@ func Routes() []openAPIRoute {
 			Handler:     Me,
 		},
 
+		// --- access tokens ---
+		{
+			Method: http.MethodPost, Path: apiPrefix + "/tokens", OperationID: "createToken", Tag: tagTokens,
+			Summary: "Create a read-only access token",
+			Description: "A token a user's own assistant or script can read with. It reads the account's recordings " +
+				"(metadata, not the raw files), analyses and results, and every write is refused. The token is shown " +
+				"once, in this answer; only its hash is stored.",
+			Access: accessUser,
+			Body:   jsonBody(TokenRequest{}, "A name for the token, so it can be told apart in the list."),
+			Responses: withErrors([]routeResponse{{
+				Status: 201, Description: "The token, this once.", Headers: map[string]string{"Location": "The token's URL."},
+				Schema: func(r *schemaReflector) map[string]any { return r.schemaOf(reflect.TypeOf(TokenView{})) },
+			}}, 400, 401, 403),
+			Handler: CreateToken,
+		},
+		{
+			Method: http.MethodGet, Path: apiPrefix + "/tokens", OperationID: "listTokens", Tag: tagTokens,
+			Summary:     "List the account's access tokens",
+			Description: "Their names, hints and creation times. A token itself is never shown again.",
+			Access:      accessUser,
+			Responses:   withErrors([]routeResponse{jsonResponse(200, "The tokens.", TokenList{})}, 401, 403),
+			Handler:     ListTokens,
+		},
+		{
+			Method: http.MethodDelete, Path: apiPrefix + "/tokens/{id}", OperationID: "deleteToken", Tag: tagTokens,
+			Summary:     "Revoke an access token",
+			Description: "The token stops working at once.",
+			Access:      accessUser,
+			Params:      []routeParam{pathParam("id", "The id of the token.")},
+			Responses:   withErrors([]routeResponse{emptyResponse(204, "Revoked.")}, 401, 403, 404),
+			Handler:     DeleteToken,
+		},
+
 		// --- recordings ---
 		{
 			Method: http.MethodGet, Path: apiPrefix + "/recordings", OperationID: "listRecordings", Tag: tagRecordings,
 			Summary: "List the caller's recordings",
-			Access:  accessUser,
+			Access:  accessRead,
 			Params: append([]routeParam{
 				queryEnum("state", "Only recordings in this state.", recordingStates),
 				queryBool("complete", "Only complete (or only incomplete) recordings."),
@@ -227,7 +263,7 @@ func Routes() []openAPIRoute {
 			Method: http.MethodGet, Path: apiPrefix + "/recordings/{id}", OperationID: "getRecording", Tag: tagRecordings,
 			Summary:     "Get a recording",
 			Description: "A worker may read a recording while it holds the lease of a running analysis of it.",
-			Access:      accessAny,
+			Access:      accessReadAny,
 			Params:      []routeParam{idParam()},
 			Responses:   withErrors([]routeResponse{jsonResponse(200, "The recording.", RecordingView{})}, 401, 403, 404),
 			Handler:     GetRecording,
@@ -336,7 +372,7 @@ func Routes() []openAPIRoute {
 		{
 			Method: http.MethodGet, Path: apiPrefix + "/recordings/{id}/analyses", OperationID: "listRecordingAnalyses", Tag: tagAnalyses,
 			Summary: "List the analyses of a recording",
-			Access:  accessUser,
+			Access:  accessRead,
 			Params: append([]routeParam{
 				idParam(),
 				queryEnum("status", "Only analyses in this status.", analysisStatusEnum),
@@ -350,7 +386,7 @@ func Routes() []openAPIRoute {
 			Method: http.MethodGet, Path: apiPrefix + "/analyses", OperationID: "listAnalyses", Tag: tagAnalyses,
 			Summary:     "List analyses across recordings",
 			Description: "A user sees their own; a worker sees only the analyses it holds the lease of.",
-			Access:      accessAny,
+			Access:      accessReadAny,
 			Params: append([]routeParam{
 				queryString("recording", "Only analyses of this recording."),
 				queryEnum("status", "Only analyses in this status.", analysisStatusEnum),
@@ -364,7 +400,7 @@ func Routes() []openAPIRoute {
 			Method: http.MethodGet, Path: apiPrefix + "/analyses/{id}", OperationID: "getAnalysis", Tag: tagAnalyses,
 			Summary:     "Get an analysis with its result",
 			Description: "A worker may read an analysis while it holds the lease of it.",
-			Access:      accessAny,
+			Access:      accessReadAny,
 			Params:      []routeParam{pathParam("id", "The id of the analysis.")},
 			Responses:   withErrors([]routeResponse{jsonResponse(200, "The analysis.", AnalysisView{})}, 401, 403, 404),
 			Handler:     GetAnalysis,

@@ -27,6 +27,7 @@ const (
 
 	tagSystem     = "system"
 	tagAuth       = "auth"
+	tagTokens     = "tokens"
 	tagRecordings = "recordings"
 	tagFiles      = "recording files"
 	tagAnalyses   = "analyses"
@@ -40,7 +41,9 @@ are in docs/api.md of the repository.
 
 Log in with ` + "`POST /v1/auth/login`" + ` and send the token as ` + "`Authorization: Bearer <token>`" + `.
 Each operation says which role may call it: a **user** (an app account) or a **worker**
-(the analysis service). Every error has the same body, ` + "`{\"code\", \"message\"}`" + `.
+(the analysis service). A user can make a read-only access token for their own assistant
+with ` + "`POST /v1/tokens`" + `; it reads their recordings, analyses and results and is
+refused on every write. Every error has the same body, ` + "`{\"code\", \"message\"}`" + `.
 
 PocketBase's own record API is closed; everything the backend offers is described
 here. Browse this document in Swagger UI at /v1/docs, or fetch it as JSON.`
@@ -108,6 +111,10 @@ func accessDescription(required access) string {
 		return "Requires a worker token."
 	case accessAny:
 		return "Requires a user or a worker token."
+	case accessRead:
+		return "Requires a user token or a read-only access token of that user."
+	case accessReadAny:
+		return "Requires a user token, a read-only access token of that user, or a worker token with a lease."
 	}
 	return "Public."
 }
@@ -145,6 +152,7 @@ func buildOpenAPIDocument() map[string]any {
 		"tags": []any{
 			map[string]any{"name": tagSystem, "description": "Health, version and this document."},
 			map[string]any{"name": tagAuth, "description": "Logging in and checking a token."},
+			map[string]any{"name": tagTokens, "description": "Read-only access tokens for your own assistant or script."},
 			map[string]any{"name": tagRecordings, "description": "Recordings and their metadata."},
 			map[string]any{"name": tagFiles, "description": "The raw data files of a recording."},
 			map[string]any{"name": tagAnalyses, "description": "Analyses of recordings: request, read, delete."},
@@ -159,7 +167,7 @@ func buildOpenAPIDocument() map[string]any {
 				securityBearer: map[string]any{
 					"type":        "http",
 					"scheme":      "bearer",
-					"description": "The token from POST /v1/auth/login.",
+					"description": "The token from POST /v1/auth/login, or a read-only access token from POST /v1/tokens.",
 				},
 			},
 		},
