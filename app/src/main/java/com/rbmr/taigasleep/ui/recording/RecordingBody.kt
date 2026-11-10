@@ -129,8 +129,7 @@ internal fun RecordingBody(
                       .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                       .clip(RoundedCornerShape(12.dp))
                       .clickable(role = Role.Button, onClick = onOpenAnalysis)
-                      .semantics(mergeDescendants = true) { contentDescription = description }
-                      .padding(horizontal = 8.dp, vertical = 10.dp),
+                      .semantics(mergeDescendants = true) { contentDescription = description },
               contentAlignment = Alignment.CenterStart,
           ) {
             Text(

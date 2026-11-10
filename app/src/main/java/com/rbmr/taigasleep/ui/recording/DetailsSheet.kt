@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -94,7 +93,7 @@ internal fun RecordingDetailsSheet(
             TextButton(
                 onClick = onDeleteRaw,
                 enabled = !state.exportBusy,
-                modifier = Modifier.align(Alignment.End).height(36.dp),
+                modifier = Modifier.align(Alignment.End),
                 contentPadding = PaddingValues(0.dp),
             ) {
               Text(
@@ -106,7 +105,7 @@ internal fun RecordingDetailsSheet(
             TextButton(
                 onClick = onDownloadRaw,
                 enabled = !state.exportBusy,
-                modifier = Modifier.align(Alignment.End).height(36.dp),
+                modifier = Modifier.align(Alignment.End),
                 contentPadding = PaddingValues(0.dp),
             ) {
               Text(text = stringResource(R.string.night_details_download_raw))
