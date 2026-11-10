@@ -108,6 +108,8 @@ object RecordingRepository {
     val onDevice = store.onDeviceInProgress()
     val pending = store.fetchPending()
     prefs.activeSessionId = onDevice?.recordingId
+    // Nothing here can be resumed, so a window left from an earlier process rings nothing.
+    WakeAlarm.disarm(context)
     WatchdogReceiver.cancel(context)
     if (onDevice != null) {
       _status.value =

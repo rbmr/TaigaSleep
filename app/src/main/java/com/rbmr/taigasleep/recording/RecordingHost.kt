@@ -65,6 +65,21 @@ interface RecordingHost {
 
   fun cancelWatchdog()
 
+  /**
+   * The wake-up window armed for the running recording, if the user set one. It is persisted, so a
+   * resumed recording finds the same window and never rings twice for it.
+   */
+  fun wakeWindow(): ArmedWake?
+
+  /** Keeps the window of a new recording and arms its end, which fires even without this process. */
+  fun armWake(armed: ArmedWake)
+
+  /** The alarm rang or the recording ended: forget the window and drop the end alarm. */
+  fun disarmWake()
+
+  /** Rings now, without the end alarm, which [disarmWake] already dropped. */
+  fun fireWakeAlarm()
+
   /** The recording the service is keeping alive; null when nothing is live. */
   var activeSessionId: String?
 

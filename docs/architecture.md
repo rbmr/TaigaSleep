@@ -70,7 +70,7 @@ One Gradle module, one package per concern under `com.rbmr.taigasleep`:
 | Package | Responsibility | May depend on |
 | --- | --- | --- |
 | `tracker` | What a tracker is: its capabilities, its recording mode, its configuration. Implementations per device (`polar`), a simulated one in debug builds. | `diagnostics` |
-| `recording` | Capturing: the selected tracker, the recording state machine, the foreground service, the on-disk format, the local store, export. | `tracker`, `diagnostics` |
+| `recording` | Capturing: the selected tracker, the recording state machine, the foreground service, the on-disk format, the local store, export, the wake-up window and its alarm. | `tracker`, `diagnostics` |
 | `guard` | The preventing-shutdown flow: per-device steps, checks, the final readiness list. | `tracker`, `diagnostics` |
 | `backend` | A client for API v1: DTOs, requests, authentication state, the event stream. No business logic. | `diagnostics` |
 | `profile` | The personal data the user enters about themselves: date of birth, sex and weight, plus the usual bedtime and wake time. Kept on the phone, optional; the first three go to an analysis, the times only draw the History trends. | nothing |
@@ -223,9 +223,26 @@ places. Each mode supplies what its transitions do; the machine owns when they h
 ### Start flow
 
 1. Connect a tracker.
-2. Configure it: what to record.
+2. Configure it: what to record, and the wake-up window of the night.
 3. Preventing-shutdown flow, only if the mode is Stream and the device needs it.
 4. Start.
+
+### Waking up
+
+A live recording can end with a **wake-up window**: two local times of day, off by default, set with
+the streams in the configuration step. It belongs to the night and to the recording that runs it. An
+on-device recording has no live data, so the option is shown and cannot be turned on there.
+
+Inside the window the alarm rings at the first moment one of the chosen signals has held for a
+minute: movement above a threshold, when the accelerometer is recorded, or a heart rate more than a
+tenth above the median of the previous half hour. Both are named constants in `WakeDecision`, a pure
+function of the window and the samples; neither is a claim about a sleep stage. The window end is
+armed separately with `AlarmManager.setAlarmClock`, so it rings even when the service and the process
+are gone, and a trigger that rings first drops it, so one night rings once.
+
+The alarm is a full-screen screen with sound, vibration and one Dismiss button. Android 14 lets the
+user refuse the full-screen intent; the alarm is then a high-priority notification with sound.
+Dismissing ends the alarm, never the recording.
 
 ### Preventing-shutdown flow
 

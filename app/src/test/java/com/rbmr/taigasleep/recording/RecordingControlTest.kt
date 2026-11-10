@@ -147,6 +147,27 @@ class RecordingControlTest {
     assertEquals(ID, RecordingRepository.status.value.fetchPending?.recordingId)
   }
 
+  @Test
+  fun `a refused foreground start drops the window of a streamed night`() {
+    val store = store()
+    val dir = open(store)
+    val nowMs = clock.phoneNs / 1_000_000
+    val window = WakeWindow(6 * 60 + 30, 7 * 60)
+    val host =
+        FakeHost(FakeSensor()).apply {
+          activeSessionId = ID
+          armed = ArmedWake(ID, window, nowMs, nowMs + 60 * 60_000L)
+        }
+    val control = RecordingControl(store, clock, host).also { this.control = it }
+
+    control.foregroundRefused()
+
+    await("the refused recording to be closed") {
+      RecordingMeta.read(dir)!!.state == RecordingPhase.INTERRUPTED && host.finished
+    }
+    assertNull("a refused recording does not ring", host.armed)
+  }
+
   /** A tracker whose first stream start never returns, like a call that hangs in the SDK. */
   private class FakeSensor : SleepSensor {
     override val kind = SensorKind.POLAR_H10
@@ -244,6 +265,23 @@ class RecordingControlTest {
     override fun scheduleWatchdog() = Unit
 
     override fun cancelWatchdog() = Unit
+
+    override fun wakeWindow(): ArmedWake? = armed
+
+    override fun armWake(armed: ArmedWake) {
+      this.armed = armed
+    }
+
+    override fun disarmWake() {
+      armed = null
+    }
+
+    override fun fireWakeAlarm() {
+      firedAlarms++
+    }
+
+    var armed: ArmedWake? = null
+    var firedAlarms = 0
 
     override fun markRunning(running: Boolean) {
       this.running = running

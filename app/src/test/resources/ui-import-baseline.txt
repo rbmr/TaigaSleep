@@ -3,6 +3,8 @@
 # fails when a count rises and when it falls, so the line changes with the code. Paths are relative
 # to `app/src/main/java/com/rbmr/taigasleep/ui/`. See ArchitectureTest.
 TaigaApp.kt 4
+alarm/AlarmActivity.kt 1
+alarm/AlarmScreen.kt 0
 components/Buttons.kt 0
 components/Components.kt 0
 components/PreviewTheme.kt 0
@@ -16,17 +18,17 @@ home/ActiveHome.kt 0
 home/DataSheet.kt 1
 home/FinishingHome.kt 1
 home/GuardCard.kt 1
-home/HomeFactory.kt 11
+home/HomeFactory.kt 12
 home/HomeScreen.kt 3
 home/HomeUiState.kt 7
 home/RecordingCard.kt 4
 home/SensorPickerSheet.kt 3
 recording/AnalysisSheet.kt 1
 recording/DataQualitySection.kt 2
+recording/DetailScreen.kt 0
 recording/DetailsSheet.kt 0
 recording/HeartRateSection.kt 1
 recording/MovementSection.kt 1
-recording/DetailScreen.kt 0
 recording/RecordingBody.kt 2
 recording/RecordingDetailFactory.kt 7
 recording/RecordingDetailUiState.kt 8

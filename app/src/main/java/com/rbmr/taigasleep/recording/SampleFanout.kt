@@ -7,16 +7,18 @@ import com.rbmr.taigasleep.tracker.SampleListener
 import com.rbmr.taigasleep.tracker.Stamp
 
 /**
- * The service's one sample listener: it hands each sample to the writer first, then to the
- * monitor, both with the same [Stamp] and instance. Raw storage is never sacrificed to
- * monitoring: a monitor failure is caught and reported once, and the writer keeps its frames.
+ * The service's one sample listener: it hands each sample to the writer first, then to the monitor
+ * and the wake-up watch, all with the same [Stamp] and instance. Raw storage is never sacrificed to
+ * monitoring: a failure there is caught and reported once, and the writer keeps its frames.
  *
- * The monitor is only called for samples, so a bug there cannot lose a frame. Events and notes
- * keep going straight to the writer's `events.jsonl`.
+ * The monitor and the watch are only called for samples, so a bug there cannot lose a frame. Events
+ * and notes keep going straight to the writer's `events.jsonl`.
  */
 class SampleFanout(
     private val writer: RecordingWriter,
     private val monitor: SampleMonitor,
+    /** The armed wake-up window of this recording; null when the user set none. */
+    private val wake: WakeWatch? = null,
     /** Called once per recording if the monitor throws; the service records it as an event. */
     private val onMonitorFailure: (String) -> Unit,
 ) : SampleListener {
@@ -25,6 +27,7 @@ class SampleFanout(
   override fun onHr(stamp: Stamp, sample: HrSample) {
     writer.writeHr(stamp, sample)
     guard { monitor.onHr(stamp, sample) }
+    wake?.let { guard { it.onHr(stamp, sample) } }
   }
 
   override fun onEcg(stamp: Stamp, batch: EcgBatch) {
@@ -35,6 +38,7 @@ class SampleFanout(
   override fun onAcc(stamp: Stamp, batch: AccBatch) {
     writer.writeAcc(stamp, batch)
     guard { monitor.onAcc(stamp, batch) }
+    wake?.let { guard { it.onAcc(stamp, batch) } }
   }
 
   override fun onError(message: String) = writer.event("error", message)

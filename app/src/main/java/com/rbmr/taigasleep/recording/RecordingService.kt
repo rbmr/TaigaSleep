@@ -106,6 +106,8 @@ class RecordingService : Service(), RecordingHost {
           ecg = intent.getBooleanExtra(EXTRA_ECG, false),
           acc = intent.getBooleanExtra(EXTRA_ACC, false),
           mode = RecordingMode.fromWire(intent.getStringExtra(EXTRA_MODE)),
+          // The wake-up window is part of this tracker's configuration, like its streams.
+          wake = intent.getStringExtra(EXTRA_SENSOR_ID)?.let { prefs.wakeWindow(it) },
       )
 
   // The Android side of the recording.
@@ -135,6 +137,18 @@ class RecordingService : Service(), RecordingHost {
   override fun scheduleWatchdog() = WatchdogReceiver.schedule(this)
 
   override fun cancelWatchdog() = WatchdogReceiver.cancel(this)
+
+  override fun wakeWindow(): ArmedWake? = prefs.armedWake()
+
+  override fun armWake(armed: ArmedWake) {
+    // Persist before arming: a process killed between the two must find the window again.
+    prefs.setArmedWake(armed)
+    WakeAlarm.scheduleEnd(this, armed.endUtcMs)
+  }
+
+  override fun disarmWake() = WakeAlarm.disarm(this)
+
+  override fun fireWakeAlarm() = WakeAlarm.fire(this)
 
   override var activeSessionId: String?
     get() = prefs.activeSessionId
