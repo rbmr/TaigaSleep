@@ -102,6 +102,19 @@ Rules:
   beyond the upgrade procedure.
 - The note is written with the release, not after a user reports the problem.
 
+### backend-v0.6.5
+
+- What changed: the data-quality score no longer uses stage confidence, and the sleep score is
+  withheld when the data quality is below 50 of 100, with the reason `not_enough_good_data`. A
+  result now uses analysis contract version 5. The baseline algorithm stays at `1.2.0`, so an
+  existing analysis is not recomputed by itself.
+- After upgrading: delete the analyses of every recording analysed earlier and request them
+  again, as described under
+  [stale analysis results](../backend/README.md#stale-analysis-results-after-an-upgrade).
+- Without it: those nights keep a data-quality score that still includes stage confidence and a
+  sleep score computed without the quality gate, so they do not match a new analysis of the same
+  recording.
+
 ### backend-v0.6.4
 
 - What changed: the baseline stager is now version `1.2.0` and reports wake and sleep only. It no
