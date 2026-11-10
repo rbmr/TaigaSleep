@@ -180,6 +180,12 @@ class RecordingService : Service() {
       leave(getString(R.string.rec_error_not_ready))
       return
     }
+    // A night that cannot fit would fill the phone and lose the rest of it anyway.
+    if (!StorageSpace.canStart(PhoneSpace(store.root).availableBytes(), config)) {
+      Log.w(TAG, "start refused: not enough free space")
+      leave(getString(R.string.rec_error_space))
+      return
+    }
     val now = System.currentTimeMillis()
     val meta =
         RecordingMeta(
@@ -306,6 +312,7 @@ class RecordingService : Service() {
             meta = writer.meta,
             clock = SystemClockSource,
             event = writer::event,
+            space = PhoneSpace(writer.dir),
             storageHealth = writer::storageHealth,
         )
     monitor.onPhase(RecordingState.Phase.RECORDING)
@@ -710,6 +717,8 @@ class RecordingService : Service() {
     return when (s.overall.reason) {
       RecordingState.Reason.STORAGE_ERROR ->
           getString(R.string.rec_notification_storage_error, name)
+      RecordingState.Reason.STORAGE_LOW ->
+          getString(R.string.rec_notification_storage_low, name)
       RecordingState.Reason.LINK_LOST ->
           getString(
               when (s.link.state) {

@@ -362,16 +362,21 @@ class RecordingMonitorTest {
     val streamStale = streamOk.copy(status = RecordingState.StreamStatus.STALE)
     fun overall(
         storage: String? = null,
+        lowSpace: Boolean = false,
         link: RecordingState.LinkState = RecordingState.LinkState.CONNECTED,
         contact: RecordingState.ContactState = RecordingState.ContactState.ON_BODY,
         streams: Collection<RecordingState.Stream> = listOf(streamOk),
         ecg: RecordingState.EcgQuality = RecordingState.EcgQuality.OK,
         power: RecordingState.PowerState = RecordingState.PowerState.OK,
-    ) = overallOf(storage, link, contact, streams, ecg, power)
+    ) = overallOf(storage, lowSpace, link, contact, streams, ecg, power)
 
     assertEquals(
         RecordingState.Overall(RecordingState.OverallState.ERROR, RecordingState.Reason.STORAGE_ERROR),
-        overall(storage = "disk full", link = RecordingState.LinkState.DISCONNECTED),
+        overall(storage = "disk full", lowSpace = true, link = RecordingState.LinkState.DISCONNECTED),
+    )
+    assertEquals(
+        RecordingState.Overall(RecordingState.OverallState.WARNING, RecordingState.Reason.STORAGE_LOW),
+        overall(lowSpace = true, link = RecordingState.LinkState.DISCONNECTED),
     )
     assertEquals(
         RecordingState.Overall(RecordingState.OverallState.ERROR, RecordingState.Reason.LINK_LOST),

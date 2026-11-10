@@ -121,6 +121,10 @@ data class RecordingState(
       val sinceSyncMs: Long? = null,
       /** Frames the phone refused; each was dropped and rolled back, the recording goes on. */
       val droppedFrames: Long = 0,
+      /** Free space on the phone when it was last checked; null when that is not known. */
+      val freeBytes: Long? = null,
+      /** Free space is below what a running recording should keep in reserve. */
+      val lowSpace: Boolean = false,
   )
 
   enum class OverallState {
@@ -131,6 +135,7 @@ data class RecordingState(
 
   enum class Reason {
     STORAGE_ERROR,
+    STORAGE_LOW,
     LINK_LOST,
     OFF_BODY,
     STREAM_STALE,

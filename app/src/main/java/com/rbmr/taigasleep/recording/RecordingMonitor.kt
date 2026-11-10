@@ -43,6 +43,8 @@ class RecordingMonitor(
     private val clock: Clock,
     /** The writer's `event`; transition events are rare, samples never log. */
     private val event: (type: String, message: String) -> Unit,
+    /** The phone's free space, read once a minute; null when there is nothing to check. */
+    private val space: SpaceProvider? = null,
     /** The writer's storage health; read at 1 Hz, never on the sample path. */
     private val storageHealth: () -> StorageHealth,
 ) : SampleMonitor {
@@ -90,6 +92,9 @@ class RecordingMonitor(
   private var storageError: String? = null
   private var storageDropped = 0L
   private var sinceSyncMs: Long? = null
+  private var freeBytes: Long? = null
+  private var lowSpace = false
+  private var spaceCheckedAtMs = Long.MIN_VALUE
 
   init {
     if (meta.config.hr) streams[RecordingState.StreamKind.HR] = StreamAcc(RecordingState.StreamKind.HR)
@@ -233,6 +238,7 @@ class RecordingMonitor(
       evaluateStreams(nowNs, events)
       evaluateQuality(events)
       evaluateStorage(nowNs, events)
+      evaluateSpace(nowMs, events)
       steps = evaluateRecovery(nowMs)
       publishLocked(nowMs)
     }
@@ -372,6 +378,25 @@ class RecordingMonitor(
     }
   }
 
+  /**
+   * Re-reads the phone's free space once a minute. Below [StorageSpace.lowBytes] the recording still
+   * runs, but the state says it is filling up; if it runs out, the writer's failed frames follow.
+   */
+  private fun evaluateSpace(nowMs: Long, events: MutableList<Pair<String, String>>) {
+    val provider = space ?: return
+    if (spaceCheckedAtMs != Long.MIN_VALUE && nowMs - spaceCheckedAtMs < SPACE_CHECK_MS) return
+    spaceCheckedAtMs = nowMs
+    val free = provider.availableBytes()
+    freeBytes = free
+    val low = StorageSpace.isLow(free, meta.config)
+    if (low == lowSpace) return
+    lowSpace = low
+    val mb = free / (1024 * 1024)
+    events +=
+        if (low) "storage_low" to "phone storage low: $mb MB free"
+        else "storage" to "phone storage ok: $mb MB free"
+  }
+
   /** Only a streamed recording that is still running has live streams to recover. */
   private fun recovers(): Boolean =
       meta.mode == RecordingMode.STREAM &&
@@ -395,6 +420,8 @@ class RecordingMonitor(
             lastError = storageError,
             sinceSyncMs = sinceSyncMs,
             droppedFrames = storageDropped,
+            freeBytes = freeBytes,
+            lowSpace = lowSpace,
         )
     val contactState =
         RecordingState.Contact(
@@ -433,7 +460,7 @@ class RecordingMonitor(
             quality = RecordingState.Quality(ecg),
             power = power,
             storage = storage,
-            overall = overallOf(storageError, link, contact, streamStates.values, ecg, battery),
+            overall = overallOf(storageError, lowSpace, link, contact, streamStates.values, ecg, battery),
         )
   }
 
@@ -482,6 +509,8 @@ class RecordingMonitor(
     private const val CLIP_RECOVER = 0.05
     private const val RATE_WINDOW_NS = 10_000_000_000L
     private const val RATE_MIN_SPAN_NS = 2_000_000_000L
+    // The phone's free space is checked once a minute; a disk does not fill in a second.
+    const val SPACE_CHECK_MS = 60_000L
   }
 
   /**
@@ -551,10 +580,11 @@ private fun powerState(percent: Int?): RecordingState.PowerState =
 
 /**
  * The fixed overall headline every consumer shows. Priority:
- * storage error > link lost > off-body > stale stream > poor ECG > low battery.
+ * storage error > low storage > link lost > off-body > stale stream > poor ECG > low battery.
  */
 internal fun overallOf(
     storageError: String?,
+    lowSpace: Boolean,
     link: RecordingState.LinkState,
     contact: RecordingState.ContactState,
     streams: Collection<RecordingState.Stream>,
@@ -564,6 +594,7 @@ internal fun overallOf(
   val reason =
       when {
         storageError != null -> RecordingState.Reason.STORAGE_ERROR
+        lowSpace -> RecordingState.Reason.STORAGE_LOW
         link != RecordingState.LinkState.CONNECTED -> RecordingState.Reason.LINK_LOST
         contact == RecordingState.ContactState.OFF_BODY -> RecordingState.Reason.OFF_BODY
         streams.any { it.status == RecordingState.StreamStatus.STALE } ->
@@ -578,6 +609,7 @@ internal fun overallOf(
         RecordingState.Reason.STORAGE_ERROR,
         RecordingState.Reason.LINK_LOST,
         RecordingState.Reason.STREAM_STALE -> RecordingState.OverallState.ERROR
+        RecordingState.Reason.STORAGE_LOW,
         RecordingState.Reason.OFF_BODY,
         RecordingState.Reason.ECG_POOR,
         RecordingState.Reason.BATTERY_LOW -> RecordingState.OverallState.WARNING
