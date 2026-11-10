@@ -24,6 +24,11 @@ func Register(app core.App) {
 	registerEvents(app)
 
 	app.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
+		// The settings live in the database, so the bootstrap has to finish before
+		// they can be read and saved.
+		if err := e.Next(); err != nil {
+			return err
+		}
 		settings := e.App.Settings()
 		changed := false
 		if name := os.Getenv("TAIGA_APP_NAME"); name != "" && settings.Meta.AppName != name {
@@ -39,7 +44,7 @@ func Register(app core.App) {
 				return err
 			}
 		}
-		return e.Next()
+		return nil
 	})
 
 	app.Cron().MustAdd("taiga_requeue_expired_analyses", "* * * * *", func() {
