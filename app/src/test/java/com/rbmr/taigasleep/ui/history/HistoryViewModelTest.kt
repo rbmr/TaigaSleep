@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.ui.history
 
+import com.rbmr.taigasleep.backend.RemoteError
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.library.BackupState
 import com.rbmr.taigasleep.library.LibrarySource
@@ -173,5 +174,44 @@ class HistoryViewModelTest {
     // The first emission is from the constructor, so the reload is asked for on every change.
     assertEquals(1, before)
     assertEquals(2, library.reloads)
+  }
+
+  @Test
+  fun `no server shows the warning that nights are not analyzed`() {
+    library.remoteStatus.value = RemoteStatus.NotConfigured
+
+    assertEquals(ServerWarning.NOT_CONFIGURED, viewModel().state.value.serverWarning)
+  }
+
+  @Test
+  fun `a server that cannot be reached shows the unreachable warning`() {
+    library.remoteStatus.value = RemoteStatus.Unreachable(RemoteError.Unreachable, 1)
+
+    assertEquals(ServerWarning.UNREACHABLE, viewModel().state.value.serverWarning)
+  }
+
+  @Test
+  fun `a server whose stored login is not accepted shows the login warning`() {
+    library.remoteStatus.value = RemoteStatus.LoginNeeded("user@test.com", 1)
+
+    assertEquals(ServerWarning.LOGIN_NEEDED, viewModel().state.value.serverWarning)
+  }
+
+  @Test
+  fun `a connected server hides the warning`() {
+    library.remoteStatus.value = RemoteStatus.Connected("user@test.com", 1)
+
+    assertNull(viewModel().state.value.serverWarning)
+  }
+
+  @Test
+  fun `the warning disappears as soon as a server is connected`() {
+    library.remoteStatus.value = RemoteStatus.NotConfigured
+    val model = viewModel()
+    assertEquals(ServerWarning.NOT_CONFIGURED, model.state.value.serverWarning)
+
+    library.remoteStatus.value = RemoteStatus.Connected("user@test.com", 1)
+
+    assertNull(model.state.value.serverWarning)
   }
 }

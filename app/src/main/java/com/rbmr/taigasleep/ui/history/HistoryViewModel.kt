@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.rbmr.taigasleep.appContainer
+import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.library.LibrarySource
 import com.rbmr.taigasleep.library.RecordingView
 import com.rbmr.taigasleep.recording.RecordingRepository
@@ -20,6 +21,18 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/** Why History has no results to show: the server is missing, unreachable, or refuses the login. */
+enum class ServerWarning {
+  /** No server address is saved, so nothing can be uploaded or analyzed. */
+  NOT_CONFIGURED,
+
+  /** A server is saved but the last check could not reach it. */
+  UNREACHABLE,
+
+  /** The server answered but the stored login is not accepted. */
+  LOGIN_NEEDED,
+}
+
 /** Everything History draws: the recordings that are not waiting for the server, and the last failure. */
 data class HistoryUiState(
     val items: List<RecordingView> = emptyList(),
@@ -28,6 +41,8 @@ data class HistoryUiState(
      * keeps a failed refresh from taking the list down; a screen that reports it can read it here.
      */
     val error: String? = null,
+    /** Why the nights cannot be analyzed, or null when a server is connected. */
+    val serverWarning: ServerWarning? = null,
 )
 
 /** The background steps of the History screen, split out so the view model needs no Android types. */
@@ -59,10 +74,16 @@ class HistoryViewModel(
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
 
   val state: StateFlow<HistoryUiState> =
-      combine(library.recordings, pendingDeletes, failure) { list, pending, error ->
+      combine(
+              library.recordings,
+              pendingDeletes,
+              failure,
+              library.remoteStatus,
+          ) { list, pending, error, status ->
             HistoryUiState(
                 items = list.filterNot { it.localId == null && it.remoteId in pending },
                 error = error,
+                serverWarning = warningFor(status),
             )
           }
           .stateIn(scope, SharingStarted.Eagerly, HistoryUiState())
@@ -141,3 +162,12 @@ class HistoryViewModel(
     }
   }
 }
+
+/** The warning History shows while its nights cannot be analyzed, or null once a server is connected. */
+private fun warningFor(status: RemoteStatus): ServerWarning? =
+    when (status) {
+      RemoteStatus.NotConfigured -> ServerWarning.NOT_CONFIGURED
+      is RemoteStatus.Connected -> null
+      is RemoteStatus.LoginNeeded -> ServerWarning.LOGIN_NEEDED
+      is RemoteStatus.Unreachable -> ServerWarning.UNREACHABLE
+    }

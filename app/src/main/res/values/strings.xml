@@ -13,6 +13,10 @@
   <string name="history_subtitle">Your analyzed nights and pending uploads.</string>
   <string name="history_empty_title">No nights yet</string>
   <string name="history_empty_body">After your first recording, Taiga will show your sleep stages, heart rate and quality here.</string>
+  <string name="history_server_warning_no_server">No server connected</string>
+  <string name="history_server_warning_unreachable">Can\'t reach the server</string>
+  <string name="history_server_warning_login_needed">Server login needed</string>
+  <string name="history_server_warning_body">Nights are recorded but not analyzed.</string>
   <string name="settings_title">Settings</string>
   <string name="settings_group_server">Server</string>
   <string name="settings_group_analysis">Analysis</string>
