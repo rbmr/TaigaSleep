@@ -19,12 +19,12 @@ def test_full_result_is_json_serializable_and_model_agnostic(tmp_path: Path) -> 
     assert '"baseline"' in encoded
     assert payload["contract_version"] == CONTRACT_VERSION
     assert payload["model"] == "baseline"
-    assert payload["model_version"] == "1.1.0"
+    assert payload["model_version"] == "1.2.0"
     assert len(payload["params_hash"]) == 16
     assert payload["stages"]["epoch_seconds"] == 30
     assert payload["stages"]["count"] == 4
     assert sum(item["count"] for item in payload["stages"]["segments"]) == 4
-    assert len(payload["stages"]["confidence"]) == 4
+    assert payload["stages"]["confidence"] is None
     assert len(payload["stages"]["artifacts"]) == 4
     assert "items" in payload and payload["items"]
     assert "hr" not in payload
@@ -34,7 +34,7 @@ def test_full_result_is_json_serializable_and_model_agnostic(tmp_path: Path) -> 
     assert "provenance" in payload
     assert payload["capabilities"]["stages"]
     assert payload["provenance"]["algorithm"]["id"] == "baseline"
-    assert payload["provenance"]["algorithm"]["version"] == "1.1.0"
+    assert payload["provenance"]["algorithm"]["version"] == "1.2.0"
     assert payload["provenance"]["recording"]["session_id"] == "20261023_223000"
     assert payload["provenance"]["runtime_s"] >= 0
     assert payload["provenance"]["peak_rss_mb"] > 0
@@ -43,8 +43,8 @@ def test_full_result_is_json_serializable_and_model_agnostic(tmp_path: Path) -> 
 def test_params_hash_changes_with_params(tmp_path: Path) -> None:
     fx.write_recording(tmp_path, duration_s=60)
     first = run_analysis(tmp_path, "baseline", {})
-    second = run_analysis(tmp_path, "baseline", {"deep_hr_ratio": 0.8})
-    third = run_analysis(tmp_path, "baseline", {"deep_hr_ratio": 0.8})
+    second = run_analysis(tmp_path, "baseline", {"wake_movement_g": 0.2})
+    third = run_analysis(tmp_path, "baseline", {"wake_movement_g": 0.2})
 
     assert first.params_hash != second.params_hash
     assert second.params_hash == third.params_hash
@@ -61,7 +61,7 @@ def test_params_hash_override_and_latest_version(tmp_path: Path) -> None:
     )
 
     assert output.params_hash == "api-hash"
-    assert output.model_version == "1.1.0"
+    assert output.model_version == "1.2.0"
 
 
 def test_invalid_params_fail_with_a_clear_code(tmp_path: Path) -> None:
