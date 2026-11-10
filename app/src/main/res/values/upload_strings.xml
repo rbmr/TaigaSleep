@@ -134,9 +134,11 @@
   <string name="night_upload_other_account_confirm">Upload</string>
   <string name="night_warnings">Warnings</string>
   <string name="night_analyzed_with">Analyzed with %1$s %2$s</string>
+  <string name="night_analyzed_with_algorithm">Analyzed with %1$s</string>
   <string name="night_analysis">Analysis</string>
   <string name="night_analysis_choose">Choose an analysis</string>
   <string name="night_analysis_change">Change</string>
+  <string name="night_analysis_manual">Manual</string>
   <string name="night_analysis_this_night">This night</string>
   <string name="night_analysis_add">Add an analysis</string>
   <string name="night_analysis_loading">Loading algorithms…</string>

@@ -40,6 +40,7 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.RemoteStatus
+import com.rbmr.taigasleep.insights.AlgorithmNames
 import com.rbmr.taigasleep.insights.compareVersions
 import com.rbmr.taigasleep.insights.effectiveOrder
 import com.rbmr.taigasleep.insights.movePreference
@@ -120,7 +121,10 @@ fun SettingsScreen(
           effectiveOrder(analysisSettings.preferenceOrder, installedById.keys)
         }
       }
-  val orderLabel = orderIds.joinToString(" → ") { installedById[it]?.name ?: it }
+  val orderLabel =
+      orderIds.joinToString(" → ") {
+        installedById[it]?.name?.ifBlank { AlgorithmNames.display(it) } ?: AlgorithmNames.display(it)
+      }
 
   LazyColumn(
       modifier = Modifier.fillMaxSize().statusBarsPadding(),
@@ -383,16 +387,11 @@ fun SettingsScreen(
               ) {
                 Column(Modifier.weight(1f)) {
                   Text(
-                      text = algorithm?.name?.ifBlank { id } ?: id,
+                      text =
+                          algorithm?.name?.ifBlank { AlgorithmNames.display(id) }
+                              ?: AlgorithmNames.display(id),
                       style = MaterialTheme.typography.titleSmall,
                   )
-                  if (algorithm != null) {
-                    Text(
-                        text = "v${algorithm.version}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                  }
                 }
                 IconButton(
                     onClick = { orderDraft = movePreference(orderDraft, id, -1) },
