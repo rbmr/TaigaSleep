@@ -25,7 +25,6 @@ FIGURE_IDS = {
     "movement_epochs",
     "scored_duration_s",
     "unscored_s",
-    "total_duration_s",
     "hr",
     "sleep_quality",
     "data_quality",
@@ -54,3 +53,10 @@ def test_an_unsupported_figure_is_absent_instead_of_null(tmp_path: Path) -> None
         for item in payload["items"]
         if item["kind"] == "number"
     )
+
+
+def test_the_recording_length_is_not_a_result_item(tmp_path: Path) -> None:
+    fx.write_recording(tmp_path, duration_s=240)
+    payload = run_analysis(tmp_path, "baseline", {}).to_dict()
+
+    assert "total_duration_s" not in item_ids(payload)

@@ -165,14 +165,6 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Time the algorithm could not score.",
         ("stages",),
     ),
-    NumberItem(
-        "total_duration_s",
-        "Recording length",
-        "s",
-        "quality",
-        "Length of the analyzed recording.",
-        ("meta", "stages"),
-    ),
 )
 
 PERCENT_FROM_FRACTION = {"sleep_efficiency", "movement_index"}

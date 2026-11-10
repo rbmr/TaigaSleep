@@ -367,7 +367,7 @@ def derive(
     }
 
     support: dict[str, Any] = {}
-    for key in ("total_duration_s", "scored_duration_s", "unscored_s"):
+    for key in ("scored_duration_s", "unscored_s"):
         support[key] = _support("supported")
     for key in (
         "total_sleep_s",
