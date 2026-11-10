@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.AnalysisResultDto
+import com.rbmr.taigasleep.insights.AlgorithmNames
 import com.rbmr.taigasleep.insights.MetricSpec
 import com.rbmr.taigasleep.insights.sleepScoreCardState
 import com.rbmr.taigasleep.library.formatNightHeader
@@ -102,11 +103,10 @@ internal fun RecordingBody(
       }
       if (state.remoteId != null) {
         item {
-          val model = run?.algorithm.orEmpty()
-          val version = run?.version.orEmpty()
+          val name = run?.algorithm?.takeIf { it.isNotBlank() }?.let(AlgorithmNames::display)
           val label =
-              if (model.isNotBlank()) {
-                stringResource(R.string.night_analyzed_with, model, version) +
+              if (name != null) {
+                stringResource(R.string.night_analyzed_with_algorithm, name) +
                     " · " +
                     stringResource(R.string.night_analysis_change)
               } else {
@@ -223,7 +223,12 @@ private fun LazyListScope.processedRecording(
   run.algorithm.takeIf { it.isNotBlank() }?.let { model ->
     item {
       Text(
-          text = stringResource(R.string.night_analyzed_with, model, run.version),
+          text =
+              stringResource(
+                  R.string.night_analyzed_with,
+                  AlgorithmNames.display(model),
+                  run.version,
+              ),
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
           modifier = Modifier.padding(horizontal = 4.dp),

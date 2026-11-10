@@ -79,9 +79,9 @@ import kotlinx.coroutines.launch
 
 /** The three pages of the flow. Which one is shown is the user's choice, not the state's. */
 private enum class RemotePage(val titleRes: Int) {
-  SERVER(R.string.remote_page_server),
-  ACCOUNT(R.string.remote_page_account),
-  STATUS(R.string.remote_page_status),
+  SERVER(R.string.server_page_server),
+  ACCOUNT(R.string.server_page_account),
+  STATUS(R.string.server_page_status),
 }
 
 /**
@@ -155,7 +155,7 @@ fun RemoteScreen(onBack: () -> Unit) {
       topBar = {
         Column {
           TopAppBar(
-              title = { Text(stringResource(R.string.remote_title)) },
+              title = { Text(stringResource(R.string.server_title)) },
               colors =
                   TopAppBarDefaults.topAppBarColors(
                       containerColor = MaterialTheme.colorScheme.background
@@ -164,7 +164,7 @@ fun RemoteScreen(onBack: () -> Unit) {
                 IconButton(onClick = onBack) {
                   Icon(
                       imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                      contentDescription = stringResource(R.string.remote_back),
+                      contentDescription = stringResource(R.string.server_back),
                   )
                 }
               },
@@ -174,7 +174,7 @@ fun RemoteScreen(onBack: () -> Unit) {
               current = pagerState.currentPage + 1,
               description =
                   stringResource(
-                      R.string.remote_progress,
+                      R.string.server_progress,
                       pagerState.currentPage + 1,
                       RemotePage.entries.size,
                       stringResource(current.titleRes),
@@ -194,13 +194,13 @@ fun RemoteScreen(onBack: () -> Unit) {
               horizontalArrangement = Arrangement.spacedBy(12.dp),
           ) {
             SecondaryButton(
-                text = stringResource(R.string.remote_previous_page),
+                text = stringResource(R.string.server_previous_page),
                 onClick = { goTo(RemotePage.entries[pagerState.currentPage - 1]) },
                 modifier = Modifier.weight(1f),
                 enabled = current != RemotePage.SERVER,
             )
             SecondaryButton(
-                text = stringResource(R.string.remote_next_page),
+                text = stringResource(R.string.server_next_page),
                 onClick = { goTo(RemotePage.entries[pagerState.currentPage + 1]) },
                 modifier = Modifier.weight(1f),
                 enabled = current != RemotePage.STATUS,
@@ -262,8 +262,8 @@ fun RemoteScreen(onBack: () -> Unit) {
   if (showLogout) {
     AlertDialog(
         onDismissRequest = { showLogout = false },
-        title = { Text(stringResource(R.string.remote_logout_title)) },
-        text = { Text(stringResource(R.string.remote_logout_body)) },
+        title = { Text(stringResource(R.string.server_logout_title)) },
+        text = { Text(stringResource(R.string.server_logout_body)) },
         confirmButton = {
           TextButton(
               onClick = {
@@ -273,14 +273,14 @@ fun RemoteScreen(onBack: () -> Unit) {
               }
           ) {
             Text(
-                text = stringResource(R.string.remote_logout_confirm),
+                text = stringResource(R.string.server_logout_confirm),
                 color = MaterialTheme.taiga.bad,
             )
           }
         },
         dismissButton = {
           TextButton(onClick = { showLogout = false }) {
-            Text(stringResource(R.string.remote_cancel))
+            Text(stringResource(R.string.server_cancel))
           }
         },
     )
@@ -305,17 +305,16 @@ private fun ServerPage(
   val reachable = checked && status !is RemoteStatus.Unreachable
 
   ScreenHeader(
-      kicker = stringResource(R.string.remote_kicker),
-      title = stringResource(R.string.remote_page_server),
-      subtitle = stringResource(R.string.remote_page_server_body),
+      title = stringResource(R.string.server_page_server),
+      subtitle = stringResource(R.string.server_page_server_body),
   )
   TaigaCard {
     OutlinedTextField(
         value = url,
         onValueChange = onUrlChange,
         modifier = Modifier.fillMaxWidth(),
-        label = { Text(stringResource(R.string.remote_url_label)) },
-        placeholder = { Text(stringResource(R.string.remote_url_placeholder)) },
+        label = { Text(stringResource(R.string.server_url_label)) },
+        placeholder = { Text(stringResource(R.string.server_url_placeholder)) },
         singleLine = true,
         isError = failure != null,
         shape = RoundedCornerShape(16.dp),
@@ -330,13 +329,13 @@ private fun ServerPage(
             reachable ->
                 Icon(
                     imageVector = Icons.Outlined.CheckCircle,
-                    contentDescription = stringResource(R.string.remote_address_ok),
+                    contentDescription = stringResource(R.string.server_address_ok),
                     tint = MaterialTheme.taiga.ok,
                 )
             failure != null ->
                 Icon(
                     imageVector = Icons.Outlined.ErrorOutline,
-                    contentDescription = stringResource(R.string.remote_address_failed),
+                    contentDescription = stringResource(R.string.server_address_failed),
                     tint = MaterialTheme.taiga.bad,
                 )
           }
@@ -354,9 +353,9 @@ private fun ServerPage(
       text =
           stringResource(
               when {
-                checking -> R.string.remote_checking
-                failure != null -> R.string.remote_retry
-                else -> R.string.remote_check_server
+                checking -> R.string.server_checking
+                failure != null -> R.string.server_retry
+                else -> R.string.server_check_server
               }
           ),
       onClick = onCheck,
@@ -380,9 +379,8 @@ private fun AccountPage(
     onLogin: () -> Unit,
 ) {
   ScreenHeader(
-      kicker = stringResource(R.string.remote_kicker),
-      title = stringResource(R.string.remote_page_account),
-      subtitle = stringResource(R.string.remote_page_account_body),
+      title = stringResource(R.string.server_page_account),
+      subtitle = stringResource(R.string.server_page_account_body),
   )
   TaigaCard {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -390,7 +388,7 @@ private fun AccountPage(
           value = email,
           onValueChange = onEmailChange,
           modifier = Modifier.fillMaxWidth(),
-          label = { Text(stringResource(R.string.remote_email_label)) },
+          label = { Text(stringResource(R.string.server_email_label)) },
           singleLine = true,
           shape = RoundedCornerShape(16.dp),
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
@@ -399,7 +397,7 @@ private fun AccountPage(
           value = password,
           onValueChange = onPasswordChange,
           modifier = Modifier.fillMaxWidth(),
-          label = { Text(stringResource(R.string.remote_password_label)) },
+          label = { Text(stringResource(R.string.server_password_label)) },
           singleLine = true,
           shape = RoundedCornerShape(16.dp),
           visualTransformation =
@@ -413,8 +411,8 @@ private fun AccountPage(
                       else Icons.Outlined.Visibility,
                   contentDescription =
                       stringResource(
-                          if (passwordVisible) R.string.remote_hide_password
-                          else R.string.remote_show_password
+                          if (passwordVisible) R.string.server_hide_password
+                          else R.string.server_show_password
                       ),
               )
             }
@@ -430,7 +428,7 @@ private fun AccountPage(
     )
   }
   PrimaryButton(
-      text = stringResource(if (checking) R.string.remote_checking else R.string.remote_login),
+      text = stringResource(if (checking) R.string.server_checking else R.string.server_login),
       onClick = onLogin,
       enabled = !checking && hasRemote && email.isNotBlank() && password.isNotEmpty(),
       size = ButtonSize.Large,
@@ -449,9 +447,8 @@ private fun StatusPage(
     onLogout: () -> Unit,
 ) {
   ScreenHeader(
-      kicker = stringResource(R.string.remote_kicker),
-      title = stringResource(R.string.remote_page_status),
-      subtitle = stringResource(R.string.remote_page_status_body),
+      title = stringResource(R.string.server_page_status),
+      subtitle = stringResource(R.string.server_page_status_body),
   )
   TaigaCard {
     StatusChip(kind = state.kind, label = stringResource(state.labelRes))
@@ -480,14 +477,14 @@ private fun StatusPage(
   PrimaryButton(
       text =
           stringResource(
-              if (checking) R.string.remote_checking else R.string.remote_check_connection
+              if (checking) R.string.server_checking else R.string.server_check_connection
           ),
       onClick = onCheck,
       enabled = !checking && hasRemote,
       size = ButtonSize.Large,
   )
   SecondaryButton(
-      text = stringResource(R.string.remote_logout),
+      text = stringResource(R.string.server_logout),
       onClick = onLogout,
       modifier = Modifier.fillMaxWidth(),
       enabled = !checking && hasSession,
@@ -514,7 +511,7 @@ private fun LastCheck(checkedAtMs: Long) {
           )
           .toString()
   Text(
-      text = stringResource(R.string.remote_last_check, relative),
+      text = stringResource(R.string.server_last_check, relative),
       style = MaterialTheme.typography.bodySmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
   )
@@ -530,10 +527,10 @@ private fun initialPage(state: RemoteState): RemotePage =
 private val RemoteState.labelRes: Int
   get() =
       when (this) {
-        RemoteState.NO_REMOTE -> R.string.remote_status_none
-        RemoteState.UNREACHABLE -> R.string.remote_status_unreachable
-        RemoteState.NOT_LOGGED_IN -> R.string.remote_status_not_logged_in
-        RemoteState.CONNECTED -> R.string.remote_status_connected
+        RemoteState.NO_REMOTE -> R.string.server_status_none
+        RemoteState.UNREACHABLE -> R.string.server_status_unreachable
+        RemoteState.NOT_LOGGED_IN -> R.string.server_status_not_logged_in
+        RemoteState.CONNECTED -> R.string.server_status_connected
       }
 
 private val RemoteState.kind: StatusKind
@@ -549,10 +546,10 @@ private val RemoteState.kind: StatusKind
 private val RemoteState.explanationRes: Int
   get() =
       when (this) {
-        RemoteState.NO_REMOTE -> R.string.remote_status_none_body
-        RemoteState.UNREACHABLE -> R.string.remote_status_unreachable_body
-        RemoteState.NOT_LOGGED_IN -> R.string.remote_status_not_logged_in_body
-        RemoteState.CONNECTED -> R.string.remote_status_connected_body
+        RemoteState.NO_REMOTE -> R.string.server_status_none_body
+        RemoteState.UNREACHABLE -> R.string.server_status_unreachable_body
+        RemoteState.NOT_LOGGED_IN -> R.string.server_status_not_logged_in_body
+        RemoteState.CONNECTED -> R.string.server_status_connected_body
       }
 
 /** What the status can add to its explanation: the account, or why the check failed. */
@@ -577,25 +574,23 @@ private fun RemoteStatus.checkedAt(): Long? =
 @Composable
 private fun errorMessage(error: RemoteError): String =
     when (error) {
-      RemoteError.InvalidUrl -> stringResource(R.string.remote_error_invalid_url)
-      RemoteError.UnknownHost -> stringResource(R.string.remote_error_unknown_host)
-      RemoteError.InsecureUrl -> stringResource(R.string.remote_error_insecure_url)
-      RemoteError.MissingCredentials -> stringResource(R.string.remote_error_missing_credentials)
-      RemoteError.Unreachable -> stringResource(R.string.remote_error_unreachable)
-      RemoteError.NotTaiga -> stringResource(R.string.remote_error_not_taiga)
-      RemoteError.BadCredentials -> stringResource(R.string.remote_error_bad_credentials)
-      RemoteError.SessionExpired -> stringResource(R.string.remote_error_session_expired)
-      RemoteError.StorageFull -> stringResource(R.string.remote_error_storage_full)
+      RemoteError.InvalidUrl -> stringResource(R.string.server_error_invalid_url)
+      RemoteError.UnknownHost -> stringResource(R.string.server_error_unknown_host)
+      RemoteError.InsecureUrl -> stringResource(R.string.server_error_insecure_url)
+      RemoteError.MissingCredentials -> stringResource(R.string.server_error_missing_credentials)
+      RemoteError.Unreachable -> stringResource(R.string.server_error_unreachable)
+      RemoteError.NotTaiga -> stringResource(R.string.server_error_not_taiga)
+      RemoteError.BadCredentials -> stringResource(R.string.server_error_bad_credentials)
+      RemoteError.SessionExpired -> stringResource(R.string.server_error_session_expired)
+      RemoteError.StorageFull -> stringResource(R.string.server_error_storage_full)
       is RemoteError.IncompatibleApi ->
           when {
             // A server from before API versioning answers with nothing, which is too old by
             // definition.
-            error.server == 0 ->
-                stringResource(R.string.remote_error_api_unversioned, error.required)
-            error.server < error.required ->
-                stringResource(R.string.remote_error_api_server_old, error.required, error.server)
-            else -> stringResource(R.string.remote_error_api_app_old, error.required, error.server)
+            error.server == 0 -> stringResource(R.string.server_error_api_unversioned)
+            error.server < error.required -> stringResource(R.string.server_error_api_server_old)
+            else -> stringResource(R.string.server_error_api_app_old)
           }
-      is RemoteError.Http -> stringResource(R.string.remote_error_http, error.status)
-      RemoteError.MalformedResponse -> stringResource(R.string.remote_error_malformed)
+      is RemoteError.Http -> stringResource(R.string.server_error_http, error.status)
+      RemoteError.MalformedResponse -> stringResource(R.string.server_error_malformed)
     }

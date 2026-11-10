@@ -236,7 +236,6 @@ private fun InactiveHome(
   ) {
     item {
       ScreenHeader(
-          kicker = stringResource(R.string.home_kicker),
           title = stringResource(R.string.rec_home_title_idle),
           subtitle = stringResource(R.string.rec_home_subtitle_idle),
       )

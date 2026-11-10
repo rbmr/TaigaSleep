@@ -25,6 +25,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AlgorithmDto
+import com.rbmr.taigasleep.insights.AlgorithmNames
+import com.rbmr.taigasleep.insights.stageLabelRes
 import com.rbmr.taigasleep.library.Analysis
 import com.rbmr.taigasleep.library.AnalysisOrigin
 import com.rbmr.taigasleep.library.AnalysisStatus
@@ -121,17 +123,18 @@ private fun AnalysisRow(
     busy: Boolean,
     onSelect: (String) -> Unit,
 ) {
+  val manual = stringResource(R.string.night_analysis_manual)
   Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
     Column(Modifier.weight(1f)) {
       Text(
           text =
               buildString {
-                append(run.algorithm.ifBlank { run.id })
+                append(AlgorithmNames.display(run.algorithm.ifBlank { run.id }))
                 if (run.version.isNotBlank()) {
                   append(" ")
                   append(run.version)
                 }
-                if (run.origin == AnalysisOrigin.MANUAL) append(" · Manual")
+                if (run.origin == AnalysisOrigin.MANUAL) append(" · $manual")
               },
           style = MaterialTheme.typography.titleSmall,
       )
@@ -168,7 +171,7 @@ private fun AlgorithmRow(algorithm: AlgorithmDto, busy: Boolean, onRun: (String)
     Row(verticalAlignment = Alignment.CenterVertically) {
       Column(Modifier.weight(1f)) {
         Text(
-            text = algorithm.name.ifBlank { algorithm.id },
+            text = algorithm.name.ifBlank { AlgorithmNames.display(algorithm.id) },
             style = MaterialTheme.typography.titleSmall,
         )
         Text(
@@ -189,12 +192,9 @@ private fun AlgorithmRow(algorithm: AlgorithmDto, busy: Boolean, onRun: (String)
       )
     }
     if (algorithm.supported_stages.isNotEmpty()) {
+      val stages = algorithm.supported_stages.map { stringResource(stageLabelRes(it)) }
       Text(
-          text =
-              stringResource(
-                  R.string.night_analysis_stages,
-                  algorithm.supported_stages.joinToString(", "),
-              ),
+          text = stringResource(R.string.night_analysis_stages, stages.joinToString(", ")),
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
       )

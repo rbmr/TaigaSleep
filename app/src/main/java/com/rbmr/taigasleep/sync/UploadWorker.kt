@@ -219,7 +219,7 @@ class UploadWorker(
           store.markFailed(
               localId,
               UploadFailure.SERVER,
-              context.getString(R.string.remote_error_storage_full),
+              context.getString(R.string.server_error_storage_full),
               account,
           )
           Result.failure()

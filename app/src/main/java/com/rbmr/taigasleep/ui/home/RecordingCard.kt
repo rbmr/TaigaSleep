@@ -199,12 +199,12 @@ private fun StreamLine(label: Int, stream: RecordingState.Stream, poor: Boolean 
             )
         poor -> stringResource(R.string.rec_active_stream_poor, name)
         stream.rateHz == null -> stringResource(R.string.rec_active_stream_measuring, name)
-        // Rounded to 5 Hz: the batches make the exact figure flicker by a few Hz.
+        // Rounded to 1 Hz by the same function the notification uses, so both agree.
         else ->
             stringResource(
                 R.string.rec_active_stream,
                 name,
-                Math.round(stream.rateHz!! / 5) * 5.0,
+                RecordingFormat.rateHz(stream.rateHz!!).toDouble(),
             )
       }
   val problem = stream.status == RecordingState.StreamStatus.STALE || poor

@@ -46,7 +46,6 @@ internal fun ActiveHome(
   ) {
     item {
       ScreenHeader(
-          kicker = stringResource(R.string.home_kicker),
           title = stringResource(R.string.rec_home_title_active),
           subtitle = stringResource(R.string.rec_home_subtitle_active),
       )
@@ -96,7 +95,6 @@ internal fun FetchPendingHome(state: HomeUiState.FetchPending, onFetchAgain: () 
   ) {
     item {
       ScreenHeader(
-          kicker = stringResource(R.string.home_kicker),
           title = stringResource(R.string.rec_fetch_pending_title),
           subtitle = stringResource(R.string.rec_fetch_pending_subtitle),
       )

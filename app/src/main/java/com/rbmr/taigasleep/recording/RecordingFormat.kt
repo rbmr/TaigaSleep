@@ -20,4 +20,10 @@ object RecordingFormat {
 
   fun age(ms: Long): String =
       if (ms < 1000) "$ms ms" else if (ms < 60_000) "${ms / 1000} s" else "${ms / 60_000} min"
+
+  /** A measured stream rate in whole Hz, as the screen and the notification show it. */
+  fun rateHz(rateHz: Double): Long = Math.round(rateHz)
+
+  /** One stream with its measured rate, for example `ECG 130 Hz`. */
+  fun rate(label: String, hz: Double): String = "$label ${rateHz(hz)} Hz"
 }

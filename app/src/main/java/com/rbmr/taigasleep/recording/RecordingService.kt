@@ -713,7 +713,7 @@ class RecordingService : Service() {
   }
 
   private fun notificationText(s: RecordingState): String {
-    val name = s.capture.sensorName.ifBlank { getString(R.string.rec_notification_title) }
+    val name = s.capture.sensorName.ifBlank { getString(R.string.rec_notification_device) }
     return when (s.overall.reason) {
       RecordingState.Reason.STORAGE_ERROR ->
           getString(R.string.rec_notification_storage_error, name)
@@ -751,34 +751,26 @@ class RecordingService : Service() {
     }
   }
 
-  /** The measured stream rates, formatted exactly like the active screen shows them. */
+  /** The measured stream rates, with the same rounding the active screen uses. */
   private fun rateText(s: RecordingState): String =
       s.streams.values
           .filter { it.kind != RecordingState.StreamKind.HR && it.rateHz != null }
-          .joinToString(" · ") {
-            val label =
-                getString(
-                    when (it.kind) {
-                      RecordingState.StreamKind.HR -> R.string.rec_active_hr
-                      RecordingState.StreamKind.ECG -> R.string.rec_active_ecg
-                      RecordingState.StreamKind.ACC -> R.string.rec_active_acc
-                    }
-                )
-            "$label ${Math.round(it.rateHz!! / 5) * 5} Hz"
-          }
+          .joinToString(" · ") { RecordingFormat.rate(streamLabel(it.kind), it.rateHz!!) }
 
-  private fun streamName(s: RecordingState): String {
-    val kind =
-        s.streams.values.firstOrNull { it.status == RecordingState.StreamStatus.STALE }?.kind
-            ?: RecordingState.StreamKind.HR
-    return getString(
-        when (kind) {
-          RecordingState.StreamKind.HR -> R.string.rec_active_hr
-          RecordingState.StreamKind.ECG -> R.string.rec_active_ecg
-          RecordingState.StreamKind.ACC -> R.string.rec_active_acc
-        }
-    )
-  }
+  private fun streamName(s: RecordingState): String =
+      streamLabel(
+          s.streams.values.firstOrNull { it.status == RecordingState.StreamStatus.STALE }?.kind
+              ?: RecordingState.StreamKind.HR
+      )
+
+  private fun streamLabel(kind: RecordingState.StreamKind): String =
+      getString(
+          when (kind) {
+            RecordingState.StreamKind.HR -> R.string.rec_active_hr
+            RecordingState.StreamKind.ECG -> R.string.rec_active_ecg
+            RecordingState.StreamKind.ACC -> R.string.rec_active_acc
+          }
+      )
 
   // Notification.
 
