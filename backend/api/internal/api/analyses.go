@@ -100,16 +100,24 @@ func paramsHash(params map[string]any) (string, error) {
 }
 
 // analysisFor finds an analysis the caller may read: a user's own (through the
-// recording's owner) or, for a worker, any.
+// recording's owner) or, for a worker, one it holds the lease of. Anything else is
+// 404 so ids do not leak.
 func analysisFor(e *core.RequestEvent, id string) (*core.Record, error) {
 	record, err := e.App.FindRecordById("analyses", id)
 	if err != nil {
 		return nil, notFound("analysis")
 	}
-	if roleOf(e) == roleUser {
+	switch roleOf(e) {
+	case roleUser:
 		if _, err := ownRecording(e.App, e, record.GetString("recording")); err != nil {
 			return nil, notFound("analysis")
 		}
+	case roleWorker:
+		if !leasesAnalysis(e.Auth.Id, record) {
+			return nil, notFound("analysis")
+		}
+	default:
+		return nil, notFound("analysis")
 	}
 	return record, nil
 }
@@ -215,10 +223,18 @@ func listAnalyses(e *core.RequestEvent, recording string) error {
 	if recording != "" {
 		conditions = append(conditions, dbx.HashExp{"recording": recording})
 	}
-	if roleOf(e) == roleUser {
+	switch roleOf(e) {
+	case roleUser:
 		conditions = append(conditions, dbx.NewExp(
 			"recording IN (SELECT id FROM recordings WHERE owner = {:owner})",
 			dbx.Params{"owner": e.Auth.Id},
+		))
+	case roleWorker:
+		// A worker only sees the analyses it holds the lease of right now. The queue
+		// reaches it as an event and a claim, not as a list of everyone's work.
+		conditions = append(conditions, dbx.NewExp(
+			"worker = {:worker} AND status = 'running' AND lease_until > {:now}",
+			dbx.Params{"worker": e.Auth.Id, "now": nowString()},
 		))
 	}
 	if status := strings.TrimSpace(query.Get("status")); status != "" {

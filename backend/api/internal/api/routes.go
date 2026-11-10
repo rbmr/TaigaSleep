@@ -342,7 +342,7 @@ func Routes() []openAPIRoute {
 		{
 			Method: http.MethodGet, Path: apiPrefix + "/analyses", OperationID: "listAnalyses", Tag: tagAnalyses,
 			Summary:     "List analyses across recordings",
-			Description: "A user sees their own; a worker sees all.",
+			Description: "A user sees their own; a worker sees only the analyses it holds the lease of.",
 			Access:      accessAny,
 			Params: append([]routeParam{
 				queryString("recording", "Only analyses of this recording."),
@@ -355,11 +355,12 @@ func Routes() []openAPIRoute {
 		},
 		{
 			Method: http.MethodGet, Path: apiPrefix + "/analyses/{id}", OperationID: "getAnalysis", Tag: tagAnalyses,
-			Summary:   "Get an analysis with its result",
-			Access:    accessAny,
-			Params:    []routeParam{pathParam("id", "The id of the analysis.")},
-			Responses: withErrors([]routeResponse{jsonResponse(200, "The analysis.", AnalysisView{})}, 401, 403, 404),
-			Handler:   GetAnalysis,
+			Summary:     "Get an analysis with its result",
+			Description: "A worker may read an analysis while it holds the lease of it.",
+			Access:      accessAny,
+			Params:      []routeParam{pathParam("id", "The id of the analysis.")},
+			Responses:   withErrors([]routeResponse{jsonResponse(200, "The analysis.", AnalysisView{})}, 401, 403, 404),
+			Handler:     GetAnalysis,
 		},
 		{
 			Method: http.MethodDelete, Path: apiPrefix + "/analyses/{id}", OperationID: "deleteAnalysis", Tag: tagAnalyses,

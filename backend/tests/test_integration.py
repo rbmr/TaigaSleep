@@ -1133,21 +1133,30 @@ def test_analyses_are_listed_without_their_result_unless_asked(api: Backend) -> 
     assert_error(api.get("/v1/recordings/nope/analyses", token=user), 404, "not_found")
 
 
-def test_a_worker_lists_the_analyses_of_everyone_and_a_user_only_their_own(api: Backend) -> None:
+def test_a_worker_sees_only_what_it_holds_and_a_user_only_their_own(api: Backend) -> None:
     algorithm = unique("alg")
     api.offer(api.worker, manifest(algorithm))
     mine = api.request_analysis(api.user_a, api.make_recording(api.user_a), algorithm, expect=201).json()
     theirs = api.request_analysis(api.user_b, api.make_recording(api.user_b), algorithm, expect=201).json()
 
-    seen_by_worker = api.get("/v1/analyses?status=queued&limit=200", token=api.worker, expect=200).json()["items"]
-    assert {mine["id"], theirs["id"]} <= {item["id"] for item in seen_by_worker}
-    assert (
-        api.get(f"/v1/analyses/{theirs['id']}", token=api.worker, expect=200).json()["recording"] == theirs["recording"]
-    )
+    # Queued work is not a worker's to read: it arrives as an event and a claim.
+    assert_error(api.get(f"/v1/analyses/{mine['id']}", token=api.worker), 404, "not_found")
+    assert api.get(f"/v1/analyses?recording={mine['recording']}", token=api.worker).json()["items"] == []
 
-    for account, own, other in ((api.user_a, mine, theirs), (api.user_b, theirs, mine)):
+    claimed = api.claim(api.worker, algorithm, expect=200).json()
+    other = theirs if claimed["id"] == mine["id"] else mine
+    held = api.get(f"/v1/analyses?recording={claimed['recording']}", token=api.worker, expect=200).json()
+    assert claimed["id"] in {item["id"] for item in held["items"]}
+    assert api.get(f"/v1/analyses?recording={other['recording']}", token=api.worker).json()["items"] == []
+    assert (
+        api.get(f"/v1/analyses/{claimed['id']}", token=api.worker, expect=200).json()["recording"]
+        == claimed["recording"]
+    )
+    assert_error(api.get(f"/v1/analyses/{other['id']}", token=api.worker), 404, "not_found")
+
+    for account, own, foreign in ((api.user_a, mine, theirs), (api.user_b, theirs, mine)):
         ids = {item["id"] for item in api.get("/v1/analyses?limit=200", token=account).json()["items"]}
-        assert own["id"] in ids and other["id"] not in ids
+        assert own["id"] in ids and foreign["id"] not in ids
 
 
 def test_deleting_an_analysis_cancels_it(api: Backend) -> None:
@@ -1363,10 +1372,12 @@ def test_a_worker_reads_a_recording_only_while_it_holds_the_lease(api: Backend) 
         for path in (base, f"{base}/files", f"{base}/files/hr.log"):
             assert_error(api.get(path, token=worker), 404, "not_found")
         assert api.head(f"{base}/files/hr.log", token=worker).status == 404
+        assert_error(api.get(f"/v1/analyses/{analysis['id']}", token=worker), 404, "not_found")
 
     denied(api.worker)  # queued: no lease yet
     api.claim(api.worker, algorithm, lease_seconds=60, expect=200)
     denied(api.other_worker)  # somebody else holds it
+    assert api.get(f"/v1/analyses/{analysis['id']}", token=api.worker, expect=200).json()["status"] == "running"
 
     read = api.get(base, token=api.worker, expect=200).json()
     assert read["id"] == recording and read["complete"] is True

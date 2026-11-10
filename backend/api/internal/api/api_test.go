@@ -479,11 +479,15 @@ func TestAnalysisFlow(t *testing.T) {
 		t.Fatal("different params must be a different analysis")
 	}
 
-	// Another user sees nothing of it; the worker sees it.
+	// Another user sees nothing of it, and a worker only what it holds the lease of.
 	s.expectCode(404, "not_found", http.MethodGet, "/v1/analyses/"+analysis.ID, bob, nil, nil)
 	s.expectCode(404, "not_found", http.MethodDelete, "/v1/analyses/"+analysis.ID, bob, nil, nil)
-	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses?status=queued", worker, nil, nil)); got.Total != 2 {
-		t.Fatalf("worker sees %d queued", got.Total)
+	s.expectCode(404, "not_found", http.MethodGet, "/v1/analyses/"+analysis.ID, worker, nil, nil)
+	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses?status=queued", worker, nil, nil)); got.Total != 0 {
+		t.Fatalf("a worker lists %d queued analyses it does not hold", got.Total)
+	}
+	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses", alice, nil, nil)); got.Total != 2 {
+		t.Fatalf("alice sees %d analyses", got.Total)
 	}
 	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses", bob, nil, nil)); got.Total != 0 {
 		t.Fatalf("bob sees %d analyses", got.Total)
@@ -491,11 +495,19 @@ func TestAnalysisFlow(t *testing.T) {
 
 	// A worker reads the recording only while it holds a lease.
 	s.expect(404, http.MethodGet, "/v1/recordings/"+id, worker, nil, nil)
+	s.expect(404, http.MethodGet, "/v1/recordings/"+id+"/files", worker, nil, nil)
+	s.expect(404, http.MethodGet, "/v1/recordings/"+id+"/files/hr.log", worker, nil, nil)
 	claimed := decode[AnalysisView](t, s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, ClaimRequest{Algorithms: []ClaimAlgorithm{{ID: "baseline", Version: "1.2.0"}}}, nil))
 	if claimed.Status != "running" || claimed.Attempts != 1 || claimed.ID != analysis.ID {
 		t.Fatalf("claimed = %+v", claimed)
 	}
 	s.expect(200, http.MethodGet, "/v1/recordings/"+id, worker, nil, nil)
+	if held := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses", worker, nil, nil)); held.Total != 1 || held.Items[0].ID != claimed.ID {
+		t.Fatalf("a worker holds %+v, want only %s", held, claimed.ID)
+	}
+	if read := decode[AnalysisView](t, s.expect(200, http.MethodGet, "/v1/analyses/"+claimed.ID, worker, nil, nil)); read.ID != claimed.ID {
+		t.Fatalf("worker read %+v", read)
+	}
 	s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/files", worker, nil, nil)
 	if got := s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/files/hr.log", worker, nil, nil); string(got) != "frames" {
 		t.Fatalf("worker read %q", got)
@@ -512,6 +524,8 @@ func TestAnalysisFlow(t *testing.T) {
 		t.Fatalf("a rejected result must fail the analysis: %+v", failed)
 	}
 	s.expectCode(409, "not_leased", http.MethodPost, "/v1/analyses/"+analysis.ID+"/complete", worker, CompleteRequest{Result: mustJSON(t, validResult("baseline", "1.2.0"))}, nil)
+	// The lease is gone, so the worker can no longer read the analysis either.
+	s.expect(404, http.MethodGet, "/v1/analyses/"+analysis.ID, worker, nil, nil)
 
 	// Asking again for a failed analysis replaces it with a fresh queued one.
 	retry := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, request, nil))
@@ -543,6 +557,10 @@ func TestAnalysisFlow(t *testing.T) {
 		t.Fatalf("summary = %v", summary)
 	}
 	s.expect(404, http.MethodGet, "/v1/recordings/"+id, worker, nil, nil) // lease is over
+	s.expect(404, http.MethodGet, "/v1/analyses/"+next.ID, worker, nil, nil)
+	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses", worker, nil, nil)); got.Total != 0 {
+		t.Fatalf("a worker still lists %d analyses after the lease", got.Total)
+	}
 
 	// Lists leave the result out unless asked.
 	list := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/analyses?status=succeeded", alice, nil, nil))
