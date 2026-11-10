@@ -1099,7 +1099,8 @@ func TestAccessTokensAreReadOnly(t *testing.T) {
 	s.expect(404, http.MethodDelete, "/v1/tokens/"+created.ID, alice, nil, nil)
 }
 
-func TestAllErrorsUseOneShape(t *testing.T) {	s := newServer(t)
+func TestAllErrorsUseOneShape(t *testing.T) {
+	s := newServer(t)
 	for _, call := range []struct{ method, path, token string }{
 		{http.MethodGet, "/v1/recordings", ""},
 		{http.MethodGet, "/v1/recordings", s.tokens["worker"]},
