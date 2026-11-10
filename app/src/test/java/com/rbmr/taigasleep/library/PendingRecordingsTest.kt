@@ -46,6 +46,8 @@ private fun analysis(
     )
 
 /** Which nights a reconcile reads again: everything not settled, and nothing that is. */
+private const val ACCOUNT = "https://sleep.example|u1"
+
 class PendingRecordingsTest {
   @get:Rule val temporary = TemporaryFolder()
 
@@ -61,7 +63,7 @@ class PendingRecordingsTest {
   /** A result cache holding one finished run of [key]. */
   private fun cacheWith(key: String, analysisId: String): ResultCache =
       ResultCache(temporary.newFolder("results")).also { cache ->
-        cache.save(key, analysisId, AnalysisDto(id = analysisId, status = "succeeded"))
+        cache.save(ACCOUNT, key, analysisId, AnalysisDto(id = analysisId, status = "succeeded"))
       }
 
   private fun pending(
@@ -77,6 +79,7 @@ class PendingRecordingsTest {
             records = byKey,
             remote = RecordingSummaryListDto(summaries),
             results = results,
+            account = ACCOUNT,
         )
     return pendingRecordings(nights, byKey)
   }

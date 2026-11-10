@@ -119,6 +119,14 @@ class RemoteStore(
     get() = prefs.getString(KEY_EMAIL)
     set(value) = prefs.putString(KEY_EMAIL, value)
 
+  /**
+   * The id the server returned for this user. It is part of the account key, so an email that is
+   * changed or reused never moves one account's data to another.
+   */
+  var userId: String?
+    get() = prefs.getString(KEY_USER_ID)
+    set(value) = prefs.putString(KEY_USER_ID, value)
+
   var checkedAtMs: Long?
     get() = prefs.getLong(KEY_CHECKED_AT)
     set(value) = prefs.putLong(KEY_CHECKED_AT, value)
@@ -164,8 +172,9 @@ class RemoteStore(
     this.email = email
   }
 
-  fun saveSession(url: String, session: AuthSession, checkedAtMs: Long) {
+  fun saveSession(url: String, session: AuthSession, userId: String, checkedAtMs: Long) {
     saveAddress(url, session.email)
+    this.userId = userId
     token = session.token
     this.checkedAtMs = checkedAtMs
     storedReason = null
@@ -199,6 +208,7 @@ class RemoteStore(
 
   fun clearToken() {
     token = null
+    userId = null
     loggedIn = false
   }
 
@@ -224,6 +234,7 @@ class RemoteStore(
   private companion object {
     const val KEY_URL = "url"
     const val KEY_EMAIL = "email"
+    const val KEY_USER_ID = "user_id"
     const val KEY_TOKEN = "token"
     const val KEY_CHECKED_AT = "checked_at_ms"
     const val KEY_STATE = "state"

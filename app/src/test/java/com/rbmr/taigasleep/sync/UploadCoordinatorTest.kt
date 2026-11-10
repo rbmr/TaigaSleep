@@ -30,7 +30,7 @@ class UploadCoordinatorTest {
 
   private fun repository(api: RemoteApi): RemoteRepository {
     val store = RemoteStore(prefs, box)
-    store.saveSession("http://localhost:8090", AuthSession("token", "me@example.com"), 0)
+    store.saveSession("http://localhost:8090", AuthSession("token", "me@example.com"), "u1", 0)
     return RemoteRepository(store, api, clients)
   }
 
@@ -38,7 +38,7 @@ class UploadCoordinatorTest {
       runBlocking {
         UploadCoordinator.retryAnalysis(
             remote = repository(api),
-            store = UploadStore(UploadlessStorage()),
+            store = UploadStore(UploadlessStorage(), account = { "http://localhost:8090|u1" }),
             key = "r1",
             analysisId = null,
             config = { RecordingConfig(hr = true, ecg = false, acc = false) },

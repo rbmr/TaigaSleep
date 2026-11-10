@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.sync
 import android.content.Context
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AlgorithmDto
+import com.rbmr.taigasleep.backend.RemoteSession
 import com.rbmr.taigasleep.backend.TaigaClient
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import kotlinx.coroutines.flow.StateFlow
@@ -19,22 +20,26 @@ internal interface SyncEnvironment {
   /** The durable sync state of every recording, and the writes the service makes to it. */
   val records: StateFlow<Map<String, UploadRecord>>
 
-  fun record(id: String): UploadRecord?
+  fun record(id: String, account: String? = null): UploadRecord?
 
-  fun markLocal(id: String)
+  fun markLocal(id: String, account: String? = null)
 
-  fun markProcessing(id: String)
+  fun markProcessing(id: String, account: String? = null)
 
-  fun markAnalysisFailed(id: String, detail: String?)
+  fun markAnalysisFailed(id: String, detail: String?, account: String? = null)
 
-  fun markManualAnalysis(id: String, analysisId: String)
+  fun markManualAnalysis(id: String, analysisId: String, account: String? = null)
 
   /** The automatic upload policy as it is right now. */
   val autoUpload: AutoUploadSettings
 
   val hasSession: Boolean
 
-  fun api(): TaigaClient?
+  /** The active account key, or null while logged out. */
+  val account: String?
+
+  /** The account and a client for it, captured together; null while logged out. */
+  fun session(): RemoteSession?
 
   fun logout()
 
@@ -87,6 +92,7 @@ internal interface SyncEnvironment {
 
   suspend fun refresh(
       api: TaigaClient,
+      account: String,
       id: String,
       recordingId: String,
       preferred: List<String?>,
@@ -102,17 +108,17 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
 
   override val records: StateFlow<Map<String, UploadRecord>> = state.records
 
-  override fun record(id: String): UploadRecord? = state.record(id)
+  override fun record(id: String, account: String?): UploadRecord? = state.record(id, account)
 
-  override fun markLocal(id: String) = state.markLocal(id)
+  override fun markLocal(id: String, account: String?) = state.markLocal(id, account)
 
-  override fun markProcessing(id: String) = state.markProcessing(id)
+  override fun markProcessing(id: String, account: String?) = state.markProcessing(id, account)
 
-  override fun markAnalysisFailed(id: String, detail: String?) =
-      state.markFailed(id, UploadFailure.ANALYSIS, detail)
+  override fun markAnalysisFailed(id: String, detail: String?, account: String?) =
+      state.markFailed(id, UploadFailure.ANALYSIS, detail, account)
 
-  override fun markManualAnalysis(id: String, analysisId: String) =
-      state.markManualAnalysis(id, analysisId)
+  override fun markManualAnalysis(id: String, analysisId: String, account: String?) =
+      state.markManualAnalysis(id, analysisId, account)
 
   override val autoUpload: AutoUploadSettings
     get() = settings.autoUpload.value
@@ -120,7 +126,10 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
   override val hasSession: Boolean
     get() = remote.hasSession
 
-  override fun api(): TaigaClient? = remote.api()
+  override val account: String?
+    get() = remote.accountKey
+
+  override fun session(): RemoteSession? = remote.session()
 
   override fun logout() = remote.logout()
 
@@ -182,9 +191,11 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
 
   override suspend fun refresh(
       api: TaigaClient,
+      account: String,
       id: String,
       recordingId: String,
       preferred: List<String?>,
   ): RecordingSnapshot =
-      AnalysisSync(api, state, app.appContainer.resultCache).refresh(id, recordingId, preferred)
+      AnalysisSync(api, state, app.appContainer.resultCache, account)
+          .refresh(id, recordingId, preferred)
 }

@@ -131,9 +131,10 @@ internal object RawRetention {
           )
         }
         val remote = context.appContainer.remoteRepository
-        val api =
-            remote.api()
+        val session =
+            remote.session()
                 ?: return@withContext Result.failure(IllegalStateException("login required"))
+        val api = session.api
         val restored = mutableListOf<File>()
         try {
           val available =
@@ -162,7 +163,7 @@ internal object RawRetention {
             }
             onProgress((index + 1).toFloat() / available.size)
           }
-          context.appContainer.uploadStore.markKeepRaw(localId)
+          context.appContainer.uploadStore.markKeepRaw(localId, session.account)
           RecordingRepository.refreshRecordings(context)
           Result.success(Unit)
         } catch (e: CancellationException) {
@@ -170,7 +171,7 @@ internal object RawRetention {
           throw e
         } catch (e: TaigaUnauthorizedException) {
           restored.forEach { it.delete() }
-          remote.logout()
+          if (remote.accountKey == session.account) remote.logout()
           Result.failure(e)
         } catch (e: Exception) {
           restored.forEach { it.delete() }

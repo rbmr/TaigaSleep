@@ -7,6 +7,23 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/** A sync file per recording, kept in memory. */
+private class RetentionStorage : UploadRecordsStorage {
+  private val documents = mutableMapOf<String, String>()
+
+  override fun ids(): Set<String> = documents.keys
+
+  override fun read(id: String): String? = documents[id]
+
+  override fun write(id: String, json: String) {
+    documents[id] = json
+  }
+
+  override fun delete(id: String) {
+    documents.remove(id)
+  }
+}
+
 class RawRetentionTest {
   @Test
   fun theDefaultIsToKeepRawData() {
@@ -93,6 +110,22 @@ class RawRetentionTest {
 
     assertNull(interrupted.uploadConfirmedAt())
     assertNull(failed.uploadConfirmedAt())
+  }
+
+  @Test
+  fun `raw cleanup only counts a confirmation from the account it was made on`() {
+    // The second account never received these bytes, so its state cannot allow a trim.
+    var active: String? = "https://sleep.example|u1"
+    val store = UploadStore(RetentionStorage()) { active }
+    store.markUploadConfirmed("r1")
+    val confirmed = store.record("r1")!!.uploadConfirmedAt()
+    assertTrue(confirmed != null)
+    assertTrue(isRawCleanupDue(RawRetentionMode.IMMEDIATE, confirmed!!, Long.MAX_VALUE))
+
+    active = "https://sleep.example|u2"
+    store.refreshAccount()
+
+    assertNull(store.record("r1")?.uploadConfirmedAt())
   }
 
   @Test

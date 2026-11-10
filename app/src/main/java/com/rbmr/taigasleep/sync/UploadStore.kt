@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 
 /** The lifecycle of one local recording on its way to a result. */
 enum class UploadPhase {
@@ -181,8 +183,16 @@ internal class RecordingDirectoryStorage(
  * Persisted status for every local recording. The backend is authoritative for the bytes and the
  * analysis; this store is the app's durable view so History survives process death and an upload
  * can resume where it stopped.
+ *
+ * Every fact in a record belongs to one account: the server copy, its confirmation, the upload work
+ * itself and the requested analyses. The rows are keyed by account, so an account never sees another
+ * one's state and switching back shows the first one's again. A row written before accounts existed
+ * is adopted by the account that is active the first time this version sees one.
  */
-class UploadStore internal constructor(private val storage: UploadRecordsStorage) {
+class UploadStore internal constructor(
+    private val storage: UploadRecordsStorage,
+    private val account: () -> String? = { null },
+) {
   private val lock = Any()
   private val json =
       Json {
@@ -191,17 +201,58 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
         explicitNulls = false
       }
 
-  private val _records = MutableStateFlow(load())
+  /** Recording id -> account key -> the row written for that account. */
+  private val rows = mutableMapOf<String, MutableMap<String, UploadRecord>>()
+
+  private val _records = MutableStateFlow<Map<String, UploadRecord>>(emptyMap())
   val records: StateFlow<Map<String, UploadRecord>> = _records.asStateFlow()
 
   init {
+    load()
     migrateLegacy()
+    refreshAccount()
   }
 
-  fun record(id: String): UploadRecord? = _records.value[id]
+  /** The account whose rows are read and written, or "" while there is no session. */
+  private fun active(): String = account().orEmpty()
 
-  fun markQueued(id: String, failure: UploadFailure? = null, detail: String? = null) {
-    update(id) {
+  /** The row for one recording, by default the active account's. */
+  fun record(id: String, account: String? = null): UploadRecord? {
+    synchronized(lock) {
+      val target = account ?: active()
+      return rows[id]?.get(target)
+    }
+  }
+
+  /** Another account that already has a server copy of this recording, or null. */
+  fun otherAccount(id: String): String? {
+    synchronized(lock) {
+      val active = active()
+      return rows[id]
+          ?.entries
+          ?.firstOrNull { (key, record) ->
+            key.isNotBlank() && key != active && (record.onServer || record.confirmedOnServer)
+          }
+          ?.key
+    }
+  }
+
+  /** The active account changed: drop the unscoped rows into it and publish its rows. */
+  fun refreshAccount() {
+    synchronized(lock) {
+      val target = active()
+      if (target.isNotBlank()) adoptUnscoped(target)
+      _records.value = activeRows(target)
+    }
+  }
+
+  fun markQueued(
+      id: String,
+      failure: UploadFailure? = null,
+      detail: String? = null,
+      account: String? = null,
+  ) {
+    update(id, account) {
       it.copy(
           phase = UploadPhase.QUEUED,
           failure = failure,
@@ -212,16 +263,16 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
     }
   }
 
-  fun markOnServer(id: String) {
-    update(id) { it.copy(onServer = true, updatedAtMs = now()) }
+  fun markOnServer(id: String, account: String? = null) {
+    update(id, account) { it.copy(onServer = true, updatedAtMs = now()) }
   }
 
-  fun markUploading(id: String, progress: Float) {
+  fun markUploading(id: String, progress: Float, account: String? = null) {
     val value = progress.coerceIn(0f, 1f)
     val observedAt = now()
     // Bytes on the wire are not the server's word, not even the last ones: the recording counts as
     // uploaded when completeRecording succeeded, which is what markUploadConfirmed records.
-    update(id) {
+    update(id, account) {
       it.copy(
           phase = UploadPhase.UPLOADING,
           progress = value,
@@ -234,9 +285,9 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
   }
 
   /** The server reported this recording complete: a finished upload, or a status check that found one. */
-  fun markUploadConfirmed(id: String) {
+  fun markUploadConfirmed(id: String, account: String? = null) {
     val confirmedAt = now()
-    update(id) {
+    update(id, account) {
       it.copy(
           onServer = true,
           uploadedAtMs = it.uploadedAtMs ?: confirmedAt,
@@ -246,9 +297,9 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
     }
   }
 
-  fun markProcessing(id: String) {
+  fun markProcessing(id: String, account: String? = null) {
     val confirmedAt = now()
-    update(id) {
+    update(id, account) {
       it.copy(
           phase = UploadPhase.PROCESSING,
           onServer = true,
@@ -263,9 +314,9 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
     }
   }
 
-  fun markDone(id: String) {
+  fun markDone(id: String, account: String? = null) {
     val doneAt = now()
-    update(id) {
+    update(id, account) {
       it.copy(
           phase = UploadPhase.DONE,
           onServer = true,
@@ -280,8 +331,13 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
     }
   }
 
-  fun markFailed(id: String, failure: UploadFailure, detail: String? = null) {
-    update(id) {
+  fun markFailed(
+      id: String,
+      failure: UploadFailure,
+      detail: String? = null,
+      account: String? = null,
+  ) {
+    update(id, account) {
       it.copy(
           phase = UploadPhase.FAILED,
           failure = failure,
@@ -292,8 +348,8 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
     }
   }
 
-  fun markLocal(id: String) {
-    update(id) {
+  fun markLocal(id: String, account: String? = null) {
+    update(id, account) {
       it.copy(
           onServer = false,
           phase = UploadPhase.LOCAL,
@@ -309,8 +365,8 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
   }
 
   /** Remember that the user asked for this analysis themselves. */
-  fun markManualAnalysis(id: String, analysisId: String) {
-    update(id) {
+  fun markManualAnalysis(id: String, analysisId: String, account: String? = null) {
+    update(id, account) {
       it.copy(
           manualAnalysisIds = (it.manualAnalysisIds + analysisId).distinct(),
           updatedAtMs = now(),
@@ -319,32 +375,89 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
   }
 
   /** The user downloaded this recording's raw files again; keep them out of automatic cleanup. */
-  fun markKeepRaw(id: String) {
-    if (_records.value[id] == null) return
-    update(id) { it.copy(keepRawOnPhone = true) }
+  fun markKeepRaw(id: String, account: String? = null) {
+    synchronized(lock) {
+      val target = account ?: active()
+      if (rows[id]?.get(target) == null) return
+    }
+    update(id, account) { it.copy(keepRawOnPhone = true) }
   }
 
-  fun clear(id: String) {
+  /** Drops the active account's row; the recording itself is not touched. */
+  fun clear(id: String, account: String? = null) {
     synchronized(lock) {
-      storage.delete(id)
-      _records.value = _records.value - id
+      val target = account ?: active()
+      val byAccount = rows[id] ?: return
+      byAccount.remove(target)
+      if (byAccount.isEmpty()) {
+        rows.remove(id)
+        storage.delete(id)
+      } else {
+        write(id)
+      }
+      publish()
     }
   }
 
-  private fun update(id: String, transform: (UploadRecord) -> UploadRecord) {
+  private fun update(
+      id: String,
+      account: String? = null,
+      transform: (UploadRecord) -> UploadRecord,
+  ) {
     synchronized(lock) {
-      val current = _records.value[id] ?: UploadRecord(id = id)
+      val target = account ?: active()
+      val current = rows[id]?.get(target) ?: UploadRecord(id = id)
       val next = transform(current)
-      storage.write(id, json.encodeToString(next))
-      _records.value = _records.value + (id to next)
+      rows.getOrPut(id) { mutableMapOf() }[target] = next
+      write(id)
+      publish()
     }
   }
 
-  private fun load(): Map<String, UploadRecord> =
-      storage.ids().mapNotNull { id ->
-        val raw = storage.read(id) ?: return@mapNotNull null
-        runCatching { id to json.decodeFromString<UploadRecord>(raw) }.getOrNull()
-      }.toMap()
+  private fun publish() {
+    val target = active()
+    _records.value = activeRows(target)
+  }
+
+  private fun activeRows(target: String): Map<String, UploadRecord> =
+      rows.mapNotNull { (id, byAccount) -> byAccount[target]?.let { id to it } }.toMap()
+
+  /** The unscoped rows of an earlier version belong to the account that is logged in now. */
+  private fun adoptUnscoped(target: String) {
+    var changed = false
+    for ((id, byAccount) in rows) {
+      val unscoped = byAccount.remove(UNSCOPED) ?: continue
+      if (byAccount[target] == null) byAccount[target] = unscoped
+      write(id)
+      changed = true
+    }
+    if (changed) publish()
+  }
+
+  private fun load() {
+    synchronized(lock) {
+      for (id in storage.ids()) {
+        val raw = storage.read(id) ?: continue
+        val element =
+            runCatching { json.parseToJsonElement(raw) }.getOrNull() as? JsonObject ?: continue
+        val stored =
+            if (KEY_ACCOUNTS in element) {
+              runCatching { json.decodeFromJsonElement<StoredRecords>(element) }.getOrNull()
+                  ?: continue
+            } else {
+              val legacy =
+                  runCatching { json.decodeFromString<UploadRecord>(raw) }.getOrNull() ?: continue
+              StoredRecords(mapOf(UNSCOPED to legacy))
+            }
+        rows[id] = stored.accounts.toMutableMap()
+      }
+    }
+  }
+
+  private fun write(id: String) {
+    val byAccount = rows[id] ?: return
+    storage.write(id, json.encodeToString(StoredRecords(byAccount)))
+  }
 
   /** Move the records of the old shared document next to their recordings, once. */
   private fun migrateLegacy() {
@@ -352,15 +465,15 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
     synchronized(lock) {
       val old =
           runCatching { json.decodeFromString<Map<String, UploadRecord>>(raw) }.getOrDefault(emptyMap())
-      val next = _records.value.toMutableMap()
       for ((id, record) in old) {
         // Only a recording on this phone can hold its state there now.
         if (!storage.hasRecording(id)) continue
-        val merged = next[id]?.let { current -> current.copyFrom(record) } ?: record
-        storage.write(id, json.encodeToString(merged))
-        next[id] = merged
+        val byAccount = rows.getOrPut(id) { mutableMapOf() }
+        val at = if (byAccount.isEmpty()) UNSCOPED else byAccount.keys.first()
+        val merged = byAccount[at]?.let { current -> current.copyFrom(record) } ?: record
+        byAccount[at] = merged
+        write(id)
       }
-      _records.value = next
       storage.clearLegacy()
     }
   }
@@ -371,6 +484,22 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
   private fun now(): Long = System.currentTimeMillis()
 
   companion object {
+    /**
+     * The key of the state written before facts carried an account. It can never be a real account
+     * key, which holds a server URL. Such state is adopted by the active account and never shown
+     * while there is none.
+     */
+    private const val UNSCOPED = "unscoped"
+    private const val KEY_ACCOUNTS = "accounts"
+
     fun of(context: Context): UploadStore = context.appContainer.uploadStore
   }
 }
+
+/**
+ * The account-keyed document of one recording. It is a small map so it ports directly to a table
+ * keyed by account and recording id.
+ */
+@Serializable
+private data class StoredRecords(val accounts: Map<String, UploadRecord> = emptyMap())
+

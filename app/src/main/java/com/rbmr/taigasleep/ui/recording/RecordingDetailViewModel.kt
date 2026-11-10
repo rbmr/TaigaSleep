@@ -21,6 +21,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/** The server and the account an upload currently goes to, for the confirmation that names them. */
+data class UploadTarget(val server: String, val account: String)
+
 /**
  * The screen's state holder. It follows the recording in the library, loads the cached result and the
  * server's copy, and runs the actions of the screen. Nothing here draws.
@@ -83,6 +86,28 @@ class RecordingDetailViewModel(
       _state.update { it.copy(loginRequested = true) }
       return
     }
+    // A recording another account already has is uploaded here only after the user agrees, and the
+    // confirmation names the server and the account it goes to.
+    val target = work.uploadTarget()
+    if (target != null && work.uploadedElsewhere(id)) {
+      _state.update { it.copy(uploadConfirmation = target) }
+      return
+    }
+    startUpload(id)
+  }
+
+  /** The user agreed to upload a recording another account already has. */
+  fun confirmUploadElsewhere() {
+    _state.update { it.copy(uploadConfirmation = null) }
+    val id = _state.value.local?.id ?: localId ?: return
+    startUpload(id)
+  }
+
+  fun dismissUploadConfirmation() {
+    _state.update { it.copy(uploadConfirmation = null) }
+  }
+
+  private fun startUpload(id: String) {
     _state.update { it.copy(actionError = null) }
     work.upload(id)
     load()

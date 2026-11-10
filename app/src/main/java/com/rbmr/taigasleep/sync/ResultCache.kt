@@ -15,6 +15,10 @@ import kotlinx.serialization.json.jsonPrimitive
 /**
  * A local copy of a finished analysis. The backend remains authoritative, but History and the
  * recording detail keep working when the server is temporarily unreachable or the app is offline.
+ *
+ * Results are kept per account: one account's payload is never shown for another, and it is still
+ * there when the user logs back into it. Each account has its own directory under [root], which is
+ * what a table keyed by account and recording key holds.
  */
 class ResultCache(private val root: File) {
   private val json =
@@ -24,34 +28,41 @@ class ResultCache(private val root: File) {
         explicitNulls = false
       }
 
+  private val migrated = mutableSetOf<String>()
+
   init {
     root.mkdirs()
   }
 
-  fun save(key: String, analysis: AnalysisDto): Boolean =
-      saveFile(key, analysis)
+  fun save(account: String, key: String, analysis: AnalysisDto): Boolean =
+      saveFile(account, key, analysis)
 
   /** Saves one run's payload without replacing another run of the same recording. */
-  fun save(key: String, analysisId: String?, analysis: AnalysisDto): Boolean =
-      saveFile(composite(key, analysisId), analysis)
+  fun save(
+      account: String,
+      key: String,
+      analysisId: String?,
+      analysis: AnalysisDto,
+  ): Boolean = saveFile(account, composite(key, analysisId), analysis)
 
-  fun load(key: String): AnalysisDto? = loadFile(key)
+  fun load(account: String, key: String): AnalysisDto? = loadFile(account, key)
 
   /**
    * Loads the cached payload of one run. A cache written before results were keyed per analysis
    * falls back to the recording's single file, but only when it belongs to the requested run.
    */
-  fun load(key: String, analysisId: String?): AnalysisDto? {
-    if (analysisId.isNullOrBlank()) return load(key)
-    loadFile(composite(key, analysisId))?.let {
+  fun load(account: String, key: String, analysisId: String?): AnalysisDto? {
+    if (analysisId.isNullOrBlank()) return load(account, key)
+    loadFile(account, composite(key, analysisId))?.let {
       return it
     }
-    return load(key)?.takeIf { it.id == analysisId }
+    return load(account, key)?.takeIf { it.id == analysisId }
   }
 
-  fun has(key: String, analysisId: String?): Boolean {
-    if (analysisId.isNullOrBlank()) return file(key).isFile
-    return file(composite(key, analysisId)).isFile || load(key)?.id == analysisId
+  fun has(account: String, key: String, analysisId: String?): Boolean {
+    if (analysisId.isNullOrBlank()) return file(account, key).isFile
+    return file(account, composite(key, analysisId)).isFile ||
+        load(account, key)?.id == analysisId
   }
 
   /**
@@ -59,30 +70,61 @@ class ResultCache(private val root: File) {
    * before results were keyed per analysis kept one payload per recording without the run in its name;
    * that one is included too, so a History row can still be drawn from it.
    */
-  fun cached(key: String): List<AnalysisDto> {
+  fun cached(account: String, key: String): List<AnalysisDto> {
+    val dir = directory(account)
     val prefix = "${safe(key)}-"
     val runs =
-        root.listFiles { file ->
+        dir.listFiles { file ->
               file.isFile && file.name.startsWith(prefix) && file.name.endsWith(".json")
             }
             .orEmpty()
             .mapNotNull { file -> runCatching { decode(file.readText()) }.getOrNull() }
             .filter { it.id.isNotBlank() }
-    val single = load(key)?.takeIf { it.id.isNotBlank() }
+    val single = load(account, key)?.takeIf { it.id.isNotBlank() }
     return if (single != null && runs.none { it.id == single.id }) runs + single else runs
   }
 
-  fun delete(key: String) {
-    file(key).delete()
+  fun delete(account: String, key: String) {
+    val dir = directory(account)
+    file(account, key).delete()
     val prefix = "${safe(key)}-"
-    root.listFiles { file -> file.name.startsWith(prefix) && file.name.endsWith(".json") }
+    dir.listFiles { file -> file.name.startsWith(prefix) && file.name.endsWith(".json") }
         ?.forEach { it.delete() }
   }
 
-  private fun saveFile(key: String, analysis: AnalysisDto): Boolean =
+  /**
+   * Moves the payloads an older version kept directly under the root into [account]'s directory,
+   * once: they were written while that account was the only one on the phone.
+   */
+  fun migrate(account: String) {
+    if (account.isBlank()) return
+    synchronized(migrated) {
+      if (account in migrated) return
+      migrated += account
+      val leftovers =
+          root.listFiles { file -> file.isFile && file.name.endsWith(".json") }.orEmpty()
+      if (leftovers.isEmpty()) return
+      val target = File(root, safe(account))
+      target.mkdirs()
+      for (file in leftovers) {
+        val destination = File(target, file.name)
+        runCatching {
+              if (destination.exists()) {
+                file.delete()
+              } else {
+                Files.move(file.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+              }
+            }
+            .onFailure { file.delete() }
+      }
+    }
+  }
+
+  private fun saveFile(account: String, key: String, analysis: AnalysisDto): Boolean =
       runCatching {
-            val target = file(key)
-            val tmp = File(root, "${target.name}.tmp")
+            val target = file(account, key)
+            target.parentFile?.mkdirs()
+            val tmp = File(target.parentFile, "${target.name}.tmp")
             tmp.writeText(json.encodeToString(analysis))
             Files.move(
                 tmp.toPath(),
@@ -93,8 +135,8 @@ class ResultCache(private val root: File) {
           }
           .isSuccess
 
-  private fun loadFile(key: String): AnalysisDto? {
-    val file = file(key)
+  private fun loadFile(account: String, key: String): AnalysisDto? {
+    val file = file(account, key)
     if (!file.isFile) return null
     return runCatching { decode(file.readText()) }.getOrNull()
   }
@@ -122,7 +164,15 @@ class ResultCache(private val root: File) {
   private fun composite(key: String, analysisId: String?): String =
       if (analysisId.isNullOrBlank()) key else "$key-$analysisId"
 
-  private fun file(key: String): File = File(root, "${safe(key)}.json")
+  private fun file(account: String, key: String): File =
+      File(directory(account), "${safe(key)}.json")
+
+  /** The directory of one account; a blank account is the pre-account root, which is migrated. */
+  private fun directory(account: String): File {
+    if (account.isBlank()) return root
+    migrate(account)
+    return File(root, safe(account)).also { it.mkdirs() }
+  }
 
   private fun safe(key: String): String =
       key.map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("")

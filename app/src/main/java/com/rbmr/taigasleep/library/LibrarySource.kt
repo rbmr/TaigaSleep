@@ -42,4 +42,7 @@ interface RecordingSource : LibrarySource {
 
   /** Remember which finished run the user wants to see. */
   fun selectAnalysis(recording: RecordingView, analysisId: String)
+
+  /** Whether an account other than the active one already has this recording on its server. */
+  fun uploadedElsewhere(localId: String): Boolean
 }

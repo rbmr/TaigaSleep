@@ -16,11 +16,13 @@ import org.junit.Test
 class RemoteHistoryCacheTest {
   private lateinit var root: File
   private lateinit var cache: RemoteHistoryCache
+  private var active: String? = null
 
   @Before
   fun setUp() {
     root = Files.createTempDirectory("taiga-history").toFile()
-    cache = RemoteHistoryCache(File(root, "history/remote-recordings.json"))
+    active = account
+    cache = RemoteHistoryCache(File(root, "history/remote-recordings.json")) { active }
   }
 
   @After
@@ -149,6 +151,45 @@ class RemoteHistoryCacheTest {
   }
 
   private val account = "https://sleep.example|me@example.com"
+  private val other = "https://sleep.example|you@example.com"
+
+  @Test
+  fun `each account keeps its own list`() {
+    cache.save(account, twoRecordings())
+    cache.save(other, list)
+
+    assertEquals(2, cache.load(account)?.items?.size)
+    assertEquals(1, cache.load(other)?.items?.size)
+  }
+
+  @Test
+  fun `a completed delete hides the night for that account only`() {
+    cache.save(account, twoRecordings())
+    cache.save(other, twoRecordings())
+
+    cache.remove(account, "20261023_223000-k3f9")
+    active = other
+    cache.refreshAccount()
+
+    assertTrue(cache.load(other)?.items?.any { it.recording.id == "20261023_223000-k3f9" } == true)
+    assertTrue(cache.removed.value.isEmpty())
+
+    active = account
+    cache.refreshAccount()
+
+    assertTrue("20261023_223000-k3f9" in cache.removed.value)
+  }
+
+  @Test
+  fun `a list saved under the address and the email moves to the account key`() {
+    val legacy = "$account-old"
+    cache.save(legacy, twoRecordings())
+
+    cache.adopt(legacy, "https://sleep.example|u1")
+
+    assertNull(cache.load(legacy))
+    assertEquals(2, cache.load("https://sleep.example|u1")?.items?.size)
+  }
 
   private fun twoRecordings() =
       RecordingSummaryListDto(

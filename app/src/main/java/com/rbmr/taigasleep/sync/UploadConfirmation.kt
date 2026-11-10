@@ -12,6 +12,7 @@ internal suspend fun confirmUploadOnServer(
     client: TaigaClient,
     id: String,
     store: UploadStore,
+    account: String,
 ): Boolean {
   val complete =
       try {
@@ -22,6 +23,6 @@ internal suspend fun confirmUploadOnServer(
         return false
       }
   if (!complete) return false
-  store.markUploadConfirmed(id)
+  store.markUploadConfirmed(id, account)
   return true
 }

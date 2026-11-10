@@ -23,7 +23,7 @@ class RemoteRepositoryTest {
 
   private fun store() = RemoteStore(prefs, box)
 
-  private fun repository() = RemoteRepository(store(), api, clients) { now }
+  private fun repository() = RemoteRepository(store(), api, clients, clock = { now })
 
   private fun login(repo: RemoteRepository) = runBlocking {
     repo.login("http://localhost:8090", "me@example.com", "secret")
@@ -58,7 +58,7 @@ class RemoteRepositoryTest {
     login(repository())
     api.serverApi = BuildConfig.API_VERSION - 1
 
-    val repo = RemoteRepository(store(), api, clients) { now }
+    val repo = RemoteRepository(store(), api, clients, clock = { now })
     val verified = runBlocking { repo.verify() }
 
     assertEquals(
@@ -137,7 +137,7 @@ class RemoteRepositoryTest {
   fun `the state and the token survive an app restart`() {
     login(repository())
 
-    val restarted = RemoteRepository(store(), api, clients) { now }
+    val restarted = RemoteRepository(store(), api, clients, clock = { now })
     assertEquals(RemoteStatus.Connected("me@example.com", now), restarted.status.value)
     assertEquals("token-1", store().token)
   }
@@ -444,7 +444,10 @@ class RemoteRepositoryTest {
   fun `a restart resumes connected`() {
     login(repository())
 
-    assertEquals(RemoteState.CONNECTED, RemoteRepository(store(), api, clients) { now }.state.value)
+    assertEquals(
+        RemoteState.CONNECTED,
+        RemoteRepository(store(), api, clients, clock = { now }).state.value,
+    )
   }
 
   @Test
@@ -468,7 +471,106 @@ class RemoteRepositoryTest {
     assertEquals(RemoteState.NO_REMOTE, repo.state.value)
   }
 
-  private val account = "http://localhost:8090|me@example.com"
+  private val account = "http://localhost:8090|u1"
+
+  @Test
+  fun `the account is the server address and the server's user id, not the email`() {
+    val repo = repository()
+    assertNull(repo.accountKey)
+
+    login(repo)
+
+    assertEquals(account, repo.accountKey)
+    // The same user under another address book entry is still the same account.
+    api.loginEmail = "renamed@example.com"
+    login(repo)
+    assertEquals(account, repo.accountKey)
+  }
+
+  @Test
+  fun `another user id on the same server is another account`() {
+    val repo = repository()
+    login(repo)
+
+    api.userId = "u2"
+    login(repo)
+
+    assertEquals("http://localhost:8090|u2", repo.accountKey)
+  }
+
+  @Test
+  fun `a session carries the account and a client for it`() {
+    val repo = repository()
+    assertNull(repo.session())
+
+    login(repo)
+
+    assertEquals(account, repo.session()?.account)
+  }
+
+  @Test
+  fun `ending an account cancels its work before the next one becomes active`() {
+    val ended = mutableListOf<String>()
+    val repo =
+        RemoteRepository(
+            store(),
+            api,
+            clients,
+            clock = { now },
+            onAccountEnded = { ended += it },
+        )
+    login(repo)
+    assertTrue(ended.isEmpty())
+
+    api.userId = "u2"
+    login(repo)
+
+    assertEquals(listOf(account), ended)
+    assertEquals("http://localhost:8090|u2", repo.accountKey)
+
+    repo.logout()
+
+    assertEquals(listOf(account, "http://localhost:8090|u2"), ended)
+    assertNull(repo.accountKey)
+  }
+
+  @Test
+  fun `refreshing the same account ends nothing`() {
+    val ended = mutableListOf<String>()
+    val repo =
+        RemoteRepository(
+            store(),
+            api,
+            clients,
+            clock = { now },
+            onAccountEnded = { ended += it },
+        )
+    login(repo)
+
+    runBlocking { repo.verify() }
+
+    assertTrue(ended.isEmpty())
+  }
+
+  @Test
+  fun `a rejected token ends the account so its queued work stops`() {
+    val ended = mutableListOf<String>()
+    val repo =
+        RemoteRepository(
+            store(),
+            api,
+            clients,
+            clock = { now },
+            onAccountEnded = { ended += it },
+        )
+    login(repo)
+    api.refreshError = RemoteError.SessionExpired
+
+    runBlocking { repo.verify() }
+
+    assertEquals(listOf(account), ended)
+    assertNull(store().token)
+  }
 
   @Test
   fun `the stream may run for a working session and for a server that may come back`() {
@@ -520,7 +622,7 @@ class RemoteRepositoryTest {
   @Test
   fun `the stream does not connect without a session`() = runBlocking {
     val transport = FakeTransport()
-    val repo = RemoteRepository(store(), api, clients, transport) { now }
+    val repo = RemoteRepository(store(), api, clients, transport, clock = { now })
 
     assertTrue(repo.events().toList().isEmpty())
     assertTrue(transport.tokens.isEmpty())
@@ -530,7 +632,7 @@ class RemoteRepositoryTest {
   fun `the stream connects to the saved address with the saved token`() = runBlocking {
     login(repository())
     val transport = FakeTransport(listOf(RemoteEvent.Connected))
-    val repo = RemoteRepository(store(), api, clients, transport) { now }
+    val repo = RemoteRepository(store(), api, clients, transport, clock = { now })
 
     val events = repo.events().take(1).toList()
 
@@ -543,7 +645,7 @@ class RemoteRepositoryTest {
     login(repository())
     api.serverApi = BuildConfig.API_VERSION - 1
     val transport = FakeTransport(listOf(RemoteEvent.Connected))
-    val repo = RemoteRepository(store(), api, clients, transport) { now }
+    val repo = RemoteRepository(store(), api, clients, transport, clock = { now })
     repo.verify()
 
     assertTrue(repo.events().toList().isEmpty())
@@ -559,7 +661,7 @@ class RemoteRepositoryTest {
                 failure = TaigaUnauthorizedException(401, "expired"),
                 then = listOf(RemoteEvent.Connected),
             )
-        val repo = RemoteRepository(store(), api, clients, transport) { now }
+        val repo = RemoteRepository(store(), api, clients, transport, clock = { now })
         api.calls.clear()
 
         val events = repo.events().take(1).toList()
@@ -580,7 +682,7 @@ class RemoteRepositoryTest {
                 failure = TaigaUnauthorizedException(401, "expired"),
                 then = listOf(RemoteEvent.Connected),
             )
-        val repo = RemoteRepository(store(), api, clients, transport) { now }
+        val repo = RemoteRepository(store(), api, clients, transport, clock = { now })
         api.refreshError = RemoteError.SessionExpired
 
         val events = repo.events().toList()
@@ -660,6 +762,7 @@ private class FakeRemoteApi : RemoteApi {
   var refreshError: RemoteError? = null
   var authError: RemoteError? = null
   var loginEmail = "me@example.com"
+  var userId = "u1"
   val calls = mutableListOf<String>()
 
   override fun version(baseUrl: String): ServerVersion {
@@ -683,6 +786,6 @@ private class FakeRemoteApi : RemoteApi {
   override fun authCheck(baseUrl: String, token: String): AuthUser {
     calls += "auth-check:$token"
     authError?.let { throw RemoteFailure(it) }
-    return AuthUser(id = "u1", email = loginEmail, role = "user")
+    return AuthUser(id = userId, email = loginEmail, role = "user")
   }
 }
