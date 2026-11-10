@@ -36,10 +36,10 @@
   <!-- OnePlus -->
   <string name="g_oneplus_background_title">Allow background activity</string>
   <string name="g_oneplus_background_description">This is the main switch on OnePlus. In testing, Smart mode and Restrict stopped the recorder after about five minutes.</string>
-  <string name="g_oneplus_sleep_title">Turn off Sleep standby optimisation</string>
+  <string name="g_oneplus_sleep_title">Turn off Sleep standby optimization</string>
   <string name="g_oneplus_sleep_description">This feature targets apps that run overnight. Taiga cannot read this setting.</string>
   <string name="g_oneplus_sleep_g1">Open Settings, then Battery, then Power saving settings.</string>
-  <string name="g_oneplus_sleep_g2">Set Sleep standby optimisation to Off.</string>
+  <string name="g_oneplus_sleep_g2">Set Sleep standby optimization to Off.</string>
   <string name="g_oneplus_recents_description">Locking the card keeps the system from clearing Taiga when memory is low.</string>
   <string name="g_oneplus_recents_g1">Open the recent apps screen and find Taiga Sleep.</string>
   <string name="g_oneplus_recents_g2">Tap the menu on its card and choose Lock.</string>
@@ -59,7 +59,7 @@
 
   <!-- Generic -->
   <string name="g_generic_exemption_title">Allow Taiga to run in the background</string>
-  <string name="g_generic_exemption_description">This removes Taiga from Android\'s battery optimisation, so the system does not pause it while the phone sleeps.</string>
+  <string name="g_generic_exemption_description">This removes Taiga from Android\'s battery optimization, so the system does not pause it while the phone sleeps.</string>
   <string name="g_generic_recents_description">Locking the app in recent apps keeps the system from clearing it when memory is low.</string>
   <string name="g_generic_recents_g1">Open the recent apps screen and find Taiga Sleep.</string>
   <string name="g_generic_recents_g2">Tap its icon or menu and choose Lock, Keep open or Pin. The name varies by phone.</string>

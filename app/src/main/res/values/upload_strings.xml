@@ -32,7 +32,7 @@
   <string name="history_recording">Recording</string>
   <string name="history_queued">Waiting to upload</string>
   <string name="history_uploading">Uploading %1$d%%</string>
-  <string name="history_processing">Analysing</string>
+  <string name="history_processing">Analyzing</string>
   <string name="history_status_ready">Ready</string>
   <string name="history_status_upload_failed">Upload failed</string>
   <string name="history_status_analysis_failed">Analysis failed</string>
@@ -146,7 +146,7 @@
   <string name="night_analysis_run">Run</string>
   <string name="night_analysis_stages">Stages: %1$s</string>
   <string name="night_analysis_status_queued">Queued</string>
-  <string name="night_analysis_status_running">Analysing</string>
+  <string name="night_analysis_status_running">Analyzing</string>
   <string name="night_analysis_status_done">Ready</string>
   <string name="night_analysis_status_failed">Failed</string>
   <string name="night_sheet_close">Close</string>
@@ -156,9 +156,9 @@
   <string name="night_chart_no_value">No data</string>
   <string name="night_data_quality_breakdown">Data quality breakdown</string>
   <string name="night_sleep_score_breakdown">Sleep score breakdown</string>
-  <string name="night_sleep_score_formula">The score combines sleep efficiency, wake after sleep onset, awakenings per hour of sleep, time to fall asleep and the deep and REM share of sleep. Each component is scaled from 0 to 100 where a higher value is better. Missing components are removed and the remaining weights are renormalised; there is no target sleep duration.</string>
+  <string name="night_sleep_score_formula">The score combines sleep efficiency, wake after sleep onset, awakenings per hour of sleep, time to fall asleep and the deep and REM share of sleep. Each component is scaled from 0 to 100 where a higher value is better. Missing components are removed and the remaining weights are renormalized; there is no target sleep duration.</string>
   <string name="night_sleep_score_unavailable">This saved result was created before sleep scores existed. Run the analysis again to calculate one.</string>
-  <string name="night_quality_formula">The data-quality score combines usable coverage, artifact-free epochs and heart-rate coverage. Missing components are removed and the remaining weights are renormalised.</string>
+  <string name="night_quality_formula">The data-quality score combines usable coverage, artifact-free epochs and heart-rate coverage. Missing components are removed and the remaining weights are renormalized.</string>
   <string name="night_quality_component_value">%1$d%% · weight %2$d%%</string>
   <string name="night_heart_rate_chart_description">Heart rate from %1$s to %2$s, between %3$d and %4$d bpm</string>
   <string name="night_heart_rate_no_samples">No valid heart-rate samples in this recording.</string>
