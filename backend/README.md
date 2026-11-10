@@ -298,6 +298,11 @@ accepted: a chunk that would take the account over the quota is refused with
 `413 storage_quota_exceeded` and nothing is written. Deleting a recording, or one of its
 files, frees the room again. An unset, negative or non-numeric value means the default.
 
+Each recording's stored bytes and each account's total are kept with the rows as chunks
+and files come and go, so accepting a chunk reads one number instead of the account's
+recordings. `./taiga-sleep-api storage-check` recomputes both from the files on disk and
+corrects them; run it with the API stopped.
+
 ### Analyses and the worker
 
 An analysis is one algorithm applied to one recording. Nothing creates one by itself:

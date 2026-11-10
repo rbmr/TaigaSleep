@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -443,7 +445,8 @@ func TestChunkLimits(t *testing.T) {
 }
 
 // seedStoredBytes puts a file of size bytes into a recording without uploading it, so
-// a test can reach a quota without sending gigabytes through the API.
+// a test can reach a quota without sending gigabytes through the API. It keeps the
+// stored totals in step, as a chunk would.
 func seedStoredBytes(t *testing.T, s *server, id string, size int64) {
 	t.Helper()
 	dir := recordingDir(s.app, id)
@@ -465,10 +468,37 @@ func seedStoredBytes(t *testing.T, s *server, id string, size int64) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	previous := int64(record.GetInt("stored_bytes"))
 	record.Set("files", map[string]FileEntry{"hr.log": {Encoding: encodingIdentity, UncompressedSize: size}})
+	record.Set("stored_bytes", size)
 	if err := s.app.Save(record); err != nil {
 		t.Fatal(err)
 	}
+	if delta := size - previous; delta != 0 {
+		if err := addAccountBytes(s.app, record.GetString("owner"), delta); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// storedTotals reads what the backend keeps for one recording and one account.
+func storedTotals(t *testing.T, s *server, id, email string) (recording, account int64) {
+	t.Helper()
+	record, err := s.app.FindRecordById("recordings", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return int64(record.GetInt("stored_bytes")), accountStorage(t, s, email)
+}
+
+// accountStorage reads the running total the quota is enforced from.
+func accountStorage(t *testing.T, s *server, email string) int64 {
+	t.Helper()
+	user, err := s.app.FindAuthRecordByEmail("users", email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return int64(user.GetInt("storage_bytes"))
 }
 
 func TestStorageQuota(t *testing.T) {
@@ -508,6 +538,159 @@ func TestZeroStorageQuotaIsUnlimited(t *testing.T) {
 	s.expect(201, http.MethodPut, "/v1/recordings/more", alice, testMeta("more", "recording"), nil)
 	if st, _, body := appendChunk(s, alice, "more", "hr.log", 0, []byte("frames"), nil); st != 204 {
 		t.Fatalf("quota 0 must not limit an upload: %d %s", st, body)
+	}
+}
+
+// TestStorageTotalsFollowWrites checks that the bytes a recording holds and the
+// account's total move with every chunk and every delete that changes them.
+func TestStorageTotalsFollowWrites(t *testing.T) {
+	s := newServer(t)
+	alice, bob := s.tokens["alice"], s.tokens["bob"]
+	id := "totals"
+	s.expect(201, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "recording"), nil)
+
+	check := func(wantRecording, wantAccount int64) {
+		t.Helper()
+		recording, account := storedTotals(t, s, id, "alice@example.com")
+		if recording != wantRecording || account != wantAccount {
+			t.Fatalf("totals = %d recording, %d account, want %d and %d", recording, account, wantRecording, wantAccount)
+		}
+	}
+	check(0, 0)
+
+	// A chunk that is refused leaves the totals alone.
+	if st, _, _ := appendChunk(s, alice, id, "hr.log", 1, []byte("x"), nil); st != 409 {
+		t.Fatalf("wrong offset = %d", st)
+	}
+	check(0, 0)
+
+	if st, _, body := appendChunk(s, alice, id, "hr.log", 0, []byte("hello"), nil); st != 204 {
+		t.Fatalf("chunk = %d %s", st, body)
+	}
+	check(5, 5)
+	if st, _, _ := appendChunk(s, alice, id, "hr.log", 5, []byte("!!"), nil); st != 204 {
+		t.Fatalf("second chunk = %d", st)
+	}
+	if st, _, _ := appendChunk(s, alice, id, "ecg.log", 0, []byte("abc"), nil); st != 204 {
+		t.Fatalf("second file = %d", st)
+	}
+	check(10, 10)
+
+	// Deleting a file takes its bytes off both totals.
+	s.expect(204, http.MethodDelete, "/v1/recordings/"+id+"/files/ecg.log", alice, nil, nil)
+	check(7, 7)
+
+	// Another account keeps its own total.
+	s.expect(201, http.MethodPut, "/v1/recordings/bobs", bob, testMeta("bobs", "recording"), nil)
+	if st, _, _ := appendChunk(s, bob, "bobs", "hr.log", 0, []byte("four"), nil); st != 204 {
+		t.Fatalf("another account's chunk = %d", st)
+	}
+	check(7, 7)
+	if recording, account := storedTotals(t, s, "bobs", "bob@example.com"); recording != 4 || account != 4 {
+		t.Fatalf("bob's totals = %d recording, %d account", recording, account)
+	}
+
+	// Deleting the recording takes everything it held off the account.
+	s.expect(204, http.MethodDelete, "/v1/recordings/"+id, alice, nil, nil)
+	if got := accountStorage(t, s, "alice@example.com"); got != 0 {
+		t.Fatalf("alice still holds %d bytes after deleting her recording", got)
+	}
+	if got := accountStorage(t, s, "bob@example.com"); got != 4 {
+		t.Fatalf("bob's total changed to %d", got)
+	}
+}
+
+// TestQuotaCheckUsesOnlyTheRunningTotal tests the decision on its own: it is a
+// comparison against the account total, with no recordings to look at.
+func TestQuotaCheckUsesOnlyTheRunningTotal(t *testing.T) {
+	t.Setenv("TAIGA_USER_QUOTA_GB", "1")
+	quota := int64(1) * 1024 * 1024 * 1024
+	if err := quotaCheck(quota, 0); err != nil {
+		t.Fatalf("a total at the quota must be allowed: %v", err)
+	}
+	err := quotaCheck(quota, 1)
+	var failure *apiError
+	if !errors.As(err, &failure) || failure.Status != http.StatusRequestEntityTooLarge || failure.Code != "storage_quota_exceeded" {
+		t.Fatalf("one byte over the quota = %v", err)
+	}
+	t.Setenv("TAIGA_USER_QUOTA_GB", "0")
+	if err := quotaCheck(quota, 1); err != nil {
+		t.Fatalf("quota 0 must allow any total: %v", err)
+	}
+}
+
+// TestQuotaIgnoresTheRecordingsOnDisk shows that the check reads the account total, not
+// the account's recordings: bytes the total does not count do not limit an upload.
+func TestQuotaIgnoresTheRecordingsOnDisk(t *testing.T) {
+	t.Setenv("TAIGA_USER_QUOTA_GB", "1")
+	t.Setenv("TAIGA_MAX_RECORDING_MB", "4096")
+	s := newServer(t)
+	alice := s.tokens["alice"]
+	quota := int64(1) * 1024 * 1024 * 1024
+
+	s.expect(201, http.MethodPut, "/v1/recordings/uncounted", alice, testMeta("uncounted", "recording"), nil)
+	seedStoredBytes(t, s, "uncounted", quota)
+	record, err := s.app.FindRecordById("recordings", "uncounted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Set("stored_bytes", 0)
+	if err := s.app.Save(record); err != nil {
+		t.Fatal(err)
+	}
+	user, err := s.app.FindAuthRecordByEmail("users", "alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Set("storage_bytes", 0)
+	if err := s.app.Save(user); err != nil {
+		t.Fatal(err)
+	}
+
+	s.expect(201, http.MethodPut, "/v1/recordings/next", alice, testMeta("next", "recording"), nil)
+	if st, _, body := appendChunk(s, alice, "next", "hr.log", 0, []byte("frames"), nil); st != 204 {
+		t.Fatalf("bytes the total does not count must not limit an upload: %d %s", st, body)
+	}
+}
+
+// TestConcurrentChunksCannotBothExceedTheQuota leaves one byte in the quota and sends
+// two chunks at once: one is written, the other is refused.
+func TestConcurrentChunksCannotBothExceedTheQuota(t *testing.T) {
+	t.Setenv("TAIGA_USER_QUOTA_GB", "1")
+	s := newServer(t)
+	alice := s.tokens["alice"]
+	quota := int64(1) * 1024 * 1024 * 1024
+
+	s.expect(201, http.MethodPut, "/v1/recordings/full", alice, testMeta("full", "recording"), nil)
+	seedStoredBytes(t, s, "full", quota-1)
+	s.expect(201, http.MethodPut, "/v1/recordings/race", alice, testMeta("race", "recording"), nil)
+
+	names := []string{"hr.log", "ecg.log"}
+	statuses := make([]int, len(names))
+	var wait sync.WaitGroup
+	for i, name := range names {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			statuses[i], _, _ = appendChunk(s, alice, "race", name, 0, []byte("x"), nil)
+		}()
+	}
+	wait.Wait()
+
+	written, refused := 0, 0
+	for _, status := range statuses {
+		switch status {
+		case http.StatusNoContent:
+			written++
+		case http.StatusRequestEntityTooLarge:
+			refused++
+		}
+	}
+	if written != 1 || refused != 1 {
+		t.Fatalf("chunk statuses = %v, want one 204 and one 413", statuses)
+	}
+	if got := accountStorage(t, s, "alice@example.com"); got != quota {
+		t.Fatalf("account total = %d, want %d", got, quota)
 	}
 }
 

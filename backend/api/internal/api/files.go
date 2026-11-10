@@ -10,8 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+
+	"github.com/rbmr/TaigaSleep/backend/api/internal/storage"
 )
 
 const (
@@ -23,7 +24,7 @@ const (
 
 // dataFiles are the raw files of a recording. meta.json is not one of them: it lives
 // in the recording itself.
-var dataFiles = []string{"hr.log", "ecg.log", "acc.log", "events.jsonl"}
+var dataFiles = storage.DataFiles
 
 var streamFiles = []string{"hr.log", "ecg.log", "acc.log"}
 
@@ -119,18 +120,30 @@ func recordingSize(app core.App, record *core.Record) int64 {
 	return total
 }
 
-// userStorageBytes is the stored size of every recording an account holds, which is
-// what the per-user quota counts.
-func userStorageBytes(app core.App, owner string) (int64, error) {
-	records, err := app.FindAllRecords("recordings", dbx.HashExp{"owner": owner})
+// quotaCheck refuses a chunk of add bytes when the account already holds used bytes.
+// It decides from the account's running total alone, so the check does not read the
+// account's recordings or their files.
+func quotaCheck(used, add int64) error {
+	quota := userQuotaBytes()
+	if quota > 0 && used+add > quota {
+		return tooLarge("storage_quota_exceeded", fmt.Sprintf("this account holds at most %d GB of recordings", quota/(1024*1024*1024)))
+	}
+	return nil
+}
+
+// addAccountBytes moves an account's running total by delta. It is called inside the
+// transaction that changes the bytes, so the total and the files change together.
+func addAccountBytes(app core.App, owner string, delta int64) error {
+	account, err := app.FindRecordById("users", owner)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	var total int64
-	for _, record := range records {
-		total += recordingSize(app, record)
+	total := int64(account.GetInt("storage_bytes")) + delta
+	if total < 0 {
+		total = 0
 	}
-	return total, nil
+	account.Set("storage_bytes", total)
+	return app.Save(account)
 }
 
 func streamBytes(app core.App, record *core.Record) int64 {
@@ -246,14 +259,12 @@ func PatchFile(e *core.RequestEvent) error {
 		if recordingSize(txApp, record)+int64(len(data)) > maxTotalBytes() {
 			return tooLarge("recording_too_large", fmt.Sprintf("a recording is at most %d bytes", maxTotalBytes()))
 		}
-		if quota := userQuotaBytes(); quota > 0 {
-			used, err := userStorageBytes(txApp, record.GetString("owner"))
-			if err != nil {
-				return err
-			}
-			if used+int64(len(data)) > quota {
-				return tooLarge("storage_quota_exceeded", fmt.Sprintf("this account holds at most %d GB of recordings", quota/(1024*1024*1024)))
-			}
+		account, err := txApp.FindRecordById("users", record.GetString("owner"))
+		if err != nil {
+			return err
+		}
+		if err := quotaCheck(int64(account.GetInt("storage_bytes")), int64(len(data))); err != nil {
+			return err
 		}
 		if !exists {
 			entry = FileEntry{Encoding: encoding}
@@ -280,7 +291,12 @@ func PatchFile(e *core.RequestEvent) error {
 		newSize = current + int64(len(data))
 		entries[name] = entry
 		record.Set("files", entries)
-		return txApp.Save(record)
+		record.Set("stored_bytes", int64(record.GetInt("stored_bytes"))+int64(len(data)))
+		if err := txApp.Save(record); err != nil {
+			return err
+		}
+		account.Set("storage_bytes", int64(account.GetInt("storage_bytes"))+int64(len(data)))
+		return txApp.Save(account)
 	})
 	if err != nil {
 		return err
@@ -362,15 +378,25 @@ func DeleteFile(e *core.RequestEvent) error {
 			return conflict("recording_complete", "the recording is complete and can no longer change")
 		}
 		entries := readFiles(record)
-		if _, ok := entries[name]; !ok {
+		entry, ok := entries[name]
+		if !ok {
 			return notFound("file")
 		}
+		encoding := entry.Encoding
+		if encoding == "" {
+			encoding = encodingIdentity
+		}
 		dir := recordingDir(txApp, record.Id)
+		removed := fileSize(filepath.Join(dir, storedName(name, encoding)))
 		_ = os.Remove(filepath.Join(dir, storedName(name, encodingIdentity)))
 		_ = os.Remove(filepath.Join(dir, storedName(name, encodingGzip)))
 		delete(entries, name)
 		record.Set("files", entries)
-		return txApp.Save(record)
+		record.Set("stored_bytes", max(int64(record.GetInt("stored_bytes"))-removed, 0))
+		if err := txApp.Save(record); err != nil {
+			return err
+		}
+		return addAccountBytes(txApp, record.GetString("owner"), -removed)
 	})
 	if err != nil {
 		return err
