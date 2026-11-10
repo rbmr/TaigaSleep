@@ -42,6 +42,9 @@ interface HomeWork {
 
   fun setMode(sensorId: String, mode: RecordingMode)
 
+  /** The wake-up window of this tracker; null turns it off. */
+  fun setWake(sensorId: String, wake: WakeChoice?)
+
   /** The shared answer of the preventing-shutdown flow for a recording mode. */
   fun guard(mode: RecordingMode): HomeState
 
@@ -138,6 +141,8 @@ class HomeViewModel(
   fun setAcc(on: Boolean) = updateConfig { work.setAcc(it.id, on) }
 
   fun setMode(mode: RecordingMode) = updateConfig { work.setMode(it.id, mode) }
+
+  fun setWake(wake: WakeChoice?) = updateConfig { work.setWake(it.id, wake) }
 
   /** The user asked for the sensor picker; the Bluetooth permission may have to be asked first. */
   fun selectSensor() {

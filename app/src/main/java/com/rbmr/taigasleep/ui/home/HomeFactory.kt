@@ -14,6 +14,7 @@ import com.rbmr.taigasleep.guard.ReadinessState
 import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.RecordingService
+import com.rbmr.taigasleep.recording.WakeWindow
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SleepSensor
@@ -67,6 +68,15 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
 
           override fun setMode(sensorId: String, mode: RecordingMode) {
             prefs.setMode(sensorId, mode)
+          }
+
+          override fun setWake(sensorId: String, wake: WakeChoice?) {
+            prefs.setWakeWindow(
+                sensorId,
+                wake?.let {
+                  WakeWindow(it.startMinute, it.endMinute, it.heartRate, it.movement)
+                },
+            )
           }
 
           override fun guard(mode: RecordingMode): HomeState =
@@ -141,6 +151,10 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
         canRecordEcg = sensor.capabilities.ecg,
         canRecordAcc = sensor.capabilities.acc,
         offeredModes = modes + sensor.recordingModes(StreamConfig(ecg = false, acc = false)),
+        wake =
+            prefs.wakeWindow(sensor.id)?.let {
+              WakeChoice(it.startMinute, it.endMinute, it.heartRate, it.movement)
+            },
     )
   }
 }

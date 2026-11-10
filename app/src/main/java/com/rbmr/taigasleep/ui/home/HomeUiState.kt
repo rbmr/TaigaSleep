@@ -12,6 +12,22 @@ import com.rbmr.taigasleep.tracker.RecordingMode
 data class Streams(val ecg: Boolean = false, val acc: Boolean = false)
 
 /**
+ * The wake-up window the user set for tonight, as the screen holds it: local minutes of day and the
+ * signals that may wake them. It is the screen's copy of `recording.WakeWindow`, the way [Streams]
+ * is the copy of `tracker.StreamConfig`; the recorder owns the decision, the screen only sets it.
+ */
+data class WakeChoice(
+    val startMinute: Int,
+    val endMinute: Int,
+    val heartRate: Boolean = true,
+    val movement: Boolean = false,
+) {
+  /** True when a signal may wake the user before the end of the window. */
+  val triggers: Boolean
+    get() = heartRate || movement
+}
+
+/**
  * What the tracker will record and how: the configuration step of the start flow. The mode follows
  * from the tracker and the chosen streams, so both are part of the same answer.
  */
@@ -24,6 +40,8 @@ data class StartConfig(
     val canRecordAcc: Boolean,
     /** Every mode the tracker offers for some configuration; a mode outside [modes] is greyed out. */
     val offeredModes: Set<RecordingMode> = modes,
+    /** The wake-up window set for this tracker, or null when it is off (the default). */
+    val wake: WakeChoice? = null,
 )
 
 /** The connected tracker as the screen shows it: who it is, whether it is here, and its battery. */

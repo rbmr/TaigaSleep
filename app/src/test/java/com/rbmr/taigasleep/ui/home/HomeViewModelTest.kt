@@ -58,6 +58,7 @@ private class FakeWork : HomeWork {
   var guard = HomeState.READY
   var canEcg = true
   var canAcc = false
+  var wake: WakeChoice? = null
 
   override fun onFirstShow() {
     calls += "first"
@@ -85,6 +86,11 @@ private class FakeWork : HomeWork {
   override fun setMode(sensorId: String, mode: RecordingMode) {
     calls += "mode:$mode"
     this.mode = mode
+  }
+
+  override fun setWake(sensorId: String, wake: WakeChoice?) {
+    calls += "wake:${wake != null}"
+    this.wake = wake
   }
 
   override fun guard(mode: RecordingMode): HomeState = guard

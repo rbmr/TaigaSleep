@@ -200,6 +200,7 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
         onEcg = viewModel::setEcg,
         onAcc = viewModel::setAcc,
         onMode = viewModel::setMode,
+        onWake = viewModel::setWake,
         onDismiss = viewModel::closeConfiguration,
     )
   }

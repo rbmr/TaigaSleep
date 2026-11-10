@@ -18,7 +18,7 @@ home/ActiveHome.kt 0
 home/DataSheet.kt 1
 home/FinishingHome.kt 1
 home/GuardCard.kt 1
-home/HomeFactory.kt 11
+home/HomeFactory.kt 12
 home/HomeScreen.kt 3
 home/HomeUiState.kt 7
 home/RecordingCard.kt 4
