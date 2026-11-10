@@ -21,9 +21,13 @@ import com.rbmr.taigasleep.sync.RecordingNotOnServerException
 import com.rbmr.taigasleep.sync.UploadFailure
 import java.io.File
 import java.io.IOException
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -212,9 +216,23 @@ private fun payload(id: String) =
         result = AnalysisResultDto(items = emptyList()),
     )
 
+/** Runs a coroutine only when the test drains it, so no state is conflated away. */
+private class QueuedDispatcher : CoroutineDispatcher() {
+  private val queued = ArrayDeque<Runnable>()
+
+  override fun dispatch(context: CoroutineContext, block: Runnable) {
+    queued.addLast(block)
+  }
+
+  fun runAll() {
+    while (queued.isNotEmpty()) queued.removeFirst().run()
+  }
+}
+
 class RecordingDetailViewModelTest {
   private val library = FakeLibrary(listOf(recording()))
   private val work = FakeWork()
+  private val queued = QueuedDispatcher()
 
   private fun viewModel(
       localId: String? = "local",
@@ -233,6 +251,90 @@ class RecordingDetailViewModelTest {
           dispatcher = dispatcher,
           resultDispatcher = dispatcher,
       )
+
+  /**
+   * Every state the screen emits while [queued] drains, each with the number of remote result reads
+   * the library had been asked for at that moment.
+   */
+  private fun emit(model: RecordingDetailViewModel): List<Pair<RecordingDetailUiState, Int>> {
+    val seen = mutableListOf<Pair<RecordingDetailUiState, Int>>()
+    val scope = CoroutineScope(Dispatchers.Unconfined)
+    scope.launch {
+      model.state.collect { value ->
+        seen += value to library.calls.count { it.startsWith("refresh:") }
+      }
+    }
+    queued.runAll()
+    scope.cancel()
+    return seen
+  }
+
+  @Test
+  fun `an analyzed night opens with its saved result and never shows the not analyzed card`() {
+    library.cached = payload("a1")
+    val model = viewModel(dispatcher = queued)
+
+    val seen = emit(model)
+
+    // The library already knows the night is READY, so even the first state carries that status.
+    val first = seen.first().first
+    assertEquals(RecordingStatus.READY, first.status)
+    assertTrue(first.analysed)
+    assertTrue(first.loading)
+    assertNull(first.result)
+    assertTrue(seen.all { it.first.analysed })
+
+    // The saved payload arrives before anything is asked of the server.
+    val (shown, remoteReads) = seen.first { it.first.result != null }
+    assertEquals("a1", shown.result?.id)
+    assertEquals(0, remoteReads)
+  }
+
+  @Test
+  fun `a processing night gets its card from the first state`() {
+    library.recordings.value =
+        listOf(recording(status = RecordingStatus.PROCESSING, analysisId = null))
+    val model = viewModel(dispatcher = queued)
+
+    val seen = emit(model)
+
+    assertEquals(RecordingStatus.PROCESSING, seen.first().first.status)
+    assertFalse(seen.first().first.analysed)
+    assertTrue(seen.all { it.first.status == RecordingStatus.PROCESSING })
+  }
+
+  @Test
+  fun `an uploading night gets its card from the first state`() {
+    library.recordings.value =
+        listOf(recording(status = RecordingStatus.UPLOADING, analysisId = null))
+    val model = viewModel(dispatcher = queued)
+
+    val seen = emit(model)
+
+    assertEquals(RecordingStatus.UPLOADING, seen.first().first.status)
+    assertFalse(seen.first().first.analysed)
+    assertTrue(seen.all { it.first.status == RecordingStatus.UPLOADING })
+  }
+
+  @Test
+  fun `a failed night gets its card from the first state`() {
+    library.recordings.value =
+        listOf(
+            recording(
+                status = RecordingStatus.FAILED,
+                failure = UploadFailure.SERVER,
+                analysisId = null,
+            )
+        )
+    val model = viewModel(dispatcher = queued)
+
+    val seen = emit(model)
+
+    assertEquals(RecordingStatus.FAILED, seen.first().first.status)
+    assertEquals(UploadFailure.SERVER, seen.first().first.failure)
+    assertFalse(seen.first().first.analysed)
+    assertTrue(seen.all { it.first.status == RecordingStatus.FAILED })
+  }
 
   @Test
   fun `opening the screen reads the night and its result`() {
