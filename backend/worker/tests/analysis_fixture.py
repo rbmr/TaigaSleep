@@ -1,36 +1,39 @@
 """Synthetic recording directories for analysis tests.
 
 Everything is generated at test time. The layout follows
-docs/recording-format.md; no health data is committed.
+docs/recording-format.md and comes from the worker's frame module; no health
+data is committed.
 """
 
 from __future__ import annotations
 
 import json
-import struct
-import zlib
 from pathlib import Path
 from typing import Iterable, Sequence
 
-POLAR_EPOCH_OFFSET_NS = 946_684_800_000_000_000
-STREAM_HR = 1
-STREAM_ECG = 2
-STREAM_ACC = 3
+from taiga_worker import frames
+
+POLAR_EPOCH_OFFSET_NS = frames.POLAR_EPOCH_OFFSET_NS
+STREAM_HR = frames.STREAM_HR
+STREAM_ECG = frames.STREAM_ECG
+STREAM_ACC = frames.STREAM_ACC
 
 START_UTC_MS = 1_792_798_200_000
 START_NS = START_UTC_MS * 1_000_000
 POLAR_START_NS = START_NS - POLAR_EPOCH_OFFSET_NS
 
-
-def frame_header(stream: int) -> bytes:
-    return b"TSLG" + bytes([1, stream]) + b"\x00\x00"
+frame_header = frames.frame_header
+event_line = frames.event_line
 
 
 def frame(payload: bytes, *, bad_crc: bool = False) -> bytes:
-    crc = zlib.crc32(payload) & 0xFFFFFFFF
-    if bad_crc:
-        crc ^= 0xFFFFFFFF
-    return struct.pack("<I", len(payload)) + payload + struct.pack("<I", crc)
+    """One frame; bad_crc breaks its checksum, for the recovery rule."""
+
+    encoded = frames.encode_frame(payload)
+    if not bad_crc:
+        return encoded
+    broken = int.from_bytes(encoded[-4:], "little") ^ 0xFFFFFFFF
+    return encoded[:-4] + broken.to_bytes(4, "little")
 
 
 def hr_payload(
@@ -40,11 +43,7 @@ def hr_payload(
     flags: int = 3,
     rr_ms: Iterable[int] = (1000,),
 ) -> bytes:
-    rr = list(rr_ms)
-    return (
-        struct.pack("<qqHBB", phone_ns, elapsed_ns, hr_bpm, flags, len(rr))
-        + b"".join(struct.pack("<H", value) for value in rr)
-    )
+    return frames.hr_payload(phone_ns, elapsed_ns, hr_bpm, flags, rr_ms)
 
 
 def ecg_payload(
@@ -55,9 +54,11 @@ def ecg_payload(
     voltage_uv: Sequence[int],
 ) -> bytes:
     values = list(voltage_uv)
-    return (
-        struct.pack("<qqBHqq", phone_ns, elapsed_ns, 0, len(values), t_first, t_last)
-        + b"".join(struct.pack("<i", value) for value in values)
+    return frames.ecg_payload(
+        phone_ns,
+        elapsed_ns,
+        frames.linear_timestamps(t_first, t_last, len(values)),
+        values,
     )
 
 
@@ -69,24 +70,11 @@ def acc_payload(
     xyz_mg: Sequence[int],
 ) -> bytes:
     values = list(xyz_mg)
-    return (
-        struct.pack("<qqBHqq", phone_ns, elapsed_ns, 0, len(values) // 3, t_first, t_last)
-        + b"".join(struct.pack("<h", value) for value in values)
-    )
-
-
-def event_line(phone_ns: int, elapsed_ns: int, event_type: str, message: str) -> bytes:
-    return (
-        json.dumps(
-            {
-                "phone_ns": phone_ns,
-                "elapsed_ns": elapsed_ns,
-                "type": event_type,
-                "message": message,
-            },
-            separators=(",", ":"),
-        ).encode()
-        + b"\n"
+    return frames.acc_payload(
+        phone_ns,
+        elapsed_ns,
+        frames.linear_timestamps(t_first, t_last, len(values) // 3),
+        values,
     )
 
 

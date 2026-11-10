@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
-"""Read a Taiga recording directory (docs/recording-format.md) using only the stdlib.
+"""Read a Taiga recording directory (docs/recording-format.md) with the worker's frame format.
 
 Usage: read_recording.py <session_dir>
+
+The frame format lives in the worker, so run the tool from the worker environment:
+
+  uv run --project backend/worker --frozen python tools/read_recording.py <session_dir>
+
+See tools/README.md.
 
 Validates the CRC of every frame, stops each log at the first truncated or corrupt frame (the
 recovery rule), and prints per-stream counts, duration, sample rate and gaps.
@@ -13,20 +19,16 @@ import json
 import os
 import struct
 import sys
-import zlib
 from datetime import datetime, timezone
 
-POLAR_EPOCH_OFFSET_NS = 946684800 * 10**9
-STREAMS = {1: ("hr.log", "HR"), 2: ("ecg.log", "ECG"), 3: ("acc.log", "ACC")}
-MAX_PAYLOAD = 1 << 20
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend", "worker"))
+from taiga_worker import frames  # noqa: E402  (the worker owns the frame format)
+
+STREAMS = {stream: (name, name.split(".")[0].upper())
+           for name, stream in frames.STREAM_IDS.items()}
 CLOCK_JUMP_NS = 3600 * 10**9  # a step this big in the sample timestamps is a clock reset, not a gap
-GAP_SECONDS = {1: 2.5, 2: 1.0, 3: 1.0}
-
-
-def trunc_div(a, b):
-  """Integer division truncating toward zero (Python's // floors)."""
-  q = abs(a) // abs(b)
-  return q if (a >= 0) == (b >= 0) else -q
+GAP_SECONDS = {frames.STREAM_HR: 2.5, frames.STREAM_ECG: 1.0, frames.STREAM_ACC: 1.0}
 
 
 def read_log(path):
@@ -34,55 +36,18 @@ def read_log(path):
 
   Frames are accepted until the first truncated or CRC-failing one; the rest is ignored.
   """
-  size = os.path.getsize(path)
-  payloads = []
   with open(path, "rb") as f:
-    head = f.read(8)
-    if len(head) < 8 or head[:4] != b"TSLG" or head[4] != 1:
-      raise ValueError("bad header")
-    stream = head[5]
-    pos = 8
-    while pos < size:
-      raw = f.read(4)
-      if len(raw) < 4:
-        return stream, payloads, pos, True
-      (n,) = struct.unpack("<I", raw)
-      if n > MAX_PAYLOAD or pos + 8 + n > size:
-        return stream, payloads, pos, True
-      payload = f.read(n)
-      (crc,) = struct.unpack("<I", f.read(4))
-      if zlib.crc32(payload) & 0xFFFFFFFF != crc:
-        return stream, payloads, pos, True
-      payloads.append(payload)
-      pos += 8 + n
-  return stream, payloads, pos, False
-
-
-def parse_hr(p):
-  phone, elapsed, hr, flags, n_rr = struct.unpack_from("<qqHBB", p, 0)
-  rr = list(struct.unpack_from("<%dH" % n_rr, p, 20))
-  if len(p) != 20 + 2 * n_rr:
-    raise ValueError("hr payload length mismatch")
-  return {"phone_ns": phone, "elapsed_ns": elapsed, "hr": hr, "flags": flags, "rr": rr}
-
-
-def parse_batch(p, per_sample, fmt):
-  phone, elapsed, mode, n = struct.unpack_from("<qqBH", p, 0)
-  off = 19
-  if mode == 0:
-    first, last = struct.unpack_from("<qq", p, off)
-    off += 16
-    t = [first + (trunc_div((last - first) * i, n - 1) if n > 1 else 0) for i in range(n)]
-  elif mode == 1:
-    t = list(struct.unpack_from("<%dq" % n, p, off))
-    off += 8 * n
-  else:
-    raise ValueError("unknown ts_mode %d" % mode)
-  values = struct.unpack_from("<%d%s" % (n * per_sample, fmt), p, off)
-  off += n * per_sample * struct.calcsize(fmt)
-  if off != len(p):
-    raise ValueError("batch payload length mismatch")
-  return {"phone_ns": phone, "elapsed_ns": elapsed, "mode": mode, "t": t, "values": values}
+    data = f.read()
+  if len(data) < frames.HEADER_SIZE or data[:4] != frames.MAGIC or data[4] != frames.VERSION:
+    raise ValueError("bad header")
+  stream = data[5]
+  payloads = []
+  try:
+    for frame in frames.iter_frames(data, stream):
+      payloads.append(frame.payload)
+  except frames.FrameError as e:
+    return stream, payloads, e.offset, True
+  return stream, payloads, len(data), False
 
 
 def fmt_time(ns):
@@ -95,41 +60,40 @@ def summarize(stream, payloads):
   if not payloads:
     return info
   gap_ns = GAP_SECONDS[stream] * 1e9
-  if stream == 1:
+  if stream == frames.STREAM_HR:
     prev = None
     first = last = None
     for p in payloads:
-      s = parse_hr(p)
+      s = frames.read_hr(p)
       info["samples"] += 1
       if first is None:
-        first = s["phone_ns"]
-      if prev is not None and s["phone_ns"] - prev > gap_ns:
-        info["gaps"].append((prev, s["phone_ns"] - prev))
-      prev = last = s["phone_ns"]
+        first = s.phone_ns
+      if prev is not None and s.phone_ns - prev > gap_ns:
+        info["gaps"].append((prev, s.phone_ns - prev))
+      prev = last = s.phone_ns
     span = last - first
   else:
-    per, fmt = (1, "i") if stream == 2 else (3, "h")
     prev = None
     first = last = None
     seg_first = None
     span = 0
     for p in payloads:
-      b = parse_batch(p, per, fmt)
-      info["modes"][b["mode"]] += 1
-      info["samples"] += len(b["t"])
+      b = frames.read_ecg(p) if stream == frames.STREAM_ECG else frames.read_acc(p)
+      info["modes"][b.mode] += 1
+      info["samples"] += len(b.timestamps_ns)
       if first is None:
-        first = seg_first = b["t"][0]
-      step = None if prev is None else b["t"][0] - prev
+        first = seg_first = b.timestamps_ns[0]
+      step = None if prev is None else b.timestamps_ns[0] - prev
       if step is not None and (step < -CLOCK_JUMP_NS or step > CLOCK_JUMP_NS):
         # The strap's clock was reset (battery pulled): count the segments separately.
-        info["jumps"].append((b["phone_ns"], step))
+        info["jumps"].append((b.phone_ns, step))
         span += prev - seg_first
-        seg_first = b["t"][0]
+        seg_first = b.timestamps_ns[0]
       elif step is not None and step > gap_ns:
-        info["gaps"].append((prev + POLAR_EPOCH_OFFSET_NS, step))
-      prev = last = b["t"][-1]
+        info["gaps"].append((prev + frames.POLAR_EPOCH_OFFSET_NS, step))
+      prev = last = b.timestamps_ns[-1]
     span += last - seg_first
-    first += POLAR_EPOCH_OFFSET_NS
+    first += frames.POLAR_EPOCH_OFFSET_NS
   info["start_ns"] = first
   info["duration_s"] = span / 1e9
   # Rate over the time the sensor was actually delivering, so gaps do not read as a slow sensor.
@@ -183,7 +147,7 @@ def main(argv):
     line = "%-8s %s frames=%d samples=%d" % (name, label, info["frames"], info["samples"])
     if info["samples"] > 1:
       line += " duration=%.1fs rate=%.2fHz (excl. gaps)" % (info["duration_s"], info["rate_hz"])
-    if stream != 1:
+    if stream != frames.STREAM_HR:
       line += " ts_modes(linear/explicit)=%d/%d" % (info["modes"][0], info["modes"][1])
     line += " gaps=%d" % len(info["gaps"])
     line += "  [DAMAGED TAIL: %d bytes ignored]" % tail if damaged else "  [ok]"
