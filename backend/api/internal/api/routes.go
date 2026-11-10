@@ -75,7 +75,7 @@ func RegisterRoutes(router *router.Router[*core.RequestEvent]) {
 }
 
 var (
-	recordingStates    = []string{"recording", "stopped", "forced_stop", "interrupted"}
+	recordingStates    = []string{"recording", "stopped", "forced_stop", "interrupted", "fetch_pending"}
 	analysisStatusEnum = []string{statusQueued, statusRunning, statusSucceeded, statusFailed}
 )
 

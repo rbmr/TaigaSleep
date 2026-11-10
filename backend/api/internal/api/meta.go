@@ -14,10 +14,11 @@ var (
 	algorithmIDRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 	states = map[string]bool{
-		"recording":   true,
-		"stopped":     true,
-		"forced_stop": true,
-		"interrupted": true,
+		"recording":     true,
+		"stopped":       true,
+		"forced_stop":   true,
+		"interrupted":   true,
+		"fetch_pending": true,
 	}
 )
 
