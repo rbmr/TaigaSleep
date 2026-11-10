@@ -74,6 +74,9 @@ client renders it without knowing the algorithm or a local catalog:
 - Contract version 5 removed stage confidence from the data-quality score and withholds the sleep
   score when the data quality is below 50 of 100. A result stored under an older contract version
   keeps the older score until it is analysed again.
+- Contract version 6 removed the `total_duration_s` item. Recording length describes the
+  recording rather than the sleep, and clients show it from the recording's own metadata. A result
+  stored under an older contract version may still carry the item; clients ignore it.
 
 ## Canonical stages and epochs
 
@@ -195,9 +198,9 @@ StagingResult(
 
 The shared layer derives, and then emits as items:
 
-- total duration, scored/unscored duration, total sleep, efficiency, sleep
-  latency, WASO, awakenings (wake periods longer than two minutes), final
-  awakening, time per stage;
+- scored/unscored duration, total sleep, efficiency, sleep latency, WASO,
+  awakenings (wake periods longer than two minutes), final awakening, time per
+  stage;
 - HR mean/min/max, HRV RMSSD/SDNN, movement index/mean/epochs;
 - an epoch-aligned heart-rate series, as a `series` item;
 - explicit support per figure: `supported`, `unsupported_device`,
