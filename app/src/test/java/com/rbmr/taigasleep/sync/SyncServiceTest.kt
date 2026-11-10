@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.sync
 
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.RecordingDto
+import com.rbmr.taigasleep.backend.RemoteSession
 import com.rbmr.taigasleep.backend.StubTaigaClient
 import com.rbmr.taigasleep.backend.TaigaClient
 import com.rbmr.taigasleep.backend.TaigaHttpException
@@ -246,6 +247,10 @@ class SyncServiceTest {
     assertEquals(listOf("markAnalysisFailed remote-r1 recording not found"), environment.calls)
   }
 
+  private companion object {
+    const val SESSION_ACCOUNT = "https://sleep.example|u1"
+  }
+
   private class FakeEnvironment : SyncEnvironment {
     val calls = mutableListOf<String>()
     val state = mutableMapOf<String, UploadRecord>()
@@ -262,28 +267,31 @@ class SyncServiceTest {
     var requestFailure: Exception? = null
     var refreshFailure: Exception? = null
 
-    override fun record(id: String): UploadRecord? = state[id]
+    override fun record(id: String, account: String?): UploadRecord? = state[id]
 
-    override fun markLocal(id: String) {
+    override fun markLocal(id: String, account: String?) {
       calls += "markLocal $id"
       state[id] = UploadRecord(id = id, phase = UploadPhase.LOCAL)
     }
 
-    override fun markProcessing(id: String) {
+    override fun markProcessing(id: String, account: String?) {
       calls += "markProcessing $id"
       state[id] = (state[id] ?: UploadRecord(id = id)).copy(phase = UploadPhase.PROCESSING)
     }
 
-    override fun markAnalysisFailed(id: String, detail: String?) {
+    override fun markAnalysisFailed(id: String, detail: String?, account: String?) {
       calls += "markAnalysisFailed $id $detail"
       state[id] = (state[id] ?: UploadRecord(id = id)).copy(phase = UploadPhase.FAILED)
     }
 
-    override fun markManualAnalysis(id: String, analysisId: String) {
+    override fun markManualAnalysis(id: String, analysisId: String, account: String?) {
       calls += "markManualAnalysis $id $analysisId"
     }
 
-    override fun api(): TaigaClient? = client
+    override val account: String?
+      get() = SESSION_ACCOUNT
+
+    override fun session(): RemoteSession? = client?.let { RemoteSession(SESSION_ACCOUNT, it) }
 
     override fun logout() {
       calls += "logout"
@@ -376,6 +384,7 @@ class SyncServiceTest {
 
     override suspend fun refresh(
         api: TaigaClient,
+        account: String,
         id: String,
         recordingId: String,
         preferred: List<String?>,

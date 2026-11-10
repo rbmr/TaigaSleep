@@ -32,6 +32,11 @@ class UploadWorker(
     val context = applicationContext
     val store = UploadStore.of(context)
     val remote = RemoteRepository.of(context)
+    val queuedFor = inputData.getString(UploadScheduler.KEY_ACCOUNT)
+
+    // Work queued for one account is never sent to another. The queue is cancelled when the account
+    // ends, so this only catches a worker that was already starting.
+    if (queuedFor != null && queuedFor != remote.accountKey) return Result.success()
 
     // WorkManager has already started the foreground service. Promote it before any network or
     // disk work, otherwise Android can kill the process for not calling startForeground in time.
@@ -49,49 +54,85 @@ class UploadWorker(
         } catch (e: CancellationException) {
           throw e
         } catch (_: Exception) {
-          return retryOrFail(store, localId, UploadFailure.NETWORK, "could not verify the recording")
+          return retryOrFail(
+              store,
+              localId,
+              UploadFailure.NETWORK,
+              "could not verify the recording",
+              queuedFor,
+          )
         }
     when (verified) {
       null -> {
-        store.markFailed(localId, UploadFailure.LOGIN, "no analysis server is configured")
+        store.markFailed(
+            localId,
+            UploadFailure.LOGIN,
+            "no analysis server is configured",
+            queuedFor,
+        )
         return Result.failure()
       }
       is CheckResult.Failure -> {
         val failure = failureFor(verified.error)
         // A version mismatch is not fixed by waiting: the app or the server has to be updated.
         if (failure == UploadFailure.LOGIN || failure == UploadFailure.VERSION) {
-          store.markFailed(localId, failure, verified.error.label)
+          store.markFailed(localId, failure, verified.error.label, queuedFor)
           return Result.failure()
         }
-        return retryOrFail(store, localId, failure, verified.error.label)
+        return retryOrFail(store, localId, failure, verified.error.label, queuedFor)
       }
       is CheckResult.Success -> Unit
     }
 
-    val api =
-        remote.api()
+    val session =
+        remote.session()
             ?: run {
-              store.markFailed(localId, UploadFailure.LOGIN, "the saved login is no longer valid")
+              store.markFailed(
+                  localId,
+                  UploadFailure.LOGIN,
+                  "the saved login is no longer valid",
+                  queuedFor,
+              )
               return Result.failure()
             }
+    // A login during the check means this recording belongs to the session that queued it, not to
+    // the one that is active now.
+    if (queuedFor != null && queuedFor != session.account) return Result.success()
+    val api = session.api
+    val account = session.account
 
     return try {
       val sessions = RecordingStore.of(context)
       val dir = sessions.dir(localId)
       if (!dir.isDirectory) {
-        store.markFailed(localId, UploadFailure.STORAGE, "recording directory is missing")
+        store.markFailed(
+            localId,
+            UploadFailure.STORAGE,
+            "recording directory is missing",
+            account,
+        )
         return Result.failure()
       }
       val meta = RecordingMeta.read(dir)
       if (meta == null) {
-        store.markFailed(localId, UploadFailure.STORAGE, "meta.json is missing or invalid")
+        store.markFailed(
+            localId,
+            UploadFailure.STORAGE,
+            "meta.json is missing or invalid",
+            account,
+        )
         return Result.failure()
       }
 
       if (meta.state == RecordingPhase.RECORDING) {
         if (RecordingService.running) {
           // The service schedules a fresh worker when it finishes. Never upload an open file.
-          store.markQueued(localId, UploadFailure.RECORDING, "recording is still in progress")
+          store.markQueued(
+              localId,
+              UploadFailure.RECORDING,
+              "recording is still in progress",
+              account,
+          )
           return Result.success()
         }
         val active = RecordingPrefs.get(context).activeSessionId
@@ -100,12 +141,22 @@ class UploadWorker(
             // The phone still marks this recording live: the service decides whether it continues.
             // A refused start leaves the marker in place, so the watchdog tries again.
             runCatching { RecordingService.send(context, RecordingService.ACTION_RESUME) }
-            store.markQueued(localId, UploadFailure.RECORDING, "recording is still in progress")
+            store.markQueued(
+                localId,
+                UploadFailure.RECORDING,
+                "recording is still in progress",
+                account,
+            )
             return Result.success()
           }
           RecoveryAction.WAIT -> {
             // An on-device recording is running on the tracker, not on the phone.
-            store.markQueued(localId, UploadFailure.RECORDING, "recording is still in progress")
+            store.markQueued(
+                localId,
+                UploadFailure.RECORDING,
+                "recording is still in progress",
+                account,
+            )
             return Result.success()
           }
           else -> {
@@ -119,16 +170,16 @@ class UploadWorker(
         }
       }
 
-      store.markUploading(localId, 0f)
+      store.markUploading(localId, 0f, account)
 
       // The recording id on the server is the phone's own id.
       UploadEngine(
               client = api,
               id = localId,
               dir = dir,
-              onProgress = { store.markUploading(localId, it) },
-              onCreated = { store.markOnServer(localId) },
-              onCompleted = { store.markUploadConfirmed(localId) },
+              onProgress = { store.markUploading(localId, it, account) },
+              onCreated = { store.markOnServer(localId, account) },
+              onCompleted = { store.markUploadConfirmed(localId, account) },
               compress = UploadSettings.get(context).compressUploads.value,
               cacheDir = File(context.filesDir, "upload-cache/$localId"),
           )
@@ -141,11 +192,11 @@ class UploadWorker(
             // The bytes are safe on the server and only the analysis was refused, for example
             // because no worker offers the algorithm yet. The retry asks for it again.
             if (e.status != 422) throw e
-            store.markFailed(localId, UploadFailure.ANALYSIS, e.message)
+            store.markFailed(localId, UploadFailure.ANALYSIS, e.message, account)
             RawRetention.enforce(context)
             return Result.failure()
           }
-      store.markProcessing(localId)
+      store.markProcessing(localId, account)
       // The server has the bytes now, so an immediate or overdue cleanup may run.
       RawRetention.enforce(context)
       // The recording stays in the processing state and nothing waits for it: while the app is open the
@@ -153,35 +204,35 @@ class UploadWorker(
       // off (started is null) the recording is only stored and can be analysed manually.
       Result.success()
     } catch (e: TaigaUnauthorizedException) {
-      remote.logout()
-      store.markFailed(localId, UploadFailure.LOGIN, e.message)
+      if (remote.accountKey == account) remote.logout()
+      store.markFailed(localId, UploadFailure.LOGIN, e.message, account)
       Result.failure()
     } catch (e: TaigaNetworkException) {
-      retryOrFail(store, localId, UploadFailure.NETWORK, e.message)
+      retryOrFail(store, localId, UploadFailure.NETWORK, e.message, account)
     } catch (e: TaigaHttpException) {
       when {
         e.code == ApiCode.RECORDING_IN_PROGRESS -> {
           // The backend refuses a recording that is still open. The service will enqueue again.
-          store.markQueued(localId, UploadFailure.RECORDING, e.message)
+          store.markQueued(localId, UploadFailure.RECORDING, e.message, account)
           Result.success()
         }
         e.status == 429 || e.status >= 500 ->
-            retryOrFail(store, localId, UploadFailure.SERVER, e.message)
+            retryOrFail(store, localId, UploadFailure.SERVER, e.message, account)
         else -> {
-          store.markFailed(localId, UploadFailure.SERVER, e.message)
+          store.markFailed(localId, UploadFailure.SERVER, e.message, account)
           Result.failure()
         }
       }
     } catch (e: UploadException) {
-      store.markFailed(localId, UploadFailure.SERVER, e.message)
+      store.markFailed(localId, UploadFailure.SERVER, e.message, account)
       Result.failure()
     } catch (e: IOException) {
-      store.markFailed(localId, UploadFailure.STORAGE, e.message)
+      store.markFailed(localId, UploadFailure.STORAGE, e.message, account)
       Result.failure()
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
-      store.markFailed(localId, UploadFailure.STORAGE, e.message)
+      store.markFailed(localId, UploadFailure.STORAGE, e.message, account)
       Result.failure()
     }
   }
@@ -191,12 +242,13 @@ class UploadWorker(
       localId: String,
       failure: UploadFailure,
       detail: String?,
+      account: String?,
   ): Result =
       if (runAttemptCount < MAX_ATTEMPTS) {
-        store.markQueued(localId, failure, detail)
+        store.markQueued(localId, failure, detail, account)
         Result.retry()
       } else {
-        store.markFailed(localId, failure, detail)
+        store.markFailed(localId, failure, detail, account)
         Result.failure()
       }
 

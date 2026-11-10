@@ -175,6 +175,7 @@ fun buildRecordings(
     hiddenRemoteIds: Set<String> = emptySet(),
     selectedAnalysisIds: Map<String, String> = emptyMap(),
     results: ResultCache? = null,
+    account: String = "",
 ): List<RecordingView> {
   val byId = remote?.items?.associateBy { it.recording.id }.orEmpty()
   val localIds = recordings.map { it.id }.toSet()
@@ -190,6 +191,7 @@ fun buildRecordings(
             override = overrides[recording.id].takeUnless { hidden },
             selectedAnalysisId = selectedAnalysisIds[recording.id],
             results = results,
+            account = account,
         )
   }
   for (summary in remote?.items.orEmpty()) {
@@ -205,6 +207,7 @@ fun buildRecordings(
             override = overrides[key],
             selectedAnalysisId = selectedAnalysisIds[key],
             results = results,
+            account = account,
         )
   }
   // A recording opened directly by its recording id can be fresh before the next History refresh.
@@ -220,6 +223,7 @@ fun buildRecordings(
               override = override,
               selectedAnalysisId = selectedAnalysisIds[key],
               results = results,
+              account = account,
           )
     }
   }
@@ -240,6 +244,7 @@ private fun buildRecording(
     override: RemoteOverride?,
     selectedAnalysisId: String?,
     results: ResultCache?,
+    account: String,
 ): RecordingView {
   val remoteSession = override?.recording ?: summary?.recording
   val start = local?.startUtcMs ?: parseApiDate(remoteSession?.started_at.orEmpty())
@@ -258,7 +263,9 @@ private fun buildRecording(
   val remoteRuns =
       override?.runs
           ?: summary?.analyses
-              ?.map { run -> run.toRun(downloaded = results?.has(key, run.id) == true) }
+              ?.map { run ->
+                run.toRun(downloaded = results?.has(account, key, run.id) == true)
+              }
               .orEmpty()
   // The server's list has the runs. A recording whose list is not on this phone at all is drawn from
   // the result cache instead, so an upgrade or a logged-out start does not lose a result it had.
@@ -266,7 +273,7 @@ private fun buildRecording(
   // gone, not hidden.
   val cachedRuns =
       if (summary == null && override == null) {
-        results?.cached(key).orEmpty().map { run -> run.toRun(downloaded = true) }
+        results?.cached(account, key).orEmpty().map { run -> run.toRun(downloaded = true) }
       } else {
         remoteRuns
       }

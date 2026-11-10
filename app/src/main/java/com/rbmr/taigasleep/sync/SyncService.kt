@@ -54,30 +54,34 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
       algorithm: String? = null,
   ): Result<List<StartedAnalysis>> =
       withContext(Dispatchers.IO) {
-        val api =
-            environment.api()
+        val session =
+            environment.session()
                 ?: return@withContext Result.failure(IllegalStateException("login required"))
         val recordingId = recordingIdOf(id)
         val config = environment.config(id)
         try {
           val started =
               if (algorithm == null) {
-                listOf(environment.startPreferred(api, recordingId, config))
+                listOf(environment.startPreferred(session.api, recordingId, config))
               } else {
-                environment.startManual(api, recordingId, config, algorithm)
+                environment.startManual(session.api, recordingId, config, algorithm)
               }
           if (started.isEmpty()) {
             return@withContext Result.failure(
                 IllegalStateException("no compatible algorithm is installed")
             )
           }
+          // A login in between means these runs belong to the session that asked for them.
+          if (environment.account != session.account) {
+            return@withContext Result.failure(IllegalStateException("the account changed"))
+          }
           for (run in started) {
-            environment.markManualAnalysis(id, run.analysisId)
-            environment.markProcessing(id)
+            environment.markManualAnalysis(id, run.analysisId, session.account)
+            environment.markProcessing(id, session.account)
           }
           Result.success(started)
         } catch (e: TaigaUnauthorizedException) {
-          environment.logout()
+          if (environment.account == session.account) environment.logout()
           Result.failure(e)
         } catch (e: CancellationException) {
           throw e
@@ -104,17 +108,18 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
   }
 
   /**
-   * The server no longer has this recording. A recording on this phone is local again, so it can be
-   * uploaded from the recording screen; a recording that was waiting for its analysis without a copy
-   * here is marked failed instead of processing for ever.
+   * The server no longer has this recording for [account]. A recording on this phone is local again,
+   * so it can be uploaded from the recording screen; a recording that was waiting for its analysis
+   * without a copy here is marked failed instead of processing for ever.
    */
-  fun recordingGone(id: String, detail: String? = null) {
+  fun recordingGone(id: String, detail: String? = null, account: String? = null) {
+    val target = account ?: environment.account
     if (environment.hasRecording(id)) {
-      environment.markLocal(id)
+      environment.markLocal(id, target)
       return
     }
-    if (environment.record(id)?.phase != UploadPhase.PROCESSING) return
-    environment.markAnalysisFailed(id, detail)
+    if (environment.record(id, target)?.phase != UploadPhase.PROCESSING) return
+    environment.markAnalysisFailed(id, detail, target)
   }
 
   /** Restore the remote-delete queue and continue every upload that was interrupted. */
@@ -135,17 +140,25 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
       preferred: List<String?> = emptyList(),
   ): Result<RecordingSnapshot> =
       withContext(Dispatchers.IO) {
-        val api =
-            environment.api()
+        val session =
+            environment.session()
                 ?: return@withContext Result.failure(IllegalStateException("login required"))
         try {
-          Result.success(environment.refresh(api, id, recordingIdOf(id), preferred))
+          Result.success(
+              environment.refresh(
+                  session.api,
+                  session.account,
+                  id,
+                  recordingIdOf(id),
+                  preferred,
+              )
+          )
         } catch (e: TaigaUnauthorizedException) {
-          environment.logout()
+          if (environment.account == session.account) environment.logout()
           Result.failure(e)
         } catch (e: TaigaHttpException) {
           if (e.status != 404) return@withContext Result.failure(e)
-          recordingGone(id, e.message)
+          recordingGone(id, e.message, session.account)
           Result.failure(RecordingNotOnServerException(e.message))
         } catch (e: CancellationException) {
           throw e
@@ -166,9 +179,9 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
 
   /** The algorithms the server reports, or the failure to read them. */
   suspend fun installedAlgorithms(): Result<List<AlgorithmDto>> {
-    val api =
-        environment.api() ?: return Result.failure(IllegalStateException("login required"))
-    return environment.installedAlgorithms(api)
+    val session =
+        environment.session() ?: return Result.failure(IllegalStateException("login required"))
+    return environment.installedAlgorithms(session.api)
   }
 
   /** After the automatic-upload settings change, apply them to the queued uploads. */

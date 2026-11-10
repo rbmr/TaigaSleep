@@ -124,7 +124,7 @@ class HistoryViewModelTest {
   fun `a night whose server copy is being deleted leaves the list although the server still lists it`() {
     val model = viewModel()
 
-    pending.value = mapOf("r1" to PendingDelete("r1", 1))
+    pending.value = mapOf("r1" to PendingDelete("r1", "https://sleep.example|u1", 1))
 
     assertEquals(listOf("local"), model.state.value.items.map { it.key })
   }
@@ -134,7 +134,7 @@ class HistoryViewModelTest {
     val model = viewModel()
 
     // Its local copy is what History lists; only a remote-only row waits for the server delete.
-    pending.value = mapOf("local" to PendingDelete("local", 1))
+    pending.value = mapOf("local" to PendingDelete("local", "https://sleep.example|u1", 1))
 
     assertEquals(listOf("local", "remote"), model.state.value.items.map { it.key })
   }

@@ -53,6 +53,8 @@ data class RecordingDetailUiState(
     val loginRequested: Boolean = false,
     val closeRequested: Boolean = false,
     val loginError: String = "",
+    /** The account an upload needs the user's agreement for, because another one already has it. */
+    val uploadConfirmation: UploadTarget? = null,
 ) {
   val status: RecordingStatus
     get() = recording?.status ?: RecordingStatus.LOCAL_ONLY

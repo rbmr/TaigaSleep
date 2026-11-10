@@ -16,6 +16,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+private const val ACCOUNT = "https://sleep.example|u1"
+
 class ResultCacheTest {
   private lateinit var root: File
   private lateinit var cache: ResultCache
@@ -60,25 +62,33 @@ class ResultCacheTest {
 
   @Test
   fun aSavedAnalysisComesBackWithItsResult() {
-    assertTrue(cache.save("night", "a1", analysis("a1")))
+    assertTrue(cache.save(ACCOUNT, "night", "a1", analysis("a1")))
 
-    val loaded = cache.load("night", "a1")
+    val loaded = cache.load(ACCOUNT, "night", "a1")
 
     assertEquals("a1", loaded?.id)
     assertEquals("wav2sleep", loaded?.algorithm)
     assertEquals(80.0, loaded?.result?.items?.single()?.value ?: 0.0, 0.001)
     assertEquals("light", loaded?.result?.stages?.segments?.single()?.stage)
-    assertTrue(cache.has("night", "a1"))
+    assertTrue(cache.has(ACCOUNT, "night", "a1"))
   }
 
   @Test
   fun runsOfTheSameNightDoNotReplaceEachOther() {
-    cache.save("night", "a1", analysis("a1", score = 70.0))
-    cache.save("night", "a2", analysis("a2", score = 90.0))
+    cache.save(ACCOUNT, "night", "a1", analysis("a1", score = 70.0))
+    cache.save(ACCOUNT, "night", "a2", analysis("a2", score = 90.0))
 
-    assertEquals(70.0, cache.load("night", "a1")?.result?.items?.single()?.value ?: 0.0, 0.001)
-    assertEquals(90.0, cache.load("night", "a2")?.result?.items?.single()?.value ?: 0.0, 0.001)
-    assertFalse(cache.has("night", "a3"))
+    assertEquals(
+        70.0,
+        cache.load(ACCOUNT, "night", "a1")?.result?.items?.single()?.value ?: 0.0,
+        0.001,
+    )
+    assertEquals(
+        90.0,
+        cache.load(ACCOUNT, "night", "a2")?.result?.items?.single()?.value ?: 0.0,
+        0.001,
+    )
+    assertFalse(cache.has(ACCOUNT, "night", "a3"))
   }
 
   @Test
@@ -96,7 +106,7 @@ class ResultCacheTest {
             """
         )
 
-    val loaded = cache.load("night", "a1")
+    val loaded = cache.load(ACCOUNT, "night", "a1")
 
     assertNotNull(loaded)
     assertEquals("a1", loaded?.id)
@@ -113,43 +123,82 @@ class ResultCacheTest {
     File(root, "night.json")
         .writeText("""{"id":"a1","model":"sleep-ecg","model_version":"1.0.0","status":"done"}""")
 
-    assertEquals("a1", cache.load("night", "a1")?.id)
-    assertNull(cache.load("night", "other"))
+    assertEquals("a1", cache.load(ACCOUNT, "night", "a1")?.id)
+    assertNull(cache.load(ACCOUNT, "night", "other"))
   }
 
   @Test
   fun aFileThatIsNotAnAnalysisIsIgnored() {
     File(root, "night-a1.json").writeText("[1,2,3]")
 
-    assertNull(cache.load("night", "a1"))
+    assertNull(cache.load(ACCOUNT, "night", "a1"))
   }
 
   @Test
   fun deletingANightRemovesEveryRunOfIt() {
-    cache.save("night", "a1", analysis("a1"))
+    cache.save(ACCOUNT, "night", "a1", analysis("a1"))
     cache.save("night", "a2", analysis("a2"))
-    cache.save("other", "a3", analysis("a3"))
+    cache.save(ACCOUNT, "other", "a3", analysis("a3"))
 
-    cache.delete("night")
+    cache.delete(ACCOUNT, "night")
 
-    assertNull(cache.load("night", "a1"))
-    assertNull(cache.load("night", "a2"))
-    assertNotNull(cache.load("other", "a3"))
-    assertTrue(cache.cached("night").isEmpty())
+    assertNull(cache.load(ACCOUNT, "night", "a1"))
+    assertNull(cache.load(ACCOUNT, "night", "a2"))
+    assertNotNull(cache.load(ACCOUNT, "other", "a3"))
+    assertTrue(cache.cached(ACCOUNT, "night").isEmpty())
   }
 
   @Test
   fun everyCachedRunOfNightComesBackForTheHistoryRow() {
-    cache.save("night", "a1", analysis("a1", score = 70.0))
-    cache.save("night", "a2", analysis("a2", score = 90.0))
     // The single payload an older app kept for a night is one more run.
     File(root, "night.json")
         .writeText("""{"id":"old","model":"sleep-ecg","model_version":"1.0.0","status":"done"}""")
+    cache.save(ACCOUNT, "night", "a1", analysis("a1", score = 70.0))
+    cache.save(ACCOUNT, "night", "a2", analysis("a2", score = 90.0))
 
-    val runs = cache.cached("night").associateBy { it.id }
+    val runs = cache.cached(ACCOUNT, "night").associateBy { it.id }
 
     assertEquals(setOf("a1", "a2", "old"), runs.keys)
     assertEquals(90.0, runs.getValue("a2").result?.items?.single()?.value ?: 0.0, 0.001)
-    assertTrue(cache.cached("other").isEmpty())
+    assertTrue(cache.cached(ACCOUNT, "other").isEmpty())
+  }
+
+  @Test
+  fun `results of one account are not visible to another`() {
+    cache.save(ACCOUNT, "night", "a1", analysis("a1", score = 70.0))
+
+    assertNull(cache.load("https://sleep.example|u2", "night", "a1"))
+    assertFalse(cache.has("https://sleep.example|u2", "night", "a1"))
+    assertTrue(cache.cached("https://sleep.example|u2", "night").isEmpty())
+  }
+
+  @Test
+  fun `results come back after logging back into the first account`() {
+    cache.save(ACCOUNT, "night", "a1", analysis("a1", score = 70.0))
+    cache.save("https://sleep.example|u2", "night", "b1", analysis("b1", score = 99.0))
+
+    assertEquals(
+        70.0,
+        cache.load(ACCOUNT, "night", "a1")?.result?.items?.single()?.value ?: 0.0,
+        0.001,
+    )
+    assertNull(cache.load(ACCOUNT, "night", "b1"))
+    assertEquals(
+        99.0,
+        cache.load("https://sleep.example|u2", "night", "b1")?.result?.items?.single()?.value
+            ?: 0.0,
+        0.001,
+    )
+  }
+
+  @Test
+  fun `deleting a night only removes that account's payloads`() {
+    cache.save(ACCOUNT, "night", "a1", analysis("a1"))
+    cache.save("https://sleep.example|u2", "night", "b1", analysis("b1"))
+
+    cache.delete(ACCOUNT, "night")
+
+    assertNull(cache.load(ACCOUNT, "night", "a1"))
+    assertNotNull(cache.load("https://sleep.example|u2", "night", "b1"))
   }
 }

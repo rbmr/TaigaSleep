@@ -88,6 +88,8 @@ private fun withResult(analysis: AnalysisDto, score: Double = 81.0) =
     )
 
 /** What one read of a recording stores: terminal and pending analyses, stale ids, vanished runs. */
+private const val ACCOUNT = "https://sleep.example|u1"
+
 class AnalysisSyncTest {
   private lateinit var root: File
   private lateinit var results: ResultCache
@@ -97,7 +99,7 @@ class AnalysisSyncTest {
   fun setUp() {
     root = Files.createTempDirectory("taiga-sync").toFile()
     results = ResultCache(root)
-    store = UploadStore(MemoryRecords())
+    store = UploadStore(MemoryRecords(), account = { ACCOUNT })
   }
 
   @After
@@ -105,7 +107,7 @@ class AnalysisSyncTest {
     root.deleteRecursively()
   }
 
-  private fun sync(client: FakeClient) = AnalysisSync(client, store, results)
+  private fun sync(client: FakeClient) = AnalysisSync(client, store, results, ACCOUNT)
 
   private fun refresh(client: FakeClient, preferred: List<String?> = emptyList(), key: String = "r1") =
       runBlocking { sync(client).refresh(key, "r1", preferred) }
@@ -125,8 +127,12 @@ class AnalysisSyncTest {
     val record = store.record("r1")!!
     assertEquals(UploadPhase.DONE, record.phase)
     assertTrue(record.onServer)
-    assertTrue(results.has("r1", "a1"))
-    assertEquals(81.0, results.load("r1", "a1")?.result?.items?.single()?.value ?: 0.0, 0.001)
+    assertTrue(results.has(ACCOUNT, "r1", "a1"))
+    assertEquals(
+        81.0,
+        results.load(ACCOUNT, "r1", "a1")?.result?.items?.single()?.value ?: 0.0,
+        0.001,
+    )
   }
 
   @Test
@@ -163,7 +169,7 @@ class AnalysisSyncTest {
   @Test
   fun `queued and running analyses leave the night processing under their id`() {
     for (status in listOf("queued", "running")) {
-      store = UploadStore(MemoryRecords())
+      store = UploadStore(MemoryRecords(), account = { ACCOUNT })
       val client = FakeClient(listing = listOf(analysis("a1", status)))
 
       refresh(client)
@@ -193,6 +199,25 @@ class AnalysisSyncTest {
     val record = store.record("r1")!!
     assertEquals(UploadPhase.UPLOADING, record.phase)
     assertEquals(0.4f, record.progress, 0.001f)
+  }
+
+  @Test
+  fun `a refresh stores its result under the account it read from`() {
+    // A login during the read must not move this run into the account that is active now.
+    val other = "https://sleep.example|u2"
+    val accountStore = UploadStore(MemoryRecords(), account = { other })
+    val client =
+        FakeClient(
+            listing = listOf(analysis("a1", "succeeded")),
+            full = mapOf("a1" to withResult(analysis("a1", "succeeded"))),
+        )
+
+    runBlocking { AnalysisSync(client, accountStore, results, ACCOUNT).refresh("r1", "r1") }
+
+    assertTrue(results.has(ACCOUNT, "r1", "a1"))
+    assertFalse(results.has(other, "r1", "a1"))
+    assertEquals(UploadPhase.DONE, accountStore.record("r1", ACCOUNT)?.phase)
+    assertNull(accountStore.record("r1", other))
   }
 
   @Test

@@ -45,6 +45,8 @@ private class ServerClient(
   }
 }
 
+private const val ACCOUNT = "https://sleep.example|u1"
+
 class UploadConfirmationTest {
   /**
    * What the old behaviour left behind: a confirmation time written as the last byte went out, and
@@ -57,7 +59,7 @@ class UploadConfirmationTest {
         {"id":"r1","onServer":true,"phase":"FAILED","progress":1.0,"failure":"NETWORK",
          "errorDetail":"connection lost","updatedAtMs":2000,"uploadedAtMs":1000}
         """
-    return UploadStore(storage)
+    return UploadStore(storage, account = { ACCOUNT })
   }
 
   @Test
@@ -77,7 +79,7 @@ class UploadConfirmationTest {
     assertNull(store.record("r1")!!.uploadConfirmedAt())
     val client = ServerClient(complete = true)
 
-    val confirmed = confirmUploadOnServer(client, "r1", store)
+    val confirmed = confirmUploadOnServer(client, "r1", store, ACCOUNT)
 
     assertTrue(confirmed)
     assertEquals(1, client.asked)
@@ -88,7 +90,7 @@ class UploadConfirmationTest {
   fun aRecordingTheServerHasNotFinishedStaysUnconfirmed() = runBlocking {
     val store = legacyStore()
 
-    val confirmed = confirmUploadOnServer(ServerClient(complete = false), "r1", store)
+    val confirmed = confirmUploadOnServer(ServerClient(complete = false), "r1", store, ACCOUNT)
 
     assertFalse(confirmed)
     assertFalse(store.record("r1")!!.confirmedOnServer)
@@ -104,6 +106,7 @@ class UploadConfirmationTest {
             ServerClient(error = TaigaNetworkException(IOException("offline"))),
             "r1",
             store,
+            ACCOUNT,
         )
 
     assertFalse(confirmed)

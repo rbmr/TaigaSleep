@@ -10,7 +10,6 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.rbmr.taigasleep.appContainer
-import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.recording.RecordingService
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.RecordingStore
@@ -22,28 +21,35 @@ import kotlinx.coroutines.withContext
  * Owns the WorkManager queue. Uploads resume from the stored size of each file on the server, so
  * replacing a queued worker never loses bytes. Manual uploads use the same worker with a connected-network constraint and no
  * charging requirement.
+ *
+ * Every request carries the account it was queued for. A worker whose account is no longer the active
+ * one stops instead of sending that work to the new account.
  */
 internal object UploadScheduler {
   const val KEY_SESSION_ID = "session_id"
   const val KEY_RECORDING_ID = "recording_id"
+  const val KEY_ACCOUNT = "account"
 
   fun enqueueManual(context: Context, localId: String) {
+    val account = context.appContainer.remoteRepository.accountKey ?: return
     val store = context.appContainer.uploadStore
-    store.markQueued(localId)
-    enqueue(context, localId, manualConstraints(), ExistingWorkPolicy.REPLACE)
+    store.markQueued(localId, account = account)
+    enqueue(context, localId, account, manualConstraints(), ExistingWorkPolicy.REPLACE)
   }
 
   fun enqueueAuto(context: Context, localId: String) {
     val settings = UploadSettings.get(context).autoUpload.value
     if (!settings.enabled) return
-    if (!context.appContainer.remoteRepository.hasSession) return
+    val account = context.appContainer.remoteRepository.accountKey ?: return
     val store = context.appContainer.uploadStore
-    val record = store.record(localId)
+    val record = store.record(localId, account)
     if (record?.phase == UploadPhase.DONE) return
     if (record?.phase == UploadPhase.FAILED) return // let the user decide; retry is explicit
-    if (record?.failure == UploadFailure.RECORDING) store.markQueued(localId)
-    if (record?.phase == UploadPhase.LOCAL || record == null) store.markQueued(localId)
-    enqueue(context, localId, autoConstraints(settings), ExistingWorkPolicy.KEEP)
+    if (record?.failure == UploadFailure.RECORDING) store.markQueued(localId, account = account)
+    if (record?.phase == UploadPhase.LOCAL || record == null) {
+      store.markQueued(localId, account = account)
+    }
+    enqueue(context, localId, account, autoConstraints(settings), ExistingWorkPolicy.KEEP)
   }
 
   fun cancelRecordingWork(context: Context, localId: String) {
@@ -51,10 +57,32 @@ internal object UploadScheduler {
     manager.cancelUniqueWork("upload-$localId")
   }
 
+  /**
+   * Everything queued or running for the account that is ending: uploads, deletes and the polls an
+   * older version left behind. WorkManager cancels a running worker, so nothing that belongs to the
+   * old account reaches the new one.
+   */
+  fun cancelAllWork(context: Context) {
+    val manager = WorkManager.getInstance(context)
+    manager.cancelAllWorkByTag(TAG_UPLOAD)
+    manager.cancelAllWorkByTag(TAG_DELETE)
+    manager.cancelAllWorkByTag(LEGACY_TAG_POLL)
+  }
+
   fun enqueueDelete(context: Context, recordingId: String) {
+    val account = context.appContainer.remoteRepository.accountKey ?: return
+    enqueueDelete(context, recordingId, account)
+  }
+
+  private fun enqueueDelete(context: Context, recordingId: String, account: String) {
     val request =
         OneTimeWorkRequestBuilder<DeleteWorker>()
-            .setInputData(Data.Builder().putString(KEY_RECORDING_ID, recordingId).build())
+            .setInputData(
+                Data.Builder()
+                    .putString(KEY_RECORDING_ID, recordingId)
+                    .putString(KEY_ACCOUNT, account)
+                    .build()
+            )
             .setConstraints(
                 Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
             )
@@ -73,10 +101,13 @@ internal object UploadScheduler {
     WorkManager.getInstance(context).cancelAllWorkByTag(LEGACY_TAG_POLL)
   }
 
-  /** Restore the remote-delete queue after a process restart. */
+  /** Restore the remote-delete queue of the active account after a process restart. */
   fun resumePendingDeletes(context: Context) {
-    for (recordingId in context.appContainer.pendingDeleteStore.remoteIds()) {
-      enqueueDelete(context, recordingId)
+    val account = context.appContainer.remoteRepository.accountKey ?: return
+    val store = context.appContainer.pendingDeleteStore
+    store.refreshAccount()
+    for (recordingId in store.remoteIds(account)) {
+      enqueueDelete(context, recordingId, account)
     }
   }
 
@@ -92,11 +123,11 @@ internal object UploadScheduler {
         store.markQueued(recording.id)
       }
     }
-    if (!context.appContainer.remoteRepository.hasSession) return
+    val account = context.appContainer.remoteRepository.accountKey ?: return
     local.forEach { recording ->
       if (recording.state == RecordingPhase.RECORDING) return@forEach
       // A recording that is processing is on the server already; its result comes from the live stream.
-      if (store.record(recording.id)?.phase == UploadPhase.PROCESSING) return@forEach
+      if (store.record(recording.id, account)?.phase == UploadPhase.PROCESSING) return@forEach
       if (settings.enabled) enqueueAuto(context, recording.id)
     }
   }
@@ -108,7 +139,8 @@ internal object UploadScheduler {
    */
   suspend fun reconcile(context: Context) =
       withContext(Dispatchers.IO) {
-        if (!context.appContainer.remoteRepository.hasSession) return@withContext
+        val remote = context.appContainer.remoteRepository
+        val session = remote.session() ?: return@withContext
         val settings = UploadSettings.get(context).autoUpload.value
         val store = context.appContainer.uploadStore
         for (recording in context.appContainer.recordingStore.list()) {
@@ -116,13 +148,11 @@ internal object UploadScheduler {
               RecordingService.running) {
             continue
           }
-          val record = store.record(recording.id)
+          val record = store.record(recording.id, session.account)
           // An upload that reached its end without the server's word is not counted yet: only the
           // server can say whether the recording is complete, so ask before the queue decides.
           if (record != null && record.awaitsUploadConfirmation()) {
-            context.appContainer.remoteRepository.api()?.let { api ->
-              confirmUploadOnServer(api, recording.id, store)
-            }
+            confirmUploadOnServer(session.api, recording.id, store, session.account)
           }
           when (record?.phase) {
             // Results are not polled: a processing recording is refreshed by the live sync.
@@ -136,7 +166,7 @@ internal object UploadScheduler {
                 if (settings.enabled) {
                   enqueueAuto(context, recording.id)
                 } else if (record?.phase == UploadPhase.UPLOADING) {
-                  store.markQueued(recording.id)
+                  store.markQueued(recording.id, account = session.account)
                 }
           }
         }
@@ -145,12 +175,18 @@ internal object UploadScheduler {
   private fun enqueue(
       context: Context,
       localId: String,
+      account: String,
       constraints: Constraints,
       policy: ExistingWorkPolicy,
   ) {
     val request: OneTimeWorkRequest =
         OneTimeWorkRequestBuilder<UploadWorker>()
-            .setInputData(Data.Builder().putString(KEY_SESSION_ID, localId).build())
+            .setInputData(
+                Data.Builder()
+                    .putString(KEY_SESSION_ID, localId)
+                    .putString(KEY_ACCOUNT, account)
+                    .build()
+            )
             .setConstraints(constraints)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .addTag(TAG_UPLOAD)

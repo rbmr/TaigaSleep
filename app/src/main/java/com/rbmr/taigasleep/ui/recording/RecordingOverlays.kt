@@ -38,8 +38,36 @@ internal fun RecordingOverlays(
     onRequestDelete: () -> Unit,
     onDismissDelete: () -> Unit,
     onConfirmDelete: () -> Unit,
+    onConfirmUploadElsewhere: () -> Unit,
+    onDismissUploadElsewhere: () -> Unit,
 ) {
   val result = state.result?.result
+
+  state.uploadConfirmation?.let { target ->
+    AlertDialog(
+        onDismissRequest = onDismissUploadElsewhere,
+        title = { Text(stringResource(R.string.night_upload_other_account_title)) },
+        text = {
+          Text(
+              stringResource(
+                  R.string.night_upload_other_account_body,
+                  target.server,
+                  target.account,
+              )
+          )
+        },
+        confirmButton = {
+          TextButton(onClick = onConfirmUploadElsewhere) {
+            Text(stringResource(R.string.night_upload_other_account_confirm))
+          }
+        },
+        dismissButton = {
+          TextButton(onClick = onDismissUploadElsewhere) {
+            Text(stringResource(R.string.night_cancel))
+          }
+        },
+    )
+  }
 
   if (showQuality) {
     DataQualitySheet(

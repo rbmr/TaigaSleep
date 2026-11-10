@@ -50,7 +50,7 @@ class RecordingMergeTest {
   /** A result cache holding [runs] for the local night, as the app keeps finished payloads. */
   private fun cacheWith(vararg runs: AnalysisDto): ResultCache =
       ResultCache(temporary.newFolder("results")).also { cache ->
-        runs.forEach { run -> cache.save("local", run.id, run) }
+        runs.forEach { run -> cache.save(account, "local", run.id, run) }
       }
 
   @Test
@@ -70,7 +70,14 @@ class RecordingMergeTest {
         )
 
     val night =
-        buildRecordings(listOf(local), mapOf("local" to record), null, results = cache).single()
+        buildRecordings(
+                listOf(local),
+                mapOf("local" to record),
+                null,
+                results = cache,
+                account = account,
+            )
+            .single()
 
     assertEquals("local", night.localId)
     // The recording keeps the phone's id on the server.
@@ -96,7 +103,7 @@ class RecordingMergeTest {
              "updatedAtMs":10,"uploadedAtMs":9}
             """
         )
-    val store = UploadStore(RecordingDirectoryStorage(root))
+    val store = UploadStore(RecordingDirectoryStorage(root), account = { account })
     val cache =
         cacheWith(
             succeeded("a1", algorithm = "baseline", version = "1.0.0")
@@ -104,7 +111,14 @@ class RecordingMergeTest {
         )
 
     val night =
-        buildRecordings(listOf(local), store.records.value, null, results = cache).single()
+        buildRecordings(
+                listOf(local),
+                store.records.value,
+                null,
+                results = cache,
+                account = account,
+            )
+            .single()
 
     assertEquals(RecordingStatus.READY, night.status)
     assertEquals("a1", night.analysisId)
@@ -120,7 +134,13 @@ class RecordingMergeTest {
     val cache = cacheWith(succeeded("a1", algorithm = "baseline", version = "1.0.0").full())
 
     val night =
-        buildRecordings(listOf(local), mapOf("local" to record), remote, results = cache)
+        buildRecordings(
+                listOf(local),
+                mapOf("local" to record),
+                remote,
+                results = cache,
+                account = account,
+            )
             .single()
 
     // The server lists no run for this night any more, so its old payload is not shown as the row.
@@ -221,7 +241,15 @@ class RecordingMergeTest {
                 .full(segments = segmentSeconds(), sleepScore = 81.0)
         )
 
-    val night = buildRecordings(listOf(local), store.records.value, null, results = cache).single()
+    val night =
+        buildRecordings(
+                listOf(local),
+                store.records.value,
+                null,
+                results = cache,
+                account = account,
+            )
+            .single()
 
     assertFalse(night.onServer)
     assertNull(night.remoteId)
@@ -241,7 +269,9 @@ class RecordingMergeTest {
             RecordingSummaryDto(recording = recording(id = "kept")),
         )
     val history =
-        RemoteHistoryCache(File(temporary.newFolder("history-gone"), "remote-recordings.json"))
+        RemoteHistoryCache(File(temporary.newFolder("history-gone"), "remote-recordings.json")) {
+          account
+        }
     history.save(account, remote)
 
     history.remove(account, "gone")
@@ -391,7 +421,14 @@ class RecordingMergeTest {
         cacheWith(succeeded("a1", algorithm = "baseline", version = "1.0.0").full())
 
     val night =
-        buildRecordings(listOf(trimmed), mapOf("local" to record), null, results = cache).single()
+        buildRecordings(
+                listOf(trimmed),
+                mapOf("local" to record),
+                null,
+                results = cache,
+                account = account,
+            )
+            .single()
 
     assertFalse(night.hasRaw)
     assertEquals(RecordingStatus.READY, night.status)
@@ -507,7 +544,13 @@ class RecordingMergeTest {
     val cache = cacheWith(succeeded("a1", algorithm = "baseline", version = "1.1.0").full())
 
     val night =
-        buildRecordings(listOf(local), mapOf("local" to record), remote, results = cache)
+        buildRecordings(
+                listOf(local),
+                mapOf("local" to record),
+                remote,
+                results = cache,
+                account = account,
+            )
             .single()
 
     assertTrue(night.resultDownloaded)
@@ -525,7 +568,14 @@ class RecordingMergeTest {
     val cache = cacheWith(succeeded("a1", algorithm = "sleep-ecg", version = "1.0.0").full())
 
     val night =
-        buildRecordings(listOf(local), mapOf("local" to record), null, results = cache).single()
+        buildRecordings(
+                listOf(local),
+                mapOf("local" to record),
+                null,
+                results = cache,
+                account = account,
+            )
+            .single()
 
     assertEquals(AnalysisOrigin.MANUAL, night.selectedAnalysis?.origin)
   }

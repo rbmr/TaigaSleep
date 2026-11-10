@@ -226,6 +226,29 @@ Raw data that was never uploaded exists only on this phone. Deleting the app or
 its data loses it, and no other copy exists. Once the upload is confirmed, the
 server copy is what makes the night recoverable after local cleanup.
 
+## Accounts
+
+An account is one server address plus the user id the server returns at login;
+the email is only shown to the user, so renaming an address book entry does not
+move data. Everything the app learns from a server belongs to the account it was
+learned from: the upload state and its confirmation, the remote id, the cached
+History list, the chosen run of a night and the cached result payloads.
+
+Logging out or into another account keeps the local recordings and the first
+account's remote data. The night screen then shows a recording as only on this
+phone, because this account's server does not have it, and History hides the
+other account's remote-only nights and results instead of deleting them; logging
+back in brings them back. Uploading a night that another account already has asks
+first, naming the server and the account the new copy would go to.
+
+Signing out, signing into another account or a token that the server no longer
+accepts cancels the uploads, deletes and analysis requests queued for the old
+account before the new one becomes active, including work that is already
+running. A delete queued for one account is never sent to another, and a `404`
+only completes a delete of the account that asked. Raw cleanup counts only a
+confirmation made by the active account, so switching servers cannot trim files
+the new server never received.
+
 ## Deleting a recording
 
 Open a night and use its **Night details** sheet to export or delete it.
@@ -254,4 +277,25 @@ still pending. Pending remote deletes are shown in History and survive a restart
 Uploads go only to the address saved in Settings → Remote. The app has no
 analytics or tracking. Tokens are stored with Android Keystore-backed encryption,
 and no recording, token or health data is written to the repository or logs.
-Account isolation and merge scenarios are tracked in #34.
+## Accounts
+
+An account is one server address plus the user id the server returns at login;
+the email is only shown to the user, so renaming an address book entry does not
+move data. Everything the app learns from a server belongs to the account it was
+learned from: the upload state and its confirmation, the remote id, the cached
+History list, the chosen run of a night and the cached result payloads.
+
+Logging out or into another account keeps the local recordings and the first
+account's remote data. The night screen then shows a recording as only on this
+phone, because this account's server does not have it, and History hides the
+other account's remote-only nights and results instead of deleting them; logging
+back in brings them back. Uploading a night that another account already has asks
+first, naming the server and the account the new copy would go to.
+
+Signing out, signing into another account or a token that the server no longer
+accepts cancels the uploads, deletes and analysis requests queued for the old
+account before the new one becomes active, including work that is already
+running. A delete queued for one account is never sent to another, and a `404`
+only completes a delete of the account that asked. Raw cleanup counts only a
+confirmation made by the active account, so switching servers cannot trim files
+the new server never received.

@@ -148,6 +148,8 @@ fun RecordingDetailScreen(
           showDelete = false
           viewModel.delete()
         },
+        onConfirmUploadElsewhere = viewModel::confirmUploadElsewhere,
+        onDismissUploadElsewhere = viewModel::dismissUploadConfirmation,
     )
   }
 }

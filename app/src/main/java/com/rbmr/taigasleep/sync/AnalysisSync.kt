@@ -30,6 +30,8 @@ class AnalysisSync(
     private val client: TaigaClient,
     private val store: UploadStore,
     private val results: ResultCache,
+    /** The account [client] speaks for; everything below is stored under it. */
+    private val account: String,
 ) {
   /**
    * Reads [recordingId] and writes what it says for the recording [key]. [preferred] are analysis ids in
@@ -56,9 +58,10 @@ class AnalysisSync(
             when {
               chosen == null || !chosen.isSucceeded -> chosen
               else ->
-                  results.load(key, chosen.id)?.takeIf { it.isSucceeded && it.result != null }?.also {
-                    cached = true
-                  } ?: client.getAnalysis(chosen.id)
+                  results
+                      .load(account, key, chosen.id)
+                      ?.takeIf { it.isSucceeded && it.result != null }
+                      ?.also { cached = true } ?: client.getAnalysis(chosen.id)
             }
           } catch (e: TaigaHttpException) {
             // It was deleted after the list was read. The recording is still there, so choose again
@@ -73,16 +76,21 @@ class AnalysisSync(
     when {
       shown == null -> {
         // A sealed recording without an analysis is waiting for one to be requested.
-        if (recording.complete) store.markProcessing(key)
+        if (recording.complete) store.markProcessing(key, account = account)
       }
       shown.isSucceeded -> {
         // A result never changes once it succeeded, so one already on this phone is not saved again.
-        if (!cached) results.save(key, shown.id, shown)
-        store.markDone(key)
+        if (!cached) results.save(account, key, shown.id, shown)
+        store.markDone(key, account = account)
       }
       shown.isFailed ->
-          store.markFailed(key, UploadFailure.ANALYSIS, shown.error.takeIf { it.isNotBlank() })
-      else -> if (recording.complete) store.markProcessing(key)
+          store.markFailed(
+              key,
+              UploadFailure.ANALYSIS,
+              shown.error.takeIf { it.isNotBlank() },
+              account = account,
+          )
+      else -> if (recording.complete) store.markProcessing(key, account = account)
     }
     return RecordingSnapshot(recording, analyses, shown)
   }

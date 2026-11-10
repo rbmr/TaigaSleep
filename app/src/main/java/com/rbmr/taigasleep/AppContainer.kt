@@ -13,10 +13,12 @@ import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.AppSyncEnvironment
 import com.rbmr.taigasleep.sync.LiveSync
 import com.rbmr.taigasleep.sync.PendingDeleteStore
+import com.rbmr.taigasleep.sync.PrefsPendingDeleteStorage
 import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
 import com.rbmr.taigasleep.sync.RemoteHistoryCache
 import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.SyncService
+import com.rbmr.taigasleep.sync.UploadScheduler
 import com.rbmr.taigasleep.sync.UploadStore
 import java.io.File
 import okhttp3.OkHttpClient
@@ -37,7 +39,8 @@ class AppContainer(private val application: Application) {
         RecordingDirectoryStorage(
             recordingStore.root,
             application.getSharedPreferences("uploads", Context.MODE_PRIVATE),
-        )
+        ),
+        account = { remoteRepository.accountKey },
     )
   }
 
@@ -54,11 +57,18 @@ class AppContainer(private val application: Application) {
         store = remoteStore(application),
         api = OkHttpRemoteApi(client = httpClients.remote),
         clients = httpClients,
+        // Work queued for an account must not outlive it; a new account starts from its own queue.
+        onAccountEnded = { UploadScheduler.cancelAllWork(application) },
     )
   }
 
   val pendingDeleteStore: PendingDeleteStore by lazy {
-    PendingDeleteStore(application.getSharedPreferences("deletes", Context.MODE_PRIVATE))
+    PendingDeleteStore(
+        PrefsPendingDeleteStorage(
+            application.getSharedPreferences("deletes", Context.MODE_PRIVATE)
+        ),
+        account = { remoteRepository.accountKey },
+    )
   }
 
   val resultCache: ResultCache by lazy { ResultCache(File(application.filesDir, "analysis")) }
@@ -66,7 +76,10 @@ class AppContainer(private val application: Application) {
   val remoteHistoryCache: RemoteHistoryCache by lazy {
     // The list of an older app holds recording summaries this version cannot read.
     File(application.filesDir, "history/remote-sessions.json").delete()
-    RemoteHistoryCache(File(application.filesDir, "history/remote-recordings.json"))
+    RemoteHistoryCache(
+        File(application.filesDir, "history/remote-recordings.json"),
+        account = { remoteRepository.accountKey },
+    )
   }
 
   val analysisSettingsStore: AnalysisSettingsStore by lazy {

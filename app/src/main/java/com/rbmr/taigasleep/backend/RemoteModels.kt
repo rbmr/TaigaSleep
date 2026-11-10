@@ -142,6 +142,13 @@ enum class RemoteState {
 /** A logged-in session as returned by the backend. */
 data class AuthSession(val token: String, val email: String)
 
+/**
+ * One account and a client that speaks for it, captured together. Everything a call stores from the
+ * server is stored under [account], so a request that outlives a login cannot write into the next
+ * account's data.
+ */
+data class RemoteSession(val account: String, val api: TaigaClient)
+
 /** What a Taiga server reports about itself on the public version route. */
 data class ServerVersion(val version: String, val api: Int)
 

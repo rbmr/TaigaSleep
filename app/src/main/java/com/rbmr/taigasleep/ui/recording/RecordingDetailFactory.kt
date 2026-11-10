@@ -21,6 +21,12 @@ interface RecordingWork {
 
   fun upload(localId: String)
 
+  /** Whether an account other than the active one already has this recording on its server. */
+  fun uploadedElsewhere(localId: String): Boolean
+
+  /** The server and the account an upload goes to now. */
+  fun uploadTarget(): UploadTarget?
+
   suspend fun retryAnalysis(key: String, analysisId: String?): Result<Unit>
 
   suspend fun restoreRaw(
@@ -62,6 +68,15 @@ class RecordingDetailFactory(
 
           override fun upload(localId: String) {
             sync.uploadNow(localId)
+          }
+
+          override fun uploadedElsewhere(localId: String): Boolean =
+              app.appContainer.recordingLibrary.uploadedElsewhere(localId)
+
+          override fun uploadTarget(): UploadTarget? {
+            val remote = app.appContainer.remoteRepository
+            val server = remote.savedUrl.takeIf { it.isNotBlank() } ?: return null
+            return UploadTarget(server = server, account = remote.savedEmail)
           }
 
           override suspend fun retryAnalysis(key: String, analysisId: String?) =

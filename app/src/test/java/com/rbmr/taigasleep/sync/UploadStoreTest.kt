@@ -8,6 +8,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+private const val A = "https://sleep.example|u1"
+private const val B = "https://sleep.example|u2"
+private const val ACCOUNT = A
+
 private class MemoryStorage : UploadRecordsStorage {
   val documents = mutableMapOf<String, String>()
   var legacyDocument: String? = null
@@ -35,9 +39,9 @@ class UploadStoreTest {
   @Test
   fun stateSurvivesANewStoreInstance() {
     val storage = MemoryStorage()
-    UploadStore(storage).markDone("r1")
+    UploadStore(storage, account = { ACCOUNT }).markDone("r1")
 
-    val restarted = UploadStore(storage).record("r1")!!
+    val restarted = UploadStore(storage, account = { ACCOUNT }).record("r1")!!
 
     assertEquals(UploadPhase.DONE, restarted.phase)
     assertTrue(restarted.onServer)
@@ -106,7 +110,7 @@ class UploadStoreTest {
          "model":"baseline","modelVersion":"1.0.0","resultDownloaded":true,
          "updatedAtMs":10,"uploadedAtMs":9,"keepRawOnPhone":true}
         """
-    val store = UploadStore(storage)
+    val store = UploadStore(storage, account = { ACCOUNT })
 
     val record = store.record("r1")!!
 
@@ -142,10 +146,89 @@ class UploadStoreTest {
     // Only a recording whose directory exists can be migrated.
     storage.documents["r1"] = ""
 
-    val store = UploadStore(storage)
+    val store = UploadStore(storage, account = { ACCOUNT })
 
     assertEquals(UploadPhase.QUEUED, store.record("r1")!!.phase)
     assertNull(storage.legacyDocument)
+  }
+
+  @Test
+  fun `a server copy is only visible for the account it was written under`() {
+    val storage = MemoryStorage()
+    var active: String? = A
+    val store = UploadStore(storage) { active }
+    store.markDone("r1")
+
+    assertEquals(UploadPhase.DONE, store.record("r1")?.phase)
+
+    active = B
+    store.refreshAccount()
+
+    // The recording is still on the phone, but not on this account: it is local only here.
+    assertNull(store.record("r1"))
+    assertFalse("r1" in store.records.value)
+
+    active = A
+    store.refreshAccount()
+
+    assertEquals(UploadPhase.DONE, store.record("r1")?.phase)
+    assertTrue(store.record("r1")!!.onServer)
+  }
+
+  @Test
+  fun `a confirmation made on one account is not counted on another`() {
+    val storage = MemoryStorage()
+    var active: String? = A
+    val store = UploadStore(storage) { active }
+    store.markUploadConfirmed("r1")
+
+    assertTrue(store.record("r1")!!.uploadConfirmedAt() != null)
+
+    active = B
+    store.refreshAccount()
+
+    // Raw cleanup must not trim the files the second server never received.
+    assertNull(store.record("r1")?.uploadConfirmedAt())
+
+    active = A
+    store.refreshAccount()
+
+    assertTrue(store.record("r1")!!.uploadConfirmedAt() != null)
+  }
+
+  @Test
+  fun `another account's copy is reported so an upload can ask first`() {
+    val storage = MemoryStorage()
+    var active: String? = A
+    val store = UploadStore(storage) { active }
+    store.markDone("r1")
+    active = B
+    store.refreshAccount()
+
+    assertEquals(A, store.otherAccount("r1"))
+
+    active = A
+    store.refreshAccount()
+
+    assertNull(store.otherAccount("r1"))
+  }
+
+  @Test
+  fun `a state written before accounts existed is adopted by the account logged in`() {
+    val storage = MemoryStorage()
+    storage.documents["r1"] = """{"id":"r1","onServer":true,"phase":"DONE","updatedAtMs":10}"""
+    var active: String? = null
+    val store = UploadStore(storage) { active }
+
+    // Nobody is logged in, so there is no account the state can belong to.
+    assertNull(store.record("r1"))
+
+    active = A
+    store.refreshAccount()
+
+    assertEquals(UploadPhase.DONE, store.record("r1")!!.phase)
+    assertTrue(store.record("r1")!!.onServer)
+    assertTrue(storage.documents.getValue("r1").contains(A))
   }
 
   @Test

@@ -81,6 +81,10 @@ private class FakeLibrary(initial: List<RecordingView>) : RecordingSource {
   override fun selectAnalysis(recording: RecordingView, analysisId: String) {
     calls += "select:${recording.key}:$analysisId"
   }
+
+  var elsewhere = false
+
+  override fun uploadedElsewhere(localId: String): Boolean = elsewhere
 }
 
 private class FakeWork : RecordingWork {
@@ -101,6 +105,13 @@ private class FakeWork : RecordingWork {
   override fun upload(localId: String) {
     calls += "upload:$localId"
   }
+
+  override fun uploadedElsewhere(localId: String): Boolean = elsewhere
+
+  override fun uploadTarget(): UploadTarget? = target
+
+  var target: UploadTarget? = UploadTarget("https://sleep.example", "me@example.com")
+  var elsewhere: Boolean = false
 
   override suspend fun retryAnalysis(key: String, analysisId: String?): Result<Unit> {
     calls += "retry:$key:$analysisId"
@@ -408,6 +419,38 @@ class RecordingDetailViewModelTest {
     model.upload()
 
     assertTrue("upload:local" in work.calls)
+  }
+
+  @Test
+  fun `uploading a night another account has asks first and names where it goes`() {
+    work.elsewhere = true
+    val model = viewModel()
+
+    model.upload()
+
+    // Nothing is sent until the user agrees, and the question names the server and the account.
+    assertFalse("upload:local" in work.calls)
+    assertEquals(
+        UploadTarget("https://sleep.example", "me@example.com"),
+        model.state.value.uploadConfirmation,
+    )
+
+    model.confirmUploadElsewhere()
+
+    assertTrue("upload:local" in work.calls)
+    assertNull(model.state.value.uploadConfirmation)
+  }
+
+  @Test
+  fun `dismissing the question leaves the night where it is`() {
+    work.elsewhere = true
+    val model = viewModel()
+    model.upload()
+
+    model.dismissUploadConfirmation()
+
+    assertNull(model.state.value.uploadConfirmation)
+    assertFalse("upload:local" in work.calls)
   }
 
   @Test

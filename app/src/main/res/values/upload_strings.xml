@@ -126,6 +126,9 @@
   <string name="night_offline_saved">Showing the saved result; the server is unreachable.</string>
   <string name="night_retry">Try again</string>
   <string name="night_upload">Upload now</string>
+  <string name="night_upload_other_account_title">Upload to this account?</string>
+  <string name="night_upload_other_account_body">This night is already uploaded to another account. Upload it to %1$s as %2$s as well?</string>
+  <string name="night_upload_other_account_confirm">Upload</string>
   <string name="night_warnings">Warnings</string>
   <string name="night_analyzed_with">Analyzed with %1$s %2$s</string>
   <string name="night_analysis">Analysis</string>

@@ -34,6 +34,11 @@ class RemoteRepository internal constructor(
     private val clients: HttpClients,
     transport: EventTransport = OkHttpEventTransport(clients.events),
     private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * Called with the account that is ending, before another one becomes active or the session is
+     * removed. Queued and running sync work belongs to that account and must not outlive it.
+     */
+    private val onAccountEnded: (String) -> Unit = {},
 ) {
   private val mutex = Mutex()
 
@@ -63,9 +68,28 @@ class RemoteRepository internal constructor(
   val savedEmail: String
     get() = store.email.orEmpty()
 
-  /** Stable local key for account-scoped caches. It is not a secret. */
-  val accountKey: String
-    get() = "${savedUrl}|${savedEmail}"
+  /**
+   * The account a session belongs to: the normalised server URL plus the user id the server
+   * returned at login. Null while there is no session. It is not a secret; the user id, not the
+   * email, is what identifies the account, so a changed address book entry cannot move data.
+   */
+  val accountKey: String?
+    get() {
+      val url = savedUrl.takeIf { it.isNotBlank() } ?: return null
+      val userId = store.userId?.takeIf { it.isNotBlank() } ?: return null
+      if (store.token == null) return null
+      return accountKeyOf(url, userId)
+    }
+
+  /**
+   * The identity older versions used for their caches: the address plus the email. It only serves to
+   * adopt what those versions stored the first time this one sees the session.
+   */
+  val legacyAccountKey: String?
+    get() {
+      if (savedUrl.isBlank() || savedEmail.isBlank() || store.token == null) return null
+      return "${savedUrl}|${savedEmail}"
+    }
 
   val hasSession: Boolean
     get() = store.token != null
@@ -99,10 +123,20 @@ class RemoteRepository internal constructor(
    * are allowed here: a server that was unreachable a moment ago may be back, and attempts from
    * other features are how the shared state notices. The token, not the last check, decides.
    */
-  fun api(): TaigaClient? {
+  fun api(): TaigaClient? = session()?.api
+
+  /**
+   * The account and a client for it, taken together at one moment. A caller that reads the server
+   * stores what it read under this account, so a login or logout in between cannot move it.
+   */
+  fun session(): RemoteSession? {
     val baseUrl = savedUrl.takeIf { it.isNotBlank() } ?: return null
+    val userId = store.userId?.takeIf { it.isNotBlank() } ?: return null
     val token = store.token ?: return null
-    return OkHttpTaigaApi(baseUrl = baseUrl, token = token, client = clients.api)
+    return RemoteSession(
+        account = accountKeyOf(baseUrl, userId),
+        api = OkHttpTaigaApi(baseUrl = baseUrl, token = token, client = clients.api),
+    )
   }
 
   /**
@@ -183,14 +217,16 @@ class RemoteRepository internal constructor(
                   return@withLock failedCall(RemoteStep.LOGIN, e.error, "login")
                 }
 
-            try {
-              api.authCheck(address.baseUrl, session.token)
-            } catch (e: RemoteFailure) {
-              return@withLock failedCall(RemoteStep.AUTHENTICATED, e.error, "login")
-            }
+            val user =
+                try {
+                  api.authCheck(address.baseUrl, session.token)
+                } catch (e: RemoteFailure) {
+                  return@withLock failedCall(RemoteStep.AUTHENTICATED, e.error, "login")
+                }
 
             val now = clock()
-            store.saveSession(address.baseUrl, session, now)
+            endAccount(accountKeyOf(address.baseUrl, user.id))
+            store.saveSession(address.baseUrl, session, user.id, now)
             publish()
             log("login", true)
             CheckResult.Success(session.email, now)
@@ -249,6 +285,7 @@ class RemoteRepository internal constructor(
   }
 
   fun logout() {
+    endAccount(null)
     store.clearToken()
     store.markLoginNeeded(null)
     publish()
@@ -264,14 +301,16 @@ class RemoteRepository internal constructor(
           return failedCall(RemoteStep.LOGIN, e.error, source)
         }
 
-    try {
-      api.authCheck(baseUrl, session.token)
-    } catch (e: RemoteFailure) {
-      return failedCall(RemoteStep.AUTHENTICATED, e.error, source)
-    }
+    val user =
+        try {
+          api.authCheck(baseUrl, session.token)
+        } catch (e: RemoteFailure) {
+          return failedCall(RemoteStep.AUTHENTICATED, e.error, source)
+        }
 
     val now = clock()
-    store.saveSession(baseUrl, session, now)
+    endAccount(accountKeyOf(baseUrl, user.id))
+    store.saveSession(baseUrl, session, user.id, now)
     publish()
     log(source, true)
     return CheckResult.Success(session.email, now)
@@ -335,6 +374,7 @@ class RemoteRepository internal constructor(
   }
 
   private fun onAuthFailure(error: RemoteError) {
+    endAccount(null)
     store.clearToken()
     onLoginNeeded(error)
   }
@@ -369,6 +409,16 @@ class RemoteRepository internal constructor(
   private fun parseError(e: Throwable): RemoteError =
       (e as? RemoteUrlException)?.error ?: RemoteError.InvalidUrl
 
+  /**
+   * The account [next] is about to replace [accountKey], if it is another account. The queued and
+   * running work of the ending account is cancelled before the new one can be used.
+   */
+  private fun endAccount(next: String?) {
+    val current = accountKey ?: return
+    if (current == next) return
+    onAccountEnded(current)
+  }
+
   /** No address, email or token is ever logged. */
   private fun log(
       source: String,
@@ -399,6 +449,9 @@ class RemoteRepository internal constructor(
       }
 
   companion object {
+    /** The stable key of one account: its normalised server URL and the server's user id. */
+    fun accountKeyOf(baseUrl: String, userId: String): String = "$baseUrl|$userId"
+
     fun of(context: Context): RemoteRepository = context.appContainer.remoteRepository
   }
 }

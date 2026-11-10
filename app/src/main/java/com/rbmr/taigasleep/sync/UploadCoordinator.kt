@@ -71,7 +71,9 @@ internal object UploadCoordinator {
           (verified as? CheckResult.Failure)?.error?.label ?: "no analysis server is configured"
       return Result.failure(IllegalStateException(reason))
     }
-    val api = remote.api() ?: return Result.failure(IllegalStateException("login required"))
+    val session =
+        remote.session() ?: return Result.failure(IllegalStateException("login required"))
+    val api = session.api
     val recordingId = recordingIdOf(key)
 
     try {
@@ -95,10 +97,10 @@ internal object UploadCoordinator {
       }
 
       // The result arrives through the event stream while the app is open, or at the next open.
-      store.markProcessing(key)
+      store.markProcessing(key, account = session.account)
       return Result.success(Unit)
     } catch (e: TaigaUnauthorizedException) {
-      remote.logout()
+      if (remote.accountKey == session.account) remote.logout()
       return Result.failure(e)
     } catch (e: TaigaHttpException) {
       return Result.failure(e)
