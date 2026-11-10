@@ -104,6 +104,34 @@ class StreamRecoveryPolicyTest {
   }
 
   @Test
+  fun aReconnectThatNeverConnectsIsFollowedByFurtherAttempts() {
+    val policy = connectedPolicy()
+    assertEquals(RecoveryStepKind.RESTART_STREAMS, policy.after(30_000).single().kind)
+    assertEquals(RecoveryStepKind.RECONNECT, policy.after(30_000).single().kind)
+
+    // The service drops the link and asks for it again, but it never comes back.
+    policy.onLink(connected = false, nowMs = nowMs())
+    assertEquals(emptyList<RecoveryStep>(), policy.after(4_999))
+    val second = policy.after(1).single()
+    assertEquals(RecoveryStepKind.RECONNECT, second.kind)
+    assertTrue(second.reason, second.reason.contains("attempt 2"))
+
+    // The ladder goes on while the link stays down: 15 s, then 30 s, then every 60 s.
+    assertEquals(emptyList<RecoveryStep>(), policy.after(14_999))
+    assertEquals(RecoveryStepKind.RECONNECT, policy.after(1).single().kind)
+    assertEquals(emptyList<RecoveryStep>(), policy.after(29_999))
+    assertEquals(RecoveryStepKind.RECONNECT, policy.after(1).single().kind)
+    assertEquals(emptyList<RecoveryStep>(), policy.after(59_999))
+    assertEquals(RecoveryStepKind.RECONNECT, policy.after(1).single().kind)
+
+    // Until samples arrive: the next stall starts at the restart step and the first delay again.
+    policy.onLink(connected = true, nowMs = nowMs())
+    policy.onHrSample(nowMs())
+    assertEquals(emptyList<RecoveryStep>(), policy.after(29_999))
+    assertEquals(RecoveryStepKind.RESTART_STREAMS, policy.after(1).single().kind)
+  }
+
+  @Test
   fun bluetoothOffAndOnReconnectsAndRestartsTheStreams() {
     val policy = connectedPolicy()
 

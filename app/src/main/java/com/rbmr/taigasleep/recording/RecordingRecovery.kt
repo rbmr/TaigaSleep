@@ -22,6 +22,18 @@ enum class RecoveryAction {
   INTERRUPT,
 }
 
+/** What closing a recording the system refused to keep alive did with it. */
+sealed interface Abandoned {
+  /** The recording was streamed to the phone and nothing else holds it: it ends here. */
+  data class Interrupted(val recordingId: String) : Abandoned
+
+  /**
+   * The night is still on the tracker: the recording waits for the fetch retry instead of ending,
+   * so the part the tracker holds is not lost.
+   */
+  data class FetchPending(val meta: RecordingMeta) : Abandoned
+}
+
 /**
  * The rules that keep a recording alive across a dead process, a reboot and a long night.
  *
@@ -104,26 +116,40 @@ object RecordingRecovery {
 
   /**
    * Closes the recording the phone still marks live because the system refused to keep the service
-   * in the foreground, and returns its id. Null when nothing was open. Nothing is thrown: the service
-   * is on its way out and must not crash on the way.
+   * in the foreground, and says what became of it. Null when nothing was open. Nothing is thrown:
+   * the service is on its way out and must not crash on the way.
+   *
+   * A streamed recording has nowhere else to go, so it is interrupted. An on-device one keeps its
+   * night on the tracker, so it becomes fetch pending with the reason; the existing retry then
+   * applies exactly as it does after a failed stop.
    */
   fun abandon(
       store: RecordingStore,
       activeSessionId: String?,
       reason: String,
       clock: Clock,
-  ): String? {
+  ): Abandoned? {
     val meta = activeSessionId?.let { RecordingMeta.read(store.dir(it)) } ?: return null
     if (meta.state != RecordingPhase.RECORDING) return null
     return try {
       val dir = store.dir(meta.recordingId)
       EventLog.append(dir, clock.phoneNs(), clock.elapsedNs(), "error", reason)
       val ended =
-          meta.copy(
-              state = RecordingPhase.INTERRUPTED,
-              endUtcMs = store.lastFrameMs(dir) ?: meta.startUtcMs,
-          )
-      if (ended.write(dir)) meta.recordingId else null
+          when (meta.mode) {
+            RecordingMode.STREAM ->
+                meta.copy(
+                    state = RecordingPhase.INTERRUPTED,
+                    endUtcMs = store.lastFrameMs(dir) ?: meta.startUtcMs,
+                )
+            // The end is set when the fetch finally finishes; until then the night is incomplete.
+            RecordingMode.ON_DEVICE ->
+                meta.copy(state = RecordingPhase.FETCH_PENDING, fetchPending = true)
+          }
+      if (!ended.write(dir)) return null
+      when (meta.mode) {
+        RecordingMode.STREAM -> Abandoned.Interrupted(meta.recordingId)
+        RecordingMode.ON_DEVICE -> Abandoned.FetchPending(ended)
+      }
     } catch (_: Exception) {
       null
     }
