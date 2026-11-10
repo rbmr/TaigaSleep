@@ -15,7 +15,7 @@ from typing import Any, ClassVar, Literal, Mapping, Sequence
 
 import numpy as np
 
-CONTRACT_VERSION = 4
+CONTRACT_VERSION = 5
 
 # Canonical stages. ``nrem`` exists for algorithms that cannot split NREM into
 # light and deep; ``sleep`` exists for wake/sleep classifiers that cannot split

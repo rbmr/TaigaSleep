@@ -32,6 +32,10 @@ QUALITY_WEIGHTS = {
     "hr_coverage": 0.2,
 }
 QUALITY_WEIGHTS_VERSION = 2
+# Below this data-quality score the sleep score rests on too little usable data to mean anything,
+# so it is withheld with the reason below instead of being shown anyway.
+MIN_QUALITY_FOR_SLEEP_SCORE = 50.0
+NOT_ENOUGH_GOOD_DATA = "not_enough_good_data"
 # A transparent, versioned product policy over the sleep figures. Each component
 # is scaled to 0..1 where higher is better; unavailable components are removed and
 # the remaining weights are renormalized. The score deliberately has no target
@@ -398,7 +402,9 @@ def derive(
         latency=latency,
         waso=waso,
         awakenings=awakenings,
+        quality_score=quality["score"],
     )
+    support["sleep_quality"] = sleep_quality["support"]
 
     return Derived(
         metrics=metrics,
@@ -426,6 +432,7 @@ def _sleep_quality(
     latency: float | None,
     waso: float | None,
     awakenings: int | None,
+    quality_score: float | None,
 ) -> dict[str, Any]:
     sleep_hours = sleep_duration / 3600.0
     restorative_seconds: float | None = None
@@ -472,20 +479,33 @@ def _sleep_quality(
     available_weight = sum(
         component["weight"] for component in components.values() if component["available"]
     )
-    if available_weight <= 0:
-        score = None
-    else:
+    score = None
+    if available_weight > 0:
         score = 100.0 * sum(
             component["value"] * component["weight"]
             for component in components.values()
             if component["available"]
         ) / available_weight
 
+    # A score computed from too little good data would read as a statement about the night
+    # rather than about the recording, so it is withheld and the reason is recorded instead.
+    if quality_score is not None and quality_score < MIN_QUALITY_FOR_SLEEP_SCORE:
+        score = None
+        notes.append(
+            f"sleep score withheld; data quality {quality_score} is below "
+            f"{MIN_QUALITY_FOR_SLEEP_SCORE}"
+        )
+
     return {
         "score": None if score is None else round(score, 1),
         "components_version": SLEEP_SCORE_VERSION,
         "components": components,
         "notes": notes,
+        "support": (
+            _support("supported")
+            if score is not None
+            else _support("insufficient_data", NOT_ENOUGH_GOOD_DATA)
+        ),
     }
 
 
@@ -578,6 +598,8 @@ __all__ = [
     "derive",
     "QUALITY_WEIGHTS",
     "QUALITY_WEIGHTS_VERSION",
+    "MIN_QUALITY_FOR_SLEEP_SCORE",
+    "NOT_ENOUGH_GOOD_DATA",
     "AWAKENING_MIN_SECONDS",
     "MIN_SCORED_SHARE_FOR_EFFICIENCY",
     "SLEEP_SCORE_WEIGHTS",
