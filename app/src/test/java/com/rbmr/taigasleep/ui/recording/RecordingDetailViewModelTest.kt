@@ -21,6 +21,7 @@ import com.rbmr.taigasleep.sync.RecordingNotOnServerException
 import com.rbmr.taigasleep.sync.UploadFailure
 import java.io.File
 import java.io.IOException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
@@ -219,6 +220,7 @@ class RecordingDetailViewModelTest {
       localId: String? = "local",
       remoteId: String? = "r1",
       analysisId: String? = "a1",
+      dispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
   ): RecordingDetailViewModel =
       RecordingDetailViewModel(
           key = localId ?: "remote-$remoteId",
@@ -228,7 +230,8 @@ class RecordingDetailViewModelTest {
           library = library,
           work = work,
           texts = TEXTS,
-          dispatcher = Dispatchers.Unconfined,
+          dispatcher = dispatcher,
+          resultDispatcher = dispatcher,
       )
 
   @Test

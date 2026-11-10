@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** The server and the account an upload currently goes to, for the confirmation that names them. */
 data class UploadTarget(val server: String, val account: String)
@@ -37,6 +38,8 @@ class RecordingDetailViewModel(
     private val work: RecordingWork,
     private val texts: RecordingTexts,
     dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
+    /** Reads the payload this phone holds, away from the main thread. */
+    private val resultDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
   private val known = recordingIn(library.recordings.value)
@@ -59,6 +62,9 @@ class RecordingDetailViewModel(
   private var observedRecording = false
 
   init {
+    // The result this phone already has is read at once, so the night opens with what is saved
+    // instead of waiting for the server.
+    scope.launch { readCachedResult() }
     scope.launch {
       library.recordings.collect { list ->
         val recording = recordingIn(list)
@@ -247,6 +253,13 @@ class RecordingDetailViewModel(
     scope.cancel()
   }
 
+  /** Reads the payload of the shown analysis that is already on this phone, without any request. */
+  private suspend fun readCachedResult() {
+    val selected = _state.value.selectedAnalysisId ?: analysisId
+    val cached = withContext(resultDispatcher) { library.cachedResult(key, selected) }
+    _state.update { it.copy(result = it.result ?: cached, loading = false) }
+  }
+
   /** Re-read the recording and its result: the library, then the server when the account allows it. */
   private fun load() {
     loadJob?.cancel()
@@ -255,7 +268,10 @@ class RecordingDetailViewModel(
           work.refreshRecordings()
           library.reload()
           val current = library.recording(key) ?: _state.value.recording
-          val cached = current?.let { library.cachedResult(key, it.analysisId) }
+          val cached =
+              current?.let {
+                withContext(resultDispatcher) { library.cachedResult(key, it.analysisId) }
+              }
           _state.update { it.copy(result = cached ?: it.result, loading = false) }
           val server = current?.remoteId ?: _state.value.remoteId ?: remoteId
           if (server == null) {
@@ -312,7 +328,7 @@ class RecordingDetailViewModel(
     lastSelected = selected
     lastDownloaded = recording.resultDownloaded
     if (selected == null) return
-    val cached = library.cachedResult(key, selected)
+    val cached = withContext(resultDispatcher) { library.cachedResult(key, selected) }
     _state.update {
       when {
         cached != null -> it.copy(result = cached)
