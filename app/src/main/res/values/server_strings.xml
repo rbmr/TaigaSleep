@@ -2,7 +2,6 @@
 <resources>
   <string name="server_title">Server</string>
   <string name="server_back">Back</string>
-  <string name="server_kicker">ANALYSIS SERVER</string>
 
   <string name="server_page_server">Server</string>
   <string name="server_page_account">Account</string>

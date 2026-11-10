@@ -129,7 +129,6 @@ fun SettingsScreen(
   ) {
     item {
       ScreenHeader(
-          kicker = stringResource(R.string.settings_kicker),
           title = stringResource(R.string.settings_title),
           modifier = Modifier.padding(horizontal = 4.dp),
       )

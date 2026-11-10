@@ -42,19 +42,21 @@ import com.rbmr.taigasleep.ui.theme.taiga
 
 @Composable
 fun ScreenHeader(
-    kicker: String,
     title: String,
+    kicker: String? = null,
     subtitle: String? = null,
     modifier: Modifier = Modifier,
     kickerColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
   Column(modifier) {
-    Text(
-        text = kicker,
-        style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.16.sp),
-        color = kickerColor,
-    )
-    Spacer(Modifier.height(4.dp))
+    if (kicker != null) {
+      Text(
+          text = kicker,
+          style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.16.sp),
+          color = kickerColor,
+      )
+      Spacer(Modifier.height(4.dp))
+    }
     Text(text = title, style = MaterialTheme.typography.displayLarge)
     if (subtitle != null) {
       Spacer(Modifier.height(8.dp))

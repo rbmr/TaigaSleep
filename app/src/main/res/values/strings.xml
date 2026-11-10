@@ -3,8 +3,6 @@
   <string name="nav_history">History</string>
   <string name="nav_home">Home</string>
   <string name="nav_settings">Settings</string>
-
-  <string name="home_kicker">HOME</string>
   <string name="home_logo_sleeping">Sleeping bear in its den</string>
   <string name="home_logo_awake">Awake bear in its den</string>
   <string name="home_logo_recording">Sleeping bear, den glowing</string>
@@ -15,8 +13,6 @@
   <string name="history_subtitle">Your analyzed nights and pending uploads.</string>
   <string name="history_empty_title">No nights yet</string>
   <string name="history_empty_body">After your first recording, Taiga will show your sleep stages, heart rate and quality here.</string>
-
-  <string name="settings_kicker">SETTINGS</string>
   <string name="settings_title">Settings</string>
   <string name="settings_group_server">Server</string>
   <string name="settings_group_analysis">Analysis</string>

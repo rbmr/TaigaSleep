@@ -305,7 +305,6 @@ private fun ServerPage(
   val reachable = checked && status !is RemoteStatus.Unreachable
 
   ScreenHeader(
-      kicker = stringResource(R.string.server_kicker),
       title = stringResource(R.string.server_page_server),
       subtitle = stringResource(R.string.server_page_server_body),
   )
@@ -380,7 +379,6 @@ private fun AccountPage(
     onLogin: () -> Unit,
 ) {
   ScreenHeader(
-      kicker = stringResource(R.string.server_kicker),
       title = stringResource(R.string.server_page_account),
       subtitle = stringResource(R.string.server_page_account_body),
   )
@@ -449,7 +447,6 @@ private fun StatusPage(
     onLogout: () -> Unit,
 ) {
   ScreenHeader(
-      kicker = stringResource(R.string.server_kicker),
       title = stringResource(R.string.server_page_status),
       subtitle = stringResource(R.string.server_page_status_body),
   )
