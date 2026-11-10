@@ -202,7 +202,4 @@ class SyncService internal constructor(
   fun rescheduleAll() {
     scope.launch { environment.rescheduleAll() }
   }
-
-  /** Drop the polling work an earlier version left in the work queue under a tag nothing reads. */
-  fun cancelLegacyPolls() = environment.cancelLegacyPolls()
 }

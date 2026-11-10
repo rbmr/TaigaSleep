@@ -22,6 +22,25 @@ There is no local sleep analysis. The phone records and talks to the backend;
 sleep stages, the sleep score, heart-rate statistics, data quality and HRV come
 from the server.
 
+## Where the state lives
+
+There are two stores, and one owner per fact:
+
+- **On disk**, under `<external files>/recordings/<session id>/`: the recording itself —
+  `meta.json`, the frame logs and `events.jsonl` — plus the compressed-upload boundary
+  cache under `<files>/upload-cache/<session id>/` while an upload is running. These are
+  the bytes; sync never rewrites them.
+- **In the app's database**: everything learned from a server — the upload state and its
+  confirmation, the server's recording list with its analysis summaries, the run each
+  recording shows, downloaded result payloads and queued remote deletes. Every row belongs
+  to one account, so switching accounts switches what is shown without deleting anything.
+
+History and the night screen read the recordings from disk joined with those rows, in one
+query. The files older versions kept the same facts in — `sync.json` in each recording
+directory, `remote-recordings.json`, the cached payloads under `files/analysis/`, and the
+upload and delete preferences — are imported once and deleted afterwards; see
+[`architecture.md`](architecture.md#analyses-and-results).
+
 ## Automatic upload
 
 Automatic upload is a master checkbox with two optional restrictions:
@@ -193,10 +212,10 @@ the phone:
 | Delete raw data straight after upload | Removed as soon as the server confirms the upload. |
 | Delete raw data after 5 / 14 / 30 days | Removed once that many days have passed since the confirmed upload. |
 
-`meta.json`, `events.jsonl` and `sync.json` are metadata, not raw stream data, and
-are always kept, so History, the upload state and the cached analysis survive raw
-cleanup. `sync.json` is written into the recording directory itself, so the upload
-state dies with the recording instead of lingering in a separate store.
+`meta.json` and `events.jsonl` are metadata, not raw stream data, and are always
+kept. The upload state, the cached History list and the cached results are not
+files at all: they live in the app's database, one row per recording and account,
+so raw cleanup cannot touch them, and deleting a recording removes its rows.
 Cleanup only runs after the server confirmed the upload, so a recording that was
 never transferred is never touched. The policy is applied on app start, when
 History opens, when an upload completes and when the setting changes, so a night
@@ -218,9 +237,9 @@ restored files are the original streams. A restored night is protected from
 automatic cleanup until its raw data is deleted explicitly.
 
 The metadata, upload state and analysis results are the enduring parts of a
-recording. A finished analysis is cached in the app's private `files/analysis/`
-directory so the detail screen can show the last result when the server is
-unreachable. That cache is not uploaded and contains no credentials.
+recording. A finished analysis is kept in the app's database, so the detail screen
+can show the last result when the server is unreachable. Those rows are not
+uploaded and contain no credentials.
 
 Raw data that was never uploaded exists only on this phone. Deleting the app or
 its data loses it, and no other copy exists. Once the upload is confirmed, the

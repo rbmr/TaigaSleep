@@ -339,10 +339,6 @@ class SyncServiceTest {
       calls += "rescheduleAll"
     }
 
-    override fun cancelLegacyPolls() {
-      calls += "cancelLegacyPolls"
-    }
-
     override suspend fun deleteRecording(localId: String?, remoteId: String?) {
       calls += "deleteRecording $localId $remoteId"
     }

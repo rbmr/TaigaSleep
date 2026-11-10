@@ -25,12 +25,12 @@ recordings to Parquet.
   ecg.log        append-only frame log, stream 2
   acc.log        append-only frame log, stream 3
   events.jsonl   append-only, one JSON object per line
-  sync.json      app-private sync state; not part of the recording, never exported
 ```
 
-`sync.json` lives beside the recording so the upload state is a property of that
-recording: it survives a process kill and is deleted with the recording. It is
-excluded from exports, because it describes this phone's transfer, not the
+The upload state of a recording is not part of its directory: it lives in the app's
+database, one row per recording and account. An older version wrote it to
+`sync.json` here; that file is imported once and deleted, and is excluded from an
+export until it is gone, because it describes this phone's transfer, not the
 recorded night.
 
 `session_id` is the local start time, `yyyyMMdd_HHmmss`, a dash and four random

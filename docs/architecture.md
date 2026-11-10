@@ -122,21 +122,35 @@ Four rules inside the packages:
 
 ### Analyses and results
 
-An analysis and its result are owned by what the server said, and the two caches that keep it
-on the phone:
+Everything the app learns from a server lives in one Room database,
+`sync.db.TaigaDatabase`: one table per fact, every row keyed by the account it was learned for.
 
-- `sync.ResultCache` keeps the full payload of a finished analysis that was downloaded.
-- `sync.RemoteHistoryCache` keeps the server's recording list with its analysis summaries, and
-  the run each recording shows. The choice of run is a property of the row, not of the analysis.
+- `upload_state` — the sync state of one recording: where its bytes are, how far they got, why an
+  attempt failed, when the upload finished, the retention flags and the analyses the user asked for.
+  Written by `sync.UploadStore`.
+- `remote_recording` and `remote_analysis` — the server's recording list with its analysis summaries,
+  and the recordings the server no longer has. Written by `sync.RemoteHistoryCache`.
+- `remote_selection` — the run each recording shows; the choice is a property of the row, not of the
+  analysis. Written by `sync.RemoteHistoryCache`.
+- `analysis_result` — the full payload of a finished analysis that was downloaded. Written by
+  `sync.ResultCache`.
+- `pending_delete` — remote deletes the server has not accepted yet, with the account that asked for
+  them. Written by `sync.PendingDeleteStore`.
 
-An analysis summary has one owner: `sync.RemoteHistoryCache`, filled from the server's recording
-list and selected-run choices. `library` reads what a History row shows about an analysis — the
-score, the stage bar, the model, the selected run, whether the payload is cached — from the rows
-alone, in one query that also carries the sync state and the recordings the server no longer has,
-joined with the recordings on the phone. It keeps no copy of those facts, and nothing it shows is
-held only in memory. `sync.UploadRecord` is therefore only the sync state of one recording: where
-its bytes are, how far they got, why an attempt failed, when the upload finished, and the retention
-flags. A score never lives in `sync.json`.
+`recording.store.RecordingStore` keeps the recordings on disk as before — `meta.json`, the frame
+logs, `events.jsonl` — and the database references them by recording id. A one-time migration reads
+the files an older version kept this state in: each recording's `sync.json`, the upload and delete
+preferences, `remote-recordings.json` and the JSON files under the app's `analysis` directory. It
+writes the rows, checks that they are there, and only then deletes those files. Nothing else in the
+app reads an old format.
+
+An analysis summary has one owner: the `remote_recording` and `remote_analysis` rows, filled from
+the server's recording list and selected-run choices. `library` reads what a History row shows about
+an analysis — the score, the stage bar, the model, the selected run, whether the payload is cached —
+from the rows alone, in one query that also carries the sync state and the recordings the server no
+longer has, joined with the recordings on the phone. It keeps no copy of those facts, and nothing it
+shows is held only in memory. `sync.UploadRecord` is therefore only the sync state of one recording.
+A score never lives there.
 
 ## The recording lifecycle
 

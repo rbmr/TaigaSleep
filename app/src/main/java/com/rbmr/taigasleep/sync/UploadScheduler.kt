@@ -58,15 +58,13 @@ internal object UploadScheduler {
   }
 
   /**
-   * Everything queued or running for the account that is ending: uploads, deletes and the polls an
-   * older version left behind. WorkManager cancels a running worker, so nothing that belongs to the
-   * old account reaches the new one.
+   * Everything queued or running for the account that is ending: uploads and deletes. WorkManager
+   * cancels a running worker, so nothing that belongs to the old account reaches the new one.
    */
   fun cancelAllWork(context: Context) {
     val manager = WorkManager.getInstance(context)
     manager.cancelAllWorkByTag(TAG_UPLOAD)
     manager.cancelAllWorkByTag(TAG_DELETE)
-    manager.cancelAllWorkByTag(LEGACY_TAG_POLL)
   }
 
   fun enqueueDelete(context: Context, recordingId: String) {
@@ -91,14 +89,6 @@ internal object UploadScheduler {
             .build()
     WorkManager.getInstance(context)
         .enqueueUniqueWork("delete-$recordingId", ExistingWorkPolicy.KEEP, request)
-  }
-
-  /**
-   * Version 0.5 polled analyses from WorkManager under this tag. Nothing polls any more, so work an
-   * earlier version left queued is dropped instead of failing to start a worker class that is gone.
-   */
-  fun cancelLegacyPolls(context: Context) {
-    WorkManager.getInstance(context).cancelAllWorkByTag(LEGACY_TAG_POLL)
   }
 
   /** Restore the remote-delete queue of the active account after a process restart. */
@@ -207,5 +197,4 @@ internal object UploadScheduler {
 
   private const val TAG_UPLOAD = "recording-upload"
   private const val TAG_DELETE = "recording-delete"
-  private const val LEGACY_TAG_POLL = "analysis-poll"
 }

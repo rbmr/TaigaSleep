@@ -77,12 +77,12 @@ class LegacyFilesMigrationTest {
   }
 
   @Test
-  fun `every store's state moves into the database`() {
+  fun `every file's state moves into the database`() {
     fixture.writeCurrentFiles()
 
     assertTrue(runBlocking { fixture.migration(A).migrate(database) })
 
-    assertUploadStatesMatchTheFiles(
+    assertUploadStates(
         mapOf(
             A to
                 mapOf(
@@ -121,16 +121,40 @@ class LegacyFilesMigrationTest {
                 ),
         )
     )
-    assertRemoteHistoryMatchesTheStore(listOf(A, B))
-    assertAnalysisResultsMatchTheStore(
-        listOf(
-            Triple(A, R1, "a1"),
-            Triple(A, R2, "a2"),
-            Triple(A, "remote-$R4", "a9"),
-            Triple(B, "remote-$R5", "a5"),
+    assertRemoteHistory(
+        mapOf(
+            A to
+                (
+                    listOf(
+                        fixture.recordingDto(
+                            R1,
+                            complete = true,
+                            runs = listOf(fixture.runDto("a1", R1, "baseline", "succeeded")),
+                        ),
+                        fixture.recordingDto(R4, complete = false),
+                    ) to mapOf("remote-$R4" to "a9")
+                ),
+            B to
+                (
+                    listOf(
+                        fixture.recordingDto(
+                            R5,
+                            complete = true,
+                            runs = listOf(fixture.runDto("a5", R5, "stager", "running")),
+                        )
+                    ) to emptyMap()
+                ),
         )
     )
-    assertPendingDeletesMatchTheFiles(
+    assertAnalysisResults(
+        mapOf(
+            Triple(A, R1, "a1") to fixture.payloadDto("a1", R1, "baseline", "1.0.0"),
+            Triple(A, R2, "a2") to fixture.payloadDto("a2", R2, "baseline", "1.0.0"),
+            Triple(A, "remote-$R4", "a9") to fixture.payloadDto("a9", R4, "stager", "2.0.0"),
+            Triple(B, "remote-$R5", "a5") to fixture.payloadDto("a5", R5, "stager", "2.0.0"),
+        )
+    )
+    assertPendingDeletes(
         mapOf(
             A to PendingDelete(remoteId = "rf-1", account = A, requestedAtMs = 1500),
             B to PendingDelete(remoteId = "rf-2", account = B, requestedAtMs = 1600),
@@ -144,7 +168,7 @@ class LegacyFilesMigrationTest {
 
     assertTrue(runBlocking { fixture.migration(A, legacy = OLD_KEY).migrate(database) })
 
-    assertUploadStatesMatchTheFiles(
+    assertUploadStates(
         mapOf(
             A to
                 mapOf(
@@ -172,9 +196,23 @@ class LegacyFilesMigrationTest {
                 ),
         )
     )
-    assertRemoteHistoryMatchesTheStore(listOf(A), legacy = OLD_KEY)
-    assertAnalysisResultsMatchTheStore(listOf(Triple(A, R2, "a2")))
-    assertPendingDeletesMatchTheFiles(
+    // The list saved under the address and the email belongs to the account key the app uses now.
+    assertRemoteHistory(
+        mapOf(
+            A to
+                (
+                    listOf(
+                        fixture.recordingDto(
+                            R1,
+                            complete = true,
+                            runs = listOf(fixture.runDto("a1", R1, "baseline", "succeeded")),
+                        )
+                    ) to mapOf(R1 to "a1")
+                )
+        )
+    )
+    assertAnalysisResults(mapOf(Triple(A, R2, "a2") to fixture.flatPayloadDto(R2)))
+    assertPendingDeletes(
         mapOf(A to PendingDelete(remoteId = "rf-3", account = A, requestedAtMs = 1700))
     )
   }
@@ -197,7 +235,7 @@ class LegacyFilesMigrationTest {
   }
 
   @Test
-  fun `without a session nothing is written and the marker stays empty`() {
+  fun `without a session nothing is written, nothing is deleted and the marker stays empty`() {
     fixture.writeCurrentFiles()
 
     assertFalse(runBlocking { fixture.migration(null).migrate(database) })
@@ -208,6 +246,82 @@ class LegacyFilesMigrationTest {
     assertTrue(runBlocking { database.remoteRecordings().analysisRows(A) }.isEmpty())
     assertTrue(runBlocking { database.analysisResults().rows(A) }.isEmpty())
     assertTrue(runBlocking { database.pendingDeletes().rows(A) }.isEmpty())
+    // The state cannot be attributed yet, so its files stay until an account is there.
+    assertTrue(File(fixture.recordings, "$R1/sync.json").isFile)
+    assertTrue(fixture.historyFile.isFile)
+    assertTrue(fixture.analysisRoot.isDirectory)
+  }
+
+  @Test
+  fun `the files are gone once their content is in the database`() {
+    fixture.writeCurrentFiles()
+    // A temporary document an older version wrote the sync state through.
+    File(fixture.recordings, "$R1/sync.json.tmp").writeText("{}")
+
+    assertTrue(runBlocking { fixture.migration(A).migrate(database) })
+
+    for (id in listOf(R1, R2, R3)) {
+      assertFalse(File(fixture.recordings, "$id/sync.json").exists())
+      assertTrue("the recording itself stays", File(fixture.recordings, id).isDirectory)
+    }
+    assertFalse(File(fixture.recordings, "$R1/sync.json.tmp").exists())
+    assertNull(fixture.uploadPreferences.getString("records", null))
+    assertFalse(fixture.historyFile.exists())
+    assertFalse(fixture.analysisRoot.exists())
+    assertNull(fixture.deletePreferences.getString("pending_remote_deletes", null))
+  }
+
+  @Test
+  fun `the cleanup tolerates files that are not there`() {
+    // No older version ever wrote anything, so there is nothing to import and nothing to delete.
+    runBlocking { fixture.migration(A).awaitMigrated(database) }
+
+    assertEquals(1, runBlocking { database.migrations().runs("files-v1") })
+    assertTrue(runBlocking { database.uploadStates().rows(A) }.isEmpty())
+
+    // A second start deletes what it does not find and does not import again.
+    runBlocking { fixture.migration(A).awaitMigrated(database) }
+    assertEquals(1, runBlocking { database.migrations().runs("files-v1") })
+  }
+
+  @Test
+  fun `a start that only has the cleanup left finishes it without importing again`() {
+    fixture.writeCurrentFiles()
+    assertTrue(runBlocking { fixture.migration(A).migrate(database) })
+    val rows = runBlocking { database.uploadStates().rows(A) }
+    // The process died before the deletion, so the files are still there on the next start.
+    fixture.writeCurrentFiles()
+
+    runBlocking { fixture.migration(A).awaitMigrated(database) }
+
+    assertFalse(File(fixture.recordings, "$R1/sync.json").exists())
+    assertFalse(fixture.historyFile.exists())
+    assertFalse(fixture.analysisRoot.exists())
+    assertEquals(
+        "nothing was imported a second time",
+        rows,
+        runBlocking { database.uploadStates().rows(A) },
+    )
+  }
+
+  @Test
+  fun `payloads of an account nothing names are discarded instead of attributed`() {
+    fixture.writeCurrentFiles()
+    // The results of an account that is not logged in and that no file on the phone mentions.
+    val stranger =
+        File(fixture.analysisRoot, resultCacheDirectoryName("https://other.example|u9")).apply {
+          mkdirs()
+        }
+    File(stranger, "$R1.json").writeJson(fixture.strangerPayloadJson())
+
+    assertTrue(runBlocking { fixture.migration(A).migrate(database) })
+
+    // Its payload is not given to the account that is logged in, and the directory does not stay.
+    assertEquals(
+        "baseline",
+        runBlocking { database.analysisResults().row(A, R1, "a1") }?.toAnalysisDto()?.algorithm,
+    )
+    assertFalse(stranger.exists())
   }
 
   @Test
@@ -309,7 +423,7 @@ class LegacyFilesMigrationTest {
     assertTrue(cache.selected(A).isEmpty())
   }
 
-  private fun assertUploadStatesMatchTheFiles(expected: Map<String, Map<String, UploadRecord>>) {
+  private fun assertUploadStates(expected: Map<String, Map<String, UploadRecord>>) {
     for ((account, records) in expected) {
       assertEquals(
           records,
@@ -320,13 +434,12 @@ class LegacyFilesMigrationTest {
     }
   }
 
-  private fun assertRemoteHistoryMatchesTheStore(accounts: List<String>, legacy: String? = null) {
-    val cache = LegacyHistoryFile(fixture.historyFile)
-    for (account in accounts) {
-      // The app moves a list saved under the address and the email to the account key on start.
-      val savedUnder = legacy ?: account
-      val stored = cache.load(savedUnder)
-      assertNotNull("the fixture has no list for $savedUnder", stored)
+  /** The list each account holds, in the order the server sent it, and the run each recording shows. */
+  private fun assertRemoteHistory(
+      expected: Map<String, Pair<List<RecordingSummaryDto>, Map<String, String>>>,
+  ) {
+    for ((account, value) in expected) {
+      val (items, selected) = value
       val recordings = runBlocking { database.remoteRecordings().rows(account) }
       val runs = runBlocking { database.remoteRecordings().analysisRows(account) }
       val migrated =
@@ -341,61 +454,42 @@ class LegacyFilesMigrationTest {
                 )
               }
           )
-      val expected =
-          stored!!.copy(
-              items = stored.items.map { it.copy(analyses = it.analyses.sortedBy(AnalysisDto::id)) }
-          )
-      assertEquals(expected, migrated)
       assertEquals(
-          cache.selected(savedUnder),
+          RecordingSummaryListDto(
+              items.map { it.copy(analyses = it.analyses.sortedBy(AnalysisDto::id)) }
+          ),
+          migrated,
+      )
+      assertEquals(
+          selected,
           runBlocking { database.remoteRecordings().selections(account) }
               .associate { it.recordingKey to it.analysisId },
       )
     }
   }
 
-  private fun assertAnalysisResultsMatchTheStore(runs: List<Triple<String, String, String>>) {
-    for ((account, key, analysisId) in runs) {
-      val stored = legacyPayload(account, key, analysisId)
-      assertNotNull("the fixture has no payload for $key/$analysisId", stored)
-      val migrated = runBlocking { database.analysisResults().row(account, key, analysisId) }
-      assertEquals(stored, migrated?.toAnalysisDto())
+  private fun assertAnalysisResults(expected: Map<Triple<String, String, String>, AnalysisDto>) {
+    for ((key, payload) in expected) {
+      val (account, recordingKey, analysisId) = key
+      val migrated =
+          runBlocking { database.analysisResults().row(account, recordingKey, analysisId) }
+      assertNotNull("the database has no payload for $recordingKey/$analysisId", migrated)
+      assertEquals(payload, migrated?.toAnalysisDto())
       assertNotNull(
-          "the payload of $key/$analysisId is not marked as downloaded",
+          "the payload of $recordingKey/$analysisId is not marked as downloaded",
           migrated?.resultJson,
       )
     }
-    for (account in runs.map { it.first }.distinct()) {
+    for (account in expected.keys.map { it.first }.distinct()) {
       assertEquals(
           "every payload of $account is in the database",
-          runs.count { it.first == account },
+          expected.keys.count { it.first == account },
           runBlocking { database.analysisResults().rows(account) }.size,
       )
     }
   }
 
-  /**
-   * One payload as an older version's results cache kept it: per analysis first, then per night.
-   * The files an even older version left directly under the root belong to the logged-in account.
-   */
-  private fun legacyPayload(account: String, key: String, analysisId: String): AnalysisDto? {
-    val directories =
-        listOf(File(fixture.analysisRoot, resultCacheDirectoryName(account)), fixture.analysisRoot)
-    for (directory in directories) {
-      readLegacyAnalysis(File(directory, "${resultCacheDirectoryName("$key-$analysisId")}.json"))
-          ?.let {
-            return it
-          }
-      readLegacyAnalysis(File(directory, "${resultCacheDirectoryName(key)}.json"))
-          ?.takeIf { it.id == analysisId }
-          ?.let {
-            return it
-          }
-    }
-    return null
-  }
-
-  private fun assertPendingDeletesMatchTheFiles(expected: Map<String, PendingDelete>) {
+  private fun assertPendingDeletes(expected: Map<String, PendingDelete>) {
     for ((account, delete) in expected) {
       assertEquals(
           mapOf(delete.remoteId to delete),
@@ -466,16 +560,16 @@ class LegacyFilesMigrationTest {
           {"accounts":{
             "$A":{
               "recordings":{"items":[
-                {"recording":${recording(R1, complete = true)},
-                 "analyses":[${run("a1", R1, "baseline", "succeeded")}]},
-                {"recording":${recording(R4, complete = false)},"analyses":[]}
+                {"recording":${recordingJson(R1, complete = true)},
+                 "analyses":[${runJson("a1", R1, "baseline", "succeeded")}]},
+                {"recording":${recordingJson(R4, complete = false)},"analyses":[]}
               ]},
               "selected":{"remote-$R4":"a9"}
             },
             "$B":{
               "recordings":{"items":[
-                {"recording":${recording(R5, complete = true)},
-                 "analyses":[${run("a5", R5, "stager", "running")}]}
+                {"recording":${recordingJson(R5, complete = true)},
+                 "analyses":[${runJson("a5", R5, "stager", "running")}]}
               ]},
               "selected":{}
             }
@@ -485,11 +579,11 @@ class LegacyFilesMigrationTest {
       )
       analysisOfA.mkdirs()
       analysisOfB.mkdirs()
-      File(analysisOfA, "$R1.json").writeJson(payload("a1", R1, "baseline", "1.0.0"))
-      File(analysisOfA, "$R2-a2.json").writeJson(payload("a2", R2, "baseline", "1.0.0"))
-      File(analysisOfA, "$R2.json").writeJson(payload("a2", R2, "baseline", "1.0.0"))
-      File(analysisOfA, "remote-$R4-a9.json").writeJson(payload("a9", R4, "stager", "2.0.0"))
-      File(analysisOfB, "remote-$R5-a5.json").writeJson(payload("a5", R5, "stager", "2.0.0"))
+      File(analysisOfA, "$R1.json").writeJson(payloadJson("a1", R1, "baseline", "1.0.0"))
+      File(analysisOfA, "$R2-a2.json").writeJson(payloadJson("a2", R2, "baseline", "1.0.0"))
+      File(analysisOfA, "$R2.json").writeJson(payloadJson("a2", R2, "baseline", "1.0.0"))
+      File(analysisOfA, "remote-$R4-a9.json").writeJson(payloadJson("a9", R4, "stager", "2.0.0"))
+      File(analysisOfB, "remote-$R5-a5.json").writeJson(payloadJson("a5", R5, "stager", "2.0.0"))
       deletePreferences
           .edit()
           .putString(
@@ -536,22 +630,15 @@ class LegacyFilesMigrationTest {
       historyFile.writeJson(
           """
           {"accountKey":"$OLD_KEY",
-           "recordings":{"items":[{"recording":${recording(R1, complete = true)},
-                                   "analyses":[${run("a1", R1, "baseline", "succeeded")}]}]},
+           "recordings":{"items":[{"recording":${recordingJson(R1, complete = true)},
+                                   "analyses":[${runJson("a1", R1, "baseline", "succeeded")}]}]},
            "selected":{"$R1":"a1"}}
           """
               .trimIndent()
       )
       analysisRoot.mkdirs()
       // The flat format: the fields of the result beside the id and the recording, on the root.
-      File(analysisRoot, "$R2.json")
-          .writeText(
-              """
-              {"id":"a2","session":"$R2","contract_version":1,"model":"baseline","model_version":"1.0.0",
-               "items":[{"kind":"number","id":"hr_mean","label":"Mean heart rate","unit":"bpm","value":57.0}]}
-              """
-                  .trimIndent()
-          )
+      File(analysisRoot, "$R2.json").writeText(flatPayloadJson())
       deletePreferences
           .edit()
           .putString(
@@ -565,7 +652,40 @@ class LegacyFilesMigrationTest {
       File(recordings, id).mkdirs()
     }
 
-    private fun recording(id: String, complete: Boolean): String =
+    /** One recording of a saved list, as the fixture writes it and the row must reproduce it. */
+    fun recordingDto(
+        id: String,
+        complete: Boolean,
+        runs: List<AnalysisDto> = emptyList(),
+    ): RecordingSummaryDto =
+        RecordingSummaryDto(
+            recording = rowJson.decodeFromString(recordingJson(id, complete)),
+            analyses = runs,
+        )
+
+    /** One run of a saved list, as the fixture writes it and the row must reproduce it. */
+    fun runDto(id: String, recordingId: String, algorithm: String, status: String): AnalysisDto =
+        rowJson.decodeFromString(runJson(id, recordingId, algorithm, status))
+
+    /** One downloaded payload, as the fixture writes it and the row must reproduce it. */
+    fun payloadDto(id: String, recordingId: String, algorithm: String, version: String): AnalysisDto =
+        rowJson.decodeFromString(payloadJson(id, recordingId, algorithm, version))
+
+    /**
+     * The flat payload an older version cached, read as the run it holds: the fields of the result
+     * sit beside the id and the recording, and the file only exists for a finished run.
+     */
+    fun flatPayloadDto(recordingId: String): AnalysisDto =
+        AnalysisDto(
+            id = "a2",
+            recording = recordingId,
+            algorithm = "baseline",
+            version = "1.0.0",
+            status = "succeeded",
+            result = rowJson.decodeFromString(flatPayloadJson()),
+        )
+
+    private fun recordingJson(id: String, complete: Boolean): String =
         """
         {"id":"$id","state":"${if (complete) "complete" else "uploading"}","device":"Polar H10",
          "started_at":"2026-10-23T22:30:00Z","ended_at":"2026-10-24T06:30:00Z","duration_s":28800.0,
@@ -574,7 +694,7 @@ class LegacyFilesMigrationTest {
         """
             .trimIndent()
 
-    private fun run(id: String, recordingId: String, algorithm: String, status: String): String =
+    private fun runJson(id: String, recordingId: String, algorithm: String, status: String): String =
         """
         {"id":"$id","recording":"$recordingId","algorithm":"$algorithm","version":"1.0.0",
          "status":"$status","created":"2026-10-24T06:00:00Z","updated":"2026-10-24T07:00:00Z",
@@ -584,7 +704,18 @@ class LegacyFilesMigrationTest {
         """
             .trimIndent()
 
-    private fun payload(
+    /** The flat payload an older version cached, kept where both the fixture and the test read it. */
+    private fun flatPayloadJson(): String =
+        """
+        {"id":"a2","session":"$R2","contract_version":1,"model":"baseline","model_version":"1.0.0",
+         "items":[{"kind":"number","id":"hr_mean","label":"Mean heart rate","unit":"bpm","value":57.0}]}
+        """
+            .trimIndent()
+
+    /** The payload of a recording the fixture holds, as another account's cache would carry it. */
+    fun strangerPayloadJson(): String = payloadJson("a1", R1, "sleep-ecg", "9.9.9")
+
+    private fun payloadJson(
         id: String,
         recordingId: String,
         algorithm: String,

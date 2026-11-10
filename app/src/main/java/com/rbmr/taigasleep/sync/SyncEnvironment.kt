@@ -64,8 +64,6 @@ internal interface SyncEnvironment {
 
   suspend fun rescheduleAll()
 
-  fun cancelLegacyPolls()
-
   suspend fun deleteRecording(localId: String?, remoteId: String?)
 
   suspend fun enforceRawRetention()
@@ -152,8 +150,6 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
   override suspend fun reconcileUploads() = UploadScheduler.reconcile(app)
 
   override suspend fun rescheduleAll() = UploadScheduler.rescheduleAll(app)
-
-  override fun cancelLegacyPolls() = UploadScheduler.cancelLegacyPolls(app)
 
   override suspend fun deleteRecording(localId: String?, remoteId: String?) =
       RecordingDeleter.delete(app, localId, remoteId)

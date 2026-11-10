@@ -40,9 +40,7 @@ class TaigaApplication : Application() {
     )
     CoroutineScope(Dispatchers.IO).launch {
       // Apply the raw-retention setting to any recording whose cleanup time has passed.
-      val sync = container.syncService
-      sync.enforceRawRetention()
-      sync.cancelLegacyPolls()
+      container.syncService.enforceRawRetention()
     }
   }
 

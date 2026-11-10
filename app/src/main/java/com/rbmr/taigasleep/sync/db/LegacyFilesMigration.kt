@@ -25,15 +25,17 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * Moves what an older version kept in separate files into [TaigaDatabase], once. Every source it
- * reads still belongs to the version that wrote it: each recording's `sync.json`, the shared
- * document in the upload preferences, `remote-recordings.json`, the JSON files under `analysis` in
- * both key schemes and the flat format an older version wrote, and the queued deletes in their
- * preferences.
+ * Moves what an older version kept in separate files into [TaigaDatabase], once, and deletes those
+ * files afterwards. Every source it reads still belongs to the version that wrote it: each
+ * recording's `sync.json`, the shared document in the upload preferences, `remote-recordings.json`,
+ * the JSON files under `analysis` in both key schemes and the flat format an older version wrote,
+ * and the queued deletes in their preferences.
  *
- * The files are read here and nowhere else, and are left exactly as they are. A marker row records
- * that the migration ran, so the next start does nothing; the writes are upserts, so an interrupted
- * run only repeats work.
+ * The files are read here and nowhere else. They are deleted only once the rows they held are in the
+ * database, which is checked before the marker is written, and the deletion is a separate step after
+ * that marker: an interrupted run either repeats the import or finishes only the deletion. A marker
+ * row records that the migration ran, so the next start does nothing but clean up what a killed
+ * process left behind; the writes are upserts, so an interrupted import only repeats work.
  *
  * Rows are written under the account key of the session, which the app had while the files were
  * written. Without a session there is no account to write them for, so the migration waits for the
@@ -62,29 +64,50 @@ class LegacyFilesMigration(
     val active = account()?.takeIf { it.isNotBlank() } ?: return false
     val accounts = accountsOnDisk(active)
 
-    val uploads = readUploadStates(active, accounts)
-    val history = readHistory(active, legacyAccount()?.takeIf { it.isNotBlank() }, accounts)
-    val results = readAnalysisResults(active, accounts)
-    val deletes = readPendingDeletes(active, accounts)
+    val found =
+        Imported(
+            uploads = readUploadStates(active, accounts),
+            history = readHistory(active, legacyAccount()?.takeIf { it.isNotBlank() }, accounts),
+            results = readAnalysisResults(active, accounts),
+            deletes = readPendingDeletes(active, accounts),
+        )
 
-    database.uploadStates().upsert(uploads)
-    database.remoteRecordings().upsert(history.recordings)
-    database.remoteRecordings().upsertAnalyses(history.analyses)
-    history.selections.forEach { database.remoteRecordings().select(it) }
-    database.analysisResults().upsert(results)
-    database.pendingDeletes().upsert(deletes)
+    database.uploadStates().upsert(found.uploads)
+    database.remoteRecordings().upsert(found.history.recordings)
+    database.remoteRecordings().upsertAnalyses(found.history.analyses)
+    found.history.selections.forEach { database.remoteRecordings().select(it) }
+    database.analysisResults().upsert(found.results.rows)
+    database.pendingDeletes().upsert(found.deletes)
+
+    // The files are the only copy of this state until it is in the database, so a run that cannot
+    // read back what it wrote neither marks itself done nor deletes anything.
+    if (!present(database, found)) {
+      Diagnostics.log(
+          "legacy_migration_incomplete",
+          mapOf(
+              "upload_states" to found.uploads.size,
+              "remote_recordings" to found.history.recordings.size,
+              "analysis_results" to found.results.rows.size,
+              "pending_deletes" to found.deletes.size,
+          ),
+      )
+      return false
+    }
     database.migrations().mark(MigrationRow(MARKER, now()))
 
     Diagnostics.log(
         "legacy_migration",
         mapOf(
-            "upload_states" to uploads.size,
-            "remote_recordings" to history.recordings.size,
-            "remote_analyses" to history.analyses.size,
-            "analysis_results" to results.size,
-            "pending_deletes" to deletes.size,
+            "upload_states" to found.uploads.size,
+            "remote_recordings" to found.history.recordings.size,
+            "remote_analyses" to found.history.analyses.size,
+            "analysis_results" to found.results.rows.size,
+            "pending_deletes" to found.deletes.size,
+            // Directories of an account nothing on this phone names; see [readAnalysisResults].
+            "analysis_discarded" to found.results.discarded.size,
         ),
     )
+    removeFiles()
     return true
   }
 
@@ -106,6 +129,9 @@ class LegacyFilesMigration(
               Diagnostics.log("legacy_migration_failed", mapOf("error" to e.toString()))
               false
             }
+        // A marker from an earlier start means the rows are in the database and only the deletion
+        // was cut off, so it is finished here instead of importing a second time.
+        if (!ran && database.migrations().runs(MARKER) > 0) removeFiles()
         imported = ran || database.migrations().runs(MARKER) > 0
       }
     }
@@ -254,17 +280,32 @@ class LegacyFilesMigration(
    * Every payload the result cache holds, for every account whose results directory can be named.
    * The files an older version left directly under [analysisRoot] belong to the account that is
    * logged in, which is the account the cache moves them into on its first read.
+   *
+   * A directory whose name matches no account this phone can name holds the payloads of an account
+   * that is not logged in and that no file on this phone mentions. There is no way to attribute such
+   * a payload without guessing, and a payload is only a copy of what the server holds: giving it to
+   * the active account could show one account's results under another, so it is discarded instead.
+   * [AnalysisImport.discarded] names those directories, which are the only files the deletion step
+   * removes without having migrated them; the account that owns them fetches them again.
    */
-  private fun readAnalysisResults(active: String, accounts: Set<String>): List<AnalysisResultRow> =
-      readResults(analysisRoot, active) +
-          (analysisRoot.listFiles { file -> file.isDirectory } ?: emptyArray())
-              .sortedBy { it.name }
-              .flatMap { directory ->
-                val owner =
-                    accounts.firstOrNull { resultCacheDirectoryName(it) == directory.name }
-                        ?: return@flatMap emptyList()
-                readResults(directory, owner)
-              }
+  private fun readAnalysisResults(active: String, accounts: Set<String>): AnalysisImport {
+    val rows =
+        readResults(analysisRoot, active) +
+            (analysisRoot.listFiles { file -> file.isDirectory } ?: emptyArray())
+                .sortedBy { it.name }
+                .flatMap { directory ->
+                  val owner =
+                      accounts.firstOrNull { resultCacheDirectoryName(it) == directory.name }
+                          ?: return@flatMap emptyList<AnalysisResultRow>()
+                  readResults(directory, owner)
+                }
+    val discarded =
+        (analysisRoot.listFiles { file -> file.isDirectory } ?: emptyArray())
+            .map { it.name }
+            .filterNot { name -> accounts.any { resultCacheDirectoryName(it) == name } }
+            .sorted()
+    return AnalysisImport(rows, discarded)
+  }
 
   private fun readResults(directory: File, account: String): List<AnalysisResultRow> {
     // A run keyed per analysis wins over the recording's single payload of the same run.
@@ -318,6 +359,56 @@ class LegacyFilesMigration(
   }
 
   /**
+   * Whether every row this run read is in the database, counted by table and account without reading
+   * a payload back. A row the files held twice and the database holds once is still one row written.
+   */
+  private suspend fun present(database: TaigaDatabase, imported: Imported): Boolean {
+    for ((account, rows) in imported.uploads.groupBy { it.account }) {
+      val written = rows.distinctBy { it.recordingId }.size
+      if (database.uploadStates().count(account) < written) return false
+    }
+    for ((account, rows) in imported.history.recordings.groupBy { it.account }) {
+      val written = rows.distinctBy { it.recordingId }.size
+      if (database.remoteRecordings().count(account) < written) return false
+    }
+    for ((account, rows) in imported.history.analyses.groupBy { it.account }) {
+      val written = rows.distinctBy { it.recordingId to it.analysisId }.size
+      if (database.remoteRecordings().analysisCount(account) < written) return false
+    }
+    for ((account, rows) in imported.history.selections.groupBy { it.account }) {
+      val written = rows.distinctBy { it.recordingKey }.size
+      if (database.remoteRecordings().selectionCount(account) < written) return false
+    }
+    for ((account, rows) in imported.results.rows.groupBy { it.account }) {
+      val written = rows.distinctBy { it.recordingKey to it.analysisId }.size
+      if (database.analysisResults().count(account) < written) return false
+    }
+    for ((account, rows) in imported.deletes.groupBy { it.account }) {
+      val written = rows.distinctBy { it.remoteId }.size
+      if (database.pendingDeletes().count(account) < written) return false
+    }
+    return true
+  }
+
+  /**
+   * Deletes the files the run read, after the marker says the rows are in the database: every
+   * recording's sync document, the shared upload document, the saved server list, the cached
+   * payloads and the queued deletes. Every step tolerates a missing file and a second attempt, so a
+   * cleanup killed by the system is finished on the next start instead of failing.
+   */
+  private fun removeFiles() {
+    try {
+      LegacyUploadFiles(recordingsRoot, uploadPreferences).deleteAll()
+      LegacyPendingDeleteFile(deletePreferences).delete()
+      if (historyFile.isFile) historyFile.delete()
+      if (analysisRoot.isDirectory) analysisRoot.deleteRecursively()
+    } catch (e: Exception) {
+      // The marker is written, so the next start finishes the deletion instead of importing again.
+      Diagnostics.log("legacy_cleanup_failed", mapOf("error" to e.toString()))
+    }
+  }
+
+  /**
    * The recording key of one cached payload: its file is named after the key, and after the run
    * too when the cache keeps one payload per analysis rather than one per recording.
    */
@@ -335,6 +426,20 @@ class LegacyFilesMigration(
       val recordings: List<RemoteRecordingRow>,
       val analyses: List<RemoteAnalysisRow>,
       val selections: List<RemoteSelectionRow>,
+  )
+
+  /** Everything one run read from the files, before it is written. */
+  private data class Imported(
+      val uploads: List<UploadStateRow>,
+      val history: HistoryRows,
+      val results: AnalysisImport,
+      val deletes: List<PendingDeleteRow>,
+  )
+
+  /** The payloads one run found, and the directories whose account it could not name. */
+  private data class AnalysisImport(
+      val rows: List<AnalysisResultRow>,
+      val discarded: List<String>,
   )
 
   private companion object {
@@ -367,7 +472,7 @@ class LegacyFilesMigration(
 
 /**
  * The `sync.json` files of the recordings, and the single document an older version kept them in.
- * Only [LegacyFilesMigration] reads these.
+ * Only [LegacyFilesMigration] reads and deletes these.
  */
 internal class LegacyUploadFiles(private val root: File, private val prefs: SharedPreferences) {
   fun ids(): Set<String> =
@@ -387,7 +492,20 @@ internal class LegacyUploadFiles(private val root: File, private val prefs: Shar
   /** The old single-document format, read once so an upgrade does not lose queued uploads. */
   fun shared(): String? = prefs.getString(KEY_RECORDS, null)
 
+  /**
+   * Deletes the state document of every recording, the temporary file an older version wrote it
+   * through, and the shared document. Each is removed whether it is there or not.
+   */
+  fun deleteAll() {
+    (root.listFiles { file -> file.isDirectory } ?: emptyArray()).forEach { directory ->
+      File(directory, RecordingStore.SYNC_FILE).delete()
+      File(directory, RecordingStore.SYNC_FILE + TEMP_SUFFIX).delete()
+    }
+    prefs.edit().remove(KEY_RECORDS).commit()
+  }
+
   private companion object {
+    const val TEMP_SUFFIX = ".tmp"
     const val KEY_RECORDS = "records"
   }
 }
@@ -395,6 +513,11 @@ internal class LegacyUploadFiles(private val root: File, private val prefs: Shar
 /** The queued deletes an older version kept under one preference key. Only the migration reads it. */
 internal class LegacyPendingDeleteFile(private val prefs: SharedPreferences) {
   fun read(): String? = prefs.getString(KEY, null)
+
+  /** Removes the queue from the preferences, whether it is there or not. */
+  fun delete() {
+    prefs.edit().remove(KEY).commit()
+  }
 
   private companion object {
     const val KEY = "pending_remote_deletes"

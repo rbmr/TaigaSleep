@@ -30,6 +30,10 @@ interface UploadStateDao {
   )
   suspend fun otherAccounts(recordingId: String, account: String): List<String>
 
+  /** How many rows this account has, which is how the one-time import checks its work. */
+  @Query("SELECT COUNT(*) FROM upload_state WHERE account = :account")
+  suspend fun count(account: String): Int
+
   @Upsert suspend fun upsert(row: UploadStateRow)
 
   @Upsert suspend fun upsert(rows: List<UploadStateRow>)
@@ -80,6 +84,14 @@ interface RemoteRecordingDao {
   /** How many recordings this account's saved list holds; zero means no list was ever saved. */
   @Query("SELECT COUNT(*) FROM remote_recording WHERE account = :account")
   suspend fun count(account: String): Int
+
+  /** How many runs this account's saved list holds. */
+  @Query("SELECT COUNT(*) FROM remote_analysis WHERE account = :account")
+  suspend fun analysisCount(account: String): Int
+
+  /** How many run choices this account holds. */
+  @Query("SELECT COUNT(*) FROM remote_selection WHERE account = :account")
+  suspend fun selectionCount(account: String): Int
 
   @Upsert suspend fun upsert(rows: List<RemoteRecordingRow>)
 
@@ -196,6 +208,10 @@ interface AnalysisResultDao {
   )
   suspend fun row(account: String, recordingKey: String, analysisId: String): AnalysisResultRow?
 
+  /** How many payloads this account has, without reading a payload. */
+  @Query("SELECT COUNT(*) FROM analysis_result WHERE account = :account")
+  suspend fun count(account: String): Int
+
   @Upsert suspend fun upsert(row: AnalysisResultRow)
 
   @Upsert suspend fun upsert(rows: List<AnalysisResultRow>)
@@ -221,6 +237,10 @@ interface PendingDeleteDao {
 
   @Query("SELECT * FROM pending_delete WHERE account = :account AND remoteId = :remoteId")
   suspend fun row(account: String, remoteId: String): PendingDeleteRow?
+
+  /** How many deletes this account still owes the server. */
+  @Query("SELECT COUNT(*) FROM pending_delete WHERE account = :account")
+  suspend fun count(account: String): Int
 
   @Upsert suspend fun upsert(rows: List<PendingDeleteRow>)
 
