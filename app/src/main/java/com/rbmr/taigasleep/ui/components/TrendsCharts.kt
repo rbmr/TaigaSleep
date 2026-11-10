@@ -2,7 +2,6 @@ package com.rbmr.taigasleep.ui.components
 
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -353,7 +352,8 @@ fun TrendLineChart(
         }
       },
       overlay = {
-        trendTooltip(selected, days, points.map { it?.night }, tooltip, onOpen, large)
+        val night = selected?.let { points.getOrNull(it)?.night }
+        nightTooltip(selected, days.size, night, tooltip, onOpen, large)
       },
   )
 }
@@ -405,10 +405,11 @@ fun TrendDoubleLineChart(
           drawTrendSeries(plot, first, firstColor, large, axis)
         },
         overlay = {
-          trendTooltip(
+          val nights = first.zip(second) { a, b -> a ?: b }.map { it?.night }
+          nightTooltip(
               selected,
-              days,
-              first.zip(second) { a, b -> a ?: b }.map { it?.night },
+              days.size,
+              selected?.let { nights.getOrNull(it) },
               tooltip,
               onOpen,
               large,
@@ -477,7 +478,8 @@ fun TrendBarChart(
         }
       },
       overlay = {
-        trendTooltip(selected, days, points.map { it?.night }, tooltip, onOpen, large)
+        val night = selected?.let { points.getOrNull(it)?.night }
+        nightTooltip(selected, days.size, night, tooltip, onOpen, large)
       },
   )
 }
@@ -579,7 +581,8 @@ fun TrendScheduleChart(
         }
       },
       overlay = {
-        trendTooltip(selected, days, nights, tooltip, onOpen, large)
+        val night = selected?.let { nights.getOrNull(it) }
+        nightTooltip(selected, days.size, night, tooltip, onOpen, large)
       },
   )
 }
@@ -598,28 +601,23 @@ fun TrendLegend(first: String, firstColor: Color, second: String, secondColor: C
   }
 }
 
+/** The tooltip of the selected night, which opens that night when tapped. */
 @Composable
-private fun BoxScope.trendTooltip(
+private fun BoxScope.nightTooltip(
     selected: Int?,
-    days: List<LocalDate>,
-    nights: List<TrendNight?>,
+    count: Int,
+    night: TrendNight?,
     tooltip: @Composable (TrendNight) -> String,
     onOpen: (TrendNight) -> Unit,
     large: Boolean,
 ) {
-  val night = selected?.let { nights.getOrNull(it) } ?: return
-  val align = if (selected < days.size / 2) Alignment.TopEnd else Alignment.TopStart
+  if (selected == null || night == null) return
   ChartTooltip(
       time = trendDate(night.date),
       value = tooltip(night),
-      modifier =
-          Modifier.align(align)
-              .padding(
-                  top = 4.dp,
-                  start = (if (large) LargeLeftLabelWidth else LeftLabelWidth) + 8.dp,
-                  end = 8.dp,
-              )
-              .clickable { onOpen(night) },
+      fraction = markFraction(selected, count),
+      labelWidth = if (large) LargeLeftLabelWidth else LeftLabelWidth,
+      onClick = { onOpen(night) },
   )
 }
 
