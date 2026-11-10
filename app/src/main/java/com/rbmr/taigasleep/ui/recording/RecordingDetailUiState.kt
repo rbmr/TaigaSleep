@@ -59,6 +59,13 @@ data class RecordingDetailUiState(
   val status: RecordingStatus
     get() = recording?.status ?: RecordingStatus.LOCAL_ONLY
 
+  /**
+   * The library already knows this night has a finished analysis; a result that is not read yet
+   * changes nothing.
+   */
+  val analysed: Boolean
+    get() = recording?.isDone == true
+
   /** The failure the status line reports, with a rejected login taking over the stored one. */
   val failure: UploadFailure?
     get() = if (loginExpired) UploadFailure.LOGIN else recording?.failure
