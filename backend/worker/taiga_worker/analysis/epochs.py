@@ -3,6 +3,8 @@
 Epochs are aligned to the recording start and cover the whole recording. A
 stager may use any internal window size, but its output is aggregated to this
 grid so sleep-stage timelines and metrics remain comparable across algorithms.
+Per-epoch movement is the deviation from the recording's median accelerometer
+magnitude, so a constant sensor offset does not read as movement.
 """
 
 from __future__ import annotations
@@ -122,7 +124,11 @@ def build_epoch_grid(recording: Recording, epoch_seconds: int = 30) -> EpochGrid
         acc_count = counts
         coverage["acc"] = _coverage(counts, epoch_seconds, acc.rate_hz)
         magnitude = acc.magnitude_g
-        deviation = np.abs(magnitude - 1.0)
+        # Movement is measured from the night's own resting magnitude, not from a
+        # nominal 1 g, so a constant calibration offset does not bias every epoch.
+        finite = np.isfinite(magnitude)
+        baseline_g = float(np.median(magnitude[finite])) if np.any(finite) else 1.0
+        deviation = np.abs(magnitude - baseline_g)
         dev_prefix = np.concatenate(([0], np.cumsum(deviation)))
         right = left + counts
         dev_sum = dev_prefix[right] - dev_prefix[left]
