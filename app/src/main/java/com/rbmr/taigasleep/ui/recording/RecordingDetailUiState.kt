@@ -7,8 +7,12 @@ import com.rbmr.taigasleep.library.Analysis
 import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.library.RecordingView
 import com.rbmr.taigasleep.library.parseApiDate
+import com.rbmr.taigasleep.recording.ExportContents
+import com.rbmr.taigasleep.recording.ExportSource
+import com.rbmr.taigasleep.recording.exportSource
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.sync.UploadFailure
+import java.io.File
 
 /** Where a running export is: it restores the raw files first when only the server has them. */
 enum class ExportPhase {
@@ -45,13 +49,18 @@ data class RecordingDetailUiState(
     val showDetails: Boolean = false,
     val exportBusy: Boolean = false,
     val exportPhase: ExportPhase? = null,
+    /** 0..1 while a large export is written, null while it is short or has not measured itself. */
     val exportProgress: Float? = null,
+    val exportDoneBytes: Long = 0,
+    val exportTotalBytes: Long = 0,
+    /** What the user chose to export; the raw files and the metadata unless changed. */
+    val exportContents: ExportContents = ExportContents(),
+    /** The archive the screen hands to the share sheet, from the moment it is ready. */
+    val exportFile: File? = null,
     val algorithms: List<AlgorithmDto> = emptyList(),
     val algorithmsLoading: Boolean = false,
     val algorithmsError: String? = null,
     val analysisBusy: Boolean = false,
-    /** Something can produce an export: the phone has the raw files, or the server does. */
-    val canExport: Boolean = false,
     val loginRequested: Boolean = false,
     val closeRequested: Boolean = false,
     val loginError: String = "",
@@ -80,6 +89,49 @@ data class RecordingDetailUiState(
 
   val remoteId: String?
     get() = recording?.remoteId
+
+  /** A payload of this recording that is already on the phone; an export never fetches one. */
+  val resultsExportable: Boolean
+    get() = result != null || analyses.any { it.resultDownloaded }
+
+  /** The raw streams of the export selection. */
+  val exportRaw: Boolean
+    get() = exportContents.raw
+
+  /** The metadata of the export selection. */
+  val exportMetadata: Boolean
+    get() = exportContents.metadata
+
+  /** The analysis results of the export selection. */
+  val exportResults: Boolean
+    get() = exportContents.results
+
+  /** The raw stream logs can be exported: they are here, or the server can give them back. */
+  val rawExportable: Boolean
+    get() = local?.hasRaw == true || remoteId != null
+
+  /** The metadata is here, or comes back with the raw files from the server. */
+  val metadataExportable: Boolean
+    get() = local != null || remoteId != null
+
+  /** Where the chosen contents can come from: the phone, the server, or neither. */
+  private val exportAvailability: ExportSource
+    get() =
+        exportSource(
+            contents = exportContents,
+            hasRaw = local?.hasRaw == true,
+            hasMetadata = local != null,
+            hasResults = resultsExportable,
+            onServer = remoteId != null,
+        )
+
+  /** The selected contents can be produced; a night with no local copy is exported after a restore. */
+  val canExport: Boolean
+    get() = local != null && exportAvailability != ExportSource.UNAVAILABLE
+
+  /** The selected contents need the raw files back from the server before they can be written. */
+  val exportNeedsRestore: Boolean
+    get() = exportAvailability == ExportSource.RESTORE
 
   val selectedAnalysisId: String?
     get() = recording?.analysisId

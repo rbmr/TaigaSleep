@@ -1,6 +1,8 @@
 package com.rbmr.taigasleep.ui.recording
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.MoreVert
@@ -68,6 +70,16 @@ fun RecordingDetailScreen(
       viewModel.loginShown()
       onLogin()
     }
+  }
+  // The archive is deleted when the share sheet returns, so nothing of the export stays behind.
+  val shareExport =
+      rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        viewModel.exportShared()
+      }
+  LaunchedEffect(state.exportFile) {
+    val file = state.exportFile ?: return@LaunchedEffect
+    shareExport.launch(viewModel.shareIntent(file))
+    viewModel.exportLaunched()
   }
 
   Scaffold(
@@ -138,6 +150,9 @@ fun RecordingDetailScreen(
         },
         onRunAnalysis = viewModel::requestAnalysis,
         onCloseDetails = viewModel::closeDetails,
+        onExportRaw = viewModel::setExportRaw,
+        onExportMetadata = viewModel::setExportMetadata,
+        onExportResults = viewModel::setExportResults,
         onExport = viewModel::export,
         onDownloadRaw = viewModel::downloadRaw,
         onRequestDeleteRaw = { showRawDelete = true },

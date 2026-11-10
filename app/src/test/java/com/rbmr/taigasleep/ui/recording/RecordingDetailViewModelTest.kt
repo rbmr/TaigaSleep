@@ -14,11 +14,15 @@ import com.rbmr.taigasleep.library.BackupState
 import com.rbmr.taigasleep.library.RecordingSource
 import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.library.RecordingView
+import com.rbmr.taigasleep.recording.ExportContents
+import com.rbmr.taigasleep.recording.ExportProgress
+import com.rbmr.taigasleep.recording.ExportResult
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.sync.RawActionResult
 import com.rbmr.taigasleep.sync.RecordingNotOnServerException
 import com.rbmr.taigasleep.sync.UploadFailure
+import android.content.Intent
 import java.io.File
 import java.io.IOException
 import kotlin.coroutines.CoroutineContext
@@ -30,6 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -96,13 +101,18 @@ private class FakeLibrary(initial: List<RecordingView>) : RecordingSource {
 private class FakeWork : RecordingWork {
   val calls = mutableListOf<String>()
   var rawSize = 2048L
-  var share: Result<Unit> = Result.success(Unit)
+  var prepare: Result<File> = Result.success(File("/tmp/taiga-export.zip"))
   var restore: Result<Unit> = Result.success(Unit)
   var deleteRaw: RawActionResult = RawActionResult.Done
   var retry: Result<Unit> = Result.success(Unit)
 
   /** What restoring the files does to the phone, such as writing them and restoring the night. */
   var restores: () -> Unit = {}
+
+  /** The progress the archive writer would report while it runs. */
+  var progressReports: List<ExportProgress> = emptyList()
+  var lastContents: ExportContents? = null
+  var lastResults: List<ExportResult> = emptyList()
 
   override suspend fun refreshRecordings() {
     calls += "refreshRecordings"
@@ -135,11 +145,24 @@ private class FakeWork : RecordingWork {
     return restore
   }
 
-  override suspend fun share(localId: String, onProgress: (Float) -> Unit): Result<Unit> {
-    calls += "share:$localId"
-    onProgress(1f)
-    return share
+  override suspend fun prepareExport(
+      localId: String,
+      contents: ExportContents,
+      results: List<ExportResult>,
+      onProgress: (ExportProgress) -> Unit,
+  ): Result<File> {
+    calls += "prepare:$localId"
+    lastContents = contents
+    lastResults = results
+    progressReports.forEach(onProgress)
+    return prepare
   }
+
+  override fun discardExport(file: File) {
+    calls += "discard:${file.name}"
+  }
+
+  override fun shareIntent(file: File): Intent = Intent()
 
   override suspend fun deleteRaw(localId: String): RawActionResult {
     calls += "deleteRaw:$localId"
@@ -560,32 +583,128 @@ class RecordingDetailViewModelTest {
   }
 
   @Test
-  fun `an export of a night with raw data only zips it`() {
+  fun `an export prepares its archive and deletes it once shared`() {
     val model = viewModel()
+    model.openDetails()
 
     model.export()
 
-    assertEquals(listOf("share:local"), work.calls.filter { it.startsWith("share:") || it.startsWith("restore:") })
+    assertEquals(
+        listOf("prepare:local"),
+        work.calls.filter { it.startsWith("prepare:") || it.startsWith("restore:") },
+    )
+    // The default export is the recording as it was made: the raw files and the metadata.
+    assertEquals(
+        ExportContents(raw = true, metadata = true, results = false),
+        work.lastContents,
+    )
+    assertNotNull(model.state.value.exportFile)
+    assertTrue(model.state.value.exportBusy)
+
+    model.exportShared()
+
+    assertTrue("discard:taiga-export.zip" in work.calls)
+    assertNull(model.state.value.exportFile)
     assertFalse(model.state.value.exportBusy)
     assertNull(model.state.value.exportPhase)
+    assertFalse(model.state.value.showDetails)
   }
 
   @Test
   fun `an export of a server-only night restores the raw files first`() {
     library.recordings.value = listOf(recording(hasRaw = false))
     val model = viewModel()
+    model.setExportRaw(true)
+    model.setExportMetadata(true)
 
     model.export()
 
     assertEquals(
-        listOf("restore:local:r1", "share:local"),
-        work.calls.filter { it.startsWith("share:") || it.startsWith("restore:") },
+        listOf("restore:local:r1", "prepare:local"),
+        work.calls.filter { it.startsWith("prepare:") || it.startsWith("restore:") },
     )
   }
 
   @Test
+  fun `a night whose raw files were deleted defaults to its metadata alone`() {
+    library.recordings.value = listOf(recording(hasRaw = false))
+    val model = viewModel()
+
+    assertEquals(
+        ExportContents(raw = false, metadata = true, results = false),
+        model.state.value.exportContents,
+    )
+
+    model.export()
+
+    // No download for a part the user did not ask for.
+    assertFalse(work.calls.any { it.startsWith("restore:") })
+    assertEquals(ExportContents(raw = false, metadata = true, results = false), work.lastContents)
+  }
+
+  @Test
+  fun `results only exports the payload the phone already saved and nothing else`() {
+    library.cached = payload("a1")
+    library.recordings.value =
+        listOf(recording(analyses = listOf(run("a1").copy(resultDownloaded = true))))
+    val model = viewModel()
+    model.setExportRaw(false)
+    model.setExportMetadata(false)
+    model.setExportResults(true)
+
+    model.export()
+
+    assertFalse(work.calls.any { it.startsWith("restore:") })
+    assertEquals(ExportContents(raw = false, metadata = false, results = true), work.lastContents)
+    assertEquals(1, work.lastResults.size)
+    assertEquals("analysis-a1.json", work.lastResults.single().name)
+    assertTrue("\"a1\"" in work.lastResults.single().json)
+  }
+
+  @Test
+  fun `results that were never saved cannot be exported`() {
+    val model = viewModel()
+    model.setExportRaw(false)
+    model.setExportMetadata(false)
+    model.setExportResults(true)
+
+    assertFalse(model.state.value.canExport)
+
+    model.export()
+
+    assertFalse(work.calls.any { it.startsWith("prepare:") })
+    assertTrue(
+        model.state.value.actionError.orEmpty().contains("no copy of this night is available")
+    )
+  }
+
+  @Test
+  fun `a short export shows that work is happening instead of a percentage`() {
+    work.progressReports = listOf(ExportProgress(doneBytes = 1, totalBytes = 2))
+    val model = viewModel()
+
+    model.export()
+
+    assertTrue(model.state.value.exportBusy)
+    assertNull(model.state.value.exportProgress)
+  }
+
+  @Test
+  fun `a large export reports its percentage and its bytes`() {
+    val total = 80L * 1024 * 1024
+    work.progressReports = listOf(ExportProgress(doneBytes = total / 2, totalBytes = total))
+    val model = viewModel()
+
+    model.export()
+
+    assertEquals(0.5f, model.state.value.exportProgress!!, 0.001f)
+    assertEquals(total / 2, model.state.value.exportDoneBytes)
+    assertEquals(total, model.state.value.exportTotalBytes)
+  }
+
+  @Test
   fun `a failed export closes the details sheet and reports why`() {
-    work.share = Result.failure(IllegalStateException("the disk is full"))
+    work.prepare = Result.failure(IllegalStateException("the disk is full"))
     val model = viewModel()
     model.openDetails()
 
@@ -597,12 +716,14 @@ class RecordingDetailViewModelTest {
   }
 
   @Test
-  fun `a successful export closes the details sheet`() {
+  fun `a successful export closes the details sheet when the share sheet returns`() {
     val model = viewModel()
     model.openDetails()
 
     model.export()
+    assertTrue(model.state.value.showDetails)
 
+    model.exportShared()
     assertFalse(model.state.value.showDetails)
   }
 

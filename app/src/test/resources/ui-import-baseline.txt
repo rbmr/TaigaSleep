@@ -26,8 +26,8 @@ recording/HeartRateSection.kt 1
 recording/MovementSection.kt 1
 recording/DetailScreen.kt 0
 recording/RecordingBody.kt 2
-recording/RecordingDetailFactory.kt 4
-recording/RecordingDetailUiState.kt 5
+recording/RecordingDetailFactory.kt 7
+recording/RecordingDetailUiState.kt 8
 recording/RecordingOverlays.kt 0
 recording/ScoreCard.kt 2
 recording/SharedComponents.kt 1

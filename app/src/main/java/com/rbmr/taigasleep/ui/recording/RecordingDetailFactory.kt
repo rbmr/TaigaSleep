@@ -1,10 +1,14 @@
 package com.rbmr.taigasleep.ui.recording
 
 import android.content.Context
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
+import com.rbmr.taigasleep.recording.ExportContents
+import com.rbmr.taigasleep.recording.ExportProgress
+import com.rbmr.taigasleep.recording.ExportResult
 import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.store.RecordingStore
@@ -35,7 +39,19 @@ interface RecordingWork {
       onProgress: (Float) -> Unit,
   ): Result<Unit>
 
-  suspend fun share(localId: String, onProgress: (Float) -> Unit): Result<Unit>
+  /** Builds the chosen contents of a night into an archive and returns it. */
+  suspend fun prepareExport(
+      localId: String,
+      contents: ExportContents,
+      results: List<ExportResult>,
+      onProgress: (ExportProgress) -> Unit,
+  ): Result<File>
+
+  /** Deletes an archive once the share sheet has returned. */
+  fun discardExport(file: File)
+
+  /** The share sheet for a prepared archive. */
+  fun shareIntent(file: File): Intent
 
   suspend fun deleteRaw(localId: String): RawActionResult
 
@@ -88,8 +104,27 @@ class RecordingDetailFactory(
               onProgress: (Float) -> Unit,
           ) = sync.downloadRaw(localId, onProgress)
 
-          override suspend fun share(localId: String, onProgress: (Float) -> Unit): Result<Unit> =
-              runCatching { Exporter.share(app, localId, onProgress) }
+          override suspend fun prepareExport(
+              localId: String,
+              contents: ExportContents,
+              results: List<ExportResult>,
+              onProgress: (ExportProgress) -> Unit,
+          ): Result<File> =
+              runCatching {
+                Exporter.prepare(
+                    context = app,
+                    recordingId = localId,
+                    contents = contents,
+                    results = results,
+                    onProgress = onProgress,
+                )
+              }
+
+          override fun discardExport(file: File) {
+            Exporter.discard(file)
+          }
+
+          override fun shareIntent(file: File): Intent = Exporter.shareIntent(app, file)
 
           override suspend fun deleteRaw(localId: String) = sync.deleteRaw(localId)
 
