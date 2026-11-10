@@ -81,23 +81,17 @@ class TrendsViewModel(
   ): TrendsUiState {
     val today = LocalDate.now(zone)
     val first = today.minusDays((days - 1).toLong())
-    // Only completed recordings of the range are read from the database; the rest cannot be drawn.
-    val inRange =
-        recordings.filter { view ->
-          view.localId != null && !view.isRecording && view.wakeDate(zone).inRange(first, today)
-        }
+    // The library's list is the source: a night that only exists on the server is a night too, and
+    // its saved result is read from the cache. Nothing here talks to the server. The night being
+    // recorded has no end yet, so it is not drawn.
     val nights =
-        inRange.map { view ->
-          TrendRecording(
-              key = view.key,
-              localId = view.localId,
-              remoteId = view.remoteId,
-              analysisId = view.analysisId,
-              startUtcMs = view.startUtcMs,
-              endUtcMs = view.endUtcMs ?: 0L,
-              items = itemsOf(library.cachedResult(view.key, view.analysisId)),
-          )
-        }
+        recordings
+            .filterNot { it.isRecording }
+            .mapNotNull { view ->
+              val date = view.wakeDate(zone)
+              if (date == null || date.isBefore(first) || date.isAfter(today)) null
+              else trendRecording(view, itemsOf(library.cachedResult(view.key, view.analysisId)))
+            }
     return TrendsUiState(
         rangeDays = days,
         data =
@@ -112,11 +106,11 @@ class TrendsViewModel(
     )
   }
 
+  /** The local date of the end, which is the wake-up date. */
   private fun RecordingView.wakeDate(zone: ZoneId): LocalDate? =
-      endUtcMs?.takeIf { it > 0 }?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() }
-
-  private fun LocalDate?.inRange(first: LocalDate, last: LocalDate): Boolean =
-      this != null && !isBefore(first) && !isAfter(last)
+      trendEndUtcMs().takeIf { it > startUtcMs }?.let {
+        Instant.ofEpochMilli(it).atZone(zone).toLocalDate()
+      }
 
   /** The numbers a cached payload carries, by item id; the charts need nothing else from it. */
   private fun itemsOf(analysis: AnalysisDto?): Map<String, Double> =
@@ -134,3 +128,22 @@ class TrendsViewModel(
         ) as T
   }
 }
+
+/**
+ * The end the trends use: the recording's own end, or the start plus the duration when the view has
+ * none, which is how a night that is only in the server list still has an end time. Both values are
+ * on [RecordingView], so this needs no server.
+ */
+internal fun RecordingView.trendEndUtcMs(): Long = endUtcMs ?: (startUtcMs + durationMs)
+
+/** One recording view as the trends read it, with the items of the analysis it shows. */
+internal fun trendRecording(view: RecordingView, items: Map<String, Double>): TrendRecording =
+    TrendRecording(
+        key = view.key,
+        localId = view.localId,
+        remoteId = view.remoteId,
+        analysisId = view.analysisId,
+        startUtcMs = view.startUtcMs,
+        endUtcMs = view.trendEndUtcMs(),
+        items = items,
+    )
