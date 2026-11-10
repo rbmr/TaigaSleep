@@ -1,9 +1,6 @@
 package com.rbmr.taigasleep.recording.store
 
-import java.io.BufferedInputStream
-import java.io.EOFException
 import java.io.File
-import java.io.FileInputStream
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -52,72 +49,130 @@ object FrameLog {
   data class Scan(val stream: Int, val frames: Long, val validEnd: Long, val damagedTail: Boolean)
 
   /**
-   * Reads frames until the first truncated or CRC-failing one and returns where the good part ends.
-   * Invokes [onFrame] with each valid payload.
+   * Reads every frame it can verify. A truncated frame or one whose CRC does not match marks the log
+   * damaged; scanning then searches forward for the next offset that holds a whole frame with a
+   * matching CRC, so one damaged frame does not hide the frames after it. Invokes [onFrame] with
+   * each valid payload.
+   *
+   * [Scan.validEnd] is the end of the last whole frame, which is where a writer may resume appending
+   * without losing anything it kept.
    */
   fun scan(file: File, onFrame: (ByteArray) -> Unit = {}): Scan {
     val length = file.length()
     if (length < HEADER_SIZE) return Scan(0, 0, 0, length > 0)
-    DataIn(BufferedInputStream(FileInputStream(file), 64 * 1024)).use { input ->
+    RandomAccessFile(file, "r").use { raf ->
       val head = ByteArray(HEADER_SIZE.toInt())
-      input.readFully(head)
-      val buf = ByteBuffer.wrap(head).order(ByteOrder.LITTLE_ENDIAN)
+      raf.readFully(head)
       val magicOk = MAGIC.indices.all { head[it] == MAGIC[it] }
       if (!magicOk || head[4].toInt() != VERSION) return Scan(0, 0, 0, true)
       val stream = head[5].toInt()
+      val reader = FrameReader(raf)
       var pos = HEADER_SIZE
+      var validEnd = HEADER_SIZE
       var frames = 0L
-      while (true) {
-        if (pos == length) return Scan(stream, frames, pos, false)
-        try {
-          val len = input.readIntLe()
-          if (len < 0 || len > MAX_PAYLOAD || pos + 8 + len > length) {
-            return Scan(stream, frames, pos, true)
-          }
-          val payload = ByteArray(len)
-          input.readFully(payload)
-          if (input.readIntLe() != crc(payload)) return Scan(stream, frames, pos, true)
-          onFrame(payload)
-          frames++
-          pos += 8 + len
-        } catch (_: EOFException) {
-          return Scan(stream, frames, pos, true)
+      var damaged = false
+      while (pos < length) {
+        val payload = reader.frameAt(pos, length)
+        if (payload == null) {
+          damaged = true
+          val next = reader.nextFrameAt(pos + 1, length) ?: return Scan(stream, frames, validEnd, true)
+          pos = next
+          continue
         }
+        onFrame(payload)
+        frames++
+        pos += 8 + payload.size
+        validEnd = pos
       }
+      return Scan(stream, frames, validEnd, damaged)
     }
   }
 
-  private class DataIn(private val input: BufferedInputStream) : AutoCloseable {
+  /**
+   * A buffered reader over a [RandomAccessFile] that can start again at any offset. Only the search
+   * after damage moves backwards; the normal path reads the buffer straight through.
+   */
+  private class FrameReader(private val raf: RandomAccessFile) {
+    private val buffer = ByteArray(64 * 1024)
     private val four = ByteArray(4)
+    private var bufferStart = 0L
+    private var bufferCount = 0
+    private var position = 0L
 
-    fun readFully(b: ByteArray) {
-      var off = 0
-      while (off < b.size) {
-        val n = input.read(b, off, b.size - off)
-        if (n < 0) throw EOFException()
-        off += n
-      }
+    /** The payload of a whole frame starting at [offset], or null when it is not one. */
+    fun frameAt(offset: Long, length: Long): ByteArray? {
+      if (offset + 8 > length) return null
+      position = offset
+      val len = readIntLe() ?: return null
+      if (len <= 0 || len > MAX_PAYLOAD || offset + 8 + len > length) return null
+      val payload = ByteArray(len)
+      if (!readFully(payload)) return null
+      if (readIntLe() != crc(payload)) return null
+      return payload
     }
 
-    fun readIntLe(): Int {
-      readFully(four)
+    /** The offset of the first whole frame at or after [from], or null when there is none. */
+    fun nextFrameAt(from: Long, length: Long): Long? {
+      var offset = from
+      while (offset + 8 <= length) {
+        if (frameAt(offset, length) != null) return offset
+        offset++
+      }
+      return null
+    }
+
+    private fun readFully(target: ByteArray): Boolean {
+      var off = 0
+      while (off < target.size) {
+        if (!buffered()) return false
+        val index = (position - bufferStart).toInt()
+        val n = minOf(bufferCount - index, target.size - off)
+        System.arraycopy(buffer, index, target, off, n)
+        position += n
+        off += n
+      }
+      return true
+    }
+
+    private fun readIntLe(): Int? {
+      if (!readFully(four)) return null
       return ByteBuffer.wrap(four).order(ByteOrder.LITTLE_ENDIAN).int
     }
 
-    override fun close() = input.close()
+    /** Fills the buffer from [position] when it does not hold that byte yet. */
+    private fun buffered(): Boolean {
+      if (position >= bufferStart && position < bufferStart + bufferCount) return true
+      raf.seek(position)
+      val n = raf.read(buffer)
+      bufferStart = position
+      bufferCount = if (n > 0) n else 0
+      return n > 0
+    }
   }
 }
 
 /**
  * Append-only writer for one frame log. Opening an existing file truncates it to the last valid
  * frame first, so a recording interrupted mid-write can be resumed.
+ *
+ * [writeFrame] is the raw write and exists so a test can make one fail part-way through; production
+ * code uses it as it is.
  */
-class FrameLogWriter(private val file: File, private val stream: Int) : AutoCloseable {
+class FrameLogWriter
+internal constructor(
+    private val file: File,
+    private val stream: Int,
+    private val writeFrame: (RandomAccessFile, ByteArray) -> Unit = { raf, frame -> raf.write(frame) },
+) : AutoCloseable {
   private val raf: RandomAccessFile
   var frames = 0L
     private set
 
   var bytes = 0L
+    private set
+
+  /** Frames a failed write cost, so the recording can account for the gap. */
+  var droppedFrames = 0L
     private set
 
   init {
@@ -140,13 +195,30 @@ class FrameLogWriter(private val file: File, private val stream: Int) : AutoClos
     }
   }
 
-  /** One `write()` per frame, so a process kill never loses an accepted frame. */
+  /**
+   * One `write()` per frame, so a process kill never loses an accepted frame.
+   *
+   * A failed write has already moved the file position, so the log is set back to the last whole
+   * frame before the error is rethrown: the next append continues from good data instead of behind
+   * the damaged bytes, and the lost frame is counted.
+   */
   @Synchronized
   fun append(payload: ByteArray) {
     val frame = FrameLog.frame(payload)
-    raf.write(frame)
-    frames++
-    bytes += frame.size
+    try {
+      writeFrame(raf, frame)
+      frames++
+      bytes += frame.size
+    } catch (e: IOException) {
+      droppedFrames++
+      try {
+        raf.setLength(bytes)
+      } catch (_: IOException) {}
+      try {
+        raf.seek(bytes)
+      } catch (_: IOException) {}
+      throw e
+    }
   }
 
   @Synchronized
