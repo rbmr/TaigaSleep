@@ -114,6 +114,7 @@ object ApiCode {
   const val RECORDING_COMPLETE = "recording_complete"
   const val RECORDING_IN_PROGRESS = "recording_in_progress"
   const val CHUNK_TOO_LARGE = "chunk_too_large"
+  const val STORAGE_QUOTA_EXCEEDED = "storage_quota_exceeded"
 }
 
 open class TaigaException(message: String, cause: Throwable? = null) : Exception(message, cause)

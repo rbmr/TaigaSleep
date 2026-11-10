@@ -102,6 +102,20 @@ Rules:
   beyond the upgrade procedure.
 - The note is written with the release, not after a user reports the problem.
 
+### backend-v0.6.8
+
+- What changed: a worker can read only the analysis it holds the lease of, with that
+  analysis's recording and files; `GET /v1/analyses` now returns only those for a worker.
+  A new `TAIGA_USER_QUOTA_GB` caps the bytes one account's recordings may hold, 10 GB by
+  default; an upload beyond it is refused with `413 storage_quota_exceeded`, which the
+  app shows as "Server storage full".
+- After upgrading: nothing, unless the quota should differ. Set `TAIGA_USER_QUOTA_GB` in
+  the API's environment before starting it; `0` removes the limit. The other limits keep
+  their defaults.
+- Without it: the default applies, so an account cannot upload past 10 GB of stored
+  recordings. A worker that reads an analysis outside its lease now gets `404`, so a
+  worker and an API from different versions are not a supported pair.
+
 ### backend-v0.6.7
 
 - What changed: the default `taigasleep-worker` image now contains the wav2sleep ECG

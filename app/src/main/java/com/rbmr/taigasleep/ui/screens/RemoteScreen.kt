@@ -585,6 +585,7 @@ private fun errorMessage(error: RemoteError): String =
       RemoteError.NotTaiga -> stringResource(R.string.remote_error_not_taiga)
       RemoteError.BadCredentials -> stringResource(R.string.remote_error_bad_credentials)
       RemoteError.SessionExpired -> stringResource(R.string.remote_error_session_expired)
+      RemoteError.StorageFull -> stringResource(R.string.remote_error_storage_full)
       is RemoteError.IncompatibleApi ->
           when {
             // A server from before API versioning answers with nothing, which is too old by

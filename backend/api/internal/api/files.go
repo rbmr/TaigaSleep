@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -116,6 +117,20 @@ func recordingSize(app core.App, record *core.Record) int64 {
 		total += view.Size
 	}
 	return total
+}
+
+// userStorageBytes is the stored size of every recording an account holds, which is
+// what the per-user quota counts.
+func userStorageBytes(app core.App, owner string) (int64, error) {
+	records, err := app.FindAllRecords("recordings", dbx.HashExp{"owner": owner})
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for _, record := range records {
+		total += recordingSize(app, record)
+	}
+	return total, nil
 }
 
 func streamBytes(app core.App, record *core.Record) int64 {
@@ -230,6 +245,15 @@ func PatchFile(e *core.RequestEvent) error {
 		}
 		if recordingSize(txApp, record)+int64(len(data)) > maxTotalBytes() {
 			return tooLarge("recording_too_large", fmt.Sprintf("a recording is at most %d bytes", maxTotalBytes()))
+		}
+		if quota := userQuotaBytes(); quota > 0 {
+			used, err := userStorageBytes(txApp, record.GetString("owner"))
+			if err != nil {
+				return err
+			}
+			if used+int64(len(data)) > quota {
+				return tooLarge("storage_quota_exceeded", fmt.Sprintf("this account holds at most %d GB of recordings", quota/(1024*1024*1024)))
+			}
 		}
 		if !exists {
 			entry = FileEntry{Encoding: encoding}

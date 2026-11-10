@@ -134,6 +134,15 @@ func claim(txApp core.App, worker string, lease int, algorithms []ClaimAlgorithm
 	return txApp.FindRecordById("analyses", rows[0].Id)
 }
 
+// leasesAnalysis reports whether the worker holds the lease of this analysis right now.
+func leasesAnalysis(worker string, record *core.Record) bool {
+	if record.GetString("status") != statusRunning || record.GetString("worker") != worker {
+		return false
+	}
+	lease := record.GetString("lease_until")
+	return lease != "" && lease > nowString()
+}
+
 // leasedAnalysis finds the analysis a worker is reporting on and checks that it still
 // holds the lease. Anything else is 409: the worker lost the work, e.g. because the
 // lease expired or the user deleted the analysis (404).

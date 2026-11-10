@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -440,6 +442,75 @@ func TestChunkLimits(t *testing.T) {
 	}
 }
 
+// seedStoredBytes puts a file of size bytes into a recording without uploading it, so
+// a test can reach a quota without sending gigabytes through the API.
+func seedStoredBytes(t *testing.T, s *server, id string, size int64) {
+	t.Helper()
+	dir := recordingDir(s.app, id)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(filepath.Join(dir, "hr.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(size); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	record, err := s.app.FindRecordById("recordings", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Set("files", map[string]FileEntry{"hr.log": {Encoding: encodingIdentity, UncompressedSize: size}})
+	if err := s.app.Save(record); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStorageQuota(t *testing.T) {
+	t.Setenv("TAIGA_USER_QUOTA_GB", "1")
+	s := newServer(t)
+	alice, bob := s.tokens["alice"], s.tokens["bob"]
+	quota := int64(1) * 1024 * 1024 * 1024
+
+	// One account whose recordings already fill the quota.
+	s.expect(201, http.MethodPut, "/v1/recordings/full", alice, testMeta("full", "recording"), nil)
+	seedStoredBytes(t, s, "full", quota)
+	s.expect(201, http.MethodPut, "/v1/recordings/more", alice, testMeta("more", "recording"), nil)
+	if st, _, body := appendChunk(s, alice, "more", "hr.log", 0, []byte("frames"), nil); st != 413 ||
+		decode[ErrorResponse](t, body).Code != "storage_quota_exceeded" {
+		t.Fatalf("upload beyond the quota = %d %s", st, body)
+	}
+
+	// The quota is per account: another account still uploads.
+	s.expect(201, http.MethodPut, "/v1/recordings/bobs", bob, testMeta("bobs", "recording"), nil)
+	if st, _, body := appendChunk(s, bob, "bobs", "hr.log", 0, []byte("frames"), nil); st != 204 {
+		t.Fatalf("another account = %d %s", st, body)
+	}
+
+	// Deleting the bytes makes room again.
+	s.expect(204, http.MethodDelete, "/v1/recordings/full", alice, nil, nil)
+	if st, _, body := appendChunk(s, alice, "more", "hr.log", 0, []byte("frames"), nil); st != 204 {
+		t.Fatalf("upload after freeing space = %d %s", st, body)
+	}
+}
+
+func TestZeroStorageQuotaIsUnlimited(t *testing.T) {
+	t.Setenv("TAIGA_USER_QUOTA_GB", "0")
+	s := newServer(t)
+	alice := s.tokens["alice"]
+	s.expect(201, http.MethodPut, "/v1/recordings/full", alice, testMeta("full", "recording"), nil)
+	seedStoredBytes(t, s, "full", int64(1024)*1024*1024*1024)
+	s.expect(201, http.MethodPut, "/v1/recordings/more", alice, testMeta("more", "recording"), nil)
+	if st, _, body := appendChunk(s, alice, "more", "hr.log", 0, []byte("frames"), nil); st != 204 {
+		t.Fatalf("quota 0 must not limit an upload: %d %s", st, body)
+	}
+}
+
 func TestAnalysisFlow(t *testing.T) {
 	s := newServer(t)
 	alice, bob, worker := s.tokens["alice"], s.tokens["bob"], s.tokens["worker"]
@@ -479,11 +550,15 @@ func TestAnalysisFlow(t *testing.T) {
 		t.Fatal("different params must be a different analysis")
 	}
 
-	// Another user sees nothing of it; the worker sees it.
+	// Another user sees nothing of it, and a worker only what it holds the lease of.
 	s.expectCode(404, "not_found", http.MethodGet, "/v1/analyses/"+analysis.ID, bob, nil, nil)
 	s.expectCode(404, "not_found", http.MethodDelete, "/v1/analyses/"+analysis.ID, bob, nil, nil)
-	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses?status=queued", worker, nil, nil)); got.Total != 2 {
-		t.Fatalf("worker sees %d queued", got.Total)
+	s.expectCode(404, "not_found", http.MethodGet, "/v1/analyses/"+analysis.ID, worker, nil, nil)
+	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses?status=queued", worker, nil, nil)); got.Total != 0 {
+		t.Fatalf("a worker lists %d queued analyses it does not hold", got.Total)
+	}
+	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses", alice, nil, nil)); got.Total != 2 {
+		t.Fatalf("alice sees %d analyses", got.Total)
 	}
 	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses", bob, nil, nil)); got.Total != 0 {
 		t.Fatalf("bob sees %d analyses", got.Total)
@@ -491,11 +566,19 @@ func TestAnalysisFlow(t *testing.T) {
 
 	// A worker reads the recording only while it holds a lease.
 	s.expect(404, http.MethodGet, "/v1/recordings/"+id, worker, nil, nil)
+	s.expect(404, http.MethodGet, "/v1/recordings/"+id+"/files", worker, nil, nil)
+	s.expect(404, http.MethodGet, "/v1/recordings/"+id+"/files/hr.log", worker, nil, nil)
 	claimed := decode[AnalysisView](t, s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, ClaimRequest{Algorithms: []ClaimAlgorithm{{ID: "baseline", Version: "1.2.0"}}}, nil))
 	if claimed.Status != "running" || claimed.Attempts != 1 || claimed.ID != analysis.ID {
 		t.Fatalf("claimed = %+v", claimed)
 	}
 	s.expect(200, http.MethodGet, "/v1/recordings/"+id, worker, nil, nil)
+	if held := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses", worker, nil, nil)); held.Total != 1 || held.Items[0].ID != claimed.ID {
+		t.Fatalf("a worker holds %+v, want only %s", held, claimed.ID)
+	}
+	if read := decode[AnalysisView](t, s.expect(200, http.MethodGet, "/v1/analyses/"+claimed.ID, worker, nil, nil)); read.ID != claimed.ID {
+		t.Fatalf("worker read %+v", read)
+	}
 	s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/files", worker, nil, nil)
 	if got := s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/files/hr.log", worker, nil, nil); string(got) != "frames" {
 		t.Fatalf("worker read %q", got)
@@ -512,6 +595,8 @@ func TestAnalysisFlow(t *testing.T) {
 		t.Fatalf("a rejected result must fail the analysis: %+v", failed)
 	}
 	s.expectCode(409, "not_leased", http.MethodPost, "/v1/analyses/"+analysis.ID+"/complete", worker, CompleteRequest{Result: mustJSON(t, validResult("baseline", "1.2.0"))}, nil)
+	// The lease is gone, so the worker can no longer read the analysis either.
+	s.expect(404, http.MethodGet, "/v1/analyses/"+analysis.ID, worker, nil, nil)
 
 	// Asking again for a failed analysis replaces it with a fresh queued one.
 	retry := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, request, nil))
@@ -543,6 +628,10 @@ func TestAnalysisFlow(t *testing.T) {
 		t.Fatalf("summary = %v", summary)
 	}
 	s.expect(404, http.MethodGet, "/v1/recordings/"+id, worker, nil, nil) // lease is over
+	s.expect(404, http.MethodGet, "/v1/analyses/"+next.ID, worker, nil, nil)
+	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses", worker, nil, nil)); got.Total != 0 {
+		t.Fatalf("a worker still lists %d analyses after the lease", got.Total)
+	}
 
 	// Lists leave the result out unless asked.
 	list := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/analyses?status=succeeded", alice, nil, nil))

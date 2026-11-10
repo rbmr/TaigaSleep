@@ -3,6 +3,7 @@ package api
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pocketbase/pocketbase/tools/types"
@@ -18,6 +19,7 @@ const (
 	defaultMaxUploadChunkMB             = 8
 	defaultMaxUploadUncompressedChunkMB = 16
 	defaultMaxMetaKB                    = 64
+	defaultUserQuotaGB                  = 10
 	maxUploadMembers                    = 10000
 	maxExpansionRatio                   = 200.0
 )
@@ -32,6 +34,21 @@ func envInt(name string, fallback int64) int64 {
 		return fallback
 	}
 	return parsed
+}
+
+// userQuotaBytes is the stored bytes one account may hold across all of its
+// recordings. TAIGA_USER_QUOTA_GB sets it in GB; 0 removes the limit; unset, negative
+// or not a whole number means the default.
+func userQuotaBytes() int64 {
+	value := strings.TrimSpace(os.Getenv("TAIGA_USER_QUOTA_GB"))
+	if value == "" {
+		return defaultUserQuotaGB * 1024 * 1024 * 1024
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < 0 {
+		return defaultUserQuotaGB * 1024 * 1024 * 1024
+	}
+	return parsed * 1024 * 1024 * 1024
 }
 
 func maxTotalBytes() int64 {

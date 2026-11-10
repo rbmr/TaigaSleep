@@ -277,6 +277,8 @@ func Routes() []openAPIRoute {
 			Description: "`Upload-Offset` must equal the stored size (0 creates the file); otherwise the answer is 409 " +
 				"`offset_mismatch` with the current offset in `Upload-Offset`. Send `Content-Encoding: gzip` for a chunk " +
 				"that is one complete gzip member, or nothing for plain bytes. A file's encoding is fixed by its first chunk. " +
+				"A chunk that would push the account's stored recordings beyond its quota (TAIGA_USER_QUOTA_GB) is refused " +
+				"with 413 `storage_quota_exceeded`. " +
 				"The backend stores the bytes as they are; checking frames is the worker's job.",
 			Access: accessUser,
 			Params: append(fileParams(),
@@ -342,7 +344,7 @@ func Routes() []openAPIRoute {
 		{
 			Method: http.MethodGet, Path: apiPrefix + "/analyses", OperationID: "listAnalyses", Tag: tagAnalyses,
 			Summary:     "List analyses across recordings",
-			Description: "A user sees their own; a worker sees all.",
+			Description: "A user sees their own; a worker sees only the analyses it holds the lease of.",
 			Access:      accessAny,
 			Params: append([]routeParam{
 				queryString("recording", "Only analyses of this recording."),
@@ -355,11 +357,12 @@ func Routes() []openAPIRoute {
 		},
 		{
 			Method: http.MethodGet, Path: apiPrefix + "/analyses/{id}", OperationID: "getAnalysis", Tag: tagAnalyses,
-			Summary:   "Get an analysis with its result",
-			Access:    accessAny,
-			Params:    []routeParam{pathParam("id", "The id of the analysis.")},
-			Responses: withErrors([]routeResponse{jsonResponse(200, "The analysis.", AnalysisView{})}, 401, 403, 404),
-			Handler:   GetAnalysis,
+			Summary:     "Get an analysis with its result",
+			Description: "A worker may read an analysis while it holds the lease of it.",
+			Access:      accessAny,
+			Params:      []routeParam{pathParam("id", "The id of the analysis.")},
+			Responses:   withErrors([]routeResponse{jsonResponse(200, "The analysis.", AnalysisView{})}, 401, 403, 404),
+			Handler:     GetAnalysis,
 		},
 		{
 			Method: http.MethodDelete, Path: apiPrefix + "/analyses/{id}", OperationID: "deleteAnalysis", Tag: tagAnalyses,

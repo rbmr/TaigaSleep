@@ -39,6 +39,12 @@ sealed interface RemoteError {
    */
   data class IncompatibleApi(val required: Int, val server: Int) : RemoteError
 
+  /**
+   * The server has no room left for the account: its storage quota is full. Waiting does not
+   * free space; the user frees it by deleting a recording.
+   */
+  data object StorageFull : RemoteError
+
   data class Http(val status: Int) : RemoteError
 
   data object MalformedResponse : RemoteError
@@ -55,6 +61,7 @@ val RemoteError.label: String
         RemoteError.NotTaiga -> "not_taiga"
         RemoteError.BadCredentials -> "bad_credentials"
         RemoteError.SessionExpired -> "session_expired"
+        RemoteError.StorageFull -> "storage_full"
         is RemoteError.IncompatibleApi -> "incompatible_api_${required}_$server"
         is RemoteError.Http -> "http_$status"
         RemoteError.MalformedResponse -> "malformed_response"
@@ -71,6 +78,7 @@ fun remoteErrorFromLabel(label: String?): RemoteError? =
       label == RemoteError.NotTaiga.label -> RemoteError.NotTaiga
       label == RemoteError.BadCredentials.label -> RemoteError.BadCredentials
       label == RemoteError.SessionExpired.label -> RemoteError.SessionExpired
+      label == RemoteError.StorageFull.label -> RemoteError.StorageFull
       label == RemoteError.MalformedResponse.label -> RemoteError.MalformedResponse
       label.startsWith("incompatible_api_") ->
           label.removePrefix("incompatible_api_").split('_').let { parts ->
@@ -81,6 +89,16 @@ fun remoteErrorFromLabel(label: String?): RemoteError? =
           }
       label.startsWith("http_") ->
           label.removePrefix("http_").toIntOrNull()?.let { RemoteError.Http(it) }
+      else -> null
+    }
+
+/**
+ * The app's own reason for an error answer when the server's code names a condition it has a
+ * message for, or null for a code the caller handles itself.
+ */
+fun remoteErrorForCode(code: String?): RemoteError? =
+    when {
+      code == ApiCode.STORAGE_QUOTA_EXCEEDED -> RemoteError.StorageFull
       else -> null
     }
 

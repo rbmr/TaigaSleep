@@ -33,7 +33,35 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
   ```
 
   `code` is a stable lowercase identifier a client may switch on, `message` is for a
-  person.
+  person. The codes a client acts on:
+
+  | Code | Status | Meaning |
+  | --- | --- | --- |
+  | `unauthorized` | 401 | No token, or a token the server does not accept. |
+  | `forbidden` | 403 | The token's role may not call this endpoint. |
+  | `not_found` | 404 | The resource does not exist, is not yours, or a worker does not hold its lease. |
+  | `too_many_attempts` | 429 | Too many failed logins; wait before trying again. |
+  | `id_taken` | 409 | That recording id belongs to another account. |
+  | `recording_incomplete` | 409 | An analysis was asked for before the recording was sealed. |
+  | `recording_in_progress` | 409 | The recording is still being recorded. |
+  | `recording_complete` | 409 | A sealed recording can no longer change. |
+  | `no_data` | 422 | The recording has no stream file, so it cannot be sealed. |
+  | `offset_mismatch` | 409 | An upload chunk does not start where the stored file ends; `Upload-Offset` says where it does. |
+  | `encoding_mismatch` | 409 | The chunk's encoding differs from the file's. |
+  | `chunk_too_large` | 413 | The chunk is over the server's chunk limit. |
+  | `file_too_large` | 413 | The file is over the server's per-file limit. |
+  | `recording_too_large` | 413 | The recording is over the server's per-recording limit. |
+  | `too_many_members` | 413 | A compressed file has too many gzip members. |
+  | `storage_quota_exceeded` | 413 | The chunk would take the account over its storage quota (`TAIGA_USER_QUOTA_GB`); deleting a recording frees room. |
+  | `unknown_algorithm` | 422 | No registered worker offers that algorithm and version. |
+  | `invalid_result` | 422 | A worker's result does not match the analysis or the contract envelope; the analysis is failed. |
+  | `not_leased` | 409 | The worker no longer holds the lease of the analysis. |
+  | `internal` | 500 | The server failed; it is logged, and retrying later is reasonable. |
+
+  The other codes name a malformed request, with the same shape: `invalid_body`,
+  `invalid_query`, `invalid_meta`, `invalid_id`, `invalid_algorithm`, `invalid_version`,
+  `invalid_params`, `invalid_offset`, `invalid_gzip`, `unsupported_encoding`,
+  `empty_chunk`, `unreadable_body`, `meta_too_large`, `too_many_algorithms`.
 - **Lists** take `limit` (default 50, at most 200) and `offset`, and answer
   `{ "items": [...], "limit": 50, "offset": 0, "total": 123 }`. Sorting is a documented
   `sort` parameter per endpoint; there is no free-form filter language.
@@ -106,12 +134,15 @@ sequence of complete gzip members, one per chunk, so appending stays valid.
 | --- | --- | --- |
 | `GET /v1/recordings/{id}/files` | user, worker with a lease | `{ "items": [{ "name", "size", "encoding", "uncompressed_size" }] }`. `size` is stored bytes. |
 | `HEAD /v1/recordings/{id}/files/{name}` | user, worker with a lease | `Upload-Offset` is the stored size, i.e. where to resume. `Content-Encoding` is the file's encoding. `404` for a file that does not exist yet. |
-| `PATCH /v1/recordings/{id}/files/{name}` | user | Appends the body. `Upload-Offset` must equal the stored size, else `409 offset_mismatch` with the current `Upload-Offset` in the response. `Content-Encoding: gzip` for a gzip member, absent for plain bytes; a file's encoding is fixed by its first chunk. Offset 0 creates the file. `204` with `Upload-Offset` set to the new size. `409 recording_complete`, `413 chunk_too_large`. |
+| `PATCH /v1/recordings/{id}/files/{name}` | user | Appends the body. `Upload-Offset` must equal the stored size, else `409 offset_mismatch` with the current `Upload-Offset` in the response. `Content-Encoding: gzip` for a gzip member, absent for plain bytes; a file's encoding is fixed by its first chunk. Offset 0 creates the file. `204` with `Upload-Offset` set to the new size. `409 recording_complete`, `413 chunk_too_large`, `413 storage_quota_exceeded`. |
 | `GET /v1/recordings/{id}/files/{name}` | user, worker with a lease | The file. A compressed file is inflated unless the request says `Accept-Encoding: gzip`, in which case it is sent as stored with `Content-Encoding: gzip`. |
 | `DELETE /v1/recordings/{id}/files/{name}` | user | Removes one file, e.g. to restart it. `409` once complete. |
 
 Limits (total size, chunk size, expansion ratio) are server configuration, documented in
-the backend README, and answered with `413`.
+the backend README, and answered with `413`. An account also has a storage quota
+(`TAIGA_USER_QUOTA_GB`, 10 GB by default, `0` for none): a chunk that would push the
+stored bytes of all its recordings over the quota is refused with
+`413 storage_quota_exceeded`, and deleting a recording frees the room again.
 
 ## Analyses
 
@@ -149,8 +180,8 @@ present depends on the data and the algorithm.
 | --- | --- | --- |
 | `POST /v1/recordings/{id}/analyses` | user | Body `{ "algorithm", "version"?, "params"? }`. The version defaults to the newest a worker offers, ignoring workers that stopped announcing themselves (`TAIGA_WORKER_TTL_S`, 900 s) unless none is left. Creates a queued analysis (`201`) or returns the existing one for the same recording, algorithm, version and params (`200`). A failed existing one is replaced by a fresh queued one (`201`), which is how a retry is made. `409 recording_incomplete` before the recording is sealed, `422 unknown_algorithm` when no worker offers it. |
 | `GET /v1/recordings/{id}/analyses` | user | Analyses of one recording. Without `result` unless `expand=result`. |
-| `GET /v1/analyses` | user, worker | Own analyses (user) or all (worker). Query: `recording`, `status`, `expand=result`, `sort` (`created`, `-created`). Without `result` unless expanded. |
-| `GET /v1/analyses/{id}` | user, worker | One analysis, with `summary` and `result`. |
+| `GET /v1/analyses` | user, worker | A user sees their own analyses; a worker sees only the ones it holds the lease of. Query: `recording`, `status`, `expand=result`, `sort` (`created`, `-created`). Without `result` unless expanded. |
+| `GET /v1/analyses/{id}` | user, worker | One analysis, with `summary` and `result`. A worker only while it holds the lease. |
 | `DELETE /v1/analyses/{id}` | user | Removes it; a running one is cancelled, and the worker's next call about it gets `404`. `204`. |
 
 ## Algorithms
@@ -162,9 +193,10 @@ present depends on the data and the algorithm.
 ## Worker
 
 The worker is a client with the `worker` role. It uses the endpoints above plus these.
-There are no worker-only copies of recording or file routes: a worker may read a recording
-and its files while it holds the lease of a `running` analysis of that recording, and not
-otherwise.
+There are no worker-only copies of recording or file routes, and a worker sees nothing
+outside the lease: while it holds a `running` analysis it may read that analysis, its
+recording and the recording's files, and nothing else. Everything else is `404`, so ids
+do not leak.
 
 | Method and path | Auth | Purpose |
 | --- | --- | --- |

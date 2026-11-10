@@ -4,6 +4,7 @@ import android.content.Context
 import com.rbmr.taigasleep.insights.AnalysisSettingsStore
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.ApiCode
 import com.rbmr.taigasleep.backend.CheckResult
 import com.rbmr.taigasleep.backend.RemoteError
@@ -12,6 +13,7 @@ import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaNetworkException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.label
+import com.rbmr.taigasleep.backend.remoteErrorForCode
 import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.RecordingRecovery
 import com.rbmr.taigasleep.recording.RecordingService
@@ -211,6 +213,17 @@ class UploadWorker(
       retryOrFail(store, localId, UploadFailure.NETWORK, e.message, account)
     } catch (e: TaigaHttpException) {
       when {
+        remoteErrorForCode(e.code) == RemoteError.StorageFull -> {
+          // The account's quota is full and waiting does not free space, so the upload fails
+          // instead of retrying; the user frees space by deleting a recording.
+          store.markFailed(
+              localId,
+              UploadFailure.SERVER,
+              context.getString(R.string.remote_error_storage_full),
+              account,
+          )
+          Result.failure()
+        }
         e.code == ApiCode.RECORDING_IN_PROGRESS -> {
           // The backend refuses a recording that is still open. The service will enqueue again.
           store.markQueued(localId, UploadFailure.RECORDING, e.message, account)
@@ -264,6 +277,7 @@ class UploadWorker(
         RemoteError.NotTaiga -> UploadFailure.LOGIN
         is RemoteError.IncompatibleApi -> UploadFailure.VERSION
         is RemoteError.Http,
+        RemoteError.StorageFull,
         RemoteError.MalformedResponse -> UploadFailure.SERVER
       }
 
