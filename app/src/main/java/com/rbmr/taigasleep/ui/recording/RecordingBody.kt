@@ -22,6 +22,7 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.insights.MetricSpec
+import com.rbmr.taigasleep.insights.sleepScoreCardState
 import com.rbmr.taigasleep.library.formatRecordingDate
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SecondaryButton
@@ -44,6 +45,7 @@ internal fun RecordingBody(
     onOpenAnalysis: () -> Unit,
     onOpenQuality: () -> Unit,
     onOpenSleepScore: () -> Unit,
+    onExplainScore: () -> Unit,
     onMetric: (MetricSpec) -> Unit,
     onExpand: (String) -> Unit,
 ) {
@@ -67,9 +69,10 @@ internal fun RecordingBody(
     }
     item {
       RecordingHeaderCard(
-          sleepScore = analysis?.items?.firstOrNull { it.id == "sleep_quality" }?.value,
+          state = analysis?.let(::sleepScoreCardState),
           processed = processed,
           onScoreClick = { if (run != null) onOpenSleepScore() },
+          onExplainExperimental = onExplainScore,
       )
     }
     if (state.remoteId != null) {

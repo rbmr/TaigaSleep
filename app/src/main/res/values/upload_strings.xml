@@ -155,12 +155,16 @@
   <string name="night_sleep_score_breakdown">Sleep score breakdown</string>
   <string name="night_sleep_score_formula">The score combines sleep efficiency, wake after sleep onset, awakenings per hour of sleep, time to fall asleep and the deep and REM share of sleep. Each component is scaled from 0 to 100 where a higher value is better. Missing components are removed and the remaining weights are renormalised; there is no target sleep duration.</string>
   <string name="night_sleep_score_unavailable">This saved result was created before sleep scores existed. Run the analysis again to calculate one.</string>
-  <string name="night_quality_formula">The data-quality score combines usable coverage, artifact-free epochs, stage confidence and heart-rate coverage. Missing components are removed and the remaining weights are renormalised.</string>
+  <string name="night_quality_formula">The data-quality score combines usable coverage, artifact-free epochs and heart-rate coverage. Missing components are removed and the remaining weights are renormalised.</string>
   <string name="night_quality_component_value">%1$d%% · weight %2$d%%</string>
   <string name="night_heart_rate_chart_description">Heart rate from %1$s to %2$s, between %3$d and %4$d bpm</string>
   <string name="night_heart_rate_no_samples">No valid heart-rate samples in this recording.</string>
   <string name="night_heart_rate_no_series">This saved result has no heart-rate curve. Run the analysis again to see one.</string>
   <string name="night_hrv_supporting">HRV uses %1$d clean RR intervals.</string>
   <string name="night_device_unknown">Unknown device</string>
+  <string name="night_sleep_score_experimental">Experimental</string>
+  <string name="night_sleep_score_experimental_description">Experimental sleep score. Tap to read what that means.</string>
+  <string name="night_sleep_score_experimental_body">Sleep stages come from a model that has not been checked against sleep-lab measurements on this sensor. How the score changes from night to night is more meaningful than the absolute number.</string>
+  <string name="night_sleep_score_not_enough_data">No sleep score: not enough good data</string>
 
 </resources>

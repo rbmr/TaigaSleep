@@ -55,8 +55,8 @@ on an x86_64 Linux laptop, CPU-only, baseline `1.2.0`:
 
 The baseline reports wake and sleep only: it does not separate deep, light, REM
 or NREM sleep and does not emit per-epoch confidence. Its data-quality score is
-renormalized without the stage-confidence component, and its sleep score without
-the restorative share that deep and REM would provide.
+built from coverage, artifacts and heart rate, and its sleep score without the
+restorative share that deep and REM would provide.
 
 This proves the measurement path and gives a lower bound for the baseline. It is
 **not** a real night, not an accuracy claim, and not representative of the ML
@@ -115,7 +115,7 @@ not report accuracy without ground-truth labels.
   is subprocess/import overhead.
 - **Peak RSS**: set `TAIGA_JOB_MEMORY_MB` above the measured peak with a margin.
   The limit is an address-space cap, not a reservation.
-- **Quality**: inspect the breakdown. A high score with low stage confidence or
+- **Quality**: inspect the breakdown. A high score with low usable coverage or
   low HR coverage is not a good result.
 - **Stage distribution**: compare algorithms on the same recording, not across
   different nights.

@@ -30,7 +30,7 @@ class WorkerResultFixtureTest {
   fun theFixtureIsTheWorkerContractNotAHandWrittenShape() {
     val result = result()
 
-    assertEquals(4, result.contract_version)
+    assertEquals(5, result.contract_version)
     assertEquals("baseline", result.model)
     assertNotNull(result.provenance)
     assertTrue(result.stages?.count ?: 0 > 0)
@@ -102,8 +102,9 @@ class WorkerResultFixtureTest {
     val result = result()
     val scores = result.items.filter { it.kind == "score" }.associateBy { it.id }
 
-    // The split-stage confidence and the restorative share need deep and REM, which this
-    // algorithm does not report, so the scores drop the components instead of inventing them.
+    // Stage confidence is not a data-quality component at all, and the restorative share needs
+    // deep and REM, which this algorithm does not report, so the scores drop the components
+    // instead of inventing them.
     assertTrue(scores.getValue("data_quality").components.none { it.id == "mean_stage_confidence" })
     assertTrue(
         scores.getValue("sleep_quality").components.none { it.id == "restorative_sleep_share" }

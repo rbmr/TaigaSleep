@@ -41,7 +41,6 @@ def test_metrics_from_a_known_stage_timeline(tmp_path: Path) -> None:
         grid,
         ["wake", "light", "deep", "rem"],
         AASM4_INFO,
-        confidence=[0.8, 0.8, 0.8, 0.8],
         artifacts=[False, False, False, False],
     )
 
@@ -74,8 +73,12 @@ def test_metrics_from_a_known_stage_timeline(tmp_path: Path) -> None:
     assert derived.support["hr_mean_bpm"]["status"] == "supported"
 
     quality = derived.quality
-    assert quality["score"] == 95.0
-    assert quality["components"]["mean_stage_confidence"]["value"] == 0.8
+    assert quality["score"] == 100.0
+    assert set(quality["components"]) == {
+        "usable_epoch_coverage",
+        "artifact_free_rate",
+        "hr_coverage",
+    }
     assert quality["notes"] == []
 
     sleep_quality = derived.sleep_quality
@@ -96,7 +99,6 @@ def test_wake_after_sleep_onset_and_awakenings(tmp_path: Path) -> None:
         grid,
         ["light", "wake", "light", "deep"],
         AASM4_INFO,
-        confidence=[1.0, 1.0, 1.0, 1.0],
     )
 
     assert derived.metrics["sleep_latency_s"] == 0.0
@@ -115,21 +117,22 @@ def test_only_wake_periods_longer_than_two_minutes_are_awakenings(
         grid,
         ["light"] + ["wake"] * 5 + ["light"],
         AASM4_INFO,
-        confidence=[1.0] * 7,
     )
 
     assert derived.metrics["waso_s"] == 150.0
     assert derived.metrics["awakenings"] == 1
 
 
-def test_quality_renormalizes_unavailable_confidence(tmp_path: Path) -> None:
+def test_the_quality_score_does_not_depend_on_stage_confidence(tmp_path: Path) -> None:
     recording = _recording(tmp_path)
     grid = recording.epochs(30)
-    derived = derive(recording, grid, ["light"] * 4, AASM4_INFO, confidence=None)
+    derived = derive(recording, grid, ["light"] * 4, AASM4_INFO)
 
+    components = derived.quality["components"]
+    assert set(components) == {"usable_epoch_coverage", "artifact_free_rate", "hr_coverage"}
+    assert all(component["available"] for component in components.values())
     assert derived.quality["score"] == 100.0
-    assert not derived.quality["components"]["mean_stage_confidence"]["available"]
-    assert any("mean_stage_confidence" in note for note in derived.quality["notes"])
+    assert derived.quality["weights_version"] == 2
 
 
 def test_sleep_score_renormalizes_without_split_deep_and_rem(tmp_path: Path) -> None:
@@ -165,7 +168,7 @@ def test_sleep_score_without_sleep_has_no_deceptive_value(tmp_path: Path) -> Non
 def test_missing_acc_is_an_unsupported_metric_not_a_failure(tmp_path: Path) -> None:
     recording = _recording(tmp_path, include_acc=False)
     grid = recording.epochs(30)
-    derived = derive(recording, grid, ["light"] * 4, AASM4_INFO, confidence=[1.0] * 4)
+    derived = derive(recording, grid, ["light"] * 4, AASM4_INFO)
 
     assert derived.metrics["movement_index"] is None
     assert derived.support["movement_index"]["status"] == "unsupported_device"
@@ -177,7 +180,7 @@ def test_missing_hr_is_unsupported_and_quality_is_renormalized(tmp_path: Path) -
     (tmp_path / "hr.log").unlink()
     recording = load_recording(tmp_path)
     grid = recording.epochs(30)
-    derived = derive(recording, grid, ["light"] * 4, AASM4_INFO, confidence=[1.0] * 4)
+    derived = derive(recording, grid, ["light"] * 4, AASM4_INFO)
 
     assert derived.metrics["hr_mean_bpm"] is None
     assert derived.support["hr_mean_bpm"]["status"] == "unsupported_device"
@@ -195,7 +198,6 @@ def test_narrowed_supported_stages_remove_unused_metrics(tmp_path: Path) -> None
         grid,
         ["wake", "rem", "nrem", "unknown"],
         sleepecg.INFO,
-        confidence=[0.8, 0.8, 0.8, None],
         artifacts=[False, False, False, True],
         supported_stages=("wake", "rem", "nrem", "unknown"),
     )

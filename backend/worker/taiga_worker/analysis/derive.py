@@ -23,13 +23,19 @@ from .contract import (
 
 SLEEP_STAGES: tuple[Stage, ...] = ("rem", "nrem", "light", "deep", "sleep")
 TIME_STAGES: tuple[Stage, ...] = ("wake", "rem", "nrem", "light", "deep", "sleep")
+# Stage confidence says how sure a stager is, not how good the data is, and it is uncalibrated
+# (a maximum softmax or a fixed constant), so it is not part of the data-quality score. The
+# remaining weights are the former 0.35/0.25/0.15 renormalised over their sum of 0.75.
 QUALITY_WEIGHTS = {
-    "usable_epoch_coverage": 0.35,
-    "artifact_free_rate": 0.25,
-    "mean_stage_confidence": 0.25,
-    "hr_coverage": 0.15,
+    "usable_epoch_coverage": 0.4667,
+    "artifact_free_rate": 0.3333,
+    "hr_coverage": 0.2,
 }
-QUALITY_WEIGHTS_VERSION = 1
+QUALITY_WEIGHTS_VERSION = 2
+# Below this data-quality score the sleep score rests on too little usable data to mean anything,
+# so it is withheld with the reason below instead of being shown anyway.
+MIN_QUALITY_FOR_SLEEP_SCORE = 50.0
+NOT_ENOUGH_GOOD_DATA = "not_enough_good_data"
 # A transparent, versioned product policy over the sleep figures. Each component
 # is scaled to 0..1 where higher is better; unavailable components are removed and
 # the remaining weights are renormalized. The score deliberately has no target
@@ -272,7 +278,6 @@ def derive(
     stages: Sequence[Stage],
     info: AlgorithmInfo,
     *,
-    confidence: Sequence[float | None] | None = None,
     artifacts: Sequence[bool] | None = None,
     beats_s: Sequence[float] | None = None,
     supported_stages: Sequence[Stage] | None = None,
@@ -386,7 +391,6 @@ def derive(
         grid,
         stage_values,
         info,
-        confidence=confidence,
         artifacts=artifacts,
     )
     sleep_quality = _sleep_quality(
@@ -398,7 +402,9 @@ def derive(
         latency=latency,
         waso=waso,
         awakenings=awakenings,
+        quality_score=quality["score"],
     )
+    support["sleep_quality"] = sleep_quality["support"]
 
     return Derived(
         metrics=metrics,
@@ -426,6 +432,7 @@ def _sleep_quality(
     latency: float | None,
     waso: float | None,
     awakenings: int | None,
+    quality_score: float | None,
 ) -> dict[str, Any]:
     sleep_hours = sleep_duration / 3600.0
     restorative_seconds: float | None = None
@@ -472,20 +479,33 @@ def _sleep_quality(
     available_weight = sum(
         component["weight"] for component in components.values() if component["available"]
     )
-    if available_weight <= 0:
-        score = None
-    else:
+    score = None
+    if available_weight > 0:
         score = 100.0 * sum(
             component["value"] * component["weight"]
             for component in components.values()
             if component["available"]
         ) / available_weight
 
+    # A score computed from too little good data would read as a statement about the night
+    # rather than about the recording, so it is withheld and the reason is recorded instead.
+    if quality_score is not None and quality_score < MIN_QUALITY_FOR_SLEEP_SCORE:
+        score = None
+        notes.append(
+            f"sleep score withheld; data quality {quality_score} is below "
+            f"{MIN_QUALITY_FOR_SLEEP_SCORE}"
+        )
+
     return {
         "score": None if score is None else round(score, 1),
         "components_version": SLEEP_SCORE_VERSION,
         "components": components,
         "notes": notes,
+        "support": (
+            _support("supported")
+            if score is not None
+            else _support("insufficient_data", NOT_ENOUGH_GOOD_DATA)
+        ),
     }
 
 
@@ -495,7 +515,6 @@ def _quality(
     stages: np.ndarray,
     info: AlgorithmInfo,
     *,
-    confidence: Sequence[float | None] | None,
     artifacts: Sequence[bool] | None,
 ) -> dict[str, Any]:
     required = [need.name for need in info.needs if need.required]
@@ -531,15 +550,6 @@ def _quality(
     usable_coverage = float(np.mean(usable)) if usable.size else 0.0
     artifact_free = float(1.0 - np.mean(artifact)) if artifact.size else None
 
-    confidence_values: np.ndarray | None = None
-    if confidence is not None:
-        raw = np.asarray([np.nan if value is None else float(value) for value in confidence])
-        if raw.size != grid.count:
-            raise ValueError("confidence count does not match the epoch grid")
-        finite = raw[np.isfinite(raw)]
-        if finite.size:
-            confidence_values = finite
-
     hr_coverage: float | None = None
     if recording.hr is not None and "hr" in grid.coverage:
         hr_coverage = float(np.mean(grid.coverage["hr"]))
@@ -548,7 +558,6 @@ def _quality(
     values = {
         "usable_epoch_coverage": usable_coverage,
         "artifact_free_rate": artifact_free,
-        "mean_stage_confidence": None if confidence_values is None else float(np.mean(confidence_values)),
         "hr_coverage": hr_coverage,
     }
     notes: list[str] = []
@@ -589,6 +598,8 @@ __all__ = [
     "derive",
     "QUALITY_WEIGHTS",
     "QUALITY_WEIGHTS_VERSION",
+    "MIN_QUALITY_FOR_SLEEP_SCORE",
+    "NOT_ENOUGH_GOOD_DATA",
     "AWAKENING_MIN_SECONDS",
     "MIN_SCORED_SHARE_FOR_EFFICIENCY",
     "SLEEP_SCORE_WEIGHTS",

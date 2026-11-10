@@ -143,10 +143,13 @@ A finished night reads as three sections, in this order:
 - **Data quality** — the data-quality score and its breakdown, with scored and
   unscored time.
 
-The sleep score is the prominent score in History and in the night header. The
-data-quality score is separate and explicitly labelled: it describes the
-recording and the analysis, not how well the night was slept. A movement block
-follows for results that contain accelerometer figures.
+The sleep score is the prominent score in History and in the night header. It is labelled
+Experimental, because the stages come from a model that has not been checked against sleep-lab
+measurements on this sensor; tapping the label says so, and that changes between nights matter
+more than the absolute number. When the data quality is too low the worker withholds the score,
+and the card shows the reason instead of a number. The data-quality score is separate and
+explicitly labelled: it describes the recording and the analysis, not how well the night was
+slept. A movement block follows for results that contain accelerometer figures.
 
 Both time charts draw an hourly grid with `HH:mm` labels, keep the plot above
 the grid, and support touch scrubbing: pressing a chart shows the time and the

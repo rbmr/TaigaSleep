@@ -71,6 +71,9 @@ client renders it without knowing the algorithm or a local catalog:
   never takes a difference across a gap in the RR data, and movement is measured from the night's
   median accelerometer magnitude. A result stored under an older contract version keeps the older
   definitions until it is analysed again.
+- Contract version 5 removed stage confidence from the data-quality score and withholds the sleep
+  score when the data quality is below 50 of 100. A result stored under an older contract version
+  keeps the older score until it is analysed again.
 
 ## Canonical stages and epochs
 
@@ -170,11 +173,11 @@ StagingResult(
   narrow the stages for this run. The set must be a subset of the manifest and
   decides which stage figures are emitted; for example a wake/rem/nrem run has
   no sleep-stage item instead of reporting zero.
-- `confidence` and `artifacts` are optional; the shared quality score accounts
-  for missing confidence by renormalizing its weight. `unknown` means the epoch
-  could not be scored; an epoch may still carry a stage while being flagged as
-  an artifact (for example a short electrode pop), so artifacts are not
-  necessarily unknown.
+- `confidence` and `artifacts` are optional. Confidence is kept on the timeline and reported
+  through `capabilities`, but the data-quality score does not use it: a stager's confidence is
+  not calibrated against the sensor, so it describes the model rather than the data. `unknown`
+  means the epoch could not be scored; an epoch may still carry a stage while being flagged as
+  an artifact (for example a short electrode pop), so artifacts are not necessarily unknown.
 - `probabilities` is optional. If confidence is absent, it is derived from the
   maximum probability.
 - `beats_s` is optional and lets an ECG algorithm improve HRV without changing
@@ -215,17 +218,19 @@ offset does not read as movement.
 ### Data-quality score
 
 The data-quality score is a `score` item with id `data_quality`. It uses the
-tunable formula from issue #10:
+tunable formula from issue #10, without stage confidence since contract version 5:
 
 ```text
-100 * (0.35 * usable epoch coverage
-     + 0.25 * (1 - artifact epoch rate)
-     + 0.25 * mean stage confidence
-     + 0.15 * HR coverage)
+100 * (0.4667 * usable epoch coverage
+     + 0.3333 * (1 - artifact epoch rate)
+     + 0.2 * HR coverage)
 ```
 
-Unavailable components are removed and the remaining weights are renormalized.
-The item carries the surviving components, so the app can explain the score.
+Stage confidence is not a component: it says how sure a stager is, not how good
+the data is, and it is uncalibrated. The weights are the former 0.35/0.25/0.15
+renormalised over their sum of 0.75. Unavailable components are removed and the
+remaining weights are renormalized. The item carries the surviving components, so
+the app can explain the score.
 
 ### Sleep score
 
@@ -245,6 +250,12 @@ higher. A component is unavailable when the data or algorithm cannot produce it,
 for example when an algorithm cannot split deep and REM. Unavailable components
 are removed and the remaining weights are renormalized. The score deliberately
 has no target sleep duration: duration is reported as its own item.
+
+Below a data-quality score of 50 out of 100 the sleep score is withheld. A score
+computed from too little good data would read as a statement about the night
+rather than about the recording. The result then carries no `sleep_quality` item,
+and the derivation records `insufficient_data` with the reason
+`not_enough_good_data` for it. The stages and the other figures are unaffected.
 
 ```json
 {
