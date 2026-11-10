@@ -5,6 +5,7 @@ import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -28,6 +29,7 @@ class TaigaApiTest {
         OkHttpTaigaApi(
             baseUrl = server.url("/").toString().trimEnd('/'),
             token = "test-token",
+            client = HttpClients(OkHttpClient()).api,
         )
   }
 

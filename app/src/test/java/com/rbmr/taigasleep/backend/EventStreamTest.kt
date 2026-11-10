@@ -128,6 +128,7 @@ class SseParserTest {
 
 class OkHttpEventTransportTest {
   private lateinit var server: MockWebServer
+  private val clients = HttpClients(OkHttpClient())
   private val baseUrl: String
     get() = server.url("/").toString().trimEnd('/')
 
@@ -159,7 +160,7 @@ class OkHttpEventTransportTest {
         )
     )
 
-    val events = OkHttpEventTransport().open(baseUrl, "tok").toList()
+    val events = OkHttpEventTransport(clients.events).open(baseUrl, "tok").toList()
 
     assertEquals(
         listOf(
@@ -175,7 +176,7 @@ class OkHttpEventTransportTest {
   fun `the request is an authenticated stream request`() = runBlocking {
     server.enqueue(stream(": connected\n\n"))
 
-    OkHttpEventTransport().open(baseUrl, "secret-token").toList()
+    OkHttpEventTransport(clients.events).open(baseUrl, "secret-token").toList()
 
     val request = server.takeRequest()
     assertEquals("GET", request.method)
@@ -194,7 +195,7 @@ class OkHttpEventTransportTest {
       val seen = mutableListOf<RemoteEvent>()
       val failure =
           assertThrows(TaigaUnauthorizedException::class.java) {
-            runBlocking { OkHttpEventTransport().open(baseUrl, "old").collect { seen += it } }
+            runBlocking { OkHttpEventTransport(clients.events).open(baseUrl, "old").collect { seen += it } }
           }
 
       assertEquals(code, failure.status)
@@ -208,7 +209,7 @@ class OkHttpEventTransportTest {
 
     val failure =
         assertThrows(TaigaHttpException::class.java) {
-          runBlocking { OkHttpEventTransport().open(baseUrl, "tok").toList() }
+          runBlocking { OkHttpEventTransport(clients.events).open(baseUrl, "tok").toList() }
         }
 
     assertEquals(503, failure.status)
@@ -223,7 +224,7 @@ class OkHttpEventTransportTest {
 
     val seen = mutableListOf<RemoteEvent>()
     assertThrows(TaigaMalformedException::class.java) {
-      runBlocking { OkHttpEventTransport().open(baseUrl, "tok").collect { seen += it } }
+      runBlocking { OkHttpEventTransport(clients.events).open(baseUrl, "tok").collect { seen += it } }
     }
 
     // A page is not a connection: nothing may react to it.
@@ -237,7 +238,7 @@ class OkHttpEventTransportTest {
     gone.shutdown()
 
     assertThrows(TaigaNetworkException::class.java) {
-      runBlocking { OkHttpEventTransport().open(url, "tok").toList() }
+      runBlocking { OkHttpEventTransport(clients.events).open(url, "tok").toList() }
     }
   }
 
@@ -258,10 +259,11 @@ class OkHttpEventTransportTest {
   @Test
   fun `the read timeout is longer than the server's keepalive`() {
     val keepaliveSeconds = 20
-    assertTrue(defaultEventClient().readTimeoutMillis > keepaliveSeconds * 1000)
-    assertEquals(60_000, defaultEventClient().readTimeoutMillis)
+    val client = clients.events
+    assertTrue(client.readTimeoutMillis > keepaliveSeconds * 1000)
+    assertEquals(60_000, client.readTimeoutMillis)
     // The stream has no deadline of its own.
-    assertEquals(0, defaultEventClient().callTimeoutMillis)
+    assertEquals(0, client.callTimeoutMillis)
   }
 
   @Test

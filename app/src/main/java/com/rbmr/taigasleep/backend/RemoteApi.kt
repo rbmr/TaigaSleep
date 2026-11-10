@@ -2,7 +2,6 @@ package com.rbmr.taigasleep.backend
 
 import com.rbmr.taigasleep.BuildConfig
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -34,7 +33,7 @@ class RemoteHttpException(val status: Int) : Exception("HTTP $status")
 
 /** OkHttp plus kotlinx.serialization against the `/v1` routes from docs/api.md. */
 class OkHttpRemoteApi(
-    private val client: OkHttpClient = defaultRemoteClient(),
+    private val client: OkHttpClient,
     private val userAgent: String = "taiga-sleep-android/${BuildConfig.VERSION_NAME}",
 ) : RemoteApi {
   private val json = Json { ignoreUnknownKeys = true }
@@ -248,10 +247,3 @@ private data class MeDto(
 
 /** The `Authorization` header value; the API wants the token as a bearer credential. */
 internal fun bearer(token: String): String = "Bearer $token"
-
-private fun defaultRemoteClient(): OkHttpClient =
-    OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .callTimeout(30, TimeUnit.SECONDS)
-        .build()

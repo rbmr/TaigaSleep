@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.backend
 
+import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -13,7 +14,7 @@ import org.junit.Test
 /** The real OkHttp client against a fake `/v1` API, so routing and error mapping are covered. */
 class RemoteApiTest {
   private lateinit var server: MockWebServer
-  private val api = OkHttpRemoteApi()
+  private val api = OkHttpRemoteApi(HttpClients(OkHttpClient()).remote)
 
   private val baseUrl: String
     get() = server.url("/").toString().trimEnd('/')
