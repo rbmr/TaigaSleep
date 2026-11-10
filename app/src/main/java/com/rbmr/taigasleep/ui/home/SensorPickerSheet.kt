@@ -171,12 +171,12 @@ internal fun SensorPickerSheet(
           Icon(Icons.Outlined.Sensors, contentDescription = null)
           Spacer(Modifier.width(12.dp))
           Text(s.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-          Text(
-              text =
-                  if (s.kind == SensorKind.SIMULATED) stringResource(R.string.rec_scan_debug)
-                  else "${s.rssi} dBm",
-              style = MaterialTheme.typography.bodyMedium,
-          )
+          if (s.kind == SensorKind.SIMULATED) {
+            Text(
+                text = stringResource(R.string.rec_scan_debug),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+          }
         }
       }
       if (!picker.scanning) {

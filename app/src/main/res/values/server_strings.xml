@@ -41,7 +41,7 @@
 
   <string name="server_logout">Log out</string>
   <string name="server_logout_title">Log out of the server?</string>
-  <string name="server_logout_body">Taiga forgets the saved token on this phone only; it is not revoked on the server. Recordings stay on the phone and finish normally.</string>
+  <string name="server_logout_body">Taiga logs out on this phone only; other devices stay logged in. Recordings stay on the phone and finish normally.</string>
   <string name="server_logout_confirm">Log out</string>
   <string name="server_cancel">Cancel</string>
 

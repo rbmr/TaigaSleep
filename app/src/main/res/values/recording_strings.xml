@@ -15,7 +15,7 @@
 
   <string name="rec_error_not_ready">Recording was not started: the phone would stop Taiga in the background. Fix the background settings first.</string>
   <string name="rec_error_no_sensor">Recording was not started: no sensor selected.</string>
-  <string name="rec_error_storage">Recording was not started: could not create the session on this phone.</string>
+  <string name="rec_error_storage">Recording was not started: could not create the recording on this phone.</string>
   <string name="rec_error_space">Recording was not started: the phone does not have enough free space for a night with these streams.</string>
   <string name="rec_error_mode">Recording was not started: this tracker cannot record with the chosen streams.</string>
   <string name="rec_error_fetch_missing">Could not fetch the recording: it is no longer waiting on this phone.</string>
@@ -106,7 +106,7 @@
   <string name="rec_stop_body">The recording is finished and saved on this phone.</string>
   <string name="rec_force_stop_title">Force stop?</string>
   <string name="rec_discard_title">Discard this recording?</string>
-  <string name="rec_discard_body">All data recorded in this session will be deleted from the phone. This cannot be undone.</string>
+  <string name="rec_discard_body">All data recorded so far will be deleted from the phone. This cannot be undone.</string>
   <string name="rec_discard_confirm">Discard</string>
   <string name="rec_cancel">Cancel</string>
   <string name="rec_fetch_pending_title">Night waiting on the tracker</string>

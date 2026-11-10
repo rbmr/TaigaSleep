@@ -21,9 +21,9 @@
   <string name="settings_group_server">Server</string>
   <string name="settings_group_analysis">Analysis</string>
   <string name="settings_analysis_auto_title">Analyze automatically</string>
-  <string name="settings_analysis_auto_body">Request the first compatible algorithm in the preferred order after an upload.</string>
+  <string name="settings_analysis_auto_body">Analyze each recording after it is uploaded, using the first algorithm in your preferred order.</string>
   <string name="settings_analysis_order_title">Preferred order</string>
-  <string name="settings_analysis_order_dialog_body">Move the algorithm you prefer to the top. Manual analyses ignore this order.</string>
+  <string name="settings_analysis_order_dialog_body">Move the algorithm you prefer to the top. Analyses you start yourself ignore this order.</string>
   <string name="settings_analysis_order_loading">Loading installed algorithms…</string>
   <string name="settings_analysis_order_error">Could not load the installed algorithms. The saved order is shown.</string>
   <string name="settings_analysis_order_empty">No algorithms are installed on this server.</string>
@@ -51,7 +51,7 @@
   <string name="about_title">About</string>
   <string name="about_back">Back</string>
   <string name="about_version">Version %1$s</string>
-  <string name="about_description">An open-source sleep tracker for Polar heart-rate sensors. Taiga records overnight data locally on your phone and can upload it to a self-hosted analysis service for sleep staging and history.</string>
+  <string name="about_description">An open-source sleep tracker for Polar heart-rate sensors. Taiga records overnight data locally on your phone and can upload it to your own server for sleep staging and history.</string>
   <string name="about_source_title">Source code</string>
   <string name="about_source_subtitle">github.com/rbmr/TaigaSleep</string>
   <string name="about_license_title">License</string>
