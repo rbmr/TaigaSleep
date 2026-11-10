@@ -517,6 +517,35 @@ class TaigaApiTest {
     assertEquals("/v1/algorithms", server.takeRequest().path)
   }
 
+  @Test
+  fun accessTokensAreCreatedWithANameAndListedWithoutTheSecret() = runBlocking {
+    server.enqueue(
+        json(
+            """{"id":"t1","name":"my assistant","hint":"wxyz","created":"2026-11-10T20:00:00Z",
+                "token":"ts_secret"}""",
+            code = 201,
+        )
+    )
+    server.enqueue(json("""{"items":[{"id":"t1","name":"my assistant","hint":"wxyz"}]}"""))
+    server.enqueue(MockResponse().setResponseCode(204))
+
+    val created = api.createAccessToken("my assistant")
+    val listed = api.listAccessTokens()
+    api.deleteAccessToken("t1")
+
+    assertEquals("ts_secret", created.token)
+    assertNull(listed.items.single().token)
+    val create = server.takeRequest()
+    assertEquals("POST", create.method)
+    assertEquals("/v1/tokens", create.path)
+    assertEquals("""{"name":"my assistant"}""", create.body.readUtf8())
+    assertEquals("Bearer test-token", create.getHeader("Authorization"))
+    assertEquals("/v1/tokens", server.takeRequest().path)
+    val delete = server.takeRequest()
+    assertEquals("DELETE", delete.method)
+    assertEquals("/v1/tokens/t1", delete.path)
+  }
+
   private fun json(body: String, code: Int = 200): MockResponse =
       MockResponse()
           .setResponseCode(code)

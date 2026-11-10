@@ -43,5 +43,11 @@ open class StubTaigaClient : TaigaClient {
   override suspend fun listAnalyses(recording: String?, limit: Int, offset: Int): AnalysisListDto =
       unexpected()
 
+  override suspend fun listAccessTokens(): AccessTokenListDto = unexpected()
+
+  override suspend fun createAccessToken(name: String): AccessTokenDto = unexpected()
+
+  override suspend fun deleteAccessToken(id: String): Unit = unexpected()
+
   private fun unexpected(): Nothing = throw UnsupportedOperationException()
 }

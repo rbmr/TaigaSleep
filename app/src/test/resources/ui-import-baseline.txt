@@ -40,6 +40,7 @@ screens/HistoryScreen.kt 1
 screens/PersonalData.kt 0
 screens/RemoteScreen.kt 7
 screens/SettingsScreen.kt 4
+screens/TokensScreen.kt 1
 theme/Color.kt 0
 theme/Theme.kt 0
 theme/ThemeMode.kt 0

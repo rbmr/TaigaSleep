@@ -81,6 +81,15 @@ interface TaigaClient {
       limit: Int = 200,
       offset: Int = 0,
   ): AnalysisListDto
+
+  /** The account's read-only access tokens. A token itself is never in a list. */
+  suspend fun listAccessTokens(): AccessTokenListDto
+
+  /** Creates a read-only access token; the answer is the only time its secret is visible. */
+  suspend fun createAccessToken(name: String): AccessTokenDto
+
+  /** Revokes a token, which stops it working at once. */
+  suspend fun deleteAccessToken(id: String)
 }
 
 /**
@@ -272,6 +281,20 @@ class OkHttpTaigaApi(
         if (recording == null) "/v1/analyses" else "/v1/recordings/${path(recording)}/analyses"
     val query = "limit=${limit.coerceIn(1, 200)}&offset=${offset.coerceAtLeast(0)}&sort=-created"
     return decode(execute(request("$base?$query").get().build()))
+  }
+
+  override suspend fun listAccessTokens(): AccessTokenListDto =
+      decode(execute(request("/v1/tokens").get().build()))
+
+  override suspend fun createAccessToken(name: String): AccessTokenDto {
+    val payload = buildJsonObject { put("name", name) }.toString()
+    return decode(
+        execute(request("/v1/tokens").post(payload.toRequestBody(JSON_MEDIA_TYPE)).build())
+    )
+  }
+
+  override suspend fun deleteAccessToken(id: String) {
+    execute(request("/v1/tokens/${path(id)}").delete().build())
   }
 
   private fun request(path: String): Request.Builder =
@@ -546,3 +569,19 @@ data class AlgorithmDto(
 
 @Serializable
 data class AlgorithmListDto(val items: List<AlgorithmDto> = emptyList())
+
+/**
+ * A read-only access token. [token] is set only in the answer that creates it: the server stores a
+ * hash, so a list shows the name, the [hint] and when it was made and nothing more.
+ */
+@Serializable
+data class AccessTokenDto(
+    val id: String = "",
+    val name: String = "",
+    /** The last characters of the token, to tell two tokens apart. */
+    val hint: String = "",
+    val created: String = "",
+    val token: String? = null,
+)
+
+@Serializable data class AccessTokenListDto(val items: List<AccessTokenDto> = emptyList())

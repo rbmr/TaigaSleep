@@ -67,4 +67,23 @@
 
   <string name="server_login_prompt">Server login needed</string>
   <string name="server_login_prompt_action">Log in</string>
+
+  <!-- Settings → Server → Access tokens -->
+  <string name="tokens_title">Access tokens</string>
+  <string name="tokens_body">Read-only tokens for an assistant or a script of your own. They can read your recordings, analyses and results and cannot change anything.</string>
+  <string name="tokens_name_label">Name</string>
+  <string name="tokens_create">Create token</string>
+  <string name="tokens_group">Your tokens</string>
+  <string name="tokens_empty">No access tokens yet.</string>
+  <string name="tokens_loading">Loading…</string>
+  <string name="tokens_no_account">Connect the server and log in to create an access token.</string>
+  <string name="tokens_row">Ends in %1$s · created %2$s</string>
+  <string name="tokens_created_title">Token created</string>
+  <string name="tokens_created_body">Copy this token now. It is shown once, because the server keeps only a hash of it.</string>
+  <string name="tokens_copy">Copy token</string>
+  <string name="tokens_copied">Copied</string>
+  <string name="tokens_done">Done</string>
+  <string name="tokens_revoke">Revoke</string>
+  <string name="tokens_revoke_title">Revoke this token?</string>
+  <string name="tokens_revoke_body">%1$s stops working at once. An assistant that uses it can no longer read your data.</string>
 </resources>

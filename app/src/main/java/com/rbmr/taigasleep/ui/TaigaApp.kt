@@ -40,6 +40,7 @@ import com.rbmr.taigasleep.ui.components.TaigaBottomBar
 import com.rbmr.taigasleep.ui.home.HomeScreen
 import com.rbmr.taigasleep.ui.recording.RecordingDetailScreen
 import com.rbmr.taigasleep.ui.screens.AboutScreen
+import com.rbmr.taigasleep.ui.screens.AccessTokensScreen
 import com.rbmr.taigasleep.ui.screens.FlowScreen
 import com.rbmr.taigasleep.ui.screens.HistoryScreen
 import com.rbmr.taigasleep.ui.screens.PersonalDataScreen
@@ -75,6 +76,7 @@ fun TaigaApp(
   var showAbout by rememberSaveable { mutableStateOf(false) }
   var showGuidance by rememberSaveable { mutableStateOf(false) }
   var showRemote by rememberSaveable { mutableStateOf(false) }
+  var showTokens by rememberSaveable { mutableStateOf(false) }
   var showPersonal by rememberSaveable { mutableStateOf(false) }
   var detailLocal by rememberSaveable { mutableStateOf<String?>(null) }
   var detailRemote by rememberSaveable { mutableStateOf<String?>(null) }
@@ -122,6 +124,7 @@ fun TaigaApp(
 
   when {
     showRemote -> RemoteScreen(onBack = { showRemote = false })
+    showTokens -> AccessTokensScreen(onBack = { showTokens = false })
     showPersonal -> PersonalDataScreen(onBack = { showPersonal = false })
     detailLocal != null || detailRemote != null ->
         RecordingDetailScreen(
@@ -189,6 +192,7 @@ fun TaigaApp(
                       onAboutClick = { showAbout = true },
                       onGuidanceClick = { showGuidance = true },
                       onRemoteClick = { showRemote = true },
+                      onTokensClick = { showTokens = true },
                       onPersonalClick = { showPersonal = true },
                   )
             }
