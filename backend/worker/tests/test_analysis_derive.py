@@ -5,10 +5,23 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from taiga_worker.analysis.algorithms import baseline
+from taiga_worker.analysis.contract import AASM4_STAGES, AlgorithmInfo, StreamNeed
 from taiga_worker.analysis.decode import load_recording
 from taiga_worker.analysis.derive import MOVEMENT_THRESHOLD_G, derive
 from tests import analysis_fixture as fx
+
+# Shared derivation is stage-scheme independent; this AASM4 manifest keeps these
+# tests on the five-stage scheme they describe.
+AASM4_INFO = AlgorithmInfo(
+    id="test-aasm4",
+    version="1.0.0",
+    name="Test AASM4",
+    description="AASM4 manifest for the shared derivation tests.",
+    license="MIT",
+    needs=(StreamNeed("hr", required=True), StreamNeed("acc", required=False)),
+    stage_scheme="aasm4",
+    supported_stages=AASM4_STAGES,
+)
 
 
 def _recording(tmp_path: Path, **kwargs):
@@ -27,7 +40,7 @@ def test_metrics_from_a_known_stage_timeline(tmp_path: Path) -> None:
         recording,
         grid,
         ["wake", "light", "deep", "rem"],
-        baseline.INFO,
+        AASM4_INFO,
         confidence=[0.8, 0.8, 0.8, 0.8],
         artifacts=[False, False, False, False],
     )
@@ -82,7 +95,7 @@ def test_wake_after_sleep_onset_and_awakenings(tmp_path: Path) -> None:
         recording,
         grid,
         ["light", "wake", "light", "deep"],
-        baseline.INFO,
+        AASM4_INFO,
         confidence=[1.0, 1.0, 1.0, 1.0],
     )
 
@@ -101,7 +114,7 @@ def test_only_wake_periods_longer_than_two_minutes_are_awakenings(
         recording,
         grid,
         ["light"] + ["wake"] * 5 + ["light"],
-        baseline.INFO,
+        AASM4_INFO,
         confidence=[1.0] * 7,
     )
 
@@ -112,7 +125,7 @@ def test_only_wake_periods_longer_than_two_minutes_are_awakenings(
 def test_quality_renormalizes_unavailable_confidence(tmp_path: Path) -> None:
     recording = _recording(tmp_path)
     grid = recording.epochs(30)
-    derived = derive(recording, grid, ["light"] * 4, baseline.INFO, confidence=None)
+    derived = derive(recording, grid, ["light"] * 4, AASM4_INFO, confidence=None)
 
     assert derived.quality["score"] == 100.0
     assert not derived.quality["components"]["mean_stage_confidence"]["available"]
@@ -141,7 +154,7 @@ def test_sleep_score_renormalizes_without_split_deep_and_rem(tmp_path: Path) -> 
 def test_sleep_score_without_sleep_has_no_deceptive_value(tmp_path: Path) -> None:
     recording = _recording(tmp_path)
     grid = recording.epochs(30)
-    derived = derive(recording, grid, ["wake"] * 4, baseline.INFO)
+    derived = derive(recording, grid, ["wake"] * 4, AASM4_INFO)
 
     assert derived.metrics["total_sleep_s"] == 0.0
     assert derived.sleep_quality["score"] == 0.0
@@ -152,7 +165,7 @@ def test_sleep_score_without_sleep_has_no_deceptive_value(tmp_path: Path) -> Non
 def test_missing_acc_is_an_unsupported_metric_not_a_failure(tmp_path: Path) -> None:
     recording = _recording(tmp_path, include_acc=False)
     grid = recording.epochs(30)
-    derived = derive(recording, grid, ["light"] * 4, baseline.INFO, confidence=[1.0] * 4)
+    derived = derive(recording, grid, ["light"] * 4, AASM4_INFO, confidence=[1.0] * 4)
 
     assert derived.metrics["movement_index"] is None
     assert derived.support["movement_index"]["status"] == "unsupported_device"
@@ -164,7 +177,7 @@ def test_missing_hr_is_unsupported_and_quality_is_renormalized(tmp_path: Path) -
     (tmp_path / "hr.log").unlink()
     recording = load_recording(tmp_path)
     grid = recording.epochs(30)
-    derived = derive(recording, grid, ["light"] * 4, baseline.INFO, confidence=[1.0] * 4)
+    derived = derive(recording, grid, ["light"] * 4, AASM4_INFO, confidence=[1.0] * 4)
 
     assert derived.metrics["hr_mean_bpm"] is None
     assert derived.support["hr_mean_bpm"]["status"] == "unsupported_device"
@@ -222,13 +235,13 @@ def test_a_block_of_unknown_epochs_does_not_change_efficiency(tmp_path: Path) ->
         without,
         without.epochs(30),
         ["wake", "wake", "light", "light", "light", "light"],
-        baseline.INFO,
+        AASM4_INFO,
     )
     with_block_derived = derive(
         with_block,
         with_block.epochs(30),
         ["wake", "wake", "light", "light", "unknown", "unknown", "light", "light"],
-        baseline.INFO,
+        AASM4_INFO,
     )
 
     assert without_derived.metrics["total_sleep_s"] == 120.0
@@ -249,7 +262,7 @@ def test_efficiency_is_unavailable_when_less_than_half_the_recording_is_scored(
         recording,
         grid,
         ["light", "unknown", "unknown", "unknown", "unknown", "light"],
-        baseline.INFO,
+        AASM4_INFO,
     )
 
     assert derived.metrics["scored_duration_s"] == 60.0
@@ -265,7 +278,7 @@ def test_efficiency_stays_available_at_exactly_half_scored_time(tmp_path: Path) 
         recording,
         grid,
         ["light", "light", "light", "unknown", "unknown", "unknown"],
-        baseline.INFO,
+        AASM4_INFO,
     )
 
     assert derived.metrics["sleep_efficiency"] == 1.0
@@ -280,13 +293,13 @@ def test_leading_unknown_epochs_do_not_change_latency(tmp_path: Path) -> None:
         without,
         without.epochs(30),
         ["wake", "light", "light", "light", "light"],
-        baseline.INFO,
+        AASM4_INFO,
     )
     with_leading_derived = derive(
         with_leading,
         with_leading.epochs(30),
         ["unknown", "unknown", "wake", "light", "light", "light", "light"],
-        baseline.INFO,
+        AASM4_INFO,
     )
 
     assert without_derived.metrics["sleep_latency_s"] == 30.0
@@ -309,7 +322,7 @@ def test_rr_data_with_a_gap_combines_the_halves_instead_of_spanning_the_gap(
         rr_per_sample=first + [()] * 10 + second,
     )
     grid = recording.epochs(30)
-    derived = derive(recording, grid, ["light"] * grid.count, baseline.INFO)
+    derived = derive(recording, grid, ["light"] * grid.count, AASM4_INFO)
 
     first_rr = [value for pair in first for value in pair]
     second_rr = [value for pair in second for value in pair]
@@ -350,8 +363,8 @@ def test_a_constant_accelerometer_offset_does_not_change_the_movement_classifica
     assert list(offset_moving) == list(plain_moving)
     assert abs(float(np.median(offset.acc.magnitude_g[: 30 * 50])) - 1.0) > MOVEMENT_THRESHOLD_G
 
-    plain_derived = derive(plain, plain_grid, stages, baseline.INFO)
-    offset_derived = derive(offset, offset_grid, stages, baseline.INFO)
+    plain_derived = derive(plain, plain_grid, stages, AASM4_INFO)
+    offset_derived = derive(offset, offset_grid, stages, AASM4_INFO)
     assert offset_derived.metrics["movement_epochs"] == plain_derived.metrics["movement_epochs"]
     assert offset_derived.metrics["movement_index"] == plain_derived.metrics["movement_index"]
     assert offset_grid.movement_g[1] < 0.001

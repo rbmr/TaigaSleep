@@ -23,7 +23,7 @@ fun selectStager(
   }
   // baseline is built into the worker and is the safe fallback when the algorithm list is empty,
   // the worker has not reported yet, or nothing reported can run on this recording.
-  return StagerChoice("baseline", "1.1.0")
+  return StagerChoice("baseline", "1.2.0")
 }
 
 /**

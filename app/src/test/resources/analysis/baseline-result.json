@@ -2,20 +2,18 @@
   "capabilities": {
     "artifacts": true,
     "beats": false,
-    "confidence": true,
+    "confidence": false,
     "needs": [
       "hr",
       "acc"
     ],
     "no_deep": false,
     "probabilities": false,
-    "stage_scheme": "aasm4",
+    "stage_scheme": "wake-sleep",
     "stages": true,
     "supported_stages": [
       "wake",
-      "rem",
-      "light",
-      "deep",
+      "sleep",
       "unknown"
     ]
   },
@@ -24,11 +22,8 @@
     "has_acc": true,
     "night_median_hr_bpm": 60.0,
     "params": {
-      "deep_hr_ratio": 0.9,
       "min_contact_fraction": 0.5,
       "min_hr_coverage": 0.5,
-      "rem_hr_std_bpm": 3.0,
-      "rem_movement_g": 0.04,
       "smooth_window_epochs": 7,
       "wake_movement_g": 0.08
     },
@@ -189,7 +184,7 @@
         "acc"
       ],
       "unit": "%",
-      "value": 12.5
+      "value": 0.0
     },
     {
       "explanation": "Average movement per epoch, the deviation from the night's median accelerometer magnitude.",
@@ -201,7 +196,7 @@
         "acc"
       ],
       "unit": "g",
-      "value": 0.025
+      "value": 0.0
     },
     {
       "explanation": "Number of epochs with movement above 0.08 g, measured from the night's median accelerometer magnitude.",
@@ -213,7 +208,7 @@
         "acc"
       ],
       "unit": "count",
-      "value": 1.0
+      "value": 0.0
     },
     {
       "explanation": "Time covered by a scored sleep stage.",
@@ -267,12 +262,6 @@
           "weight": 25.0
         },
         {
-          "id": "mean_stage_confidence",
-          "label": "Mean stage confidence",
-          "value": 56.9,
-          "weight": 25.0
-        },
-        {
           "id": "hr_coverage",
           "label": "Heart-rate coverage",
           "value": 100.0,
@@ -289,7 +278,7 @@
         "hr"
       ],
       "unit": "%",
-      "value": 89.2
+      "value": 100.0
     },
     {
       "components": [
@@ -316,12 +305,6 @@
           "label": "Time to fall asleep",
           "value": 100.0,
           "weight": 15.0
-        },
-        {
-          "id": "restorative_sleep_share",
-          "label": "Restorative sleep share",
-          "value": 0.0,
-          "weight": 15.0
         }
       ],
       "explanation": "Weighted average of the sleep figures below. A component whose data is unavailable is removed and the remaining weights are renormalised.",
@@ -333,7 +316,7 @@
         "stages"
       ],
       "unit": "%",
-      "value": 85.0
+      "value": 100.0
     },
     {
       "explanation": "Mean heart rate for each epoch. Gaps are epochs without a valid sample.",
@@ -373,13 +356,13 @@
     }
   ],
   "model": "baseline",
-  "model_version": "1.1.0",
+  "model_version": "1.2.0",
   "params": {},
   "params_hash": "44136fa355b3678a",
   "provenance": {
     "algorithm": {
       "id": "baseline",
-      "version": "1.1.0"
+      "version": "1.2.0"
     },
     "algorithm_source": "builtin",
     "citation": null,
@@ -471,23 +454,14 @@
       false,
       false
     ],
-    "confidence": [
-      0.719,
-      0.665,
-      0.61,
-      0.555,
-      0.5,
-      0.5,
-      0.5,
-      0.5
-    ],
+    "confidence": null,
     "count": 8,
     "epoch_seconds": 30,
     "probabilities": null,
     "segments": [
       {
         "count": 8,
-        "stage": "light"
+        "stage": "sleep"
       }
     ],
     "start_unix_ms": 1792798200000

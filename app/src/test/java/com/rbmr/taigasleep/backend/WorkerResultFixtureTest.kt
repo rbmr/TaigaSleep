@@ -87,11 +87,27 @@ class WorkerResultFixtureTest {
   }
 
   @Test
-  fun everySupportedStageIsDrawnEvenWhenItHasNoTime() {
+  fun onlyTheStagesTheAlgorithmSupportsAreDrawn() {
     val result = result()
     val stages = applicableStages(result.stages!!.segments, result.capabilities)
 
-    assertTrue(stages.containsAll(listOf("wake", "rem", "light", "deep")))
+    // Wake and sleep are supported, so both are drawn even though this night has no wake time.
+    // Deep, light, REM and NREM are declared unsupported and are not drawn.
+    assertEquals(listOf("wake", "sleep"), stages)
+    assertTrue(stages.none { it in setOf("light", "deep", "rem", "nrem") })
+  }
+
+  @Test
+  fun figuresTheAlgorithmCannotProduceAreAbsent() {
+    val result = result()
+    val scores = result.items.filter { it.kind == "score" }.associateBy { it.id }
+
+    // The split-stage confidence and the restorative share need deep and REM, which this
+    // algorithm does not report, so the scores drop the components instead of inventing them.
+    assertTrue(scores.getValue("data_quality").components.none { it.id == "mean_stage_confidence" })
+    assertTrue(
+        scores.getValue("sleep_quality").components.none { it.id == "restorative_sleep_share" }
+    )
   }
 
   @Test

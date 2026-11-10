@@ -1640,8 +1640,8 @@ def test_the_worker_announces_its_algorithms(api: Backend, baseline: str) -> Non
 
     assert entry["name"] and entry["license"]
     assert entry["epoch_seconds"] == 30
-    assert entry["stage_scheme"] == "aasm4"
-    assert "wake" in entry["supported_stages"]
+    assert entry["stage_scheme"] == "wake-sleep"
+    assert set(entry["supported_stages"]) == {"wake", "sleep", "unknown"}
     assert [need["name"] for need in entry["needs"]][0] == "hr"
     assert entry["params_schema"]["properties"]["smooth_window_epochs"]["type"] == "integer"
     assert entry["default_params"]["smooth_window_epochs"] == 7

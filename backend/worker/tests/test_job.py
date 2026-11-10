@@ -19,7 +19,7 @@ def test_analyze_returns_a_model_agnostic_result(tmp_path: Path) -> None:
             "id": "job1",
             "recording_dir": str(tmp_path),
             "model": "baseline",
-            "model_version": "1.1.0",
+            "model_version": "1.2.0",
             "params": {},
             "params_hash": "api-hash",
             "worker": "test-worker",
@@ -27,7 +27,7 @@ def test_analyze_returns_a_model_agnostic_result(tmp_path: Path) -> None:
     )
 
     assert result["model"] == "baseline"
-    assert result["model_version"] == "1.1.0"
+    assert result["model_version"] == "1.2.0"
     assert result["params_hash"] == "api-hash"
     assert result["stages"]["count"] == 2
     assert result["provenance"]["worker"] == "test-worker"
@@ -49,7 +49,7 @@ def test_provenance_records_the_upload_source(tmp_path: Path) -> None:
             "id": "job1",
             "recording_dir": str(tmp_path),
             "model": "baseline",
-            "model_version": "1.1.0",
+            "model_version": "1.2.0",
             "params": {},
             "worker": "test-worker",
             "source": source,

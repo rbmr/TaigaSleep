@@ -102,6 +102,20 @@ Rules:
   beyond the upgrade procedure.
 - The note is written with the release, not after a user reports the problem.
 
+### backend-v0.6.4
+
+- What changed: the baseline stager is now version `1.2.0` and reports wake and sleep only. It no
+  longer claims deep, light, REM or NREM sleep and declares them unsupported, and it no longer
+  carries per-epoch confidence, so the app shows no such stage figures or stage confidence for a
+  baseline result. The deep and REM rules and their parameters are gone; an analysis that passes
+  `deep_hr_ratio`, `rem_hr_std_bpm` or `rem_movement_g` now fails with `invalid_params`.
+- After upgrading: a new analysis request uses `1.2.0` and gets the wake/sleep result. Nights
+  analysed with baseline `1.1.0` before the upgrade keep their old payload until you delete their
+  analyses and request them again, as described under
+  [stale analysis results](../backend/README.md#stale-analysis-results-after-an-upgrade).
+- Without it: those nights still show deep, light and REM figures and fixed per-epoch confidences
+  that the current algorithm does not produce.
+
 ### backend-v0.6.3
 
 - What changed: several stored figures now mean something else without a change to their ids or
