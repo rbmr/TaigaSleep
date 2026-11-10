@@ -30,7 +30,7 @@ class WorkerResultFixtureTest {
   fun theFixtureIsTheWorkerContractNotAHandWrittenShape() {
     val result = result()
 
-    assertEquals(3, result.contract_version)
+    assertEquals(4, result.contract_version)
     assertEquals("baseline", result.model)
     assertNotNull(result.provenance)
     assertTrue(result.stages?.count ?: 0 > 0)

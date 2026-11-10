@@ -65,6 +65,12 @@ client renders it without knowing the algorithm or a local catalog:
   stage timeline stays the separate top-level `stages` block.
 - The data-quality score and the sleep score are `score` items. Their components carry the
   same id, label, weight and value the app shows in the breakdown.
+- Contract version 4 changed what several figures mean without changing their ids or shapes:
+  sleep efficiency is a share of scored time and is absent when less than half of the recording
+  could be scored, sleep latency starts at the first scored epoch, HRV uses sleep epochs only and
+  never takes a difference across a gap in the RR data, and movement is measured from the night's
+  median accelerometer magnitude. A result stored under an older contract version keeps the older
+  definitions until it is analysed again.
 
 ## Canonical stages and epochs
 
@@ -194,6 +200,17 @@ The shared layer derives, and then emits as items:
 - explicit support per figure: `supported`, `unsupported_device`,
   `insufficient_data`, or `unsupported_algorithm`, with a reason. Only
   supported figures become items.
+
+Efficiency is total sleep divided by scored time, and it is reported as
+`insufficient_data` with a reason when less than half of the recording could be
+scored. Latency runs from the first scored epoch, so leading `unknown` epochs do
+not count. WASO, awakenings and the final awakening stay on the recording
+timeline. HRV uses sleep epochs only: RMSSD is computed per uninterrupted stretch
+of RR data, so no successive difference spans a gap, and the stretches are
+combined weighted by beat count; SDNN is the standard deviation of all sleep RR
+intervals. Movement per epoch is the mean deviation from the night's median
+accelerometer magnitude rather than from a nominal 1 g, so a constant sensor
+offset does not read as movement.
 
 ### Data-quality score
 

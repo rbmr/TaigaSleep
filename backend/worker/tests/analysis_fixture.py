@@ -134,11 +134,14 @@ def hr_log(
     hr_values: Sequence[int] | None = None,
     contact: bool = True,
     rr_ms: Iterable[int] = (1000, 980, 1020),
+    rr_per_sample: Sequence[Iterable[int]] | None = None,
 ) -> bytes:
     data = bytearray(frame_header(STREAM_HR))
     values = list(hr_values) if hr_values is not None else [60] * duration_s
     if len(values) != duration_s:
         raise ValueError("hr_values must contain one value per second")
+    if rr_per_sample is not None and len(rr_per_sample) != duration_s:
+        raise ValueError("rr_per_sample must contain one entry per second")
     flags = 3 if contact else 1
     for second, value in enumerate(values):
         data += frame(
@@ -147,7 +150,7 @@ def hr_log(
                 second * 1_000_000_000,
                 value,
                 flags=flags,
-                rr_ms=rr_ms,
+                rr_ms=rr_ms if rr_per_sample is None else rr_per_sample[second],
             )
         )
     return bytes(data)
@@ -169,14 +172,16 @@ def acc_log(
     duration_s: int,
     rate_hz: int = 50,
     movement_windows: Sequence[tuple[float, float]] = (),
+    movement_mg: int = 500,
+    offset_mg: int = 0,
 ) -> bytes:
     n = max(1, duration_s * rate_hz)
     values: list[int] = []
     for index in range(n):
         second = index / rate_hz
         moving = any(start <= second < end for start, end in movement_windows)
-        x = 500 if moving else 0
-        values.extend([x, 0, 1000])
+        x = movement_mg if moving else 0
+        values.extend([x + offset_mg, offset_mg, 1000 + offset_mg])
     t_first = POLAR_START_NS
     t_last = POLAR_START_NS + (n - 1) * (1_000_000_000 // rate_hz)
     return frame_header(STREAM_ACC) + frame(
@@ -194,6 +199,9 @@ def write_recording(
     include_ecg: bool = True,
     include_acc: bool = True,
     movement_windows: Sequence[tuple[float, float]] = (),
+    movement_mg: int = 500,
+    acc_offset_mg: int = 0,
+    rr_per_sample: Sequence[Iterable[int]] | None = None,
     bad_hr_tail: bytes | None = None,
 ) -> Path:
     path = Path(root)
@@ -202,14 +210,21 @@ def write_recording(
         json.dumps(meta(session_id, duration_s=duration_s, ecg=include_ecg, acc=include_acc), indent=2),
         encoding="utf-8",
     )
-    hr = hr_log(duration_s=duration_s, hr_values=hr_values, contact=contact)
+    hr = hr_log(duration_s=duration_s, hr_values=hr_values, contact=contact, rr_per_sample=rr_per_sample)
     if bad_hr_tail:
         hr += bad_hr_tail
     (path / "hr.log").write_bytes(hr)
     if include_ecg:
         (path / "ecg.log").write_bytes(ecg_log(duration_s=duration_s))
     if include_acc:
-        (path / "acc.log").write_bytes(acc_log(duration_s=duration_s, movement_windows=movement_windows))
+        (path / "acc.log").write_bytes(
+            acc_log(
+                duration_s=duration_s,
+                movement_windows=movement_windows,
+                movement_mg=movement_mg,
+                offset_mg=acc_offset_mg,
+            )
+        )
     (path / "events.jsonl").write_bytes(
         event_line(START_NS, 0, "start", "recording started")
         + event_line(START_NS + duration_s * 1_000_000_000, duration_s * 1_000_000_000, "stop", "recording stopped")
