@@ -1,8 +1,8 @@
 # Recording uploads and results in the app
 
-This document describes the app side of issue #11: how a local recording reaches
-the optional backend, how its state is stored, and what happens to the files
-afterwards. Recording itself is unchanged and never depends on the network.
+This document describes how a local recording reaches the optional backend, how
+its state is stored, and what happens to the files afterwards. Recording itself
+is unchanged and never depends on the network.
 
 ## Local-first
 
@@ -36,8 +36,7 @@ There are two stores, and one owner per fact:
   to one account, so switching accounts switches what is shown without deleting anything.
 
 History and the night screen read the recordings from disk joined with those rows, in one
-query. The database is the only copy of them: no recording directory and no preference holds a
-second one.
+query. See [`architecture.md`](architecture.md#analyses-and-results).
 
 ## Automatic upload
 

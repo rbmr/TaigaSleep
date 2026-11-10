@@ -880,10 +880,9 @@ curl -fsS -G "$BASE/api/collections/analyses/records" \
 
 ## Out of scope
 
-Accuracy claims without ground-truth labels and the app-side upload and result
-UI (#11). The data-quality score and the sleep score are product policies over
-stages and metrics, implemented in the shared derive layer rather than in a
-stager. Optional compressed uploads (#24) are implemented and documented in
-[`docs/upload-compression.md`](../docs/upload-compression.md); they are the
-app's default and can be turned off.
+Accuracy claims without ground-truth labels. The data-quality score and the sleep
+score are product policies over stages and metrics, implemented in the shared derive
+layer rather than in a stager. Compressed uploads are implemented and documented in
+[`docs/upload-compression.md`](../docs/upload-compression.md); they are the app's
+default and can be turned off.
 

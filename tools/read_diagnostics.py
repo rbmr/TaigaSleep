@@ -3,8 +3,8 @@
 
 Usage: read_diagnostics.py <dir> [--gap SECONDS] [--all]
 
-<dir> is the folder pulled from the phone (diagnostics/ with diag_*.jsonl files), or a
-folder of unzipped exports. Stdlib only. See docs/diagnostics.md for the line format.
+<dir> is the folder pulled from the phone (diagnostics/ with diag_*.jsonl files).
+Stdlib only. See docs/diagnostics.md for the line format.
 
 Prints: process starts (with the verdict about the previous run), kills from ApplicationExitInfo,
 crashes, heartbeat gaps longer than --gap seconds (default 120), settings changes between

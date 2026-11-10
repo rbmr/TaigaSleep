@@ -155,7 +155,7 @@ after a clean finish; that shows up as an `exit_info` line, not as an unclean ve
   `elapsed_ms` advancing but no heartbeat during device sleep is not a kill; compare `pid` before
   and after.
 
-## Reading the files
+## Reading the directory
 
 Pull and read:
 

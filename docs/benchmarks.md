@@ -27,7 +27,7 @@ Useful options:
 
 | Option | Meaning |
 | --- | --- |
-| `--model` | Stager id. `baseline` is built in; `wav2sleep` is an optional extra (#23) and `sleep-ecg` is tracked in #22. |
+| `--model` | Stager id. `baseline` is built in; `wav2sleep` and `sleep-ecg` are optional extras. |
 | `--version` | Exact algorithm version. Omit for the latest installed version. |
 | `--params` | JSON object of algorithm parameters, e.g. `'{"wake_movement_g": 0.1}'`. |
 | `--memory-mb` | Address-space limit for the subprocess. `0` disables it. |
