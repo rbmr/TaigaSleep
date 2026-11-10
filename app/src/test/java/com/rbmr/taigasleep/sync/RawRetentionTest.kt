@@ -1,30 +1,43 @@
 package com.rbmr.taigasleep.sync
 
+import com.rbmr.taigasleep.sync.db.TaigaDatabase
+import com.rbmr.taigasleep.sync.db.storeScope
+import com.rbmr.taigasleep.sync.db.testDatabase
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
-/** A sync file per recording, kept in memory. */
-private class RetentionStorage : UploadRecordsStorage {
-  private val documents = mutableMapOf<String, String>()
-
-  override fun ids(): Set<String> = documents.keys
-
-  override fun read(id: String): String? = documents[id]
-
-  override fun write(id: String, json: String) {
-    documents[id] = json
-  }
-
-  override fun delete(id: String) {
-    documents.remove(id)
-  }
-}
-
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class RawRetentionTest {
+  private lateinit var database: TaigaDatabase
+  private lateinit var scope: CoroutineScope
+  private val accounts = MutableStateFlow<String?>("https://sleep.example|u1")
+
+  @Before
+  fun setUp() {
+    database = testDatabase()
+    scope = storeScope()
+  }
+
+  @After
+  fun tearDown() {
+    scope.cancel()
+    database.close()
+  }
+
   @Test
   fun theDefaultIsToKeepRawData() {
     assertEquals(RawRetentionMode.NEVER, RawRetentionMode.fromStored(null))
@@ -115,17 +128,18 @@ class RawRetentionTest {
   @Test
   fun `raw cleanup only counts a confirmation from the account it was made on`() {
     // The second account never received these bytes, so its state cannot allow a trim.
-    var active: String? = "https://sleep.example|u1"
-    val store = UploadStore(RetentionStorage()) { active }
-    store.markUploadConfirmed("r1")
-    val confirmed = store.record("r1")!!.uploadConfirmedAt()
+    val store = UploadStore(database.uploadStates(), accounts, scope)
+    val confirmed =
+        runBlocking {
+          store.markUploadConfirmed("r1")
+          store.record("r1")!!.uploadConfirmedAt()
+        }
     assertTrue(confirmed != null)
     assertTrue(isRawCleanupDue(RawRetentionMode.IMMEDIATE, confirmed!!, Long.MAX_VALUE))
 
-    active = "https://sleep.example|u2"
-    store.refreshAccount()
+    accounts.value = "https://sleep.example|u2"
 
-    assertNull(store.record("r1")?.uploadConfirmedAt())
+    assertNull(runBlocking { store.record("r1") }?.uploadConfirmedAt())
   }
 
   @Test

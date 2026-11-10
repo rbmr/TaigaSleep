@@ -4,6 +4,7 @@ plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
+  alias(libs.plugins.ksp)
 }
 
 // The release version and the backend contract revision live in one file. The
@@ -133,6 +134,10 @@ android {
   }
 }
 
+// Room writes the schema of every version next to the sources, so a later change to the database is
+// reviewed as a diff of the generated schema and migrations are written against what shipped.
+ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+
 dependencies {
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.activity.compose)
@@ -154,6 +159,9 @@ dependencies {
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.okhttp)
   implementation(libs.androidx.work.runtime.ktx)
+  implementation(libs.androidx.room.runtime)
+  implementation(libs.androidx.room.ktx)
+  ksp(libs.androidx.room.compiler)
 
   debugImplementation(libs.androidx.compose.ui.tooling)
 
@@ -161,4 +169,6 @@ dependencies {
   // The android.jar stub of org.json does nothing in JVM tests.
   testImplementation(libs.org.json)
   testImplementation(libs.okhttp.mockwebserver)
+  // Room needs the Android SQLite stack; Robolectric provides it in JVM tests.
+  testImplementation(libs.robolectric)
 }

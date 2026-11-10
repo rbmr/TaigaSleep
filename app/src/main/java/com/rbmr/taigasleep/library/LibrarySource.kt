@@ -25,7 +25,7 @@ interface RecordingSource : LibrarySource {
   fun recording(key: String): RecordingView?
 
   /** The full cached payload for one analysis, if it is on this phone. */
-  fun cachedResult(key: String, analysisId: String?): AnalysisDto?
+  suspend fun cachedResult(key: String, analysisId: String?): AnalysisDto?
 
   /** Refresh one recording and its analyses, once. */
   suspend fun refreshRecording(
@@ -44,5 +44,5 @@ interface RecordingSource : LibrarySource {
   fun selectAnalysis(recording: RecordingView, analysisId: String)
 
   /** Whether an account other than the active one already has this recording on its server. */
-  fun uploadedElsewhere(localId: String): Boolean
+  suspend fun uploadedElsewhere(localId: String): Boolean
 }

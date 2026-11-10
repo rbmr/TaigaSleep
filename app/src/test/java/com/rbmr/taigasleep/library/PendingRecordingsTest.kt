@@ -6,16 +6,13 @@ import com.rbmr.taigasleep.backend.RecordingSummaryDto
 import com.rbmr.taigasleep.backend.RecordingSummaryListDto
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
-import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
-import org.junit.rules.TemporaryFolder
 
 private fun recording(id: String = "r1", complete: Boolean = true) =
     RecordingDto(
@@ -49,8 +46,6 @@ private fun analysis(
 private const val ACCOUNT = "https://sleep.example|u1"
 
 class PendingRecordingsTest {
-  @get:Rule val temporary = TemporaryFolder()
-
   private fun summary(
       analyses: List<AnalysisDto>,
       id: String = "r1",
@@ -60,26 +55,27 @@ class PendingRecordingsTest {
   private fun record(key: String = "remote-r1", phase: UploadPhase) =
       UploadRecord(id = key, onServer = true, phase = phase)
 
-  /** A result cache holding one finished run of [key]. */
-  private fun cacheWith(key: String, analysisId: String): ResultCache =
-      ResultCache(temporary.newFolder("results")).also { cache ->
-        cache.save(ACCOUNT, key, analysisId, AnalysisDto(id = analysisId, status = "succeeded"))
-      }
+  /** The payload this phone holds for [key], as the database publishes it for the History row. */
+  private fun cacheWith(key: String, analysisId: String): Map<String, List<AnalysisDto>> =
+      mapOf(key to listOf(AnalysisDto(id = analysisId, status = "succeeded")))
 
   private fun pending(
       summaries: List<RecordingSummaryDto>,
       vararg records: UploadRecord,
       local: List<Recording> = emptyList(),
-      results: ResultCache? = null,
+      cachedResults: Map<String, List<AnalysisDto>> = emptyMap(),
   ): List<PendingRecording> {
     val byKey = records.associateBy { it.id }
     val nights =
         buildRecordings(
             recordings = local,
-            records = byKey,
-            remote = RecordingSummaryListDto(summaries),
-            results = results,
-            account = ACCOUNT,
+            entries =
+                libraryEntries(
+                    remote = RecordingSummaryListDto(summaries),
+                    records = byKey,
+                    cachedResults = cachedResults,
+                    localIds = local.map { it.id }.toSet(),
+                ),
         )
     return pendingRecordings(nights, byKey)
   }
@@ -90,7 +86,7 @@ class PendingRecordingsTest {
         pending(
             listOf(summary(listOf(analysis("a1", "succeeded")))),
             record(phase = UploadPhase.DONE),
-            results = cacheWith("remote-r1", "a1"),
+            cachedResults = cacheWith("remote-r1", "a1"),
         )
 
     assertTrue(result.isEmpty())
@@ -219,7 +215,7 @@ class PendingRecordingsTest {
                 summary(listOf(analysis("a3", "failed", error = "x")), id = "r3"),
             ),
             record(key = "remote-r1", phase = UploadPhase.DONE),
-            results = cacheWith("remote-r1", "a1"),
+            cachedResults = cacheWith("remote-r1", "a1"),
         )
 
     assertEquals(listOf("remote-r2"), result.map { it.key })

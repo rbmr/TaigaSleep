@@ -3,29 +3,25 @@ package com.rbmr.taigasleep.sync
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.StubTaigaClient
 import com.rbmr.taigasleep.backend.TaigaNetworkException
+import com.rbmr.taigasleep.sync.db.TaigaDatabase
+import com.rbmr.taigasleep.sync.db.UploadStateRow
+import com.rbmr.taigasleep.sync.db.storeScope
+import com.rbmr.taigasleep.sync.db.testDatabase
 import java.io.IOException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
-
-private class MemoryState : UploadRecordsStorage {
-  val documents = mutableMapOf<String, String>()
-
-  override fun ids(): Set<String> = documents.keys
-
-  override fun read(id: String): String? = documents[id]
-
-  override fun write(id: String, json: String) {
-    documents[id] = json
-  }
-
-  override fun delete(id: String) {
-    documents.remove(id)
-  }
-}
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /** A server that answers the one question the confirmation check asks. */
 private class ServerClient(
@@ -47,19 +43,48 @@ private class ServerClient(
 
 private const val ACCOUNT = "https://sleep.example|u1"
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class UploadConfirmationTest {
+  private lateinit var database: TaigaDatabase
+  private lateinit var scope: CoroutineScope
+  private val accounts = MutableStateFlow<String?>(ACCOUNT)
+
+  @Before
+  fun setUp() {
+    database = testDatabase()
+    scope = storeScope()
+  }
+
+  @After
+  fun tearDown() {
+    scope.cancel()
+    database.close()
+  }
+
   /**
    * What the old behaviour left behind: a confirmation time written as the last byte went out, and
    * an attempt that failed without hearing the server accept the recording.
    */
   private fun legacyStore(): UploadStore {
-    val storage = MemoryState()
-    storage.documents["r1"] =
-        """
-        {"id":"r1","onServer":true,"phase":"FAILED","progress":1.0,"failure":"NETWORK",
-         "errorDetail":"connection lost","updatedAtMs":2000,"uploadedAtMs":1000}
-        """
-    return UploadStore(storage, account = { ACCOUNT })
+    runBlocking {
+      database
+          .uploadStates()
+          .upsert(
+              UploadStateRow(
+                  account = ACCOUNT,
+                  recordingId = "r1",
+                  onServer = true,
+                  phase = UploadPhase.FAILED,
+                  progress = 1f,
+                  failure = UploadFailure.NETWORK,
+                  errorDetail = "connection lost",
+                  updatedAtMs = 2000,
+                  uploadedAtMs = 1000,
+              )
+          )
+    }
+    return UploadStore(database.uploadStates(), accounts, scope)
   }
 
   @Test

@@ -30,14 +30,14 @@ internal object UploadScheduler {
   const val KEY_RECORDING_ID = "recording_id"
   const val KEY_ACCOUNT = "account"
 
-  fun enqueueManual(context: Context, localId: String) {
+  suspend fun enqueueManual(context: Context, localId: String) {
     val account = context.appContainer.remoteRepository.accountKey ?: return
     val store = context.appContainer.uploadStore
     store.markQueued(localId, account = account)
     enqueue(context, localId, account, manualConstraints(), ExistingWorkPolicy.REPLACE)
   }
 
-  fun enqueueAuto(context: Context, localId: String) {
+  suspend fun enqueueAuto(context: Context, localId: String) {
     val settings = UploadSettings.get(context).autoUpload.value
     if (!settings.enabled) return
     val account = context.appContainer.remoteRepository.accountKey ?: return
@@ -58,15 +58,13 @@ internal object UploadScheduler {
   }
 
   /**
-   * Everything queued or running for the account that is ending: uploads, deletes and the polls an
-   * older version left behind. WorkManager cancels a running worker, so nothing that belongs to the
-   * old account reaches the new one.
+   * Everything queued or running for the account that is ending: uploads and deletes. WorkManager
+   * cancels a running worker, so nothing that belongs to the old account reaches the new one.
    */
   fun cancelAllWork(context: Context) {
     val manager = WorkManager.getInstance(context)
     manager.cancelAllWorkByTag(TAG_UPLOAD)
     manager.cancelAllWorkByTag(TAG_DELETE)
-    manager.cancelAllWorkByTag(LEGACY_TAG_POLL)
   }
 
   fun enqueueDelete(context: Context, recordingId: String) {
@@ -93,26 +91,17 @@ internal object UploadScheduler {
         .enqueueUniqueWork("delete-$recordingId", ExistingWorkPolicy.KEEP, request)
   }
 
-  /**
-   * Version 0.5 polled analyses from WorkManager under this tag. Nothing polls any more, so work an
-   * earlier version left queued is dropped instead of failing to start a worker class that is gone.
-   */
-  fun cancelLegacyPolls(context: Context) {
-    WorkManager.getInstance(context).cancelAllWorkByTag(LEGACY_TAG_POLL)
-  }
-
   /** Restore the remote-delete queue of the active account after a process restart. */
-  fun resumePendingDeletes(context: Context) {
+  suspend fun resumePendingDeletes(context: Context) {
     val account = context.appContainer.remoteRepository.accountKey ?: return
     val store = context.appContainer.pendingDeleteStore
-    store.refreshAccount()
     for (recordingId in store.remoteIds(account)) {
       enqueueDelete(context, recordingId, account)
     }
   }
 
   /** After an automatic-upload checkbox changes, apply it to the queued uploads. */
-  fun rescheduleAll(context: Context) {
+  suspend fun rescheduleAll(context: Context) {
     val local = context.appContainer.recordingStore.list()
     val manager = WorkManager.getInstance(context)
     val store = context.appContainer.uploadStore
@@ -208,5 +197,4 @@ internal object UploadScheduler {
 
   private const val TAG_UPLOAD = "recording-upload"
   private const val TAG_DELETE = "recording-delete"
-  private const val LEGACY_TAG_POLL = "analysis-poll"
 }

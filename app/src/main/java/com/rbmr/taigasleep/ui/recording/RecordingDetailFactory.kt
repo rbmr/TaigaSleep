@@ -22,7 +22,7 @@ interface RecordingWork {
   fun upload(localId: String)
 
   /** Whether an account other than the active one already has this recording on its server. */
-  fun uploadedElsewhere(localId: String): Boolean
+  suspend fun uploadedElsewhere(localId: String): Boolean
 
   /** The server and the account an upload goes to now. */
   fun uploadTarget(): UploadTarget?
@@ -70,7 +70,7 @@ class RecordingDetailFactory(
             sync.uploadNow(localId)
           }
 
-          override fun uploadedElsewhere(localId: String): Boolean =
+          override suspend fun uploadedElsewhere(localId: String): Boolean =
               app.appContainer.recordingLibrary.uploadedElsewhere(localId)
 
           override fun uploadTarget(): UploadTarget? {

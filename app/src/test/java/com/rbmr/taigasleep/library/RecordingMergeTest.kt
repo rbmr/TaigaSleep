@@ -13,28 +13,57 @@ import com.rbmr.taigasleep.backend.StageSummaryDto
 import com.rbmr.taigasleep.backend.StageTimelineDto
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
-import com.rbmr.taigasleep.recording.store.RecordingStore
-import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
 import com.rbmr.taigasleep.sync.RemoteHistoryCache
 import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.UploadStore
+import com.rbmr.taigasleep.sync.db.TaigaDatabase
+import com.rbmr.taigasleep.sync.db.storeScope
+import com.rbmr.taigasleep.sync.db.testDatabase
 import com.rbmr.taigasleep.sync.recordingIdOf
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
+import org.junit.Before
 import org.junit.Test
-import org.junit.rules.TemporaryFolder
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class RecordingMergeTest {
-  @get:Rule val temporary = TemporaryFolder()
-
   private val account = "https://sleep.example|me@example.com"
+  private val phoneIds = setOf("local")
+
+  private lateinit var database: TaigaDatabase
+  private lateinit var scope: CoroutineScope
+  private val accounts = MutableStateFlow<String?>(account)
+
+  @Before
+  fun setUp() {
+    database = testDatabase()
+    scope = storeScope()
+  }
+
+  @After
+  fun tearDown() {
+    scope.cancel()
+    database.close()
+  }
+
+  /** The upload state of the local recording, in the app's own tables. */
+  private fun uploadStore() = UploadStore(database.uploadStates(), accounts, scope)
 
   private val local =
       Recording(
@@ -47,11 +76,12 @@ class RecordingMergeTest {
           sensorName = "Polar H10",
       )
 
-  /** A result cache holding [runs] for the local night, as the app keeps finished payloads. */
-  private fun cacheWith(vararg runs: AnalysisDto): ResultCache =
-      ResultCache(temporary.newFolder("results")).also { cache ->
-        runs.forEach { run -> cache.save(account, "local", run.id, run) }
-      }
+  /** The payloads the app keeps for the local night, as the database publishes them. */
+  private fun cacheWith(vararg runs: AnalysisDto): Map<String, List<AnalysisDto>> {
+    val results = ResultCache(database.analysisResults())
+    runs.forEach { run -> runBlocking { results.save(account, "local", run.id, run) } }
+    return runBlocking { results.observe(account).first() }
+  }
 
   @Test
   fun aFinishedLocalResultSurvivesWithoutTheServer() {
@@ -72,10 +102,11 @@ class RecordingMergeTest {
     val night =
         buildRecordings(
                 listOf(local),
-                mapOf("local" to record),
-                null,
-                results = cache,
-                account = account,
+                libraryEntries(
+                    records = mapOf("local" to record),
+                    cachedResults = cache,
+                    localIds = phoneIds,
+                ),
             )
             .single()
 
@@ -89,21 +120,10 @@ class RecordingMergeTest {
   }
 
   @Test
-  fun anOldSyncFileStillShowsTheCachedResultAfterTheUpgrade() {
-    val root = temporary.newFolder("recordings")
-    val dir = File(root, "local").apply { mkdirs() }
-    // The file an older app left on the phone: sync state plus a copy of the analysis facts. The
-    // row must come from the cache below, not from the copy in the file.
-    File(dir, RecordingStore.SYNC_FILE)
-        .writeText(
-            """
-            {"id":"local","onServer":true,"analysisId":"a1","phase":"DONE","progress":1.0,
-             "epochSeconds":30,"segments":[{"stage":"deep","count":9}],"sleepScore":55.0,
-             "model":"baseline","modelVersion":"1.0.0","resultDownloaded":true,
-             "updatedAtMs":10,"uploadedAtMs":9}
-            """
-        )
-    val store = UploadStore(RecordingDirectoryStorage(root), account = { account })
+  fun aFinishedUploadShowsTheCachedResultAndNotAFactOfItsOwn() {
+    val store = uploadStore()
+    runBlocking { store.markDone("local") }
+    val uploaded = runBlocking { store.record("local")!! }
     val cache =
         cacheWith(
             succeeded("a1", algorithm = "baseline", version = "1.0.0")
@@ -113,10 +133,11 @@ class RecordingMergeTest {
     val night =
         buildRecordings(
                 listOf(local),
-                store.records.value,
-                null,
-                results = cache,
-                account = account,
+                libraryEntries(
+                    records = mapOf("local" to uploaded),
+                    cachedResults = cache,
+                    localIds = phoneIds,
+                ),
             )
             .single()
 
@@ -136,10 +157,12 @@ class RecordingMergeTest {
     val night =
         buildRecordings(
                 listOf(local),
-                mapOf("local" to record),
-                remote,
-                results = cache,
-                account = account,
+                libraryEntries(
+                    remote = remote,
+                    records = mapOf("local" to record),
+                    cachedResults = cache,
+                    localIds = phoneIds,
+                ),
             )
             .single()
 
@@ -171,7 +194,7 @@ class RecordingMergeTest {
             )
         )
 
-    val night = buildRecordings(listOf(local), emptyMap(), remote).single()
+    val night = buildRecordings(listOf(local), libraryEntries(remote, localIds = phoneIds)).single()
 
     assertEquals(RecordingStatus.READY, night.status)
     assertEquals("local", night.remoteId)
@@ -190,7 +213,7 @@ class RecordingMergeTest {
             )
         )
 
-    val night = buildRecordings(listOf(local), emptyMap(), remote).single()
+    val night = buildRecordings(listOf(local), libraryEntries(remote, localIds = phoneIds)).single()
 
     assertEquals(RecordingStatus.READY, night.status)
     assertNull(night.sleepScore)
@@ -200,7 +223,7 @@ class RecordingMergeTest {
   fun anUploadedNightWithoutAResultIsProcessing() {
     val remote = summaries(RecordingSummaryDto(recording = recording(), analyses = emptyList()))
 
-    val night = buildRecordings(listOf(local), emptyMap(), remote).single()
+    val night = buildRecordings(listOf(local), libraryEntries(remote, localIds = phoneIds)).single()
 
     assertEquals(RecordingStatus.PROCESSING, night.status)
   }
@@ -210,7 +233,7 @@ class RecordingMergeTest {
     val remote =
         summaries(RecordingSummaryDto(recording = recording(complete = false), analyses = emptyList()))
 
-    val night = buildRecordings(listOf(local), emptyMap(), remote).single()
+    val night = buildRecordings(listOf(local), libraryEntries(remote, localIds = phoneIds)).single()
 
     assertEquals(RecordingStatus.UPLOADING, night.status)
     assertEquals(BackupPhase.UPLOADING, night.backup.phase)
@@ -218,7 +241,7 @@ class RecordingMergeTest {
 
   @Test
   fun aLocalNightWithoutAServerCopyHasNoRemoteId() {
-    val night = buildRecordings(listOf(local), emptyMap(), null).single()
+    val night = buildRecordings(listOf(local), libraryEntries(localIds = phoneIds)).single()
 
     assertNull(night.remoteId)
     assertEquals(RecordingStatus.LOCAL_ONLY, night.status)
@@ -226,15 +249,11 @@ class RecordingMergeTest {
 
   @Test
   fun aNightTheServerNoLongerHasIsLocalOnlyAndKeepsItsSavedResult() {
-    val root = temporary.newFolder("recordings-gone")
-    val dir = File(root, "local").apply { mkdirs() }
-    File(dir, RecordingStore.SYNC_FILE)
-        .writeText(
-            """{"id":"local","onServer":true,"phase":"DONE","progress":1.0,
-             "updatedAtMs":10,"uploadedAtMs":9}"""
-        )
-    val store = UploadStore(RecordingDirectoryStorage(root))
-    store.markLocal("local")
+    val store = uploadStore()
+    runBlocking {
+      store.markDone("local")
+      store.markLocal("local")
+    }
     val cache =
         cacheWith(
             succeeded("a1", algorithm = "baseline", version = "1.0.0")
@@ -244,10 +263,11 @@ class RecordingMergeTest {
     val night =
         buildRecordings(
                 listOf(local),
-                store.records.value,
-                null,
-                results = cache,
-                account = account,
+                libraryEntries(
+                    records = mapOf("local" to runBlocking { store.record("local")!! }),
+                    cachedResults = cache,
+                    localIds = phoneIds,
+                ),
             )
             .single()
 
@@ -268,16 +288,13 @@ class RecordingMergeTest {
             ),
             RecordingSummaryDto(recording = recording(id = "kept")),
         )
-    val history =
-        RemoteHistoryCache(File(temporary.newFolder("history-gone"), "remote-recordings.json")) {
-          account
-        }
-    history.save(account, remote)
+    val history = RemoteHistoryCache(database.remoteRecordings())
+    runBlocking { history.save(account, remote) }
 
-    history.remove(account, "gone")
+    runBlocking { history.remove(account, "gone") }
+    val removed = runBlocking { history.removed(account) }
 
-    val nights =
-        buildRecordings(emptyList(), emptyMap(), remote, hiddenRemoteIds = history.removed.value)
+    val nights = buildRecordings(emptyList(), libraryEntries(remote, hiddenRemoteIds = removed))
     assertEquals(listOf("remote-kept"), nights.map { it.key })
   }
 
@@ -289,7 +306,7 @@ class RecordingMergeTest {
             RecordingSummaryDto(recording = recording(id = "other")),
         )
 
-    val nights = buildRecordings(listOf(local), emptyMap(), remote)
+    val nights = buildRecordings(listOf(local), libraryEntries(remote, localIds = phoneIds))
 
     assertEquals(listOf("local", "remote-other"), nights.map { it.key })
     assertEquals("local", nights.first { it.key == "local" }.localId)
@@ -311,7 +328,7 @@ class RecordingMergeTest {
             )
         )
 
-    val night = buildRecordings(emptyList(), emptyMap(), remote).single()
+    val night = buildRecordings(emptyList(), libraryEntries(remote)).single()
 
     assertEquals("remote-20261025_140000-ab12", night.key)
     assertNull(night.localId)
@@ -332,7 +349,8 @@ class RecordingMergeTest {
             RecordingSummaryDto(recording = recording(id = "kept")),
         )
 
-    val nights = buildRecordings(emptyList(), emptyMap(), remote, hiddenRemoteIds = setOf("gone"))
+    val nights =
+        buildRecordings(emptyList(), libraryEntries(remote, hiddenRemoteIds = setOf("gone")))
 
     assertEquals(listOf("remote-kept"), nights.map { it.key })
   }
@@ -341,7 +359,12 @@ class RecordingMergeTest {
   fun `a local night stays while its server copy is being deleted`() {
     val remote = summaries(RecordingSummaryDto(recording = recording(id = "local")))
 
-    val night = buildRecordings(listOf(local), emptyMap(), remote, hiddenRemoteIds = setOf("local")).single()
+    val night =
+        buildRecordings(
+                listOf(local),
+                libraryEntries(remote, hiddenRemoteIds = setOf("local"), localIds = phoneIds),
+            )
+            .single()
 
     // The server copy is on its way out; the night on the phone is still a night.
     assertEquals("local", night.localId)
@@ -374,7 +397,7 @@ class RecordingMergeTest {
             )
         )
 
-    val night = buildRecordings(listOf(local), emptyMap(), remote).single()
+    val night = buildRecordings(listOf(local), libraryEntries(remote, localIds = phoneIds)).single()
 
     assertEquals(3, night.analyses.size)
     assertEquals(RecordingStatus.READY, night.status)
@@ -403,7 +426,16 @@ class RecordingMergeTest {
             )
         )
 
-    val night = buildRecordings(listOf(local), mapOf("local" to record), remote).single()
+    val night =
+        buildRecordings(
+                listOf(local),
+                libraryEntries(
+                    remote = remote,
+                    records = mapOf("local" to record),
+                    localIds = phoneIds,
+                ),
+            )
+            .single()
 
     assertEquals("manual", night.analysisId)
   }
@@ -423,10 +455,11 @@ class RecordingMergeTest {
     val night =
         buildRecordings(
                 listOf(trimmed),
-                mapOf("local" to record),
-                null,
-                results = cache,
-                account = account,
+                libraryEntries(
+                    records = mapOf("local" to record),
+                    cachedResults = cache,
+                    localIds = phoneIds,
+                ),
             )
             .single()
 
@@ -441,7 +474,12 @@ class RecordingMergeTest {
     val record =
         UploadRecord(id = "local", onServer = true, phase = UploadPhase.QUEUED)
 
-    val night = buildRecordings(listOf(recording), mapOf("local" to record), null).single()
+    val night =
+        buildRecordings(
+                listOf(recording),
+                libraryEntries(records = mapOf("local" to record), localIds = phoneIds),
+            )
+            .single()
 
     assertEquals(RecordingStatus.RECORDING, night.status)
     assertTrue(night.isRecording)
@@ -477,9 +515,12 @@ class RecordingMergeTest {
     val night =
         buildRecordings(
                 listOf(local),
-                mapOf("local" to record),
-                remote,
-                selectedAnalysisIds = mapOf("local" to "failed"),
+                libraryEntries(
+                    remote = remote,
+                    records = mapOf("local" to record),
+                    selectedAnalysisIds = mapOf("local" to "failed"),
+                    localIds = phoneIds,
+                ),
             )
             .single()
 
@@ -515,9 +556,12 @@ class RecordingMergeTest {
     val night =
         buildRecordings(
                 listOf(local),
-                mapOf("local" to record),
-                remote,
-                selectedAnalysisIds = mapOf("local" to "running"),
+                libraryEntries(
+                    remote = remote,
+                    records = mapOf("local" to record),
+                    selectedAnalysisIds = mapOf("local" to "running"),
+                    localIds = phoneIds,
+                ),
             )
             .single()
 
@@ -546,10 +590,12 @@ class RecordingMergeTest {
     val night =
         buildRecordings(
                 listOf(local),
-                mapOf("local" to record),
-                remote,
-                results = cache,
-                account = account,
+                libraryEntries(
+                    remote = remote,
+                    records = mapOf("local" to record),
+                    cachedResults = cache,
+                    localIds = phoneIds,
+                ),
             )
             .single()
 
@@ -570,10 +616,11 @@ class RecordingMergeTest {
     val night =
         buildRecordings(
                 listOf(local),
-                mapOf("local" to record),
-                null,
-                results = cache,
-                account = account,
+                libraryEntries(
+                    records = mapOf("local" to record),
+                    cachedResults = cache,
+                    localIds = phoneIds,
+                ),
             )
             .single()
 
@@ -605,7 +652,16 @@ class RecordingMergeTest {
             )
         )
 
-    val night = buildRecordings(listOf(local), mapOf("local" to record), remote).single()
+    val night =
+        buildRecordings(
+                listOf(local),
+                libraryEntries(
+                    remote = remote,
+                    records = mapOf("local" to record),
+                    localIds = phoneIds,
+                ),
+            )
+            .single()
 
     assertEquals("a1", night.analysisId)
     assertEquals(AnalysisOrigin.MANUAL, night.selectedAnalysis?.origin)

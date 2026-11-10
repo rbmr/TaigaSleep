@@ -10,6 +10,8 @@ import com.rbmr.taigasleep.backend.TaigaNetworkException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import java.io.IOException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
@@ -24,11 +26,18 @@ import org.junit.Test
  * server changes.
  */
 class SyncServiceTest {
+  /**
+   * The service's steps that a caller does not wait for run on its scope; here they run at once, so
+   * what a call leads to is asserted right after it.
+   */
+  private fun service(environment: SyncEnvironment) =
+      SyncService(environment, CoroutineScope(Dispatchers.Unconfined))
+
   @Test
   fun `a finished recording is marked local and then queued`() {
     val environment = FakeEnvironment()
 
-    SyncService(environment).onRecordingFinished("r1")
+    service(environment).onRecordingFinished("r1")
 
     assertEquals(listOf("markLocal r1", "enqueueAuto r1"), environment.calls)
   }
@@ -37,7 +46,7 @@ class SyncServiceTest {
   fun `a finished recording with automatic upload off is only marked local`() {
     val environment = FakeEnvironment().apply { autoUpload = AutoUploadSettings(enabled = false) }
 
-    SyncService(environment).onRecordingFinished("r1")
+    service(environment).onRecordingFinished("r1")
 
     assertEquals(listOf("markLocal r1"), environment.calls)
   }
@@ -46,7 +55,7 @@ class SyncServiceTest {
   fun `a finished recording without a login is not queued`() {
     val environment = FakeEnvironment().apply { hasSession = false }
 
-    SyncService(environment).onRecordingFinished("r1")
+    service(environment).onRecordingFinished("r1")
 
     assertEquals(listOf("markLocal r1"), environment.calls)
   }
@@ -55,7 +64,7 @@ class SyncServiceTest {
   fun `a finished recording whose files are gone is not queued`() {
     val environment = FakeEnvironment().apply { files = false }
 
-    SyncService(environment).onRecordingFinished("r1")
+    service(environment).onRecordingFinished("r1")
 
     assertEquals(listOf("markLocal r1"), environment.calls)
   }
@@ -65,7 +74,7 @@ class SyncServiceTest {
     val environment = FakeEnvironment()
     environment.state["r1"] = UploadRecord(id = "r1", phase = UploadPhase.QUEUED)
 
-    SyncService(environment).onRecordingFinished("r1")
+    service(environment).onRecordingFinished("r1")
 
     assertEquals(listOf("enqueueAuto r1"), environment.calls)
   }
@@ -75,7 +84,7 @@ class SyncServiceTest {
     val environment = FakeEnvironment()
     environment.state["r1"] = UploadRecord(id = "r1", phase = UploadPhase.UPLOADING, progress = 0.4f)
 
-    SyncService(environment).delete("r1", "r1")
+    service(environment).delete("r1", "r1")
 
     assertEquals(listOf("cancelUploads r1", "deleteRecording r1 r1"), environment.calls)
   }
@@ -84,7 +93,7 @@ class SyncServiceTest {
   fun `deleting a night that is only on the server cancels no upload`() {
     val environment = FakeEnvironment()
 
-    SyncService(environment).delete(null, "server-1")
+    service(environment).delete(null, "server-1")
 
     assertEquals(listOf("deleteRecording null server-1"), environment.calls)
   }
@@ -93,7 +102,7 @@ class SyncServiceTest {
   fun `deleting nothing does nothing`() {
     val environment = FakeEnvironment()
 
-    SyncService(environment).delete(null, null)
+    service(environment).delete(null, null)
 
     assertEquals(listOf("deleteRecording null null"), environment.calls)
   }
@@ -104,7 +113,7 @@ class SyncServiceTest {
     environment.client = StubTaigaClient()
     environment.started = listOf(StartedAnalysis("a-baseline", "queued"))
 
-    val result = SyncService(environment).requestAnalysis("r1", "baseline")
+    val result = service(environment).requestAnalysis("r1", "baseline")
 
     assertTrue(result.isSuccess)
     assertEquals(
@@ -117,7 +126,7 @@ class SyncServiceTest {
   fun `requesting an analysis without a login asks for nothing`() = runBlocking {
     val environment = FakeEnvironment()
 
-    val result = SyncService(environment).requestAnalysis("r1", "baseline")
+    val result = service(environment).requestAnalysis("r1", "baseline")
 
     assertEquals("login required", result.exceptionOrNull()?.message)
     assertEquals(emptyList<String>(), environment.calls)
@@ -129,7 +138,7 @@ class SyncServiceTest {
     environment.client = StubTaigaClient()
     environment.requestFailure = TaigaNetworkException(IOException("offline"))
 
-    val result = SyncService(environment).requestAnalysis("r1", "baseline")
+    val result = service(environment).requestAnalysis("r1", "baseline")
 
     assertTrue(result.exceptionOrNull() is TaigaNetworkException)
     assertEquals(listOf("startManual r1 baseline"), environment.calls)
@@ -139,7 +148,7 @@ class SyncServiceTest {
   fun `a refresh without a login does not call the server`() = runBlocking {
     val environment = FakeEnvironment()
 
-    val result = SyncService(environment).refresh("remote-r1", listOf("a1"))
+    val result = service(environment).refresh("remote-r1", listOf("a1"))
 
     assertEquals("login required", result.exceptionOrNull()?.message)
     assertEquals(emptyList<String>(), environment.calls)
@@ -151,7 +160,7 @@ class SyncServiceTest {
     environment.client = StubTaigaClient()
     environment.refreshFailure = TaigaUnauthorizedException(401, "the session expired")
 
-    val result = SyncService(environment).refresh("r1")
+    val result = service(environment).refresh("r1")
 
     assertTrue(result.isFailure)
     assertEquals(listOf("refresh r1", "logout"), environment.calls)
@@ -161,7 +170,7 @@ class SyncServiceTest {
   fun `an interrupted delete queue is restored before the uploads`() = runBlocking {
     val environment = FakeEnvironment()
 
-    SyncService(environment).reconcileAll()
+    service(environment).reconcileAll()
 
     assertEquals(listOf("resumePendingDeletes", "reconcileUploads"), environment.calls)
   }
@@ -173,7 +182,7 @@ class SyncServiceTest {
     environment.refreshFailure = TaigaHttpException(404, "recording not found")
     environment.state["r1"] = UploadRecord(id = "r1", onServer = true, phase = UploadPhase.DONE)
 
-    val result = SyncService(environment).refresh("r1")
+    val result = service(environment).refresh("r1")
 
     assertTrue(result.exceptionOrNull() is RecordingNotOnServerException)
     assertEquals(listOf("refresh r1", "markLocal r1"), environment.calls)
@@ -187,7 +196,7 @@ class SyncServiceTest {
     environment.client = StubTaigaClient()
     environment.refreshFailure = TaigaHttpException(404, "recording not found")
 
-    val result = SyncService(environment).refresh("remote-r1")
+    val result = service(environment).refresh("remote-r1")
 
     assertTrue(result.exceptionOrNull() is RecordingNotOnServerException)
     assertEquals(listOf("refresh remote-r1"), environment.calls)
@@ -199,7 +208,7 @@ class SyncServiceTest {
     environment.client = StubTaigaClient()
     environment.refreshFailure = TaigaNetworkException(IOException("offline"))
 
-    val result = SyncService(environment).refresh("r1")
+    val result = service(environment).refresh("r1")
 
     assertTrue(result.exceptionOrNull() is TaigaNetworkException)
     assertEquals(listOf("refresh r1"), environment.calls)
@@ -209,7 +218,7 @@ class SyncServiceTest {
   fun `a retry keeps the analysis the screen is showing`() = runBlocking {
     val environment = FakeEnvironment()
 
-    SyncService(environment).retryAnalysis("r1", "a1")
+    service(environment).retryAnalysis("r1", "a1")
 
     assertEquals(listOf("retry r1 a1"), environment.calls)
   }
@@ -218,34 +227,35 @@ class SyncServiceTest {
   fun `the analysis list comes from the logged-in server`() = runBlocking {
     val environment = FakeEnvironment()
 
-    assertEquals("login required", SyncService(environment).installedAlgorithms().exceptionOrNull()?.message)
+    assertEquals("login required", service(environment).installedAlgorithms().exceptionOrNull()?.message)
 
     environment.client = StubTaigaClient()
-    assertTrue(SyncService(environment).installedAlgorithms().isSuccess)
+    assertTrue(service(environment).installedAlgorithms().isSuccess)
     assertEquals(listOf("installedAlgorithms"), environment.calls)
   }
 
   @Test
-  fun `a recording gone from the server is local again on the phone`() {
+  fun `a recording gone from the server is local again on the phone`() = runBlocking {
     val environment = FakeEnvironment()
     environment.state["r1"] = UploadRecord(id = "r1", onServer = true, phase = UploadPhase.DONE)
 
-    SyncService(environment).recordingGone("r1")
+    service(environment).recordingGone("r1")
 
     assertEquals(listOf("markLocal r1"), environment.calls)
     assertFalse(environment.state.getValue("r1").onServer)
   }
 
   @Test
-  fun `a recording gone from the server fails the night waiting for an analysis without a local copy`() {
-    val environment = FakeEnvironment().apply { files = false }
-    environment.state["remote-r1"] =
-        UploadRecord(id = "remote-r1", onServer = true, phase = UploadPhase.PROCESSING)
+  fun `a recording gone from the server fails the night waiting for an analysis without a local copy`() =
+      runBlocking {
+        val environment = FakeEnvironment().apply { files = false }
+        environment.state["remote-r1"] =
+            UploadRecord(id = "remote-r1", onServer = true, phase = UploadPhase.PROCESSING)
 
-    SyncService(environment).recordingGone("remote-r1", "recording not found")
+        service(environment).recordingGone("remote-r1", "recording not found")
 
-    assertEquals(listOf("markAnalysisFailed remote-r1 recording not found"), environment.calls)
-  }
+        assertEquals(listOf("markAnalysisFailed remote-r1 recording not found"), environment.calls)
+      }
 
   private companion object {
     const val SESSION_ACCOUNT = "https://sleep.example|u1"
@@ -267,24 +277,24 @@ class SyncServiceTest {
     var requestFailure: Exception? = null
     var refreshFailure: Exception? = null
 
-    override fun record(id: String, account: String?): UploadRecord? = state[id]
+    override suspend fun record(id: String, account: String?): UploadRecord? = state[id]
 
-    override fun markLocal(id: String, account: String?) {
+    override suspend fun markLocal(id: String, account: String?) {
       calls += "markLocal $id"
       state[id] = UploadRecord(id = id, phase = UploadPhase.LOCAL)
     }
 
-    override fun markProcessing(id: String, account: String?) {
+    override suspend fun markProcessing(id: String, account: String?) {
       calls += "markProcessing $id"
       state[id] = (state[id] ?: UploadRecord(id = id)).copy(phase = UploadPhase.PROCESSING)
     }
 
-    override fun markAnalysisFailed(id: String, detail: String?, account: String?) {
+    override suspend fun markAnalysisFailed(id: String, detail: String?, account: String?) {
       calls += "markAnalysisFailed $id $detail"
       state[id] = (state[id] ?: UploadRecord(id = id)).copy(phase = UploadPhase.FAILED)
     }
 
-    override fun markManualAnalysis(id: String, analysisId: String, account: String?) {
+    override suspend fun markManualAnalysis(id: String, analysisId: String, account: String?) {
       calls += "markManualAnalysis $id $analysisId"
     }
 
@@ -301,11 +311,11 @@ class SyncServiceTest {
 
     override fun config(id: String): RecordingConfig = streams
 
-    override fun enqueueAuto(id: String) {
+    override suspend fun enqueueAuto(id: String) {
       calls += "enqueueAuto $id"
     }
 
-    override fun enqueueManual(id: String) {
+    override suspend fun enqueueManual(id: String) {
       calls += "enqueueManual $id"
     }
 
@@ -317,7 +327,7 @@ class SyncServiceTest {
       calls += "enqueueDelete $remoteId"
     }
 
-    override fun resumePendingDeletes() {
+    override suspend fun resumePendingDeletes() {
       calls += "resumePendingDeletes"
     }
 
@@ -325,15 +335,11 @@ class SyncServiceTest {
       calls += "reconcileUploads"
     }
 
-    override fun rescheduleAll() {
+    override suspend fun rescheduleAll() {
       calls += "rescheduleAll"
     }
 
-    override fun cancelLegacyPolls() {
-      calls += "cancelLegacyPolls"
-    }
-
-    override fun deleteRecording(localId: String?, remoteId: String?) {
+    override suspend fun deleteRecording(localId: String?, remoteId: String?) {
       calls += "deleteRecording $localId $remoteId"
     }
 

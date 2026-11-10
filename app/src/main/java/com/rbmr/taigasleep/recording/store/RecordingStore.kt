@@ -166,7 +166,11 @@ class RecordingStore(val root: File) {
     /** The recorded stream files. meta.json and events.jsonl are not raw data. */
     val RAW_FILES = listOf("hr.log", "ecg.log", "acc.log")
 
-    /** The app's sync state for this recording, kept beside meta.json and not exported. */
+    /**
+     * The sync state an older version kept beside meta.json. The upload state lives in the database
+     * now, and the file is deleted once it is imported, so it is only excluded from an export while
+     * a phone has not finished that import.
+     */
     const val SYNC_FILE = "sync.json"
 
     fun of(context: Context): RecordingStore = context.appContainer.recordingStore

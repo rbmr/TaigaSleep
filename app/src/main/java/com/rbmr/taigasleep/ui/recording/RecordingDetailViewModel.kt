@@ -86,14 +86,16 @@ class RecordingDetailViewModel(
       _state.update { it.copy(loginRequested = true) }
       return
     }
-    // A recording another account already has is uploaded here only after the user agrees, and the
-    // confirmation names the server and the account it goes to.
-    val target = work.uploadTarget()
-    if (target != null && work.uploadedElsewhere(id)) {
-      _state.update { it.copy(uploadConfirmation = target) }
-      return
+    scope.launch {
+      // A recording another account already has is uploaded here only after the user agrees, and
+      // the confirmation names the server and the account it goes to.
+      val target = work.uploadTarget()
+      if (target != null && work.uploadedElsewhere(id)) {
+        _state.update { it.copy(uploadConfirmation = target) }
+        return@launch
+      }
+      startUpload(id)
     }
-    startUpload(id)
   }
 
   /** The user agreed to upload a recording another account already has. */
@@ -299,7 +301,7 @@ class RecordingDetailViewModel(
   }
 
   /** The selected run can change and its payload can arrive while the screen is open. */
-  private fun followSelectedResult(recording: RecordingView) {
+  private suspend fun followSelectedResult(recording: RecordingView) {
     val selected = recording.analysisId
     if (selected == lastSelected && recording.resultDownloaded == lastDownloaded) return
     val first = !observedRecording

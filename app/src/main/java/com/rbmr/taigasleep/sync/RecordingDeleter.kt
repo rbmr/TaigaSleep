@@ -17,7 +17,7 @@ import java.io.File
  * this runs, which is [SyncService]'s step.
  */
 internal object RecordingDeleter {
-  fun delete(context: Context, localId: String?, remoteId: String?) {
+  suspend fun delete(context: Context, localId: String?, remoteId: String?) {
     if (localId == null && remoteId == null) return
     val pending = context.appContainer.pendingDeleteStore
     val account = context.appContainer.remoteRepository.accountKey

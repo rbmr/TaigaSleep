@@ -4,30 +4,35 @@ import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.RecordingSummaryDto
 import com.rbmr.taigasleep.backend.RecordingSummaryListDto
-import java.io.File
-import java.nio.file.Files
+import com.rbmr.taigasleep.sync.db.TaigaDatabase
+import com.rbmr.taigasleep.sync.db.testDatabase
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+/** The server's list of every account and the run each recording shows, kept in the app's tables. */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class RemoteHistoryCacheTest {
-  private lateinit var root: File
+  private lateinit var database: TaigaDatabase
   private lateinit var cache: RemoteHistoryCache
-  private var active: String? = null
 
   @Before
   fun setUp() {
-    root = Files.createTempDirectory("taiga-history").toFile()
-    active = account
-    cache = RemoteHistoryCache(File(root, "history/remote-recordings.json")) { active }
+    database = testDatabase()
+    cache = RemoteHistoryCache(database.remoteRecordings())
   }
 
   @After
   fun tearDown() {
-    root.deleteRecursively()
+    database.close()
   }
 
   private val list =
@@ -42,9 +47,9 @@ class RemoteHistoryCacheTest {
 
   @Test
   fun theListComesBackForTheAccountThatSavedIt() {
-    cache.save("https://sleep.example|me@example.com", list)
+    runBlocking { cache.save("https://sleep.example|me@example.com", list) }
 
-    val loaded = cache.load("https://sleep.example|me@example.com")
+    val loaded = runBlocking { cache.load("https://sleep.example|me@example.com") }
 
     assertEquals("20261023_223000-k3f9", loaded?.items?.single()?.recording?.id)
     assertEquals("a1", loaded?.items?.single()?.analyses?.single()?.id)
@@ -52,102 +57,103 @@ class RemoteHistoryCacheTest {
 
   @Test
   fun anotherAccountNeverSeesIt() {
-    cache.save("https://sleep.example|me@example.com", list)
+    runBlocking { cache.save("https://sleep.example|me@example.com", list) }
 
-    assertNull(cache.load("https://sleep.example|you@example.com"))
-    assertNull(cache.load(""))
+    assertNull(runBlocking { cache.load("https://sleep.example|you@example.com") })
+    assertNull(runBlocking { cache.load("") })
   }
 
   @Test
-  fun aFileThatCannotBeReadIsIgnored() {
-    File(root, "history").mkdirs()
-    File(root, "history/remote-recordings.json").writeText("not json")
-
-    assertNull(cache.load("https://sleep.example|me@example.com"))
+  fun `an account that never saved a list has none`() {
+    assertNull(runBlocking { cache.load("https://sleep.example|me@example.com") })
+    assertTrue(runBlocking { cache.selected("https://sleep.example|me@example.com") }.isEmpty())
   }
 
   @Test
   fun `a completed delete removes the recording from the saved list`() {
-    cache.save(account, twoRecordings())
+    runBlocking { cache.save(account, twoRecordings()) }
 
-    cache.remove(account, "20261023_223000-k3f9")
+    runBlocking { cache.remove(account, "20261023_223000-k3f9") }
 
-    val saved = cache.load(account)
+    val saved = runBlocking { cache.load(account) }
     assertEquals(listOf("20261024_223000-m1a2"), saved?.items?.map { it.recording.id })
-    assertTrue("20261023_223000-k3f9" in cache.removed.value)
+    assertTrue("20261023_223000-k3f9" in runBlocking { cache.removed(account) })
   }
 
   @Test
   fun `a 404 on a remote-only recording removes it from the list`() {
     // This is the call the library makes for a 404, including for an entry that is only in memory.
-    cache.remove(account, "20261023_223000-k3f9")
+    runBlocking { cache.remove(account, "20261023_223000-k3f9") }
 
     val fetchedEarlier = twoRecordings()
-    val shown = fetchedEarlier.withoutRecordings(cache.removed.value)
+    val shown = fetchedEarlier.withoutRecordings(runBlocking { cache.removed(account) })
 
     assertEquals(listOf("20261024_223000-m1a2"), shown.items.map { it.recording.id })
   }
 
   @Test
   fun `removing the same recording twice changes nothing`() {
-    cache.save(account, twoRecordings())
+    runBlocking {
+      cache.save(account, twoRecordings())
 
-    cache.remove(account, "20261023_223000-k3f9")
-    cache.remove(account, "20261023_223000-k3f9")
+      cache.remove(account, "20261023_223000-k3f9")
+      cache.remove(account, "20261023_223000-k3f9")
+    }
 
-    assertEquals(1, cache.load(account)?.items?.size)
+    assertEquals(1, runBlocking { cache.load(account) }?.items?.size)
   }
 
   @Test
   fun `a recording that is still on the phone can return after it is uploaded again`() {
-    cache.save(account, twoRecordings())
+    runBlocking {
+      cache.save(account, twoRecordings())
 
-    cache.remove(account, "20261023_223000-k3f9", keepOut = false)
+      cache.remove(account, "20261023_223000-k3f9", keepOut = false)
+    }
 
-    assertEquals(1, cache.load(account)?.items?.size)
-    assertTrue(cache.removed.value.isEmpty())
+    assertEquals(1, runBlocking { cache.load(account) }?.items?.size)
+    assertTrue(runBlocking { cache.removed(account) }.isEmpty())
   }
 
   @Test
   fun `the run a night shows comes back with the list`() {
-    cache.save(account, twoRecordings())
+    runBlocking {
+      cache.save(account, twoRecordings())
 
-    cache.select(account, "20261023_223000-k3f9", "a1")
+      cache.select(account, "20261023_223000-k3f9", "a1")
+    }
 
-    assertEquals(mapOf("20261023_223000-k3f9" to "a1"), cache.selected(account))
+    assertEquals(
+        mapOf("20261023_223000-k3f9" to "a1"),
+        runBlocking { cache.selected(account) },
+    )
     // A later fetch of the list keeps the choice.
-    cache.save(account, twoRecordings())
-    assertEquals("a1", cache.selected(account)["20261023_223000-k3f9"])
+    runBlocking { cache.save(account, twoRecordings()) }
+    assertEquals("a1", runBlocking { cache.selected(account) }["20261023_223000-k3f9"])
   }
 
   @Test
   fun `another account never sees the selection`() {
-    cache.save(account, twoRecordings())
-    cache.select(account, "20261023_223000-k3f9", "a1")
+    runBlocking {
+      cache.save(account, twoRecordings())
+      cache.select(account, "20261023_223000-k3f9", "a1")
+    }
 
-    assertTrue(cache.selected("https://sleep.example|you@example.com").isEmpty())
-    assertTrue(cache.selected("").isEmpty())
+    assertTrue(runBlocking { cache.selected("https://sleep.example|you@example.com") }.isEmpty())
+    assertTrue(runBlocking { cache.selected("") }.isEmpty())
   }
 
   @Test
   fun `the choice leaves when the recording is deleted`() {
-    cache.save(account, twoRecordings())
-    cache.select(account, "20261023_223000-k3f9", "a1")
-    cache.select(account, "remote-20261023_223000-k3f9", "a1")
+    runBlocking {
+      cache.save(account, twoRecordings())
+      cache.select(account, "20261023_223000-k3f9", "a1")
+      cache.select(account, "remote-20261023_223000-k3f9", "a1")
 
-    cache.remove(account, "20261023_223000-k3f9")
+      cache.remove(account, "20261023_223000-k3f9")
+    }
 
-    assertTrue(cache.selected(account).isEmpty())
-  }
-
-  @Test
-  fun `a file written before the selection was kept still loads`() {
-    File(root, "history").mkdirs()
-    File(root, "history/remote-recordings.json")
-        .writeText("""{"accountKey":"$account","recordings":{"items":[]}}""")
-
-    assertEquals(0, cache.load(account)?.items?.size)
-    assertTrue(cache.selected(account).isEmpty())
+    assertTrue(runBlocking { cache.selected(account) }.isEmpty())
   }
 
   private val account = "https://sleep.example|me@example.com"
@@ -155,40 +161,41 @@ class RemoteHistoryCacheTest {
 
   @Test
   fun `each account keeps its own list`() {
-    cache.save(account, twoRecordings())
-    cache.save(other, list)
+    runBlocking {
+      cache.save(account, twoRecordings())
+      cache.save(other, list)
+    }
 
-    assertEquals(2, cache.load(account)?.items?.size)
-    assertEquals(1, cache.load(other)?.items?.size)
+    assertEquals(2, runBlocking { cache.load(account) }?.items?.size)
+    assertEquals(1, runBlocking { cache.load(other) }?.items?.size)
   }
 
   @Test
   fun `a completed delete hides the night for that account only`() {
-    cache.save(account, twoRecordings())
-    cache.save(other, twoRecordings())
+    runBlocking {
+      cache.save(account, twoRecordings())
+      cache.save(other, twoRecordings())
 
-    cache.remove(account, "20261023_223000-k3f9")
-    active = other
-    cache.refreshAccount()
+      cache.remove(account, "20261023_223000-k3f9")
+    }
+    assertTrue(
+        runBlocking { cache.load(other) }?.items?.any { it.recording.id == "20261023_223000-k3f9" } ==
+            true
+    )
+    assertTrue(runBlocking { cache.removed(other) }.isEmpty())
 
-    assertTrue(cache.load(other)?.items?.any { it.recording.id == "20261023_223000-k3f9" } == true)
-    assertTrue(cache.removed.value.isEmpty())
-
-    active = account
-    cache.refreshAccount()
-
-    assertTrue("20261023_223000-k3f9" in cache.removed.value)
+    assertTrue("20261023_223000-k3f9" in runBlocking { cache.removed(account) })
   }
 
   @Test
   fun `a list saved under the address and the email moves to the account key`() {
     val legacy = "$account-old"
-    cache.save(legacy, twoRecordings())
+    runBlocking { cache.save(legacy, twoRecordings()) }
 
-    cache.adopt(legacy, "https://sleep.example|u1")
+    runBlocking { cache.adopt(legacy, "https://sleep.example|u1") }
 
-    assertNull(cache.load(legacy))
-    assertEquals(2, cache.load("https://sleep.example|u1")?.items?.size)
+    assertNull(runBlocking { cache.load(legacy) })
+    assertEquals(2, runBlocking { cache.load("https://sleep.example|u1") }?.items?.size)
   }
 
   private fun twoRecordings() =
