@@ -7,7 +7,7 @@ import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.label
-import com.rbmr.taigasleep.insights.AnalysisSettingsStore
+import com.rbmr.taigasleep.insights.AnalysisSettings
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingStore
@@ -35,60 +35,77 @@ internal object UploadCoordinator {
    */
   suspend fun retryAnalysis(context: Context, key: String, analysisId: String?): Result<Unit> =
       withContext(Dispatchers.IO) {
-        val remote = context.appContainer.remoteRepository
-        val verified =
-            try {
-              remote.verify()
-            } catch (e: Exception) {
-              return@withContext Result.failure(e)
-            }
-        if (verified !is CheckResult.Success) {
-          val reason =
-              (verified as? CheckResult.Failure)?.error?.label ?: "no analysis server is configured"
-          return@withContext Result.failure(IllegalStateException(reason))
-        }
-        val api = remote.api() ?: return@withContext Result.failure(IllegalStateException("login required"))
-        val store = context.appContainer.uploadStore
-        val recordingId = recordingIdOf(key)
+        val container = context.appContainer
+        retryAnalysis(
+            remote = container.remoteRepository,
+            store = container.uploadStore,
+            key = key,
+            analysisId = analysisId,
+            config = { localRecordingConfig(context, key) },
+            settings = container.analysisSettingsStore.settings.value,
+        )
+      }
 
+  /**
+   * The retry sequence with the session, the store, the recording's configuration and the analysis
+   * settings handed in, so a test can drive it without the app's wiring.
+   */
+  internal suspend fun retryAnalysis(
+      remote: RemoteRepository,
+      store: UploadStore,
+      key: String,
+      analysisId: String?,
+      config: () -> RecordingConfig,
+      settings: AnalysisSettings,
+  ): Result<Unit> {
+    val verified =
         try {
-          val analyses = api.listAnalyses(recordingId).items
-          val target =
-              analyses.firstOrNull { it.id == analysisId }
-                  ?: analyses.firstOrNull { it.isFailed }
-                  ?: analyses.maxByOrNull { it.created }
-
-          when {
-            target == null -> {
-              val settings = context.appContainer.analysisSettingsStore.settings.value
-              AnalysisService.startPreferred(
-                  api,
-                  recordingId,
-                  localRecordingConfig(context, key),
-                  settings,
-              )
-            }
-            target.isFailed ->
-                api.requestAnalysis(
-                    recordingId,
-                    target.algorithm,
-                    target.version,
-                    target.params,
-                )
-          }
-
-          // The result arrives through the event stream while the app is open, or at the next open.
-          store.markProcessing(key)
-          Result.success(Unit)
-        } catch (e: TaigaUnauthorizedException) {
-          remote.logout()
-          Result.failure(e)
-        } catch (e: TaigaHttpException) {
-          Result.failure(e)
+          remote.verify()
         } catch (e: CancellationException) {
           throw e
         } catch (e: Exception) {
-          Result.failure(e)
+          return Result.failure(e)
         }
+    if (verified !is CheckResult.Success) {
+      val reason =
+          (verified as? CheckResult.Failure)?.error?.label ?: "no analysis server is configured"
+      return Result.failure(IllegalStateException(reason))
+    }
+    val api = remote.api() ?: return Result.failure(IllegalStateException("login required"))
+    val recordingId = recordingIdOf(key)
+
+    try {
+      val analyses = api.listAnalyses(recordingId).items
+      val target =
+          analyses.firstOrNull { it.id == analysisId }
+              ?: analyses.firstOrNull { it.isFailed }
+              ?: analyses.maxByOrNull { it.created }
+
+      when {
+        target == null -> {
+          AnalysisService.startPreferred(api, recordingId, config(), settings)
+        }
+        target.isFailed ->
+            api.requestAnalysis(
+                recordingId,
+                target.algorithm,
+                target.version,
+                target.params,
+            )
       }
+
+      // The result arrives through the event stream while the app is open, or at the next open.
+      store.markProcessing(key)
+      return Result.success(Unit)
+    } catch (e: TaigaUnauthorizedException) {
+      remote.logout()
+      return Result.failure(e)
+    } catch (e: TaigaHttpException) {
+      return Result.failure(e)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      return Result.failure(e)
+    }
+  }
 }

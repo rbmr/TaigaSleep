@@ -82,11 +82,14 @@ class OkHttpEventTransport(
           }
 
           override fun onResponse(call: Call, response: Response) {
-            val failure =
+            val failure: Throwable? =
                 try {
                   response.use { this@callbackFlow.stream(it) }
                 } catch (e: IOException) {
                   TaigaNetworkException(e)
+                } catch (e: CancellationException) {
+                  // The collector went away: the stream ends for that reason, not as a bad answer.
+                  e
                 } catch (e: Exception) {
                   TaigaMalformedException(e)
                 }
