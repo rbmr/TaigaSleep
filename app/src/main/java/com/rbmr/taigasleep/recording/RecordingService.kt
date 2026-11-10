@@ -146,10 +146,7 @@ class RecordingService : Service(), RecordingHost {
     WakeAlarm.scheduleEnd(this, armed.endUtcMs)
   }
 
-  override fun disarmWake() {
-    prefs.clearArmedWake()
-    WakeAlarm.cancelEnd(this)
-  }
+  override fun disarmWake() = WakeAlarm.disarm(this)
 
   override fun fireWakeAlarm() = WakeAlarm.fire(this)
 

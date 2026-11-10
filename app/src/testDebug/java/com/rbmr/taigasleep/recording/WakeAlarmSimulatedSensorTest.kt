@@ -66,11 +66,71 @@ class WakeAlarmSimulatedSensorTest {
     val armed = host.armed!!
     assertEquals(window.bounds(nowMs).endUtcMs, armed.endUtcMs)
     assertEquals(host.activeSessionId, armed.recordingId)
+  }
 
-    // A recording that ends does not ring for its window any more.
+  @Test
+  fun `stopping a recording drops its window`() {
+    val host = startWithWindow()
+    control!!.stop(forced = false)
+    await("the recording to end") { host.activeSessionId == null }
+
+    assertNull("a stopped recording does not ring", host.armed)
+  }
+
+  @Test
+  fun `force stopping a recording drops its window`() {
+    val host = startWithWindow()
     control!!.stop(forced = true)
     await("the recording to end") { host.activeSessionId == null }
-    assertNull(host.armed)
+
+    assertNull("a force-stopped recording does not ring", host.armed)
+  }
+
+  @Test
+  fun `discarding a recording drops its window`() {
+    val host = startWithWindow()
+    control!!.discard()
+    await("the recording to end") { host.activeSessionId == null }
+
+    assertNull("a discarded recording does not ring", host.armed)
+  }
+
+  @Test
+  fun `resuming a recording keeps its window armed`() {
+    val store = RecordingStore(tmp.newFolder())
+    val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
+    val host = FakeHost(sensor)
+    val first = RecordingControl(store, clock, host).also { it.start(request(sensor, windowAroundNow())) }
+    await("the window to be armed") { host.armed != null && host.activeSessionId != null }
+    val armed = host.armed!!
+    val id = host.activeSessionId!!
+
+    // The process died; the marker on disk and the system alarm are still there.
+    first.shutdown()
+    host.running = false
+
+    control = RecordingControl(store, clock, host)
+    control!!.resume()
+    await("the recording to resume") { host.running && host.activeSessionId == id }
+
+    assertEquals("a restart must not drop the window", armed, host.armed)
+  }
+
+  @Test
+  fun `a recording abandoned on resume drops its window`() {
+    val store = RecordingStore(tmp.newFolder())
+    val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
+    val host = FakeHost(sensor)
+    val window = windowAroundNow()
+    val bounds = window.bounds(clock.phoneNs / 1_000_000)
+    host.armed = ArmedWake("GONE0001", window, bounds.startUtcMs, bounds.endUtcMs)
+    host.activeSessionId = "GONE0001"
+    control = RecordingControl(store, clock, host)
+
+    control!!.resume()
+    await("the marker to be dropped") { host.activeSessionId == null }
+
+    assertNull("a recording that cannot be resumed does not ring", host.armed)
   }
 
   @Test
@@ -112,6 +172,16 @@ class WakeAlarmSimulatedSensorTest {
         heartRate = false,
         movement = true,
     )
+  }
+
+  /** Starts one streamed recording with a window around now and returns its host. */
+  private fun startWithWindow(): FakeHost {
+    val store = RecordingStore(tmp.newFolder())
+    val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
+    val host = FakeHost(sensor)
+    control = RecordingControl(store, clock, host).also { it.start(request(sensor, windowAroundNow())) }
+    await("the window to be armed") { host.armed != null && host.activeSessionId != null }
+    return host
   }
 
   private fun request(
@@ -156,6 +226,7 @@ class WakeAlarmSimulatedSensorTest {
     override var heartbeatMs = 0L
     var armed: ArmedWake? = null
     var firedAlarms = 0
+    var running = false
 
     override fun obtain(kind: SensorKind, id: String, name: String): SleepSensor = sensor
 
@@ -183,7 +254,9 @@ class WakeAlarmSimulatedSensorTest {
       firedAlarms++
     }
 
-    override fun markRunning(running: Boolean) = Unit
+    override fun markRunning(running: Boolean) {
+      this.running = running
+    }
 
     override val device =
         RecordingDevice(

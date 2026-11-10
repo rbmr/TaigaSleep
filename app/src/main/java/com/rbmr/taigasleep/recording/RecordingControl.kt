@@ -771,6 +771,8 @@ class RecordingControl(
 
   /** Nothing to record: drop the foreground state again, optionally reporting why. */
   private fun leave(error: String?) {
+    // No recording runs here, so its window is over: a stale end alarm must not ring on its own.
+    host.disarmWake()
     RecordingRepository.setIdle(error)
     host.finishService()
   }

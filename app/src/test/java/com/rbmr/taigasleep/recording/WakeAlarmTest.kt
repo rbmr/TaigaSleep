@@ -29,6 +29,7 @@ class WakeAlarmTest {
   @Before
   fun installHooks() {
     RecordingHooks.install(TestHooks)
+    RecordingPrefs.get(context).clearArmedWake()
   }
 
   @Test
@@ -43,6 +44,23 @@ class WakeAlarmTest {
 
     WakeAlarm.cancelEnd(context)
     assertTrue(shadowOf(alarms).scheduledAlarms.isEmpty())
+  }
+
+  @Test
+  fun `dismissing the alarm drops the end alarm of a spent window`() {
+    WakeAlarm.scheduleEnd(context, END_MS)
+    assertEquals(1, shadowOf(alarms).scheduledAlarms.size)
+
+    // The window has rung, so nothing is armed any more: the alarm itself goes too.
+    RecordingPrefs.get(context).clearArmedWake()
+    WakeAlarmReceiver()
+        .onReceive(
+            context,
+            Intent(context, WakeAlarmReceiver::class.java)
+                .setAction(WakeAlarmReceiver.ACTION_DISMISS),
+        )
+
+    assertTrue("a dismissed alarm is not left scheduled", shadowOf(alarms).scheduledAlarms.isEmpty())
   }
 
   private object TestHooks : RecordingHooks {

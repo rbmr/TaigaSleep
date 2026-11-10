@@ -57,6 +57,15 @@ object WakeAlarm {
     context.getSystemService(AlarmManager::class.java).cancel(end(context))
   }
 
+  /**
+   * Forgets a window whose recording is over, and drops its end alarm. A window belongs to the
+   * recording that armed it, so nothing may ring for it once that recording is gone.
+   */
+  fun disarm(context: Context) {
+    RecordingPrefs.get(context).clearArmedWake()
+    cancelEnd(context)
+  }
+
   /** Rings now: the screen when the phone allows it, otherwise a notification that sounds. */
   fun fire(context: Context) {
     val manager = context.getSystemService(NotificationManager::class.java)
@@ -96,9 +105,11 @@ object WakeAlarm {
     }
   }
 
-  /** The user dismissed the alarm; the recording is untouched. */
+  /** The user dismissed the alarm; the recording is untouched and the window is spent. */
   fun dismiss(context: Context) {
     context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+    // A window armed since this alarm belongs to a later recording, so only a spent one is dropped.
+    if (RecordingPrefs.get(context).armedWake() == null) cancelEnd(context)
   }
 
   /** The tone an alarm rings with, for the screen that rings it. */
