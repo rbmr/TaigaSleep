@@ -235,9 +235,10 @@ appended with `PATCH /v1/recordings/{session_id}/files/{name}` and an
 `{"complete": true}` ends the upload. `meta.json` is not uploaded as a file. See
 [`api.md`](api.md) for the full contract.
 
-For manual export the app can zip the session directory on demand (never stored
-permanently). The backend stores the same files under
-`<pb_data>/recordings/<recording id>/`; `meta.json` is kept in the recording itself.
+For manual export the app zips the chosen contents of the session directory on demand
+(never stored permanently): the stream logs go in as stored entries, the metadata is
+deflated. The backend stores the same files under `<pb_data>/recordings/<recording id>/`;
+`meta.json` is kept in the recording itself.
 
 The upload can optionally compress the stream and event files with one gzip
 member per chunk; the server then stores `hr.log.gz` and similar names. The
