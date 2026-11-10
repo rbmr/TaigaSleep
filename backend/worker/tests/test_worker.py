@@ -190,6 +190,16 @@ def test_login_announces_the_installed_algorithms() -> None:
         assert item["version"] and item["name"] and item["license"]
 
 
+def test_startup_logs_the_offered_algorithms(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("INFO", logger="taiga_worker")
+    api = FakeApi()
+    worker = Worker(config(algorithms=("baseline",)), api, FakeRunner(), sleep=lambda _: None)
+
+    worker.run_once()
+
+    assert "offering algorithms: baseline" in caplog.text
+
+
 def test_claim_asks_for_the_installed_versions_only() -> None:
     api = FakeApi()
     worker = Worker(config(algorithms=("baseline",)), api, FakeRunner(), sleep=lambda _: None)

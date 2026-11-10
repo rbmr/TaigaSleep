@@ -129,6 +129,7 @@ class Worker:
             self.log.exception("cannot discover algorithms")
             self._capabilities = []
             self._algorithm_ids = []
+        self.log.info("offering algorithms: %s", ", ".join(self._algorithm_ids) or "none")
         if not self._capabilities:
             self.log.warning("no algorithms are installed; this worker will not claim anything")
 

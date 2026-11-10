@@ -46,11 +46,13 @@ machine or on a larger one without code changes.
 - Go **1.27+** for the API. PocketBase is pinned as a Go module at **0.40.6**.
 - Python **3.10+** and [uv](https://docs.astral.sh/uv/) for the worker. The
   worker uses numpy for decoding, metrics and the baseline stager; the idle
-  supervisor does not import it. The optional wav2sleep and SleepECG models need
-  Python **3.11+** and are installed as worker extras, so the base worker stays
-  small. See [`docs/wav2sleep.md`](../docs/wav2sleep.md) and
+  supervisor does not import it. The wav2sleep model needs Python **3.11+** and
+  is included in the default Docker image; SleepECG remains a source extra. See
+  [`docs/wav2sleep.md`](../docs/wav2sleep.md) and
   [`docs/sleepecg.md`](../docs/sleepecg.md).
-- Optional: Docker Compose for the container deployment.
+- Optional: Docker Compose for the container deployment. The default worker
+  image needs about 4 GB of RAM and 3 GB of free disk; see
+  [Worker image](#worker-image).
 
 ## Quick start (without Docker)
 
@@ -121,9 +123,10 @@ recording decoder, shared metrics, data quality, the sleep score and the built-i
 See [`docs/analysis-contract.md`](../docs/analysis-contract.md) for the plugin
 interface, canonical stages, result shape and a minimal third-party example.
 
-### Optional wav2sleep stager
+### wav2sleep stager (source installs)
 
-The ECG model is deliberately not installed by default:
+A source checkout does not install the ECG model by default, unlike the worker
+image:
 
 ```bash
 cd backend/worker
@@ -221,10 +224,13 @@ uv add <package>          # update pyproject.toml and uv.lock together
 uv run --frozen python -m taiga_worker
 ```
 
-Both the Docker image and CI use `uv sync --frozen` without the extra, so they
-stay small. The extra pins PyTorch from the CPU-only index and `wav2sleep` at a
-specific git commit. Do not install packages with `pip` into the worker
-environment or edit `uv.lock` by hand.
+The default worker image installs the wav2sleep extra: CPU-only PyTorch from the
+pinned index, `wav2sleep` at a specific git commit, and the checksum-verified
+checkpoint baked in at build time. **CI and a source checkout use
+`uv sync --frozen` without that extra.** Do not install packages with `pip`
+into the worker environment or edit `uv.lock` by hand. The default image is
+about 1.6 GB; `WITH_WAV2SLEEP=false` builds the baseline-only image (about
+250 MB).
 
 ## API
 
@@ -396,6 +402,55 @@ sudo systemctl enable --now taiga-sleep-api taiga-sleep-worker
 Install uv on the server first if it is not already available. Both units bind
 the API to loopback. Use a reverse proxy for remote access.
 
+### Worker image
+
+The default `taigasleep-worker` image contains the baseline stager, the
+wav2sleep ECG model, CPU-only PyTorch and the pinned checkpoint. Its build runs
+the downloader described in [`docs/wav2sleep.md`](../docs/wav2sleep.md), which
+verifies the checkpoint's SHA-256, and the final image carries no git or build
+toolchain. The image runs as the unprivileged `worker` user. At startup the
+worker logs the algorithms it offers:
+
+```text
+offering algorithms: baseline, wav2sleep
+```
+
+Measured on x86_64 Linux (`docker image ls`, uncompressed):
+
+| Image | Size | Algorithms |
+| --- | --- | --- |
+| default | **1.63 GB** | baseline, wav2sleep |
+| `--build-arg WITH_WAV2SLEEP=false` | **243 MB** | baseline |
+
+A wav2sleep analysis needs Python 3.11+, one CPU and about 2 GB of address
+space. On a 10 h synthetic night in the default image, the job peaked at
+**746 MB** of RSS with `TAIGA_JOB_MEMORY_MB=2048`; the real 9.4 h night in
+[`docs/wav2sleep.md`](../docs/wav2sleep.md) peaked at 859 MB.
+`TAIGA_JOB_MEMORY_MB=1536` is the smallest limit that worked, and 1280 failed
+while allocating the model input. The Compose defaults are 2048 MB for the job
+and 2 GB for the container, which leaves room for the supervisor, the torch
+import and page cache.
+
+The host therefore needs:
+
+- **Memory:** about 4 GB of RAM for the API, the full worker and the rest of the
+  system. The idle worker is small; the analysis subprocess is the peak.
+- **Disk:** about 3 GB free: the image, the temporary copy of one recording that
+  a job downloads, and the data directory.
+- **CPU:** 2 vCPU is a practical minimum; numeric libraries are single-threaded.
+
+To build the image without the model for a smaller host:
+
+```bash
+docker build backend/worker -t taigasleep-worker
+docker build --build-arg WITH_WAV2SLEEP=false backend/worker -t taigasleep-worker-small
+```
+
+With Compose, set `WITH_WAV2SLEEP=false` in `deploy/.env`; the compose file
+passes it through `build.args`. The release workflow builds the default image
+under the existing `taigasleep-worker` name, so `docker compose pull` and a
+pinned `:v<version>` tag get wav2sleep without any extra secret.
+
 ### Docker Compose
 
 ```bash
@@ -422,11 +477,13 @@ speaks a different API revision, and says which side to update.
 
 To build both images from source instead, use `up -d --build`. The API image
 builds the Go binary from `backend/api`; the worker image installs the locked
-Python dependencies. The API port is published on loopback by default, and the
-data directory is a named volume. The worker has a configurable container limit
-(`TAIGA_WORKER_MEMORY`) with the job subprocess limit slightly below it
-(`TAIGA_JOB_MEMORY_MB`). On the first start, `TAIGA_ADMIN_EMAIL` and
-`TAIGA_ADMIN_PASSWORD` can bootstrap the admin account; remove them afterwards.
+Python dependencies plus wav2sleep and its checkpoint, so the first build needs
+network access and a few GB of disk. The API port is published on loopback by
+default, and the data directory is a named volume. The worker defaults to a
+2 GB container limit (`TAIGA_WORKER_MEMORY`) and a 2048 MB job subprocess limit
+(`TAIGA_JOB_MEMORY_MB`); both match the measured wav2sleep peak with headroom.
+On the first start, `TAIGA_ADMIN_EMAIL` and `TAIGA_ADMIN_PASSWORD` can bootstrap
+the admin account; remove them afterwards.
 
 ### Admin access
 
@@ -450,8 +507,20 @@ accept that the dashboard is reachable by anyone who can reach the port.
 
 ### Small machines and swap
 
-The server and worker supervisors are small, but sleep staging (issue #10) can
-peak above 1 GB. On a 1 GB machine add swap before enabling the worker:
+The server and worker supervisors are small, but a wav2sleep analysis peaks near
+1 GB. The full worker image assumes about 4 GB of RAM; on a smaller host build
+the baseline-only image instead:
+
+```bash
+# in deploy/.env
+WITH_WAV2SLEEP=false
+```
+
+and keep `TAIGA_JOB_MEMORY_MB` at 768 or 1024. The baseline stager needs far
+less than wav2sleep and never imports PyTorch.
+
+If a 1 GB machine must run the baseline image, add swap before enabling the
+worker:
 
 ```bash
 sudo fallocate -l 2G /swapfile
@@ -461,8 +530,8 @@ sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
-Then set `TAIGA_JOB_MEMORY_MB` to a realistic value for the machine. The limit
-is an address-space cap, not a reservation, so the idle footprint stays small.
+The job limit is an address-space cap, not a reservation, so the idle footprint
+stays small.
 
 ## Footprint
 
@@ -476,8 +545,10 @@ worker idle, using `ps -o rss=` (resident set size, including shared pages):
 
 The supervisor imports numpy when it reports installed algorithms. That keeps
 the worker self-contained; the analysis subprocess is still the only heavy
-part. Its limit is configurable via `TAIGA_JOB_MEMORY_MB`, and numeric libraries
-are single-threaded.
+part. The default worker image also contains PyTorch and the checkpoint
+(1.63 GB on disk), but the idle supervisor does not import torch, so its idle
+RSS stays at the figure above. Its limit is configurable via
+`TAIGA_JOB_MEMORY_MB`, and numeric libraries are single-threaded.
 
 The Go binary is about 38 MB on disk. Roughly 1.9 MB of that is the embedded
 Swagger UI for `/v1/docs`; it is read-only data that the idle server

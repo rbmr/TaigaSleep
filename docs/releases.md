@@ -102,6 +102,22 @@ Rules:
   beyond the upgrade procedure.
 - The note is written with the release, not after a user reports the problem.
 
+### backend-v0.6.7
+
+- What changed: the default `taigasleep-worker` image now contains the wav2sleep ECG
+  stager, CPU-only PyTorch and the pinned checkpoint, so it is about 1.63 GB instead of
+  243 MB. Compose raises the job limit from 768 to 2048 MB and the container limit from
+  1 GB to 2 GB. A wav2sleep analysis peaks near 0.75 GB of RSS; the job needs about 2 GB
+  of address space and the host about 4 GB of RAM and 3 GB of free disk.
+- After upgrading: pull or rebuild the worker image and check the host has the memory and
+  disk above. On a smaller host, build with `WITH_WAV2SLEEP=false` (or set it in
+  `deploy/.env`) to keep the baseline-only image and the old limits, as described under
+  [Worker image](../backend/README.md#worker-image).
+- Without it: the old image keeps working but offers only baseline. If the new default
+  image is pulled on a host below the requirement, the container or the analysis is
+  stopped by the memory limit. Existing analyses are unchanged; a new analysis uses
+  wav2sleep because the worker now reports it and the app prefers it.
+
 ### backend-v0.6.6
 
 - What changed: a result now uses analysis contract version 6, which no longer carries a

@@ -37,13 +37,19 @@ services:
     image: ghcr.io/rbmr/taigasleep-worker:latest
     build:
       context: ../worker
+      args:
+        # The default image contains the wav2sleep stager, CPU-only PyTorch and
+        # the pinned checkpoint. Set false to build the baseline-only image on a
+        # host below the memory or disk requirement in backend/README.md.
+        WITH_WAV2SLEEP: "${WITH_WAV2SLEEP:-true}"
     restart: unless-stopped
     depends_on:
       api:
         condition: service_healthy
     # The analysis subprocess has its own address-space limit (TAIGA_JOB_MEMORY_MB).
-    # Keep this container limit slightly above it for the supervisor and Python.
-    mem_limit: "${TAIGA_WORKER_MEMORY:-1g}"
+    # wav2sleep peaks around 0.75 GB of RSS on a 10 h night; 2 GB leaves room for
+    # the supervisor, the torch import and page cache. See backend/README.md.
+    mem_limit: "${TAIGA_WORKER_MEMORY:-2g}"
     environment:
       TAIGA_API_URL: "http://api:8090"
       TAIGA_WORKER_EMAIL: "${TAIGA_WORKER_EMAIL:-}"
@@ -51,7 +57,7 @@ services:
       TAIGA_WORKER_ID: "${TAIGA_WORKER_ID:-docker-worker}"
       TAIGA_POLL_INTERVAL_S: "${TAIGA_POLL_INTERVAL_S:-60}"
       TAIGA_JOB_LEASE_S: "${TAIGA_JOB_LEASE_S:-1800}"
-      TAIGA_JOB_MEMORY_MB: "${TAIGA_JOB_MEMORY_MB:-768}"
+      TAIGA_JOB_MEMORY_MB: "${TAIGA_JOB_MEMORY_MB:-2048}"
       TAIGA_JOB_TIMEOUT_S: "${TAIGA_JOB_TIMEOUT_S:-3600}"
       TAIGA_LOG_LEVEL: "${TAIGA_LOG_LEVEL:-INFO}"
       TAIGA_ALGORITHMS: "${TAIGA_ALGORITHMS:-}"
