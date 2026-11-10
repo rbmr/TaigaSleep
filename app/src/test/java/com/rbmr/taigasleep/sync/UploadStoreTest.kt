@@ -53,7 +53,7 @@ class UploadStoreTest {
     val record = store.record("r1")!!
     assertEquals(UploadPhase.UPLOADING, record.phase)
     assertNull(record.uploadedAtMs)
-    assertNull(with(RawRetention) { record.uploadConfirmedAt() })
+    assertNull(record.uploadConfirmedAt())
   }
 
   @Test
@@ -66,7 +66,7 @@ class UploadStoreTest {
     val restarted = UploadStore(storage).record("r1")!!
 
     assertTrue(restarted.confirmedOnServer)
-    assertTrue(with(RawRetention) { restarted.uploadConfirmedAt() } != null)
+    assertTrue(restarted.uploadConfirmedAt() != null)
   }
 
   @Test
@@ -77,7 +77,7 @@ class UploadStoreTest {
 
     store.markFailed("r1", UploadFailure.NETWORK, "offline")
 
-    assertTrue(with(RawRetention) { store.record("r1")!!.uploadConfirmedAt() } != null)
+    assertTrue(store.record("r1")!!.uploadConfirmedAt() != null)
   }
 
   @Test

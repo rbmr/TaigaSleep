@@ -93,7 +93,7 @@ class UploadEngineTest {
     val record = store.record(id)!!
     assertEquals(1f, record.progress, 0.001f)
     assertNull(record.uploadedAtMs)
-    assertNull(with(RawRetention) { record.uploadConfirmedAt() })
+    assertNull(record.uploadConfirmedAt())
   }
 
   @Test
@@ -105,7 +105,7 @@ class UploadEngineTest {
 
     val record = store.record(id)!!
     assertEquals(1f, record.progress, 0.001f)
-    assertTrue(with(RawRetention) { record.uploadConfirmedAt() } != null)
+    assertTrue(record.uploadConfirmedAt() != null)
   }
 
   @Test
@@ -116,7 +116,7 @@ class UploadEngineTest {
     storeEngine(client, store).run()
 
     assertEquals(0, client.completeCalls)
-    assertTrue(with(RawRetention) { store.record(id)!!.uploadConfirmedAt() } != null)
+    assertTrue(store.record(id)!!.uploadConfirmedAt() != null)
   }
 
   @Test

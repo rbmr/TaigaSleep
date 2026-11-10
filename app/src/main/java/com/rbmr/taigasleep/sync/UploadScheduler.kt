@@ -103,7 +103,8 @@ internal object UploadScheduler {
 
   /**
    * Called on app resume. It never starts bytes for an active recording and never retries a
-   * permanent failure automatically.
+   * permanent failure automatically. An upload the phone left at its end without the server's
+   * word is asked about first, so a confirmation cannot stay missing.
    */
   suspend fun reconcile(context: Context) =
       withContext(Dispatchers.IO) {
@@ -116,6 +117,13 @@ internal object UploadScheduler {
             continue
           }
           val record = store.record(recording.id)
+          // An upload that reached its end without the server's word is not counted yet: only the
+          // server can say whether the recording is complete, so ask before the queue decides.
+          if (record != null && record.awaitsUploadConfirmation()) {
+            context.appContainer.remoteRepository.api()?.let { api ->
+              confirmUploadOnServer(api, recording.id, store)
+            }
+          }
           when (record?.phase) {
             // Results are not polled: a processing recording is refreshed by the live sync.
             UploadPhase.DONE,

@@ -81,6 +81,37 @@ data class UploadRecord(
 }
 
 /**
+ * When the server confirmed that this recording is complete, or null while it has not. Full
+ * progress is not enough: the phases the server's answers set are evidence on their own, and a
+ * record the phone left at full progress is checked with the server before anything trusts it.
+ */
+internal fun UploadRecord.uploadConfirmedAt(): Long? {
+  if (confirmedOnServer) return finishedAt()
+  // Records written before the confirmation was recorded on its own.
+  return when (phase) {
+    UploadPhase.PROCESSING,
+    UploadPhase.DONE -> finishedAt()
+    // A failed analysis leaves the upload itself complete; the run says the rest.
+    UploadPhase.FAILED -> if (failure == UploadFailure.ANALYSIS) finishedAt() else null
+    UploadPhase.LOCAL,
+    UploadPhase.QUEUED,
+    UploadPhase.UPLOADING -> null
+  }
+}
+
+/**
+ * True for a record left in an attempt that reached full progress: the old behaviour recorded a
+ * confirmation time there, so the phone has to ask the server before anything trusts the upload.
+ */
+internal fun UploadRecord.awaitsUploadConfirmation(): Boolean =
+    (phase == UploadPhase.UPLOADING || phase == UploadPhase.FAILED) &&
+        !confirmedOnServer &&
+        progress >= 1f &&
+        uploadConfirmedAt() == null
+
+private fun UploadRecord.finishedAt(): Long? = uploadedAtMs ?: updatedAtMs.takeIf { it > 0 }
+
+/**
  * Where sync state is kept: one `sync.json` inside each recording directory, so it lives and dies
  * with the recording. A remote-only key has no directory, so its recording-only state is not written.
  */
