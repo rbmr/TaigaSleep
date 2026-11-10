@@ -23,8 +23,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.insights.MetricSpec
 import com.rbmr.taigasleep.insights.formatItemValue
@@ -44,7 +46,7 @@ internal fun MetricGrid(items: List<ResultItemDto>, onMetric: (MetricSpec) -> Un
           val value = formatItemValue(spec.kind, spec.itemValue)
           MetricTile(
               spec = spec,
-              value = value ?: "—",
+              value = value ?: stringResource(R.string.night_value_none),
               onClick = { onMetric(spec) },
               modifier = Modifier.weight(1f).fillMaxHeight(),
           )
@@ -108,9 +110,9 @@ internal fun MetricSheet(spec: MetricSpec, onDismiss: () -> Unit) {
       )
       spec.source?.let { source ->
         Text(
-            text = "Source: $source",
+            text = stringResource(R.string.night_metric_source, source),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
     }

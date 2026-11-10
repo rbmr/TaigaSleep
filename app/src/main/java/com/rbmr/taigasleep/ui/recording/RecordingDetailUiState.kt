@@ -23,6 +23,8 @@ data class RecordingTexts(
     val rawRestoreFailed: String,
     val rawDeleteFailed: String,
     val rawNotUploaded: String,
+    /** Puts the reason a call failed after the message that says what failed: `%1$s: %2$s`. */
+    val errorDetail: String,
 )
 
 /**

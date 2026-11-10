@@ -371,12 +371,11 @@ class RecordingDetailViewModel(
     load()
   }
 
-  private fun restoreFailure(result: Result<Unit>): String =
-      listOfNotNull(
-              texts.rawRestoreFailed,
-              result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() },
-          )
-          .joinToString(": ")
+  private fun restoreFailure(result: Result<Unit>): String {
+    val detail = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() }
+    return if (detail == null) texts.rawRestoreFailed
+    else texts.errorDetail.format(texts.rawRestoreFailed, detail)
+  }
 
   private fun progress(value: Float) {
     _state.update { it.copy(exportProgress = value) }

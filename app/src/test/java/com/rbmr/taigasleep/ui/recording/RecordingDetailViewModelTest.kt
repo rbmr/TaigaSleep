@@ -41,6 +41,7 @@ private val TEXTS =
         rawRestoreFailed = "could not restore",
         rawDeleteFailed = "could not delete",
         rawNotUploaded = "not uploaded yet",
+        errorDetail = "%1\$s: %2\$s",
     )
 
 private class FakeLibrary(initial: List<RecordingView>) : RecordingSource {
