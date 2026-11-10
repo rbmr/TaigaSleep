@@ -8,12 +8,21 @@ import java.util.zip.ZipOutputStream
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /**
  * Measures what an export of a large night costs on the JVM, so the choice of stored stream logs
  * over deflated ones is backed by numbers instead of an assumption. The output is printed; the
  * assertions only check the archive the fast path writes.
+ *
+ * It writes about 160 MB per run, so it is opt-in and skipped by the normal suite. Run it with:
+ *
+ * ```sh
+ * ./gradlew :app:testDebugUnitTest --tests '*RecordingExportSpeedTest' -Dtaiga.benchmark=1
+ * ```
+ *
+ * The result is printed in `app/build/test-results/testDebugUnitTest/`.
  */
 class RecordingExportSpeedTest {
   private val root = Files.createTempDirectory("taiga-export-speed").toFile()
@@ -26,6 +35,8 @@ class RecordingExportSpeedTest {
 
   @Test
   fun `a large night is written and the two strategies are measured`() {
+    assumeTrue(System.getProperty("taiga.benchmark") != null)
+
     // About 80 MB of sensor-like data: mostly incompressible, as ECG and ACC samples are.
     writeNoise(File(dir, "acc.log"), 60L * 1024 * 1024)
     writeNoise(File(dir, "ecg.log"), 18L * 1024 * 1024)
