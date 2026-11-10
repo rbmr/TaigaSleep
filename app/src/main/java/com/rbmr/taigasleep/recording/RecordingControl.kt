@@ -41,6 +41,8 @@ data class StartRequest(
     val ecg: Boolean,
     val acc: Boolean,
     val mode: RecordingMode?,
+    /** The wake-up window the user set for this tracker, or null when it is off. */
+    val wake: WakeWindow? = null,
 )
 
 /**
@@ -265,7 +267,25 @@ class RecordingControl(
           return
         }
     writer.event("readiness", host.readinessSummary())
-    attach(writer, sensor, mode)
+    attach(writer, sensor, mode, wake = wakeOf(request.wake, mode, config, meta.recordingId, now))
+  }
+
+  /**
+   * The window this recording rings for, or null when it has none. An on-device night has no live
+   * data, so the window cannot be used there, and movement needs the accelerometer to be recorded.
+   */
+  private fun wakeOf(
+      window: WakeWindow?,
+      mode: RecordingMode,
+      config: RecordingConfig,
+      recordingId: String,
+      nowUtcMs: Long,
+  ): ArmedWake? {
+    if (window == null || mode != RecordingMode.STREAM) return null
+    val triggers = window.copy(movement = window.movement && config.acc)
+    if (!triggers.triggers) return null
+    val bounds = triggers.bounds(nowUtcMs)
+    return ArmedWake(recordingId, triggers, bounds.startUtcMs, bounds.endUtcMs)
   }
 
   /** Picks up the recording that was running before this process or service instance died. */
@@ -299,7 +319,15 @@ class RecordingControl(
         }
     // A recording the tracker stores itself is already running there: it is adopted, never started
     // a second time, which is what a resume during an on-device start would otherwise do.
-    attach(writer, sensor, meta.mode, parked = RecordingRecovery.resumesParked(meta.mode), contact)
+    attach(
+        writer,
+        sensor,
+        meta.mode,
+        parked = RecordingRecovery.resumesParked(meta.mode),
+        contact,
+        // The window is kept with the recording, so the same night keeps ringing for the same window.
+        wake = host.wakeWindow()?.takeIf { it.recordingId == meta.recordingId },
+    )
   }
 
   /**
@@ -313,7 +341,11 @@ class RecordingControl(
       mode: RecordingMode,
       parked: Boolean = false,
       contact: Boolean = true,
+      wake: ArmedWake? = null,
   ) {
+    // A window whose end has passed rings nothing: it belongs to a night that is over.
+    val armed = wake?.takeIf { it.endUtcMs > clock.phoneNs() / NS_PER_MS }
+    if (armed != null) host.armWake(armed)
     val lifecycle = RecordingLifecycle(mode)
     val needsWakeLock = lifecycle.start().contains(LifecycleEffect.AcquireWakeLock)
     val acquiredAtMs = clock.elapsedNs() / NS_PER_MS
@@ -333,8 +365,12 @@ class RecordingControl(
         )
     monitor.onPhase(RecordingState.Phase.RECORDING)
     monitor.onLink(sensor.connection.value)
+    val watch =
+        armed?.let {
+          WakeWatch(it.window, it.bounds) { at -> post { onWakeTriggered(it.recordingId, at) } }
+        }
     val fanout =
-        SampleFanout(writer, monitor) { message -> writer.event("error", message) }
+        SampleFanout(writer, monitor, watch) { message -> writer.event("error", message) }
     val s = Live(writer, sensor, mode, lifecycle, fanout, wakeLock, monitor)
     s.wakeLockSinceMs = acquiredAtMs
     live = s
@@ -395,6 +431,19 @@ class RecordingControl(
           if (mode == RecordingMode.STREAM) add(scope.launch { watchBluetooth(s) })
         }
     host.refreshRecordings()
+  }
+
+  /**
+   * A signal held long enough inside the window: the alarm rings now and the end alarm is dropped,
+   * so a window rings once. The recording goes on untouched.
+   */
+  private suspend fun onWakeTriggered(recordingId: String, atUtcMs: Long) {
+    val s = live ?: return
+    if (s.writer.meta.recordingId != recordingId) return
+    s.writer.event("wake", "the wake-up window triggered")
+    Diagnostics.log("wake_trigger", mapOf("recording" to recordingId, "at_utc_ms" to atUtcMs))
+    host.disarmWake()
+    host.fireWakeAlarm()
   }
 
   /** The tracker is storing: the service is not needed until the tracker has to be stopped. */
@@ -703,6 +752,8 @@ class RecordingControl(
     host.markRunning(false)
     host.activeSessionId = null
     host.cancelWatchdog()
+    // A recording that ended does not ring for its window any more.
+    host.disarmWake()
     releaseWakeLock(s)
     when {
       pending != null -> RecordingRepository.setFetchPending(pending)
@@ -752,6 +803,7 @@ class RecordingControl(
    */
   private suspend fun foregroundRefusedInternal() {
     live?.let { teardown(it) }
+    host.disarmWake()
     val abandoned =
         RecordingRecovery.abandon(store, host.activeSessionId, REASON_NO_FOREGROUND, clock)
     Diagnostics.log(

@@ -3,6 +3,7 @@ package com.rbmr.taigasleep
 import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import com.rbmr.taigasleep.debug.DebugTools
 import com.rbmr.taigasleep.diagnostics.Diagnostics
@@ -13,6 +14,7 @@ import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.RecordingHooks
 import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.tracker.RecordingMode
+import com.rbmr.taigasleep.ui.alarm.AlarmActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -125,4 +127,7 @@ private object RecordingWiring : RecordingHooks {
 
   override fun onFetchCompleted(context: Context, recordingId: String) =
       context.appContainer.syncService.onFetchCompleted(recordingId)
+
+  override fun wakeAlarmScreen(context: Context): Intent =
+      Intent(context, AlarmActivity::class.java)
 }

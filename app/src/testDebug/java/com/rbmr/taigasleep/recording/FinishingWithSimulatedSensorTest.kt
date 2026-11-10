@@ -242,6 +242,23 @@ class FinishingWithSimulatedSensorTest {
 
     override fun cancelWatchdog() = Unit
 
+    override fun wakeWindow(): ArmedWake? = armed
+
+    override fun armWake(armed: ArmedWake) {
+      this.armed = armed
+    }
+
+    override fun disarmWake() {
+      armed = null
+    }
+
+    override fun fireWakeAlarm() {
+      firedAlarms++
+    }
+
+    var armed: ArmedWake? = null
+    var firedAlarms = 0
+
     override fun markRunning(running: Boolean) {
       this.running = running
     }

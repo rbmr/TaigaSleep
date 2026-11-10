@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.recording
 
 import android.content.Context
+import android.content.Intent
 import com.rbmr.taigasleep.tracker.RecordingMode
 
 /**
@@ -35,6 +36,12 @@ interface RecordingHooks {
    * [recordingId] is its id in the local store.
    */
   fun onFetchCompleted(context: Context, recordingId: String)
+
+  /**
+   * The screen that rings a wake-up alarm. `recording` schedules the alarm and posts it; where its
+   * screen lives is the app wiring's business, so this package never depends on `ui`.
+   */
+  fun wakeAlarmScreen(context: Context): Intent
 
   companion object {
     @Volatile private var installed: RecordingHooks? = null
