@@ -44,5 +44,5 @@ interface RecordingSource : LibrarySource {
   fun selectAnalysis(recording: RecordingView, analysisId: String)
 
   /** Whether an account other than the active one already has this recording on its server. */
-  fun uploadedElsewhere(localId: String): Boolean
+  suspend fun uploadedElsewhere(localId: String): Boolean
 }

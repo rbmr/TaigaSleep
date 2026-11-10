@@ -13,8 +13,6 @@ import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.AppSyncEnvironment
 import com.rbmr.taigasleep.sync.LiveSync
 import com.rbmr.taigasleep.sync.PendingDeleteStore
-import com.rbmr.taigasleep.sync.PrefsPendingDeleteStorage
-import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
 import com.rbmr.taigasleep.sync.RemoteHistoryCache
 import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.SyncService
@@ -23,6 +21,9 @@ import com.rbmr.taigasleep.sync.UploadStore
 import com.rbmr.taigasleep.sync.db.LegacyFilesMigration
 import com.rbmr.taigasleep.sync.db.TaigaDatabase
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
 
 /**
@@ -31,18 +32,43 @@ import okhttp3.OkHttpClient
  * [Context.appContainer] and never construct these classes themselves.
  */
 class AppContainer(private val application: Application) {
+  /** Long-lived work of the wiring itself: what the stores publish and the one-time file import. */
+  val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
   val recordingStore: RecordingStore by lazy {
     val base = application.getExternalFilesDir(null) ?: application.filesDir
     RecordingStore(File(base, "recordings"))
   }
 
+  /** Everything the app learned from the server, in one database. */
+  val database: TaigaDatabase by lazy { TaigaDatabase.open(application) }
+
+  /**
+   * The one-time move of the state that older versions kept in files into [database]. It reads the
+   * files of the same places the stores below read and leaves them untouched.
+   */
+  val legacyFilesMigration: LegacyFilesMigration by lazy {
+    LegacyFilesMigration(
+        recordingsRoot = recordingStore.root,
+        uploadPreferences = application.getSharedPreferences("uploads", Context.MODE_PRIVATE),
+        historyFile = File(application.filesDir, "history/remote-recordings.json"),
+        analysisRoot = File(application.filesDir, "analysis"),
+        deletePreferences = application.getSharedPreferences("deletes", Context.MODE_PRIVATE),
+        account = { remoteRepository.accountKey },
+        legacyAccount = { remoteRepository.legacyAccountKey },
+    )
+  }
+
+  /**
+   * The sync state of every recording, for the account that is active, and the one-time import of
+   * the files an older version wrote, which must run before the store reads or writes anything.
+   */
   val uploadStore: UploadStore by lazy {
     UploadStore(
-        RecordingDirectoryStorage(
-            recordingStore.root,
-            application.getSharedPreferences("uploads", Context.MODE_PRIVATE),
-        ),
-        account = { remoteRepository.accountKey },
+        database.uploadStates(),
+        remoteRepository.accounts,
+        scope,
+        awaitLegacyImport = { legacyFilesMigration.awaitMigrated(database) },
     )
   }
 
@@ -66,10 +92,10 @@ class AppContainer(private val application: Application) {
 
   val pendingDeleteStore: PendingDeleteStore by lazy {
     PendingDeleteStore(
-        PrefsPendingDeleteStorage(
-            application.getSharedPreferences("deletes", Context.MODE_PRIVATE)
-        ),
-        account = { remoteRepository.accountKey },
+        database.pendingDeletes(),
+        remoteRepository.accounts,
+        scope,
+        awaitLegacyImport = { legacyFilesMigration.awaitMigrated(database) },
     )
   }
 
@@ -88,28 +114,9 @@ class AppContainer(private val application: Application) {
     AnalysisSettingsStore(application)
   }
 
-  /** Everything the app learned from the server, in one database. */
-  val database: TaigaDatabase by lazy { TaigaDatabase.open(application) }
-
-  /**
-   * The one-time move of the state that older versions kept in files into [database]. It reads the
-   * files of the same places the stores below read and leaves them untouched.
-   */
-  val legacyFilesMigration: LegacyFilesMigration by lazy {
-    LegacyFilesMigration(
-        recordingsRoot = recordingStore.root,
-        uploadPreferences = application.getSharedPreferences("uploads", Context.MODE_PRIVATE),
-        historyFile = File(application.filesDir, "history/remote-recordings.json"),
-        analysisRoot = File(application.filesDir, "analysis"),
-        deletePreferences = application.getSharedPreferences("deletes", Context.MODE_PRIVATE),
-        account = { remoteRepository.accountKey },
-        legacyAccount = { remoteRepository.legacyAccountKey },
-    )
-  }
-
   val recordingLibrary: RecordingLibrary by lazy { RecordingLibrary(application) }
 
-  val syncService: SyncService by lazy { SyncService(AppSyncEnvironment(application)) }
+  val syncService: SyncService by lazy { SyncService(AppSyncEnvironment(application), scope) }
 
   val sensorHub: SensorHub by lazy { SensorHub() }
 

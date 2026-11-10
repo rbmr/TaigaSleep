@@ -13,28 +13,59 @@ import com.rbmr.taigasleep.backend.StageSummaryDto
 import com.rbmr.taigasleep.backend.StageTimelineDto
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
-import com.rbmr.taigasleep.recording.store.RecordingStore
-import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
 import com.rbmr.taigasleep.sync.RemoteHistoryCache
 import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.UploadStore
+import com.rbmr.taigasleep.sync.db.TaigaDatabase
+import com.rbmr.taigasleep.sync.db.storeScope
+import com.rbmr.taigasleep.sync.db.testDatabase
 import com.rbmr.taigasleep.sync.recordingIdOf
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class RecordingMergeTest {
   @get:Rule val temporary = TemporaryFolder()
 
   private val account = "https://sleep.example|me@example.com"
+
+  private lateinit var database: TaigaDatabase
+  private lateinit var scope: CoroutineScope
+  private val accounts = MutableStateFlow<String?>(account)
+
+  @Before
+  fun setUp() {
+    database = testDatabase()
+    scope = storeScope()
+  }
+
+  @After
+  fun tearDown() {
+    scope.cancel()
+    database.close()
+  }
+
+  /** The upload state of the local recording, in the app's own tables. */
+  private fun uploadStore() = UploadStore(database.uploadStates(), accounts, scope)
 
   private val local =
       Recording(
@@ -89,21 +120,10 @@ class RecordingMergeTest {
   }
 
   @Test
-  fun anOldSyncFileStillShowsTheCachedResultAfterTheUpgrade() {
-    val root = temporary.newFolder("recordings")
-    val dir = File(root, "local").apply { mkdirs() }
-    // The file an older app left on the phone: sync state plus a copy of the analysis facts. The
-    // row must come from the cache below, not from the copy in the file.
-    File(dir, RecordingStore.SYNC_FILE)
-        .writeText(
-            """
-            {"id":"local","onServer":true,"analysisId":"a1","phase":"DONE","progress":1.0,
-             "epochSeconds":30,"segments":[{"stage":"deep","count":9}],"sleepScore":55.0,
-             "model":"baseline","modelVersion":"1.0.0","resultDownloaded":true,
-             "updatedAtMs":10,"uploadedAtMs":9}
-            """
-        )
-    val store = UploadStore(RecordingDirectoryStorage(root), account = { account })
+  fun aFinishedUploadShowsTheCachedResultAndNotAFactOfItsOwn() {
+    val store = uploadStore()
+    runBlocking { store.markDone("local") }
+    val uploaded = runBlocking { store.record("local")!! }
     val cache =
         cacheWith(
             succeeded("a1", algorithm = "baseline", version = "1.0.0")
@@ -113,7 +133,7 @@ class RecordingMergeTest {
     val night =
         buildRecordings(
                 listOf(local),
-                store.records.value,
+                mapOf("local" to uploaded),
                 null,
                 results = cache,
                 account = account,
@@ -226,15 +246,11 @@ class RecordingMergeTest {
 
   @Test
   fun aNightTheServerNoLongerHasIsLocalOnlyAndKeepsItsSavedResult() {
-    val root = temporary.newFolder("recordings-gone")
-    val dir = File(root, "local").apply { mkdirs() }
-    File(dir, RecordingStore.SYNC_FILE)
-        .writeText(
-            """{"id":"local","onServer":true,"phase":"DONE","progress":1.0,
-             "updatedAtMs":10,"uploadedAtMs":9}"""
-        )
-    val store = UploadStore(RecordingDirectoryStorage(root))
-    store.markLocal("local")
+    val store = uploadStore()
+    runBlocking {
+      store.markDone("local")
+      store.markLocal("local")
+    }
     val cache =
         cacheWith(
             succeeded("a1", algorithm = "baseline", version = "1.0.0")
@@ -244,7 +260,7 @@ class RecordingMergeTest {
     val night =
         buildRecordings(
                 listOf(local),
-                store.records.value,
+                mapOf("local" to runBlocking { store.record("local")!! }),
                 null,
                 results = cache,
                 account = account,

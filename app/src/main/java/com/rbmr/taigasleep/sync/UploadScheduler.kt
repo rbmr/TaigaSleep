@@ -30,14 +30,14 @@ internal object UploadScheduler {
   const val KEY_RECORDING_ID = "recording_id"
   const val KEY_ACCOUNT = "account"
 
-  fun enqueueManual(context: Context, localId: String) {
+  suspend fun enqueueManual(context: Context, localId: String) {
     val account = context.appContainer.remoteRepository.accountKey ?: return
     val store = context.appContainer.uploadStore
     store.markQueued(localId, account = account)
     enqueue(context, localId, account, manualConstraints(), ExistingWorkPolicy.REPLACE)
   }
 
-  fun enqueueAuto(context: Context, localId: String) {
+  suspend fun enqueueAuto(context: Context, localId: String) {
     val settings = UploadSettings.get(context).autoUpload.value
     if (!settings.enabled) return
     val account = context.appContainer.remoteRepository.accountKey ?: return
@@ -102,17 +102,16 @@ internal object UploadScheduler {
   }
 
   /** Restore the remote-delete queue of the active account after a process restart. */
-  fun resumePendingDeletes(context: Context) {
+  suspend fun resumePendingDeletes(context: Context) {
     val account = context.appContainer.remoteRepository.accountKey ?: return
     val store = context.appContainer.pendingDeleteStore
-    store.refreshAccount()
     for (recordingId in store.remoteIds(account)) {
       enqueueDelete(context, recordingId, account)
     }
   }
 
   /** After an automatic-upload checkbox changes, apply it to the queued uploads. */
-  fun rescheduleAll(context: Context) {
+  suspend fun rescheduleAll(context: Context) {
     val local = context.appContainer.recordingStore.list()
     val manager = WorkManager.getInstance(context)
     val store = context.appContainer.uploadStore

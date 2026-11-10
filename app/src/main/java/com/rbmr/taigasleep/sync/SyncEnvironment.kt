@@ -14,21 +14,22 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * The service is written against this interface so its sequences can be tested without Android.
  * [AppSyncEnvironment] is the real one, and every member of it forwards to a piece that already
- * existed; it holds no rule of its own.
+ * existed; it holds no rule of its own. The members that read or write the durable state are
+ * suspend, because that state is a database now.
  */
 internal interface SyncEnvironment {
   /** The durable sync state of every recording, and the writes the service makes to it. */
   val records: StateFlow<Map<String, UploadRecord>>
 
-  fun record(id: String, account: String? = null): UploadRecord?
+  suspend fun record(id: String, account: String? = null): UploadRecord?
 
-  fun markLocal(id: String, account: String? = null)
+  suspend fun markLocal(id: String, account: String? = null)
 
-  fun markProcessing(id: String, account: String? = null)
+  suspend fun markProcessing(id: String, account: String? = null)
 
-  fun markAnalysisFailed(id: String, detail: String?, account: String? = null)
+  suspend fun markAnalysisFailed(id: String, detail: String?, account: String? = null)
 
-  fun markManualAnalysis(id: String, analysisId: String, account: String? = null)
+  suspend fun markManualAnalysis(id: String, analysisId: String, account: String? = null)
 
   /** The automatic upload policy as it is right now. */
   val autoUpload: AutoUploadSettings
@@ -49,23 +50,23 @@ internal interface SyncEnvironment {
   /** The stream configuration behind a recording; a recording that is only on the server is HR only. */
   fun config(id: String): RecordingConfig
 
-  fun enqueueAuto(id: String)
+  suspend fun enqueueAuto(id: String)
 
-  fun enqueueManual(id: String)
+  suspend fun enqueueManual(id: String)
 
   fun cancelUploads(id: String)
 
   fun enqueueDelete(remoteId: String)
 
-  fun resumePendingDeletes()
+  suspend fun resumePendingDeletes()
 
   suspend fun reconcileUploads()
 
-  fun rescheduleAll()
+  suspend fun rescheduleAll()
 
   fun cancelLegacyPolls()
 
-  fun deleteRecording(localId: String?, remoteId: String?)
+  suspend fun deleteRecording(localId: String?, remoteId: String?)
 
   suspend fun enforceRawRetention()
 
@@ -108,16 +109,17 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
 
   override val records: StateFlow<Map<String, UploadRecord>> = state.records
 
-  override fun record(id: String, account: String?): UploadRecord? = state.record(id, account)
+  override suspend fun record(id: String, account: String?): UploadRecord? = state.record(id, account)
 
-  override fun markLocal(id: String, account: String?) = state.markLocal(id, account)
+  override suspend fun markLocal(id: String, account: String?) = state.markLocal(id, account)
 
-  override fun markProcessing(id: String, account: String?) = state.markProcessing(id, account)
+  override suspend fun markProcessing(id: String, account: String?) =
+      state.markProcessing(id, account)
 
-  override fun markAnalysisFailed(id: String, detail: String?, account: String?) =
+  override suspend fun markAnalysisFailed(id: String, detail: String?, account: String?) =
       state.markFailed(id, UploadFailure.ANALYSIS, detail, account)
 
-  override fun markManualAnalysis(id: String, analysisId: String, account: String?) =
+  override suspend fun markManualAnalysis(id: String, analysisId: String, account: String?) =
       state.markManualAnalysis(id, analysisId, account)
 
   override val autoUpload: AutoUploadSettings
@@ -137,23 +139,23 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
 
   override fun config(id: String): RecordingConfig = localRecordingConfig(app, id)
 
-  override fun enqueueAuto(id: String) = UploadScheduler.enqueueAuto(app, id)
+  override suspend fun enqueueAuto(id: String) = UploadScheduler.enqueueAuto(app, id)
 
-  override fun enqueueManual(id: String) = UploadScheduler.enqueueManual(app, id)
+  override suspend fun enqueueManual(id: String) = UploadScheduler.enqueueManual(app, id)
 
   override fun cancelUploads(id: String) = UploadScheduler.cancelRecordingWork(app, id)
 
   override fun enqueueDelete(remoteId: String) = UploadScheduler.enqueueDelete(app, remoteId)
 
-  override fun resumePendingDeletes() = UploadScheduler.resumePendingDeletes(app)
+  override suspend fun resumePendingDeletes() = UploadScheduler.resumePendingDeletes(app)
 
   override suspend fun reconcileUploads() = UploadScheduler.reconcile(app)
 
-  override fun rescheduleAll() = UploadScheduler.rescheduleAll(app)
+  override suspend fun rescheduleAll() = UploadScheduler.rescheduleAll(app)
 
   override fun cancelLegacyPolls() = UploadScheduler.cancelLegacyPolls(app)
 
-  override fun deleteRecording(localId: String?, remoteId: String?) =
+  override suspend fun deleteRecording(localId: String?, remoteId: String?) =
       RecordingDeleter.delete(app, localId, remoteId)
 
   override suspend fun enforceRawRetention() = RawRetention.enforce(app)

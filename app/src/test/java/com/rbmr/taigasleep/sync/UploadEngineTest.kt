@@ -8,11 +8,17 @@ import com.rbmr.taigasleep.backend.TaigaClient
 import com.rbmr.taigasleep.backend.TaigaConflictException
 import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaNetworkException
+import com.rbmr.taigasleep.sync.db.TaigaDatabase
+import com.rbmr.taigasleep.sync.db.storeScope
+import com.rbmr.taigasleep.sync.db.testDatabase
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.util.zip.GZIPInputStream
 import kotlin.random.Random
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -23,9 +29,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+private const val ACCOUNT = "https://sleep.example|u1"
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class UploadEngineTest {
   private lateinit var dir: File
+  private lateinit var database: TaigaDatabase
+  private lateinit var scope: CoroutineScope
+  private val accounts = MutableStateFlow<String?>(ACCOUNT)
   private val id = "20261023_223000-k3f9"
   private val meta = """{"format":"taiga-recording","version":1,"session_id":"$id"}"""
 
@@ -33,20 +49,27 @@ class UploadEngineTest {
   fun setUp() {
     dir = Files.createTempDirectory("taiga-upload").toFile()
     File(dir, "meta.json").writeText(meta)
+    database = testDatabase()
+    scope = storeScope()
   }
 
   @After
   fun tearDown() {
+    scope.cancel()
+    database.close()
     dir.deleteRecursively()
   }
+
+  /** The sync state of one upload, in the app's own tables. */
+  private fun store() = UploadStore(database.uploadStates(), accounts, scope)
 
   private fun engine(
       client: TaigaClient,
       compress: Boolean = false,
       cacheDir: File? = null,
-      onProgress: (Float) -> Unit = {},
-      onCreated: () -> Unit = {},
-      onCompleted: () -> Unit = {},
+      onProgress: suspend (Float) -> Unit = {},
+      onCreated: suspend () -> Unit = {},
+      onCompleted: suspend () -> Unit = {},
   ) =
       UploadEngine(
           client = client,
@@ -84,7 +107,7 @@ class UploadEngineTest {
   @Test
   fun fullProgressAloneDoesNotConfirmTheUpload() = runBlocking {
     File(dir, "hr.log").writeBytes(ByteArray(10))
-    val store = UploadStore(MemorySync())
+    val store = store()
     val client = FakeClient()
     client.completeError = TaigaNetworkException(IOException("offline"))
 
@@ -99,7 +122,7 @@ class UploadEngineTest {
   @Test
   fun theServerAcceptingTheRecordingConfirmsTheUpload() = runBlocking {
     File(dir, "hr.log").writeBytes(ByteArray(10))
-    val store = UploadStore(MemorySync())
+    val store = store()
 
     storeEngine(FakeClient(), store).run()
 
@@ -110,7 +133,7 @@ class UploadEngineTest {
 
   @Test
   fun aRecordingTheServerAlreadyHasIsConfirmedWithoutCompletingItAgain() = runBlocking {
-    val store = UploadStore(MemorySync())
+    val store = store()
     val client = FakeClient(sealed = true)
 
     storeEngine(client, store).run()
@@ -583,22 +606,5 @@ class UploadEngineTest {
     }
 
     private fun recording(id: String) = RecordingDto(id = id, state = "stopped", complete = complete)
-  }
-}
-
-/** Sync state kept in memory, so an engine test can read what an upload reported. */
-private class MemorySync : UploadRecordsStorage {
-  private val documents = mutableMapOf<String, String>()
-
-  override fun ids(): Set<String> = documents.keys
-
-  override fun read(id: String): String? = documents[id]
-
-  override fun write(id: String, json: String) {
-    documents[id] = json
-  }
-
-  override fun delete(id: String) {
-    documents.remove(id)
   }
 }

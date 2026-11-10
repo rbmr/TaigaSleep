@@ -64,7 +64,7 @@ internal object RemoteDelete {
       activeAccount: () -> String?,
       verify: suspend () -> Boolean,
       api: () -> TaigaClient?,
-      onDeleted: (account: String) -> Unit,
+      onDeleted: suspend (account: String) -> Unit,
   ): Outcome {
     // Read before any server call: the token that verify refreshes must belong to this work.
     if (queuedFor != null && queuedFor != activeAccount()) return Outcome.OTHER_ACCOUNT

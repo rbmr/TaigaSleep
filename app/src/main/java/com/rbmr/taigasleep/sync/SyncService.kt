@@ -4,8 +4,11 @@ import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -24,8 +27,15 @@ class RecordingNotOnServerException(message: String? = null) : Exception(message
  * and this only names the sequence.
  *
  * The app builds it once per process with [of]; the tests give it a fake [SyncEnvironment].
+ *
+ * The steps a screen or the recording service starts are handed to [scope] instead of being done on
+ * the caller's thread: what they write is durable state, and the caller must not wait for a database
+ * write, a queue rebuild or a file to go. The suspend members do their work in the caller's coroutine.
  */
-class SyncService internal constructor(private val environment: SyncEnvironment) {
+class SyncService internal constructor(
+    private val environment: SyncEnvironment,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+) {
   /** The durable sync state of every recording, as History and the recording screen observe it. */
   val records: StateFlow<Map<String, UploadRecord>> = environment.records
 
@@ -34,15 +44,19 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
    * upload is on, the account is logged in and its files are on this phone.
    */
   fun onRecordingFinished(id: String) {
-    if (environment.record(id) == null) environment.markLocal(id)
-    if (!environment.autoUpload.enabled) return
-    if (!environment.hasSession) return
-    if (!environment.hasRecording(id)) return
-    environment.enqueueAuto(id)
+    scope.launch {
+      if (environment.record(id) == null) environment.markLocal(id)
+      if (!environment.autoUpload.enabled) return@launch
+      if (!environment.hasSession) return@launch
+      if (!environment.hasRecording(id)) return@launch
+      environment.enqueueAuto(id)
+    }
   }
 
   /** The user asked for this recording to go to the server now; the automatic policy does not apply. */
-  fun uploadNow(id: String) = environment.enqueueManual(id)
+  fun uploadNow(id: String) {
+    scope.launch { environment.enqueueManual(id) }
+  }
 
   /**
    * Ask the server for analyses of [id]. An explicit [algorithm] asks for that stager alone; without
@@ -104,7 +118,7 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
    */
   fun delete(id: String?, remoteId: String? = null) {
     if (id != null) environment.cancelUploads(id)
-    environment.deleteRecording(id, remoteId)
+    scope.launch { environment.deleteRecording(id, remoteId) }
   }
 
   /**
@@ -112,7 +126,7 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
    * so it can be uploaded from the recording screen; a recording that was waiting for its analysis
    * without a copy here is marked failed instead of processing for ever.
    */
-  fun recordingGone(id: String, detail: String? = null, account: String? = null) {
+  suspend fun recordingGone(id: String, detail: String? = null, account: String? = null) {
     val target = account ?: environment.account
     if (environment.hasRecording(id)) {
       environment.markLocal(id, target)
@@ -185,7 +199,9 @@ class SyncService internal constructor(private val environment: SyncEnvironment)
   }
 
   /** After the automatic-upload settings change, apply them to the queued uploads. */
-  fun rescheduleAll() = environment.rescheduleAll()
+  fun rescheduleAll() {
+    scope.launch { environment.rescheduleAll() }
+  }
 
   /** Drop the polling work an earlier version left in the work queue under a tag nothing reads. */
   fun cancelLegacyPolls() = environment.cancelLegacyPolls()

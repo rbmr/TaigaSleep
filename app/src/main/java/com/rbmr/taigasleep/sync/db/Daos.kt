@@ -19,6 +19,16 @@ interface UploadStateDao {
   @Query("SELECT * FROM upload_state WHERE account = :account AND recordingId = :recordingId")
   suspend fun row(account: String, recordingId: String): UploadStateRow?
 
+  /**
+   * The accounts, other than [account], whose server copy of this recording is known. A recording
+   * one account has uploaded is only uploaded for another after the user agrees.
+   */
+  @Query(
+      "SELECT account FROM upload_state WHERE recordingId = :recordingId AND account != '' " +
+          "AND account != :account AND (onServer = 1 OR confirmedOnServer = 1) ORDER BY account"
+  )
+  suspend fun otherAccounts(recordingId: String, account: String): List<String>
+
   @Upsert suspend fun upsert(row: UploadStateRow)
 
   @Upsert suspend fun upsert(rows: List<UploadStateRow>)

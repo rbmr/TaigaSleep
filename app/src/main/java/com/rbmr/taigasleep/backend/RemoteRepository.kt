@@ -81,6 +81,15 @@ class RemoteRepository internal constructor(
       return accountKeyOf(url, userId)
     }
 
+  private val _accounts = MutableStateFlow(accountKey)
+
+  /**
+   * [accountKey] as it changes: null while there is no session, then the key of the account that is
+   * logged in. The rows the app keeps for one account are keyed by it, so a login or a logout moves
+   * them together.
+   */
+  val accounts: StateFlow<String?> = _accounts.asStateFlow()
+
   /**
    * The identity older versions used for their caches: the address plus the email. It only serves to
    * adopt what those versions stored the first time this one sees the session.
@@ -388,6 +397,7 @@ class RemoteRepository internal constructor(
     _status.value = store.status()
     _address.value = addressInPlay ?: savedBaseUrl()
     _state.value = computeState()
+    _accounts.value = accountKey
   }
 
   /**

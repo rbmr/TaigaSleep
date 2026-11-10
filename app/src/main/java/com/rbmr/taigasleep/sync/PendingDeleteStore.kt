@@ -1,16 +1,22 @@
 package com.rbmr.taigasleep.sync
 
 import android.content.Context
-import android.content.SharedPreferences
 import com.rbmr.taigasleep.appContainer
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.rbmr.taigasleep.sync.db.PendingDeleteDao
+import com.rbmr.taigasleep.sync.db.toPendingDelete
+import com.rbmr.taigasleep.sync.db.toRow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.decodeFromJsonElement
 
 @Serializable
 data class PendingDelete(
@@ -20,144 +26,61 @@ data class PendingDelete(
     val requestedAtMs: Long,
 )
 
-/** Where the queued deletes are kept: one document under a preference key. */
-internal interface PendingDeleteStorage {
-  fun read(): String?
-
-  fun write(json: String)
-}
-
-internal class PrefsPendingDeleteStorage(private val prefs: SharedPreferences) :
-    PendingDeleteStorage {
-  override fun read(): String? = prefs.getString(KEY, null)
-
-  override fun write(json: String) {
-    prefs.edit().putString(KEY, json).apply()
-  }
-
-  private companion object {
-    const val KEY = "pending_remote_deletes"
-  }
-}
-
 /**
  * Remote deletes that could not be completed yet. The local recording and its results are already
  * gone; this only keeps the recording id, with the account it belongs to, until that account can be
  * reached. A delete queued for one account is kept for it and never sent while another is active.
+ *
+ * The queue is a table of [com.rbmr.taigasleep.sync.db.TaigaDatabase], so it is durable without a
+ * document of its own. [pending] is the active account's queue as the database publishes it, and is
+ * what History observes; reads and writes are suspend and wait for the one-time import of the queue
+ * an older version kept in the preferences before they touch it.
  */
 class PendingDeleteStore internal constructor(
-    private val storage: PendingDeleteStorage,
-    private val account: () -> String? = { null },
+    private val deletes: PendingDeleteDao,
+    private val accounts: StateFlow<String?>,
+    scope: CoroutineScope,
+    /** The one-time move of the files an older version wrote into the database. */
+    private val awaitLegacyImport: suspend () -> Unit = {},
 ) {
-  private val lock = Any()
-  private val json =
-      Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-        explicitNulls = false
-      }
+  /** The queued deletes of the account that is active now. */
+  @OptIn(ExperimentalCoroutinesApi::class)
+  val pending: StateFlow<Map<String, PendingDelete>> =
+      flow {
+            awaitLegacyImport()
+            emitAll(accounts.flatMapLatest { deletes.observe(it.orEmpty()) })
+          }
+          .map { rows -> rows.associate { it.remoteId to it.toPendingDelete() } }
+          .stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
-  /** Account key -> remote id -> the delete queued for that account. */
-  private val accounts = mutableMapOf<String, MutableMap<String, PendingDelete>>()
+  private val writes = Mutex()
 
-  private val _pending = MutableStateFlow<Map<String, PendingDelete>>(emptyMap())
-  val pending: StateFlow<Map<String, PendingDelete>> = _pending.asStateFlow()
+  private fun active(): String = accounts.value.orEmpty()
 
-  init {
-    load()
-    refreshAccount()
-  }
-
-  private fun active(): String = account().orEmpty()
-
-  fun add(remoteId: String, account: String? = null) {
+  suspend fun add(remoteId: String, account: String? = null) {
     if (remoteId.isBlank()) return
     val target = account ?: active()
     // A delete that cannot be attributed to an account could only be sent to whoever logs in next.
     if (target.isBlank()) return
-    synchronized(lock) {
-      val byAccount = accounts.getOrPut(target) { mutableMapOf() }
-      if (byAccount[remoteId] != null) return
-      byAccount[remoteId] = PendingDelete(remoteId, target, System.currentTimeMillis())
-      write()
-      publish()
+    awaitLegacyImport()
+    writes.withLock {
+      if (deletes.row(target, remoteId) != null) return
+      deletes.upsert(PendingDelete(remoteId, target, System.currentTimeMillis()).toRow(target))
     }
   }
 
-  fun remove(remoteId: String, account: String? = null) {
-    synchronized(lock) {
-      val target = account ?: active()
-      val byAccount = accounts[target] ?: return
-      byAccount.remove(remoteId) ?: return
-      if (byAccount.isEmpty()) accounts.remove(target)
-      write()
-      publish()
-    }
+  suspend fun remove(remoteId: String, account: String? = null) {
+    awaitLegacyImport()
+    deletes.delete(account ?: active(), remoteId)
   }
 
   /** The remote ids queued for one account, the active one by default. */
-  fun remoteIds(account: String? = null): Set<String> {
-    synchronized(lock) {
-      val target = account ?: active()
-      return accounts[target]?.keys?.toSet().orEmpty()
-    }
-  }
-
-  /** The active account changed: publish its queue. */
-  fun refreshAccount() {
-    synchronized(lock) {
-      val target = active()
-      if (target.isNotBlank()) adoptUnscoped(target)
-      publish()
-    }
-  }
-
-  private fun publish() {
-    _pending.value = accounts[active()]?.toMap().orEmpty()
-  }
-
-  /** A queue written before deletes carried an account belongs to the account active now. */
-  private fun adoptUnscoped(target: String) {
-    val unscoped = accounts.remove(UNSCOPED) ?: return
-    val byAccount = accounts.getOrPut(target) { mutableMapOf() }
-    for ((remoteId, entry) in unscoped) {
-      byAccount.putIfAbsent(remoteId, entry.copy(account = target))
-    }
-    write()
-  }
-
-  private fun load() {
-    val raw = storage.read() ?: return
-    val element = runCatching { json.parseToJsonElement(raw) }.getOrNull() as? JsonObject ?: return
-    val stored =
-        if (KEY_ACCOUNTS in element) {
-          runCatching { json.decodeFromJsonElement<StoredPendingDeletes>(element) }.getOrNull()
-              ?: return
-        } else {
-          val legacy =
-              runCatching { json.decodeFromString<Map<String, PendingDelete>>(raw) }.getOrNull()
-                  ?: return
-          StoredPendingDeletes(mapOf(UNSCOPED to legacy))
-        }
-    for ((accountKey, entries) in stored.accounts) {
-      accounts[accountKey] = entries.toMutableMap()
-    }
-  }
-
-  private fun write() {
-    storage.write(json.encodeToString(StoredPendingDeletes(accounts)))
+  suspend fun remoteIds(account: String? = null): Set<String> {
+    awaitLegacyImport()
+    return deletes.rows(account ?: active()).map { it.remoteId }.toSet()
   }
 
   companion object {
-    private const val KEY_ACCOUNTS = "accounts"
-    private const val UNSCOPED = "unscoped"
-
     fun of(context: Context): PendingDeleteStore = context.appContainer.pendingDeleteStore
   }
 }
-
-/** The account-keyed queue document; it ports directly to a table keyed by account and remote id. */
-@Serializable
-private data class StoredPendingDeletes(
-    val accounts: Map<String, Map<String, PendingDelete>> = emptyMap()
-)

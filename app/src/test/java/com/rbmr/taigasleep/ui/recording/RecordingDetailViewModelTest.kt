@@ -84,7 +84,7 @@ private class FakeLibrary(initial: List<RecordingView>) : RecordingSource {
 
   var elsewhere = false
 
-  override fun uploadedElsewhere(localId: String): Boolean = elsewhere
+  override suspend fun uploadedElsewhere(localId: String): Boolean = elsewhere
 }
 
 private class FakeWork : RecordingWork {
@@ -106,7 +106,7 @@ private class FakeWork : RecordingWork {
     calls += "upload:$localId"
   }
 
-  override fun uploadedElsewhere(localId: String): Boolean = elsewhere
+  override suspend fun uploadedElsewhere(localId: String): Boolean = elsewhere
 
   override fun uploadTarget(): UploadTarget? = target
 

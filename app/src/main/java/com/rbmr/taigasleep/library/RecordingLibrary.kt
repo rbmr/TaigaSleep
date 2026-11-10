@@ -63,7 +63,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
    */
   private val hiddenRemotely: StateFlow<Set<String>> =
       combine(deletes.pending, history.removed) { pending, removed -> pending.keys + removed }
-          .stateIn(scope, SharingStarted.Eagerly, deletes.remoteIds())
+          .stateIn(scope, SharingStarted.Eagerly, deletes.pending.value.keys)
 
   /** The one connection state, shared with the screens so they do not touch the remote store. */
   override val remoteStatus = remote.status
@@ -111,9 +111,6 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
 
   /** Re-read the cached server list, for example after the account or the app resumed. */
   override fun reload() {
-    // Every store that publishes account-scoped rows follows the account that is active now.
-    uploads.refreshAccount()
-    deletes.refreshAccount()
     history.refreshAccount()
     val account = remote.accountKey
     if (account != loadedAccount) {
@@ -141,7 +138,8 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
       results.load(account(), key, analysisId)
 
   /** Whether another account already has a server copy of this recording. */
-  override fun uploadedElsewhere(localId: String): Boolean = uploads.otherAccount(localId) != null
+  override suspend fun uploadedElsewhere(localId: String): Boolean =
+      uploads.otherAccount(localId) != null
 
   /** Fetch the server's recording list and cache it. Does not touch local recordings. */
   suspend fun refreshList(): Result<Unit> =
@@ -383,8 +381,11 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
     remote.accountKey?.let { history.remove(it, recordingId, keepOut = !onPhone) }
   }
 
-  /** The recordings that are being deleted, or are already gone from the server. */
-  private fun hiddenNow(): Set<String> = deletes.remoteIds() + history.removed.value
+  /**
+   * The recordings that are being deleted, or are already gone from the server. The queue is the one
+   * the database publishes for the active account, the same one History reads.
+   */
+  private fun hiddenNow(): Set<String> = deletes.pending.value.keys + history.removed.value
 
   private fun saveSummaries() {
     synchronized(historyLock) {

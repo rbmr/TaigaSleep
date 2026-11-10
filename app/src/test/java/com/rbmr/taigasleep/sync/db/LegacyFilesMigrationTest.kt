@@ -2,25 +2,29 @@ package com.rbmr.taigasleep.sync.db
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.room.Room
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingSummaryDto
 import com.rbmr.taigasleep.backend.RecordingSummaryListDto
-import com.rbmr.taigasleep.sync.PendingDeleteStore
-import com.rbmr.taigasleep.sync.PrefsPendingDeleteStorage
-import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
+import com.rbmr.taigasleep.sync.PendingDelete
 import com.rbmr.taigasleep.sync.RemoteHistoryCache
 import com.rbmr.taigasleep.sync.ResultCache
+import com.rbmr.taigasleep.sync.UploadFailure
+import com.rbmr.taigasleep.sync.UploadPhase
+import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.UploadStore
 import com.rbmr.taigasleep.sync.resultCacheDirectoryName
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -57,20 +61,20 @@ class LegacyFilesMigrationTest {
   private lateinit var root: File
   private lateinit var database: TaigaDatabase
   private lateinit var fixture: Fixture
+  private lateinit var scope: CoroutineScope
 
   @Before
   fun setUp() {
     context = RuntimeEnvironment.getApplication()
     root = Files.createTempDirectory("taiga-legacy").toFile()
-    database =
-        Room.inMemoryDatabaseBuilder(context, TaigaDatabase::class.java)
-            .allowMainThreadQueries()
-            .build()
+    database = testDatabase()
+    scope = storeScope()
     fixture = Fixture(root, context)
   }
 
   @After
   fun tearDown() {
+    scope.cancel()
     database.close()
     root.deleteRecursively()
   }
@@ -81,7 +85,45 @@ class LegacyFilesMigrationTest {
 
     assertTrue(runBlocking { fixture.migration(A).migrate(database) })
 
-    assertUploadStatesMatchTheStore(listOf(A, B))
+    assertUploadStatesMatchTheFiles(
+        mapOf(
+            A to
+                mapOf(
+                    R1 to
+                        UploadRecord(
+                            id = R1,
+                            onServer = true,
+                            phase = UploadPhase.DONE,
+                            progress = 1f,
+                            updatedAtMs = 1000,
+                            uploadedAtMs = 900,
+                            confirmedOnServer = true,
+                            manualAnalysisIds = listOf("a1"),
+                        ),
+                    R2 to
+                        UploadRecord(
+                            id = R2,
+                            onServer = true,
+                            phase = UploadPhase.PROCESSING,
+                            progress = 1f,
+                            updatedAtMs = 1200,
+                            uploadedAtMs = 1150,
+                            keepRawOnPhone = true,
+                        ),
+                    R3 to
+                        UploadRecord(
+                            id = R3,
+                            phase = UploadPhase.FAILED,
+                            failure = UploadFailure.NETWORK,
+                            updatedAtMs = 1300,
+                        ),
+                ),
+            B to
+                mapOf(
+                    R1 to UploadRecord(id = R1, phase = UploadPhase.QUEUED, updatedAtMs = 1100),
+                ),
+        )
+    )
     assertRemoteHistoryMatchesTheStore(listOf(A, B))
     assertAnalysisResultsMatchTheStore(
         listOf(
@@ -91,7 +133,12 @@ class LegacyFilesMigrationTest {
             Triple(B, "remote-$R5", "a5"),
         )
     )
-    assertPendingDeletesMatchTheStore(listOf(A, B))
+    assertPendingDeletesMatchTheFiles(
+        mapOf(
+            A to PendingDelete(remoteId = "rf-1", account = A, requestedAtMs = 1500),
+            B to PendingDelete(remoteId = "rf-2", account = B, requestedAtMs = 1600),
+        )
+    )
   }
 
   @Test
@@ -100,10 +147,39 @@ class LegacyFilesMigrationTest {
 
     assertTrue(runBlocking { fixture.migration(A, legacy = OLD_KEY).migrate(database) })
 
-    assertUploadStatesMatchTheStore(listOf(A))
+    assertUploadStatesMatchTheFiles(
+        mapOf(
+            A to
+                mapOf(
+                    // The fields an older version wrote beside the sync state are ignored, and the
+                    // facts History shows come from the results, not from the upload state.
+                    R1 to
+                        UploadRecord(
+                            id = R1,
+                            onServer = true,
+                            phase = UploadPhase.DONE,
+                            progress = 1f,
+                            updatedAtMs = 1000,
+                            uploadedAtMs = 900,
+                            keepRawOnPhone = true,
+                        ),
+                    R2 to UploadRecord(id = R2, phase = UploadPhase.QUEUED, updatedAtMs = 1200),
+                    R3 to
+                        UploadRecord(
+                            id = R3,
+                            phase = UploadPhase.FAILED,
+                            failure = UploadFailure.NETWORK,
+                            errorDetail = "offline",
+                            updatedAtMs = 1300,
+                        ),
+                ),
+        )
+    )
     assertRemoteHistoryMatchesTheStore(listOf(A), legacy = OLD_KEY)
     assertAnalysisResultsMatchTheStore(listOf(Triple(A, R2, "a2")))
-    assertPendingDeletesMatchTheStore(listOf(A))
+    assertPendingDeletesMatchTheFiles(
+        mapOf(A to PendingDelete(remoteId = "rf-3", account = A, requestedAtMs = 1700))
+    )
   }
 
   @Test
@@ -138,6 +214,38 @@ class LegacyFilesMigrationTest {
   }
 
   @Test
+  fun `a store waits for the import before it reads`() = runBlocking {
+    fixture.writeCurrentFiles()
+    val accounts = MutableStateFlow<String?>(null)
+    val migration = fixture.migration(account = { accounts.value })
+    val store =
+        UploadStore(database.uploadStates(), accounts, scope) {
+          migration.awaitMigrated(database)
+        }
+
+    // There is no account yet, so nothing can be attributed and no row is shown.
+    assertNull(store.record(R1))
+    assertEquals(0, database.migrations().runs("files-v1"))
+
+    accounts.value = A
+
+    // The same read now imports the files first, so it sees what they held.
+    assertEquals(UploadPhase.DONE, store.record(R1)?.phase)
+    assertEquals(1, database.migrations().runs("files-v1"))
+  }
+
+  @Test
+  fun `the sync files are found where the recordings are`() {
+    fixture.writeCurrentFiles()
+    val files = LegacyUploadFiles(fixture.recordings, fixture.uploadPreferences)
+
+    assertEquals(setOf(R1, R2, R3), files.ids())
+    assertTrue(files.hasRecording(R1))
+    assertFalse(files.hasRecording(R4))
+    assertNull(files.read(R4))
+  }
+
+  @Test
   fun `each account reads its own rows from the flow`() {
     fixture.writeCurrentFiles()
     runBlocking { fixture.migration(A).migrate(database) }
@@ -156,15 +264,10 @@ class LegacyFilesMigrationTest {
     )
   }
 
-  private fun assertUploadStatesMatchTheStore(accounts: List<String>) {
-    val store = UploadStore(fixture.uploadStorage(), account = { holder.active })
-    for (account in accounts) {
-      holder.active = account
-      store.refreshAccount()
-      val stored = store.records.value
-      assertTrue("the fixture has no upload state for $account", stored.isNotEmpty())
+  private fun assertUploadStatesMatchTheFiles(expected: Map<String, Map<String, UploadRecord>>) {
+    for ((account, records) in expected) {
       assertEquals(
-          stored,
+          records,
           runBlocking { database.uploadStates().rows(account) }
               .map { it.toUploadRecord() }
               .associateBy { it.id },
@@ -227,31 +330,15 @@ class LegacyFilesMigrationTest {
     }
   }
 
-  private fun assertPendingDeletesMatchTheStore(accounts: List<String>) {
-    val store =
-        PendingDeleteStore(
-            PrefsPendingDeleteStorage(fixture.deletePreferences),
-            account = { holder.active },
-        )
-    for (account in accounts) {
-      holder.active = account
-      store.refreshAccount()
-      val stored = store.pending.value
-      assertTrue("the fixture has no queued delete for $account", stored.isNotEmpty())
+  private fun assertPendingDeletesMatchTheFiles(expected: Map<String, PendingDelete>) {
+    for ((account, delete) in expected) {
       assertEquals(
-          stored,
+          mapOf(delete.remoteId to delete),
           runBlocking { database.pendingDeletes().rows(account) }
               .map { it.toPendingDelete() }
               .associateBy { it.remoteId },
       )
     }
-  }
-
-  /** The session the stores read the active account from. */
-  private val holder = ActiveAccount()
-
-  private class ActiveAccount {
-    var active: String? = null
   }
 
   /** The files an older version wrote, in one temporary directory. */
@@ -268,17 +355,18 @@ class LegacyFilesMigrationTest {
     private val analysisOfB = File(analysisRoot, resultCacheDirectoryName(B))
 
     fun migration(active: String?, legacy: String? = null): LegacyFilesMigration =
+        migration({ active }, legacy)
+
+    fun migration(account: () -> String?, legacy: String? = null): LegacyFilesMigration =
         LegacyFilesMigration(
             recordingsRoot = recordings,
             uploadPreferences = uploadPreferences,
             historyFile = historyFile,
             analysisRoot = analysisRoot,
             deletePreferences = deletePreferences,
-            account = { active },
+            account = account,
             legacyAccount = { legacy },
         )
-
-    fun uploadStorage() = RecordingDirectoryStorage(recordings, uploadPreferences)
 
     /** What the current version keeps: account-keyed documents and both payload key schemes. */
     fun writeCurrentFiles() {
@@ -362,7 +450,10 @@ class LegacyFilesMigrationTest {
       record(R3)
       File(recordings, "$R1/sync.json")
           .writeText(
-              """{"id":"$R1","onServer":true,"phase":"DONE","progress":1.0,"updatedAtMs":1000}"""
+              """{"id":"$R1","onServer":true,"analysisId":"a1","phase":"DONE","progress":1.0,
+               "epochSeconds":30,"segments":[{"stage":"light","count":4}],"sleepScore":81.0,
+               "model":"baseline","modelVersion":"1.0.0","resultDownloaded":true,
+               "updatedAtMs":1000,"uploadedAtMs":900,"keepRawOnPhone":true}"""
           )
       File(recordings, "$R2/sync.json")
           .writeText("""{"id":"$R2","phase":"QUEUED","updatedAtMs":1200}""")

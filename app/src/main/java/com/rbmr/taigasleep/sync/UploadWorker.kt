@@ -237,7 +237,7 @@ class UploadWorker(
     }
   }
 
-  private fun retryOrFail(
+  private suspend fun retryOrFail(
       store: UploadStore,
       localId: String,
       failure: UploadFailure,

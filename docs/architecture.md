@@ -220,8 +220,8 @@ The phone cannot keep every recording (ECG fills storage quickly) and cannot run
 analysis, so recordings go to the backend. Sync is a property of a recording, not a
 screen:
 
-- A recording is local only, uploading, or on the backend; the sync state is stored with
-  the recording on the phone and survives a process kill.
+- A recording is local only, uploading, or on the backend; the sync state is stored on the
+  phone and survives a process kill.
 - Uploading is resumable and append-only, matching the recording format.
 - Nothing starts an analysis on the backend by itself. The app may request one on the
   user's behalf; that is an app setting, on by default, and the backend never decides it.

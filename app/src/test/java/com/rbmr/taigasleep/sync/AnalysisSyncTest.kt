@@ -9,8 +9,14 @@ import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.backend.StageTimelineDto
 import com.rbmr.taigasleep.backend.StubTaigaClient
 import com.rbmr.taigasleep.backend.TaigaHttpException
+import com.rbmr.taigasleep.sync.db.TaigaDatabase
+import com.rbmr.taigasleep.sync.db.storeScope
+import com.rbmr.taigasleep.sync.db.testDatabase
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -20,22 +26,9 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-
-private class MemoryRecords : UploadRecordsStorage {
-  val documents = mutableMapOf<String, String>()
-
-  override fun ids(): Set<String> = documents.keys
-
-  override fun read(id: String): String? = documents[id]
-
-  override fun write(id: String, json: String) {
-    documents[id] = json
-  }
-
-  override fun delete(id: String) {
-    documents.remove(id)
-  }
-}
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 private fun recording(id: String = "r1", complete: Boolean = true) =
     RecordingDto(
@@ -90,22 +83,35 @@ private fun withResult(analysis: AnalysisDto, score: Double = 81.0) =
 /** What one read of a recording stores: terminal and pending analyses, stale ids, vanished runs. */
 private const val ACCOUNT = "https://sleep.example|u1"
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class AnalysisSyncTest {
   private lateinit var root: File
   private lateinit var results: ResultCache
+  private lateinit var database: TaigaDatabase
+  private lateinit var scope: CoroutineScope
+  private val accounts = MutableStateFlow<String?>(ACCOUNT)
   private lateinit var store: UploadStore
 
   @Before
   fun setUp() {
     root = Files.createTempDirectory("taiga-sync").toFile()
     results = ResultCache(root)
-    store = UploadStore(MemoryRecords(), account = { ACCOUNT })
+    database = testDatabase()
+    scope = storeScope()
+    store = UploadStore(database.uploadStates(), accounts, scope)
   }
 
   @After
   fun tearDown() {
+    scope.cancel()
+    database.close()
     root.deleteRecursively()
   }
+
+  /** The store's row for one recording, as the database has it once the write returned. */
+  private fun record(id: String, account: String? = null): UploadRecord? =
+      runBlocking { store.record(id, account) }
 
   private fun sync(client: FakeClient) = AnalysisSync(client, store, results, ACCOUNT)
 
@@ -124,7 +130,7 @@ class AnalysisSyncTest {
 
     assertEquals("a1", snapshot.shown?.id)
     assertEquals(81.0, snapshot.shown?.result?.items?.single()?.value ?: 0.0, 0.001)
-    val record = store.record("r1")!!
+    val record = record("r1")!!
     assertEquals(UploadPhase.DONE, record.phase)
     assertTrue(record.onServer)
     assertTrue(results.has(ACCOUNT, "r1", "a1"))
@@ -149,7 +155,7 @@ class AnalysisSyncTest {
 
     assertTrue(client.fetched.isEmpty())
     assertEquals(81.0, again.shown?.result?.items?.single()?.value ?: 0.0, 0.001)
-    assertEquals(UploadPhase.DONE, store.record("r1")?.phase)
+    assertEquals(UploadPhase.DONE, record("r1")?.phase)
   }
 
   @Test
@@ -158,7 +164,7 @@ class AnalysisSyncTest {
 
     refresh(client)
 
-    val record = store.record("r1")!!
+    val record = record("r1")!!
     assertEquals(UploadPhase.FAILED, record.phase)
     assertEquals(UploadFailure.ANALYSIS, record.failure)
     assertEquals("no valid heart rate", record.errorDetail)
@@ -169,12 +175,12 @@ class AnalysisSyncTest {
   @Test
   fun `queued and running analyses leave the night processing under their id`() {
     for (status in listOf("queued", "running")) {
-      store = UploadStore(MemoryRecords(), account = { ACCOUNT })
+      store = UploadStore(database.uploadStates(), accounts, scope)
       val client = FakeClient(listing = listOf(analysis("a1", status)))
 
       refresh(client)
 
-      val record = store.record("r1")!!
+      val record = record("r1")!!
       assertEquals(status, UploadPhase.PROCESSING, record.phase)
       assertTrue(client.fetched.isEmpty())
     }
@@ -182,21 +188,21 @@ class AnalysisSyncTest {
 
   @Test
   fun `a sealed recording without an analysis is processing without an id`() {
-    store.markProcessing("r1")
+    runBlocking { store.markProcessing("r1") }
 
     refresh(FakeClient())
 
-    assertEquals(UploadPhase.PROCESSING, store.record("r1")?.phase)
+    assertEquals(UploadPhase.PROCESSING, record("r1")?.phase)
   }
 
   @Test
   fun `a recording that is still uploading does not change the night's upload state`() {
-    store.markUploading("r1", 0.4f)
+    runBlocking { store.markUploading("r1", 0.4f) }
     val client = FakeClient(recording = recording(complete = false))
 
     refresh(client)
 
-    val record = store.record("r1")!!
+    val record = record("r1")!!
     assertEquals(UploadPhase.UPLOADING, record.phase)
     assertEquals(0.4f, record.progress, 0.001f)
   }
@@ -205,7 +211,8 @@ class AnalysisSyncTest {
   fun `a refresh stores its result under the account it read from`() {
     // A login during the read must not move this run into the account that is active now.
     val other = "https://sleep.example|u2"
-    val accountStore = UploadStore(MemoryRecords(), account = { other })
+    val accountStore =
+        UploadStore(database.uploadStates(), MutableStateFlow<String?>(other), scope)
     val client =
         FakeClient(
             listing = listOf(analysis("a1", "succeeded")),
@@ -216,31 +223,33 @@ class AnalysisSyncTest {
 
     assertTrue(results.has(ACCOUNT, "r1", "a1"))
     assertFalse(results.has(other, "r1", "a1"))
-    assertEquals(UploadPhase.DONE, accountStore.record("r1", ACCOUNT)?.phase)
-    assertNull(accountStore.record("r1", other))
+    assertEquals(UploadPhase.DONE, runBlocking { accountStore.record("r1", ACCOUNT) }?.phase)
+    assertNull(runBlocking { accountStore.record("r1", other) })
   }
 
   @Test
   fun `a remembered analysis the server replaced is not chosen`() {
     // A retry deletes the failed analysis and queues a new one under another id.
-    store.markFailed("r1", UploadFailure.ANALYSIS, "boom")
-    store.markProcessing("r1")
+    runBlocking {
+      store.markFailed("r1", UploadFailure.ANALYSIS, "boom")
+      store.markProcessing("r1")
+    }
     val client = FakeClient(listing = listOf(analysis("fresh", "queued", created = "2026-10-24T06:00:00Z")))
 
     val snapshot = refresh(client, preferred = listOf("old"))
 
     assertEquals("fresh", snapshot.shown?.id)
-    assertEquals(UploadPhase.PROCESSING, store.record("r1")?.phase)
+    assertEquals(UploadPhase.PROCESSING, record("r1")?.phase)
   }
 
   @Test
   fun `a deleted analysis leaves the night waiting for a new one`() {
-    store.markProcessing("r1")
+    runBlocking { store.markProcessing("r1") }
 
     val snapshot = refresh(FakeClient(listing = emptyList()), preferred = listOf("gone"))
 
     assertNull(snapshot.shown)
-    assertEquals(UploadPhase.PROCESSING, store.record("r1")?.phase)
+    assertEquals(UploadPhase.PROCESSING, record("r1")?.phase)
   }
 
   @Test
@@ -259,7 +268,7 @@ class AnalysisSyncTest {
 
     assertEquals("a2", snapshot.shown?.id)
     assertEquals(listOf("a2"), snapshot.analyses.map { it.id })
-    assertEquals(UploadPhase.FAILED, store.record("r1")?.phase)
+    assertEquals(UploadPhase.FAILED, record("r1")?.phase)
   }
 
   @Test
@@ -269,7 +278,7 @@ class AnalysisSyncTest {
     val failure = assertThrows(TaigaHttpException::class.java) { refresh(client) }
 
     assertEquals(404, failure.status)
-    assertNull(store.record("r1"))
+    assertNull(record("r1"))
   }
 
   @Test

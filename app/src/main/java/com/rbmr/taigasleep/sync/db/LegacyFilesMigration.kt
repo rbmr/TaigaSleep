@@ -2,19 +2,26 @@ package com.rbmr.taigasleep.sync.db
 
 import android.content.SharedPreferences
 import com.rbmr.taigasleep.diagnostics.Diagnostics
-import com.rbmr.taigasleep.sync.PendingDeleteStorage
-import com.rbmr.taigasleep.sync.PendingDeleteStore
-import com.rbmr.taigasleep.sync.PrefsPendingDeleteStorage
-import com.rbmr.taigasleep.sync.RecordingDirectoryStorage
+import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.sync.PendingDelete
 import com.rbmr.taigasleep.sync.RemoteHistoryCache
 import com.rbmr.taigasleep.sync.ResultCache
-import com.rbmr.taigasleep.sync.UploadRecordsStorage
-import com.rbmr.taigasleep.sync.UploadStore
+import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.resultCacheDirectoryName
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
 
 /**
  * Moves what an older version kept in separate files into [TaigaDatabase], once. Every source it
@@ -23,13 +30,15 @@ import kotlinx.serialization.json.contentOrNull
  * both key schemes and the flat format an older version wrote, and the queued deletes in their
  * preferences.
  *
- * The files are read through the stores that wrote them and are left exactly as they are. A marker
- * row records that the migration ran, so the next start does nothing; the writes are upserts, so an
- * interrupted run only repeats work.
+ * The files are read here and nowhere else, and are left exactly as they are. A marker row records
+ * that the migration ran, so the next start does nothing; the writes are upserts, so an interrupted
+ * run only repeats work.
  *
  * Rows are written under the account key of the session, which the app had while the files were
  * written. Without a session there is no account to write them for, so the migration waits for the
- * next start instead of writing state that cannot be attributed.
+ * next start instead of writing state that cannot be attributed. That is also what the stores wait
+ * for: [awaitMigrated] runs this first, and [start] retries it whenever an account becomes
+ * available, so no store reads or writes the database before the state the files hold is in it.
  */
 class LegacyFilesMigration(
     private val recordingsRoot: File,
@@ -42,6 +51,10 @@ class LegacyFilesMigration(
     private val legacyAccount: () -> String? = { null },
     private val now: () -> Long = System::currentTimeMillis,
 ) {
+  private val importLock = Mutex()
+
+  @Volatile private var imported = false
+
   /** Runs the migration if it has not run yet, and returns whether it did. */
   suspend fun migrate(database: TaigaDatabase): Boolean {
     if (database.migrations().runs(MARKER) > 0) return false
@@ -75,14 +88,47 @@ class LegacyFilesMigration(
   }
 
   /**
+   * Runs [migrate] unless it already ran, and returns when the old files are no longer waiting.
+   * Every store call awaits this before it touches the database. Without a session the files cannot
+   * be attributed yet, so nothing is imported and the next call tries again.
+   */
+  suspend fun awaitMigrated(database: TaigaDatabase) {
+    if (imported) return
+    withContext(Dispatchers.IO) {
+      importLock.withLock {
+        if (imported) return@withLock
+        val ran =
+            try {
+              migrate(database)
+            } catch (e: Exception) {
+              // The writes are upserts, so an interrupted run only repeats work next time.
+              Diagnostics.log("legacy_migration_failed", mapOf("error" to e.toString()))
+              false
+            }
+        imported = ran || database.migrations().runs(MARKER) > 0
+      }
+    }
+  }
+
+  /**
+   * Starts the import at app start and retries it whenever an account appears, so a phone that is
+   * upgraded while logged out still moves its state as soon as someone logs in.
+   */
+  fun start(scope: CoroutineScope, database: TaigaDatabase, accounts: Flow<String?>) {
+    scope.launch {
+      accounts.distinctUntilChanged().collect { awaitMigrated(database) }
+    }
+  }
+
+  /**
    * Every account the files name, and the active one first: a row written before facts carried an
-   * account is adopted by the account that is logged in now, which is what the stores do on start.
+   * account is adopted by the account that is logged in now, which is what the stores did on start.
    */
   private fun accountsOnDisk(active: String): Set<String> {
-    val storage = RecordingDirectoryStorage(recordingsRoot, uploadPreferences)
+    val files = LegacyUploadFiles(recordingsRoot, uploadPreferences)
     val found = mutableSetOf<String>()
-    for (id in storage.ids()) {
-      storage.read(id)?.let { found += accountKeys(it) }
+    for (id in files.ids()) {
+      files.read(id)?.let { found += accountKeys(it) }
     }
     if (historyFile.isFile) {
       runCatching { historyFile.readText() }.getOrNull()?.let {
@@ -90,7 +136,7 @@ class LegacyFilesMigration(
         found += singleDocumentAccount(it)
       }
     }
-    found += accountKeys(PrefsPendingDeleteStorage(deletePreferences).read().orEmpty())
+    found += accountKeys(LegacyPendingDeleteFile(deletePreferences).read().orEmpty())
     found += active
     return found
   }
@@ -99,22 +145,63 @@ class LegacyFilesMigration(
   private fun orderedAccounts(active: String, accounts: Set<String>): List<String> =
       listOf(active) + (accounts - active).sorted()
 
+  /**
+   * The sync state of every recording the files hold, one row per account. A document written
+   * before facts carried an account belongs to the account that is logged in, exactly as the store
+   * that wrote it adopted it on start.
+   */
   private fun readUploadStates(active: String, accounts: Set<String>): List<UploadStateRow> {
-    var current: String? = null
-    val store =
-        UploadStore(
-            ReadOnlyUploadStorage(
-                RecordingDirectoryStorage(recordingsRoot, uploadPreferences)
-            ),
-            account = { current },
-        )
+    val documents = uploadDocuments()
+    for (byAccount in documents.values) {
+      val unscoped = byAccount.remove(UNSCOPED) ?: continue
+      if (byAccount[active] == null) byAccount[active] = unscoped
+    }
     val rows = mutableListOf<UploadStateRow>()
     for (account in orderedAccounts(active, accounts)) {
-      current = account
-      store.refreshAccount()
-      rows += store.records.value.values.map { it.toRow(account) }
+      for (byAccount in documents.values) {
+        val record = byAccount[account] ?: continue
+        rows += record.toRow(account)
+      }
     }
     return rows
+  }
+
+  /**
+   * Every recording whose state a file holds, by account. The document each recording wrote is read
+   * first, then the shared document of an older version, which only counts for a recording that is
+   * still on this phone and only where it is newer.
+   */
+  private fun uploadDocuments(): Map<String, MutableMap<String, UploadRecord>> {
+    val files = LegacyUploadFiles(recordingsRoot, uploadPreferences)
+    val documents = linkedMapOf<String, MutableMap<String, UploadRecord>>()
+    for (id in files.ids().sorted()) {
+      val raw = files.read(id) ?: continue
+      val element =
+          runCatching { rowJson.parseToJsonElement(raw) }.getOrNull() as? JsonObject ?: continue
+      val stored =
+          if (KEY_ACCOUNTS in element) {
+            runCatching { rowJson.decodeFromJsonElement<StoredRecords>(element) }.getOrNull()
+                ?: continue
+          } else {
+            val legacy =
+                runCatching { rowJson.decodeFromString<UploadRecord>(raw) }.getOrNull() ?: continue
+            StoredRecords(mapOf(UNSCOPED to legacy))
+          }
+      documents[id] = stored.accounts.toMutableMap()
+    }
+    val shared = files.shared() ?: return documents
+    val old =
+        runCatching { rowJson.decodeFromString<Map<String, UploadRecord>>(shared) }
+            .getOrDefault(emptyMap())
+    for ((id, record) in old) {
+      // Only a recording on this phone can hold its state there now.
+      if (!files.hasRecording(id)) continue
+      val byAccount = documents.getOrPut(id) { mutableMapOf() }
+      val at = if (byAccount.isEmpty()) UNSCOPED else byAccount.keys.first()
+      val merged = byAccount[at]?.let { current -> current.copyFrom(record) } ?: record
+      byAccount[at] = merged
+    }
+    return documents
   }
 
   /**
@@ -194,20 +281,36 @@ class LegacyFilesMigration(
     return rows.values.toList()
   }
 
+  /**
+   * The remote deletes every file still owes the server, one row per account. A queue written
+   * before deletes carried an account belongs to the account that is logged in now.
+   */
   private fun readPendingDeletes(active: String, accounts: Set<String>): List<PendingDeleteRow> {
-    var current: String? = null
-    val store =
-        PendingDeleteStore(
-            ReadOnlyPendingDeleteStorage(PrefsPendingDeleteStorage(deletePreferences)),
-            account = { current },
-        )
-    val rows = mutableListOf<PendingDeleteRow>()
-    for (account in orderedAccounts(active, accounts)) {
-      current = account
-      store.refreshAccount()
-      rows += store.pending.value.values.map { it.toRow(account) }
+    val document = LegacyPendingDeleteFile(deletePreferences).read() ?: return emptyList()
+    val element =
+        runCatching { rowJson.parseToJsonElement(document) }.getOrNull() as? JsonObject
+            ?: return emptyList()
+    val stored =
+        if (KEY_ACCOUNTS in element) {
+          runCatching { rowJson.decodeFromJsonElement<StoredPendingDeletes>(element) }.getOrNull()
+              ?: return emptyList()
+        } else {
+          val legacy =
+              runCatching { rowJson.decodeFromString<Map<String, PendingDelete>>(document) }
+                  .getOrNull() ?: return emptyList()
+          StoredPendingDeletes(mapOf(UNSCOPED to legacy))
+        }
+    val byAccount = stored.accounts.mapValues { it.value.toMutableMap() }.toMutableMap()
+    val unscoped = byAccount.remove(UNSCOPED)
+    if (unscoped != null) {
+      val target = byAccount.getOrPut(active) { mutableMapOf() }
+      for ((remoteId, entry) in unscoped) {
+        target.putIfAbsent(remoteId, entry.copy(account = active))
+      }
     }
-    return rows
+    return orderedAccounts(active, accounts).flatMap { account ->
+      byAccount[account].orEmpty().values.map { it.toRow(account) }
+    }
   }
 
   /**
@@ -221,6 +324,9 @@ class LegacyFilesMigration(
         stem
       }
 
+  private fun UploadRecord.copyFrom(old: UploadRecord): UploadRecord =
+      if (updatedAtMs >= old.updatedAtMs) this else old
+
   private data class HistoryRows(
       val recordings: List<RemoteRecordingRow>,
       val analyses: List<RemoteAnalysisRow>,
@@ -232,6 +338,9 @@ class LegacyFilesMigration(
 
     /** The key an older version wrote for facts that carried no account yet. */
     const val UNSCOPED = "unscoped"
+
+    /** The key of the document the account-keyed format holds its accounts under. */
+    const val KEY_ACCOUNTS = "accounts"
 
     /** The accounts a document written in the account-keyed format holds. */
     fun accountKeys(document: String): Set<String> {
@@ -252,28 +361,51 @@ class LegacyFilesMigration(
   }
 }
 
-/** Reads a store without writing anything back: the files stay as the older version left them. */
-private class ReadOnlyUploadStorage(private val delegate: UploadRecordsStorage) :
-    UploadRecordsStorage {
-  override fun ids(): Set<String> = delegate.ids()
+/**
+ * The `sync.json` files of the recordings, and the single document an older version kept them in.
+ * Only [LegacyFilesMigration] reads these.
+ */
+internal class LegacyUploadFiles(private val root: File, private val prefs: SharedPreferences) {
+  fun ids(): Set<String> =
+      root.listFiles { file -> file.isDirectory && File(file, RecordingStore.SYNC_FILE).isFile }
+          ?.map { it.name }
+          ?.toSet()
+          .orEmpty()
 
-  override fun read(id: String): String? = delegate.read(id)
+  fun read(id: String): String? {
+    val file = File(root, "$id/${RecordingStore.SYNC_FILE}")
+    return if (file.isFile) file.readText() else null
+  }
 
-  override fun write(id: String, json: String) = Unit
+  /** Whether this id is a recording on this phone, and can therefore hold its own state file. */
+  fun hasRecording(id: String): Boolean = File(root, id).isDirectory
 
-  override fun delete(id: String) = Unit
+  /** The old single-document format, read once so an upgrade does not lose queued uploads. */
+  fun shared(): String? = prefs.getString(KEY_RECORDS, null)
 
-  override fun hasRecording(id: String): Boolean = delegate.hasRecording(id)
-
-  override fun legacy(): String? = delegate.legacy()
-
-  override fun clearLegacy() = Unit
+  private companion object {
+    const val KEY_RECORDS = "records"
+  }
 }
 
-/** Reads the queued deletes without rewriting their preferences. */
-private class ReadOnlyPendingDeleteStorage(private val delegate: PendingDeleteStorage) :
-    PendingDeleteStorage {
-  override fun read(): String? = delegate.read()
+/** The queued deletes an older version kept under one preference key. Only the migration reads it. */
+internal class LegacyPendingDeleteFile(private val prefs: SharedPreferences) {
+  fun read(): String? = prefs.getString(KEY, null)
 
-  override fun write(json: String) = Unit
+  private companion object {
+    const val KEY = "pending_remote_deletes"
+  }
 }
+
+/**
+ * The account-keyed document of one recording, as an older version wrote it. It ports directly to
+ * the table keyed by account and recording id.
+ */
+@Serializable
+private data class StoredRecords(val accounts: Map<String, UploadRecord> = emptyMap())
+
+/** The account-keyed queue document an older version wrote. */
+@Serializable
+private data class StoredPendingDeletes(
+    val accounts: Map<String, Map<String, PendingDelete>> = emptyMap()
+)

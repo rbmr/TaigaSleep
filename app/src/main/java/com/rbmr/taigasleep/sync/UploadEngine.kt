@@ -31,10 +31,10 @@ class UploadEngine(
     private val client: TaigaClient,
     private val id: String,
     private val dir: File,
-    private val onProgress: (Float) -> Unit = {},
-    private val onCreated: () -> Unit = {},
+    private val onProgress: suspend (Float) -> Unit = {},
+    private val onCreated: suspend () -> Unit = {},
     /** The server has the whole recording: it accepted the completion, or it already had it. */
-    private val onCompleted: () -> Unit = {},
+    private val onCompleted: suspend () -> Unit = {},
     private val compress: Boolean = false,
     private val cacheDir: File? = null,
 ) {
