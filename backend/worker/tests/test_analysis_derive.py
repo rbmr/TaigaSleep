@@ -47,7 +47,9 @@ def test_metrics_from_a_known_stage_timeline(tmp_path: Path) -> None:
     assert metrics["hr_mean_bpm"] == 60.0
     assert metrics["hr_min_bpm"] == 60.0
     assert metrics["hr_max_bpm"] == 60.0
-    assert metrics["hrv_rr_count"] == 360
+    # Only the three sleep epochs contribute, 30 one-second samples with three
+    # intervals each; the wake epoch is excluded.
+    assert metrics["hrv_rr_count"] == 270
     assert metrics["hrv_rmssd_ms"] > 0.0
     assert metrics["hrv_sdnn_ms"] > 0.0
     assert metrics["movement_index"] == 0.25
