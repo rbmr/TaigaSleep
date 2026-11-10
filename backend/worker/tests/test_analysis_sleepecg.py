@@ -189,6 +189,8 @@ def test_invalid_params_are_rejected() -> None:
         {"prefer_ecg": "yes"},
         {"age": -1},
         {"gender": "other"},
+        {"weight": 0},
+        {"weight": 501},
         {"max_nans": 2},
         {"min_beats_per_epoch": 0},
         {"min_usable_epochs": 0},
@@ -200,6 +202,18 @@ def test_invalid_params_are_rejected() -> None:
         with pytest.raises(AnalysisError) as context:
             sleepecg._params(params)
         assert context.value.code == "invalid_params"
+
+
+def test_personal_metadata_is_optional() -> None:
+    config = _config(age=36, gender="female", weight=72.5)
+    assert config["age"] == 36
+    assert config["gender"] == "female"
+    assert config["weight"] == pytest.approx(72.5)
+
+    empty = _config()
+    assert empty["age"] is None
+    assert empty["gender"] is None
+    assert empty["weight"] is None
 
 
 def test_nanpsd_workaround_handles_all_nan_rows() -> None:
