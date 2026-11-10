@@ -17,7 +17,7 @@
       "unknown"
     ]
   },
-  "contract_version": 5,
+  "contract_version": 6,
   "extras": {
     "has_acc": true,
     "night_median_hr_bpm": 60.0,
@@ -235,19 +235,6 @@
       "value": 0.0
     },
     {
-      "explanation": "Length of the analyzed recording.",
-      "group": "quality",
-      "id": "total_duration_s",
-      "kind": "number",
-      "label": "Recording length",
-      "sources": [
-        "meta",
-        "stages"
-      ],
-      "unit": "s",
-      "value": 240.0
-    },
-    {
       "components": [
         {
           "id": "usable_epoch_coverage",
@@ -366,7 +353,7 @@
     },
     "algorithm_source": "builtin",
     "citation": null,
-    "contract_version": 5,
+    "contract_version": 6,
     "homepage": "https://github.com/rbmr/TaigaSleep",
     "input_quality": {
       "clock_jumps": [],
@@ -410,7 +397,7 @@
     },
     "license": "GPL-3.0-or-later",
     "numpy": "2.5.4",
-    "peak_rss_mb": 51.3,
+    "peak_rss_mb": 51.2,
     "python": "3.14.0",
     "recording": {
       "duration_s": 240.0,

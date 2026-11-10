@@ -55,6 +55,22 @@ class ResultItemsTest {
   }
 
   @Test
+  fun aRecordingLengthFromAnOlderResultIsIgnored() {
+    val item =
+        ResultItemDto(
+            kind = "number",
+            id = "total_duration_s",
+            label = "Recording length",
+            group = "quality",
+            unit = "s",
+            value = 3600.0,
+            explanation = "Length of the analyzed recording.",
+        )
+
+    assertNull(item.metricSpec())
+  }
+
+  @Test
   fun stageSecondsUsesEpochCounts() {
     val seconds =
         stageSeconds(

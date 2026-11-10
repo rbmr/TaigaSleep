@@ -83,6 +83,8 @@
   <string name="night_delete_action">Delete</string>
   <string name="night_discard_action">Discard</string>
   <string name="night_kicker">NIGHT</string>
+  <string name="night_header_line">%1$s · %2$s–%3$s · %4$s</string>
+  <string name="night_header_line_start_only">%1$s · %2$s</string>
   <string name="night_sleep_score">Sleep score</string>
   <string name="night_sleep_score_none">No sleep score</string>
   <string name="night_sleep_score_value">%1$d / 100</string>

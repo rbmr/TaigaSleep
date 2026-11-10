@@ -102,6 +102,18 @@ Rules:
   beyond the upgrade procedure.
 - The note is written with the release, not after a user reports the problem.
 
+### backend-v0.6.6
+
+- What changed: a result now uses analysis contract version 6, which no longer carries a
+  `total_duration_s` item. Recording length is a property of the recording, so the app reads it
+  from the recording's own metadata. The baseline algorithm keeps its version, so an existing
+  analysis is not recomputed by itself.
+- After upgrading: delete the analyses of every recording analysed earlier and request them again,
+  as described under
+  [stale analysis results](../backend/README.md#stale-analysis-results-after-an-upgrade).
+- Without it: those nights keep a stored result with the retired item. The app ignores it, so the
+  night screen still shows the times and the length from the recording itself.
+
 ### backend-v0.6.5
 
 - What changed: the data-quality score no longer uses stage confidence, and the sleep score is

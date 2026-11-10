@@ -94,6 +94,18 @@ data class RecordingDetailUiState(
   val device: String
     get() = recording?.local?.sensorName ?: recording?.remote?.device.orEmpty()
 
+  /** The tracker of the line under the title, from the recording on this phone. */
+  val recordingTracker: String
+    get() = local?.sensorName?.takeIf { it.isNotBlank() } ?: device
+
+  /** The start of the line under the title, from the recording on this phone. */
+  val recordingStartUtcMs: Long
+    get() = local?.startUtcMs ?: startUtcMs
+
+  /** The end of the line under the title, from the recording on this phone when it has one. */
+  val recordingEndUtcMs: Long?
+    get() = local?.endUtcMs ?: endUtcMs
+
   /** The device the details sheet lists, where a blank name falls through to the other copy. */
   val detailsDevice: String
     get() =
