@@ -29,7 +29,7 @@ Useful options:
 | --- | --- |
 | `--model` | Stager id. `baseline` is built in; `wav2sleep` is an optional extra (#23) and `sleep-ecg` is tracked in #22. |
 | `--version` | Exact algorithm version. Omit for the latest installed version. |
-| `--params` | JSON object of algorithm parameters, e.g. `'{"deep_hr_ratio": 0.85}'`. |
+| `--params` | JSON object of algorithm parameters, e.g. `'{"wake_movement_g": 0.1}'`. |
 | `--memory-mb` | Address-space limit for the subprocess. `0` disables it. |
 | `--timeout` | Wall-clock limit in seconds. |
 | `--json` | Print the full model-agnostic result instead of the summary. |
@@ -42,16 +42,21 @@ and metric support.
 ## Reference run (synthetic, not a real night)
 
 The checked-in 120-second synthetic fixture (`backend/worker/tests/analysis_fixture.py`)
-on an x86_64 Linux laptop, CPU-only, baseline `1.1.0`:
+on an x86_64 Linux laptop, CPU-only, baseline `1.2.0`:
 
 | Measure | Value |
 | --- | --- |
 | Input size | 103,457 bytes |
-| Analysis runtime | 0.022 s |
-| Wall time including subprocess start | 0.187 s |
-| Peak RSS | 38.2 MiB |
-| Quality score | 87.5 |
-| Stage seconds | wake 0, rem 0, light 120, deep 0 |
+| Analysis runtime | 0.082 s |
+| Wall time including subprocess start | 0.453 s |
+| Peak RSS | 48.7 MiB |
+| Quality score | 100.0 |
+| Stage seconds | wake 0, sleep 120 |
+
+The baseline reports wake and sleep only: it does not separate deep, light, REM
+or NREM sleep and does not emit per-epoch confidence. Its data-quality score is
+renormalized without the stage-confidence component, and its sleep score without
+the restorative share that deep and REM would provide.
 
 This proves the measurement path and gives a lower bound for the baseline. It is
 **not** a real night, not an accuracy claim, and not representative of the ML
