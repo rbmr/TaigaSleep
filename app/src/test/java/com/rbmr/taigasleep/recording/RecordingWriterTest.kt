@@ -173,7 +173,7 @@ class RecordingWriterTest {
     val hr = mutableListOf<ByteArray>()
     val scan = FrameLog.scan(hrLog) { hr += it }
     assertEquals(11, hr.size)
-    assertFalse(scan.damagedTail)
+    assertFalse(scan.damaged)
     assertEquals(99, Payloads.decodeHr(hr.last()).hr)
     assertTrue(events(w.dir).any { it.getString("type") == "service_restart" })
   }

@@ -46,7 +46,7 @@ object FrameLog {
           .array()
 
   /** Result of scanning a log: [validEnd] is the offset just after the last good frame. */
-  data class Scan(val stream: Int, val frames: Long, val validEnd: Long, val damagedTail: Boolean)
+  data class Scan(val stream: Int, val frames: Long, val validEnd: Long, val damaged: Boolean)
 
   /**
    * Reads every frame it can verify. A truncated frame or one whose CRC does not match marks the log

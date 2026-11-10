@@ -33,7 +33,7 @@ class FrameLogTest {
     val (frames, scan) = read(f)
     assertEquals(20, frames.size)
     frames.forEachIndexed { i, p -> assertTrue(p.contentEquals(payload(i))) }
-    assertFalse(scan.damagedTail)
+    assertFalse(scan.damaged)
     assertEquals(StreamId.HR, scan.stream)
     assertEquals(f.length(), scan.validEnd)
     // Header bytes as specified: TSLG, version 1, stream, reserved.
@@ -72,7 +72,7 @@ class FrameLogTest {
     assertEquals(2, frames.size)
     assertTrue(frames[0].contentEquals(payload(1)))
     assertTrue(frames[1].contentEquals(payload(2)))
-    assertFalse(scan.damagedTail)
+    assertFalse(scan.damaged)
   }
 
   @Test
@@ -103,7 +103,7 @@ class FrameLogTest {
     val (frames, scan) = read(f)
     assertEquals(5, frames.size)
     assertEquals(listOf(0, 1, 2, 10, 11), frames.map { it.first().toInt() and 0xFF })
-    assertFalse(scan.damagedTail)
+    assertFalse(scan.damaged)
   }
 
   @Test
@@ -114,7 +114,7 @@ class FrameLogTest {
     RandomAccessFile(f, "rw").use { it.setLength(full - 3) }
     val (frames, scan) = read(f)
     assertEquals(4, frames.size)
-    assertTrue(scan.damagedTail)
+    assertTrue(scan.damaged)
 
     // Resuming truncates to the last valid frame, then appends.
     FrameLogWriter(f, StreamId.HR).use { w ->
@@ -124,7 +124,7 @@ class FrameLogTest {
     val (after, scan2) = read(f)
     assertEquals(5, after.size)
     assertTrue(after.last().contentEquals(payload(99)))
-    assertFalse(scan2.damagedTail)
+    assertFalse(scan2.damaged)
   }
 
   @Test
@@ -143,7 +143,7 @@ class FrameLogTest {
     // The damaged frame is gone, but the frames after it are still there.
     assertEquals(5, frames.size)
     assertEquals(listOf(0, 1, 3, 4, 5), frames.map { it.first().toInt() and 0xFF })
-    assertTrue(scan.damagedTail)
+    assertTrue(scan.damaged)
 
     // Resuming keeps those frames instead of truncating at the damage, then appends.
     FrameLogWriter(f, StreamId.HR).use { w ->
@@ -153,7 +153,7 @@ class FrameLogTest {
     val (after, scan2) = read(f)
     assertEquals(6, after.size)
     assertTrue(after.last().contentEquals(payload(7)))
-    assertTrue(scan2.damagedTail)
+    assertTrue(scan2.damaged)
   }
 
   @Test
@@ -164,7 +164,7 @@ class FrameLogTest {
     f.appendBytes(byteArrayOf(5, 0))
     val (frames, scan) = read(f)
     assertEquals(3, frames.size)
-    assertTrue(scan.damagedTail)
+    assertTrue(scan.damaged)
   }
 
   @Test
@@ -174,6 +174,6 @@ class FrameLogTest {
     f.appendBytes(byteArrayOf(-1, -1, -1, 0x7F, 1, 2, 3))
     val (frames, scan) = read(f)
     assertEquals(2, frames.size)
-    assertTrue(scan.damagedTail)
+    assertTrue(scan.damaged)
   }
 }
