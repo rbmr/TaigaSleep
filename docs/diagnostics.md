@@ -112,6 +112,7 @@ Not enforced; keep them lower_snake_case and keep `diag_heartbeat` for the diagn
 | `ble_connect`, `ble_disconnect`, `ble_reconnect` | `sensor_id`, `status`, `attempt`, `auto_connect` |
 | `watchdog_fire`, `watchdog_restart` | `action`, `service_running`, `last_heartbeat_age_s` |
 | `boot_resume`, `resume_refused`, `service_foreground_refused` | `recording`, `error` |
+| `wake_trigger`, `wake_alarm` | `recording`, `at_utc_ms`, `source` (`window_end`), `full_screen` |
 | `wakelock` | `action` (acquire/release), `timeout_ms` |
 
 ## Battery cost
