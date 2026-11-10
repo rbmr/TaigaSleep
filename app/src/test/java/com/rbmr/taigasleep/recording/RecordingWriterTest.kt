@@ -13,8 +13,11 @@ import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.EcgBatch
 import com.rbmr.taigasleep.tracker.HrSample
 import com.rbmr.taigasleep.tracker.Stamp
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
-import org.json.JSONObject
 import com.rbmr.taigasleep.tracker.RecordingMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -52,8 +55,10 @@ class RecordingWriterTest {
 
   private fun stamp() = Stamp.now(clock)
 
-  private fun events(dir: File) =
-      File(dir, "events.jsonl").readLines().map { JSONObject(it) }
+  private fun events(dir: File): List<JsonObject> =
+      File(dir, "events.jsonl").readLines().map { Json.parseToJsonElement(it).jsonObject }
+
+  private fun JsonObject.string(key: String): String = getValue(key).jsonPrimitive.content
 
   @Test
   fun metaIsAtomicallyRewrittenAndRoundTrips() {
@@ -100,9 +105,9 @@ class RecordingWriterTest {
     // Nothing escaped to the caller; in memory the recording ends as interrupted, and the log has
     // the reason. The on-disk state is still the start one, which the next app start closes.
     assertEquals(RecordingPhase.INTERRUPTED, w.meta.state)
-    val errors = events(w.dir).filter { it.getString("type") == "error" }
+    val errors = events(w.dir).filter { it.string("type") == "error" }
     assertEquals(1, errors.size)
-    assertTrue(errors.single().getString("message").contains("could not save the recording state"))
+    assertTrue(errors.single().string("message").contains("could not save the recording state"))
     assertEquals(RecordingPhase.RECORDING, RecordingMeta.read(w.dir)!!.state)
   }
 
@@ -125,7 +130,7 @@ class RecordingWriterTest {
     val acc = mutableListOf<ByteArray>()
     FrameLog.scan(File(w.dir, "acc.log")) { acc += it }
     assertEquals(1, acc.size)
-    assertEquals(listOf("start", "stop"), events(w.dir).map { it.getString("type") })
+    assertEquals(listOf("start", "stop"), events(w.dir).map { it.string("type") })
     // The writer owns storage health, not metrics: bytes of all three logs and no failure.
     assertTrue(health.bytesWritten > 3 * FrameLog.HEADER_SIZE)
     assertNull(health.lastError)
@@ -149,9 +154,9 @@ class RecordingWriterTest {
     val w = RecordingWriter.create(root, meta(), clock)
     w.writeAcc(stamp(), AccBatch(longArrayOf(0), intArrayOf(40000, 0, -40000)))
     w.finish(RecordingPhase.STOPPED, "done")
-    val errors = events(w.dir).filter { it.getString("type") == "error" }
+    val errors = events(w.dir).filter { it.string("type") == "error" }
     assertEquals(1, errors.size)
-    assertTrue(errors[0].getString("message").contains("clamped"))
+    assertTrue(errors[0].string("message").contains("clamped"))
     val payloads = mutableListOf<ByteArray>()
     FrameLog.scan(File(w.dir, "acc.log")) { payloads += it }
     assertEquals(listOf(32767, 0, -32768), Payloads.decodeAcc(payloads.single()).values.toList())
@@ -177,7 +182,7 @@ class RecordingWriterTest {
     assertEquals(11, hr.size)
     assertFalse(scan.damaged)
     assertEquals(99, Payloads.decodeHr(hr.last()).hr)
-    assertTrue(events(w.dir).any { it.getString("type") == "service_restart" })
+    assertTrue(events(w.dir).any { it.string("type") == "service_restart" })
   }
 
   @Test
@@ -275,9 +280,9 @@ class RecordingWriterTest {
     FrameLog.scan(File(w.dir, "hr.log")) { frames++ }
     assertEquals(1, frames)
     assertEquals(mapOf(StreamId.HR to LogPosition(-1, 0)), RecordingMeta.read(w.dir)!!.importStart)
-    val errors = events(w.dir).filter { it.getString("type") == "error" }
+    val errors = events(w.dir).filter { it.string("type") == "error" }
     assertTrue(
-        errors.any { it.getString("message").contains("could not be removed, so the fetch") }
+        errors.any { it.string("message").contains("could not be removed, so the fetch") }
     )
   }
 

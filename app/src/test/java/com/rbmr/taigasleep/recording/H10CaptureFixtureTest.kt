@@ -6,7 +6,13 @@ import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.tracker.HrSample
 import com.rbmr.taigasleep.tracker.Stamp
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.double
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,8 +25,11 @@ class H10CaptureFixtureTest {
   private val clock = TestClock()
   private val events = mutableListOf<Pair<String, String>>()
 
-  private fun capture(name: String): JSONObject =
-      JSONObject(requireNotNull(javaClass.getResource("/h10/$name")) { "$name not found" }.readText())
+  private fun capture(name: String): JsonObject =
+      Json.parseToJsonElement(
+              requireNotNull(javaClass.getResource("/h10/$name")) { "$name not found" }.readText()
+          )
+          .jsonObject
 
   private fun meta() =
       RecordingMeta(
@@ -54,8 +63,8 @@ class H10CaptureFixtureTest {
   private fun replay(name: String): Replay {
     events.clear()
     val json = capture(name)
-    val transitions = json.getJSONArray("contact")
-    val durationMs = (json.getDouble("duration_s") * 1000).toLong()
+    val transitions = json.getValue("contact").jsonArray
+    val durationMs = (json.getValue("duration_s").jsonPrimitive.double * 1000).toLong()
     val monitor =
         RecordingMonitor(meta(), clock, { type, message -> events += type to message }) {
           StorageHealth()
@@ -67,10 +76,10 @@ class H10CaptureFixtureTest {
     var offBodyMs = 0L
     var elapsedMs = 0L
     while (elapsedMs <= durationMs) {
-      while (nextTransition < transitions.length()) {
-        val transition = transitions.getJSONObject(nextTransition)
-        if (transition.getDouble("t") * 1000 > elapsedMs) break
-        rawContact = transition.getBoolean("contact")
+      while (nextTransition < transitions.size) {
+        val transition = transitions[nextTransition].jsonObject
+        if (transition.getValue("t").jsonPrimitive.double * 1000 > elapsedMs) break
+        rawContact = transition.getValue("contact").jsonPrimitive.boolean
         nextTransition++
       }
       monitor.onHr(
@@ -112,11 +121,15 @@ class H10CaptureFixtureTest {
     for (name in listOf("capture-a.json", "capture-b.json")) {
       val json = capture(name)
       val types = buildSet {
-        val events = json.getJSONArray("events")
-        for (i in 0 until events.length()) add(events.getJSONObject(i).getString("type"))
+        for (event in json.getValue("events").jsonArray) {
+          add(event.jsonObject.getValue("type").jsonPrimitive.content)
+        }
       }
       assertTrue("$name: $types", types.containsAll(listOf("start", "stream_stalled", "disconnect", "reconnect", "stop")))
-      assertTrue("$name has no contact transitions", json.getJSONArray("contact").length() >= 3)
+      assertTrue(
+          "$name has no contact transitions",
+          json.getValue("contact").jsonArray.size >= 3,
+      )
     }
   }
 }

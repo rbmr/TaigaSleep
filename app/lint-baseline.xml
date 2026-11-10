@@ -201,17 +201,6 @@
 
     <issue
         id="NewerVersionAvailable"
-        message="A newer version of org.json:json than 20240303 is available: 20260814"
-        errorLine1="orgJson = &quot;20240303&quot;"
-        errorLine2="          ~~~~~~~~~~">
-        <location
-            file="../gradle/libs.versions.toml"
-            line="14"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="NewerVersionAvailable"
         message="A newer version of com.squareup.okhttp3:mockwebserver than 4.12.0 is available: 5.5.1"
         errorLine1="okhttp = &quot;4.12.0&quot;"
         errorLine2="         ~~~~~~~~">

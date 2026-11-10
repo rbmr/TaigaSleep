@@ -174,8 +174,6 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
 
   testImplementation(libs.junit)
-  // The android.jar stub of org.json does nothing in JVM tests.
-  testImplementation(libs.org.json)
   testImplementation(libs.okhttp.mockwebserver)
   // Room needs the Android SQLite stack; Robolectric provides it in JVM tests.
   testImplementation(libs.robolectric)

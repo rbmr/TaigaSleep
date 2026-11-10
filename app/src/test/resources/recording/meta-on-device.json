@@ -1,0 +1,57 @@
+{
+  "format": "taiga-recording",
+  "version": 1,
+  "session_id": "20261023_223000-k3f9",
+  "state": "stopped",
+  "mode": "on_device",
+  "start_utc_ms": 1792798200000,
+  "end_utc_ms": 1792805400000,
+  "timezone": "Europe/Amsterdam",
+  "app": {
+    "version": "0.7.40",
+    "version_code": 7040
+  },
+  "phone": {
+    "manufacturer": "OnePlus",
+    "model": "CPH2769",
+    "android": "16",
+    "sdk": 36
+  },
+  "sensor": {
+    "kind": "polar-h10",
+    "id": "069A4737",
+    "name": "Polar H10 069A4737",
+    "firmware": "3.0.35",
+    "battery_percent_at_start": 87
+  },
+  "config": {
+    "hr": true,
+    "ecg": true,
+    "acc": true,
+    "ecg_rate_hz": 130,
+    "acc_rate_hz": 50,
+    "acc_range_g": 8
+  },
+  "on_device": {
+    "fetch_pending": true,
+    "imported_entries": {
+      "exercise-a": 1234,
+      "exercise-b": 7
+    },
+    "import_started": "exercise-b",
+    "import_start": {
+      "1": {
+        "bytes": 8192,
+        "frames": 128
+      },
+      "3": {
+        "bytes": 4096,
+        "frames": 32
+      }
+    },
+    "tracker_removal_pending": [
+      "exercise-a"
+    ],
+    "tracker_removal_failures": 2
+  }
+}
