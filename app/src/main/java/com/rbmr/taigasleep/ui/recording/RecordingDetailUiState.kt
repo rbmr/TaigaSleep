@@ -189,3 +189,14 @@ data class RecordingDetailUiState(
     get() = startUtcMs.takeIf { it > 0 } ?: result?.result?.stages?.start_unix_ms ?: 0L
 
 }
+
+/**
+ * Whether the screen draws the score card. A night whose analysis finished draws it, and so does a
+ * night whose analysis the server has queued or running, because a result is coming. A night that is
+ * only on the phone, still uploading, or whose upload or analysis failed has no result coming: its
+ * status card says what it is, and a card promising a result above it would contradict it.
+ */
+internal fun showsScoreCard(status: RecordingStatus, hasResult: Boolean): Boolean =
+    hasResult ||
+        status == RecordingStatus.READY ||
+        status == RecordingStatus.PROCESSING
