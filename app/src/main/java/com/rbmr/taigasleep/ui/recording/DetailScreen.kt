@@ -52,6 +52,7 @@ fun RecordingDetailScreen(
 
   var showQuality by rememberSaveable { mutableStateOf(false) }
   var showSleepScore by rememberSaveable { mutableStateOf(false) }
+  var showScoreExplanation by rememberSaveable { mutableStateOf(false) }
   var fullscreenChart by rememberSaveable { mutableStateOf<String?>(null) }
   var metric by remember { mutableStateOf<MetricSpec?>(null) }
   var showAnalysis by rememberSaveable { mutableStateOf(false) }
@@ -110,6 +111,7 @@ fun RecordingDetailScreen(
         },
         onOpenQuality = { showQuality = true },
         onOpenSleepScore = { showSleepScore = true },
+        onExplainScore = { showScoreExplanation = true },
         onMetric = { metric = it },
         onExpand = { fullscreenChart = it },
     )
@@ -118,6 +120,7 @@ fun RecordingDetailScreen(
         state = state,
         showQuality = showQuality,
         showSleepScore = showSleepScore,
+        showScoreExplanation = showScoreExplanation,
         fullscreenChart = fullscreenChart,
         metric = metric,
         showAnalysis = showAnalysis,
@@ -125,6 +128,7 @@ fun RecordingDetailScreen(
         showRawDelete = showRawDelete,
         onDismissQuality = { showQuality = false },
         onDismissSleepScore = { showSleepScore = false },
+        onDismissScoreExplanation = { showScoreExplanation = false },
         onDismissChart = { fullscreenChart = null },
         onDismissMetric = { metric = null },
         onDismissAnalysis = { showAnalysis = false },

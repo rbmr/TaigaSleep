@@ -2,24 +2,31 @@ package com.rbmr.taigasleep.ui.recording
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.ResultItemDto
@@ -35,21 +42,28 @@ internal fun RecordingHeaderCard(
     sleepScore: Double?,
     processed: Boolean,
     onScoreClick: () -> Unit,
+    onExplainExperimental: () -> Unit,
 ) {
   TaigaCard(
       modifier = if (processed) Modifier.clickable(onClick = onScoreClick) else Modifier
   ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
       Column(Modifier.weight(1f)) {
-        Text(
-            text =
-                if (processed) stringResource(R.string.night_processed)
-                else stringResource(R.string.night_not_processed),
-            style = MaterialTheme.typography.labelLarge,
-            color =
-                if (processed) MaterialTheme.taiga.ok
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Text(
+              text =
+                  if (processed) stringResource(R.string.night_processed)
+                  else stringResource(R.string.night_not_processed),
+              style = MaterialTheme.typography.labelLarge,
+              color =
+                  if (processed) MaterialTheme.taiga.ok
+                  else MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          if (processed && sleepScore != null) {
+            Spacer(Modifier.width(8.dp))
+            ExperimentalLabel(onClick = onExplainExperimental)
+          }
+        }
         Text(
             text =
                 if (processed) stringResource(R.string.night_sleep_score_tap)
@@ -64,6 +78,34 @@ internal fun RecordingHeaderCard(
             label = stringResource(R.string.night_sleep_score),
         )
       }
+    }
+  }
+}
+
+/**
+ * The label that qualifies a sleep score, and the button that explains it. The pill stays small,
+ * but the touch target around it is the 48 dp a button needs.
+ */
+@Composable
+private fun ExperimentalLabel(onClick: () -> Unit) {
+  val description = stringResource(R.string.night_sleep_score_experimental_description)
+  Box(
+      modifier =
+          Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+              .clickable(role = Role.Button, onClick = onClick)
+              .semantics(mergeDescendants = true) { contentDescription = description },
+      contentAlignment = Alignment.Center,
+  ) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.taiga.warnContainer,
+        contentColor = MaterialTheme.taiga.warnInk,
+    ) {
+      Text(
+          text = stringResource(R.string.night_sleep_score_experimental),
+          style = MaterialTheme.typography.labelLarge,
+          modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+      )
     }
   }
 }

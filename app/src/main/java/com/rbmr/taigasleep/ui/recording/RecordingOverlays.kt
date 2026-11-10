@@ -17,6 +17,7 @@ internal fun RecordingOverlays(
     state: RecordingDetailUiState,
     showQuality: Boolean,
     showSleepScore: Boolean,
+    showScoreExplanation: Boolean,
     fullscreenChart: String?,
     metric: MetricSpec?,
     showAnalysis: Boolean,
@@ -24,6 +25,7 @@ internal fun RecordingOverlays(
     showRawDelete: Boolean,
     onDismissQuality: () -> Unit,
     onDismissSleepScore: () -> Unit,
+    onDismissScoreExplanation: () -> Unit,
     onDismissChart: () -> Unit,
     onDismissMetric: () -> Unit,
     onDismissAnalysis: () -> Unit,
@@ -79,6 +81,18 @@ internal fun RecordingOverlays(
     SleepScoreSheet(
         item = result?.items?.firstOrNull { it.id == "sleep_quality" },
         onDismiss = onDismissSleepScore,
+    )
+  }
+  if (showScoreExplanation) {
+    AlertDialog(
+        onDismissRequest = onDismissScoreExplanation,
+        title = { Text(stringResource(R.string.night_sleep_score_experimental)) },
+        text = { Text(stringResource(R.string.night_sleep_score_experimental_body)) },
+        confirmButton = {
+          TextButton(onClick = onDismissScoreExplanation) {
+            Text(stringResource(R.string.night_sheet_close))
+          }
+        },
     )
   }
   fullscreenChart?.let { chart ->

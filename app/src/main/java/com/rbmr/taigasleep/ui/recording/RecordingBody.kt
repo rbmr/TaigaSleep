@@ -44,6 +44,7 @@ internal fun RecordingBody(
     onOpenAnalysis: () -> Unit,
     onOpenQuality: () -> Unit,
     onOpenSleepScore: () -> Unit,
+    onExplainScore: () -> Unit,
     onMetric: (MetricSpec) -> Unit,
     onExpand: (String) -> Unit,
 ) {
@@ -70,6 +71,7 @@ internal fun RecordingBody(
           sleepScore = analysis?.items?.firstOrNull { it.id == "sleep_quality" }?.value,
           processed = processed,
           onScoreClick = { if (run != null) onOpenSleepScore() },
+          onExplainExperimental = onExplainScore,
       )
     }
     if (state.remoteId != null) {
