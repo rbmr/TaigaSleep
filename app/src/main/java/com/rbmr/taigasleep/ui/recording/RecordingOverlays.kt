@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.insights.MetricSpec
+import com.rbmr.taigasleep.insights.sleepScoreCardState
 import com.rbmr.taigasleep.ui.components.ChartFullscreenDialog
 import com.rbmr.taigasleep.ui.components.HeartRateChart
 import com.rbmr.taigasleep.ui.components.SleepStagesChart
@@ -80,6 +81,7 @@ internal fun RecordingOverlays(
   if (showSleepScore) {
     SleepScoreSheet(
         item = result?.items?.firstOrNull { it.id == "sleep_quality" },
+        state = result?.let(::sleepScoreCardState),
         onDismiss = onDismissSleepScore,
     )
   }
