@@ -111,15 +111,33 @@ class ExporterTest {
   }
 
   @Test
-  fun `discarding an export leaves no archive and no export directory`() {
-    val root = Files.createTempDirectory("taiga-discard").toFile()
+  fun `a new export removes every archive an earlier one left`() {
+    val root = Files.createTempDirectory("taiga-export-dir").toFile()
     val dir = File(root, "export").apply { mkdirs() }
-    val zip = File(dir, "taiga-night.zip").apply { writeText("archive") }
+    File(dir, "taiga-old-night.zip").writeText("old")
+    File(dir, "taiga-older-night.zip").writeText("older")
 
-    Exporter.discard(zip)
+    Exporter.clear(dir)
 
-    assertFalse(zip.exists())
-    assertFalse(dir.exists())
+    assertTrue(dir.isDirectory)
+    assertEquals(emptyList<File>(), dir.listFiles()!!.toList())
+    root.deleteRecursively()
+  }
+
+  @Test
+  fun `an export from an earlier run is removed only once it is an hour old`() {
+    val root = Files.createTempDirectory("taiga-export-stale").toFile()
+    val dir = File(root, "export").apply { mkdirs() }
+    val now = 1_800_000_000_000L
+    val old = File(dir, "taiga-old-night.zip").apply { writeText("old") }
+    val recent = File(dir, "taiga-recent-night.zip").apply { writeText("recent") }
+    assertTrue(old.setLastModified(now - Exporter.STALE_EXPORT_MS - 1))
+    assertTrue(recent.setLastModified(now - 1_000))
+
+    Exporter.removeStale(dir, nowMs = now)
+
+    assertFalse(old.exists())
+    assertTrue(recent.exists())
     root.deleteRecursively()
   }
 }

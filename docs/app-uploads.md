@@ -293,8 +293,10 @@ them. Any combination works, including results only.
 The archive is built in the cache directory while the sheet reports how far it is: an
 indeterminate bar for a short export and a percentage with the bytes written for a
 large one. Stream logs are stored in the archive without deflating them, which is what
-made a large night take seconds before. The archive goes to the share sheet and is
-deleted when that returns.
+made a large night take seconds before. The archive goes to the share sheet and stays
+in the cache until the next export replaces it; exports an earlier run left are removed
+when the app starts, but only once they are an hour old, because a share target can
+still be reading the file after the chooser has closed.
 
 An export never asks for an analysis and never downloads a result: it writes the
 payloads the result cache already holds. The only server round trip is the existing

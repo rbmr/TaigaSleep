@@ -1,6 +1,5 @@
 package com.rbmr.taigasleep.ui.recording
 
-import android.content.Intent
 import androidx.lifecycle.ViewModel
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RemoteStatus
@@ -14,7 +13,6 @@ import com.rbmr.taigasleep.recording.LARGE_EXPORT_BYTES
 import com.rbmr.taigasleep.recording.analysisExportName
 import com.rbmr.taigasleep.sync.RawActionResult
 import com.rbmr.taigasleep.sync.RecordingNotOnServerException
-import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -68,8 +66,6 @@ class RecordingDetailViewModel(
   private var lastSelected: String? = null
   private var lastDownloaded = false
   private var observedRecording = false
-  /** The archive that was prepared for the share sheet, kept only to delete it afterwards. */
-  private var preparedExport: File? = null
   /** The user changed what to export, so the default is no longer applied to a recording that arrives. */
   private var contentsChosen = false
 
@@ -209,12 +205,9 @@ class RecordingDetailViewModel(
     _state.update { it.copy(exportContents = contents) }
   }
 
-  /** The share sheet for a prepared archive. */
-  fun shareIntent(file: File): Intent = work.shareIntent(file)
-
   /**
-   * Prepare the chosen contents, restoring the raw files from the server first when they are gone.
-   * The archive is handed to the share sheet by the screen, which deletes it afterwards.
+   * Prepare the chosen contents, restoring the raw files from the server first when they are gone,
+   * and offer the archive to the share sheet. A metadata-only or results-only export stays local.
    */
   fun export() {
     val id = _state.value.local?.id ?: localId ?: return
@@ -231,35 +224,16 @@ class RecordingDetailViewModel(
       )
     }
     scope.launch {
-      val prepared =
+      val shared =
           when {
             !_state.value.canExport ->
                 Result.failure(IllegalStateException("no copy of this night is available"))
             _state.value.exportNeedsRestore ->
-                restoreThenPrepare(id, _state.value.remoteId, contents)
-            else -> prepare(id, contents)
+                restoreThenShare(id, _state.value.remoteId, contents)
+            else -> share(id, contents)
           }
-      if (prepared.isFailure) {
-        finish(prepared, closeOnSuccess = true)
-        return@launch
-      }
-      preparedExport = prepared.getOrNull()
-      _state.update { it.copy(exportFile = preparedExport) }
+      finish(shared, closeOnSuccess = true)
     }
-  }
-
-  /** The share sheet for the prepared archive is opening, so it is not opened a second time. */
-  fun exportLaunched() {
-    _state.update { it.copy(exportFile = null) }
-  }
-
-  /** The share sheet returned: the archive has served its purpose and is deleted. */
-  fun exportShared() {
-    val file = preparedExport
-    preparedExport = null
-    if (file != null) work.discardExport(file)
-    _state.update { it.copy(exportFile = null) }
-    finish(Result.success(Unit), closeOnSuccess = true)
   }
 
   /** Restore the raw files of this recording from the server, without exporting anything. */
@@ -317,8 +291,6 @@ class RecordingDetailViewModel(
   }
 
   override fun onCleared() {
-    preparedExport?.let { work.discardExport(it) }
-    preparedExport = null
     scope.cancel()
   }
 
@@ -411,20 +383,21 @@ class RecordingDetailViewModel(
   }
 
   /**
-   * Writes the chosen contents of [id]. Analysis results come from the cache the screen already reads,
-   * so a result that is not on the phone is simply not exported: nothing is downloaded or requested.
+   * Writes the chosen contents of [id] and starts the share sheet. Analysis results come from the
+   * cache the screen already reads, so a result that is not on the phone is simply not exported:
+   * nothing is downloaded or requested.
    */
-  private suspend fun prepare(id: String, contents: ExportContents): Result<File> {
+  private suspend fun share(id: String, contents: ExportContents): Result<Unit> {
     _state.update { it.copy(exportPhase = ExportPhase.ZIPPING, exportProgress = null) }
     val results = if (contents.results) exportResults() else emptyList()
-    return work.prepareExport(id, contents, results) { progress(it) }
+    return work.share(id, contents, results) { progress(it) }
   }
 
-  private suspend fun restoreThenPrepare(
+  private suspend fun restoreThenShare(
       id: String,
       server: String?,
       contents: ExportContents,
-  ): Result<File> {
+  ): Result<Unit> {
     val remote =
         server ?: return Result.failure(IllegalStateException("no server copy is available"))
     _state.update {
@@ -432,7 +405,7 @@ class RecordingDetailViewModel(
     }
     val restored = work.restoreRaw(id, remote) { progress(it) }
     restored.exceptionOrNull()?.let { return Result.failure(it) }
-    return prepare(id, contents)
+    return share(id, contents)
   }
 
   /** Every result of this night that the phone already holds, as the JSON the export writes. */

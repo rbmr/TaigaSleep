@@ -1,7 +1,6 @@
 package com.rbmr.taigasleep.ui.recording
 
 import android.content.Context
-import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.rbmr.taigasleep.R
@@ -39,19 +38,13 @@ interface RecordingWork {
       onProgress: (Float) -> Unit,
   ): Result<Unit>
 
-  /** Builds the chosen contents of a night into an archive and returns it. */
-  suspend fun prepareExport(
+  /** Builds the chosen contents of a night into an archive and offers it to the share sheet. */
+  suspend fun share(
       localId: String,
       contents: ExportContents,
       results: List<ExportResult>,
       onProgress: (ExportProgress) -> Unit,
-  ): Result<File>
-
-  /** Deletes an archive once the share sheet has returned. */
-  fun discardExport(file: File)
-
-  /** The share sheet for a prepared archive. */
-  fun shareIntent(file: File): Intent
+  ): Result<Unit>
 
   suspend fun deleteRaw(localId: String): RawActionResult
 
@@ -104,14 +97,14 @@ class RecordingDetailFactory(
               onProgress: (Float) -> Unit,
           ) = sync.downloadRaw(localId, onProgress)
 
-          override suspend fun prepareExport(
+          override suspend fun share(
               localId: String,
               contents: ExportContents,
               results: List<ExportResult>,
               onProgress: (ExportProgress) -> Unit,
-          ): Result<File> =
+          ): Result<Unit> =
               runCatching {
-                Exporter.prepare(
+                Exporter.share(
                     context = app,
                     recordingId = localId,
                     contents = contents,
@@ -119,12 +112,6 @@ class RecordingDetailFactory(
                     onProgress = onProgress,
                 )
               }
-
-          override fun discardExport(file: File) {
-            Exporter.discard(file)
-          }
-
-          override fun shareIntent(file: File): Intent = Exporter.shareIntent(app, file)
 
           override suspend fun deleteRaw(localId: String) = sync.deleteRaw(localId)
 

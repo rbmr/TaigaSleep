@@ -74,9 +74,33 @@ fun exportSource(
       else -> ExportSource.LOCAL
     }
 
-/** Builds a recording's chosen contents into one archive in the cache directory. */
+/**
+ * Builds a recording's chosen contents into one archive in the cache directory and offers it to the
+ * share sheet. The archive stays there until the next export or the next app start: a share target
+ * can still read it after the chooser has closed.
+ */
 object Exporter {
-  /** Writes the archive to the cache directory and returns it. Nothing of it is kept afterwards. */
+  /** An archive from the last hour may still be read by the app it was shared with. */
+  const val STALE_EXPORT_MS = 60L * 60 * 1000
+
+  /** Every prepared archive lives in this cache directory, one at a time. */
+  private const val EXPORT_DIR = "export"
+
+  /** Writes the archive and starts the share sheet for it. */
+  suspend fun share(
+      context: Context,
+      recordingId: String,
+      contents: ExportContents,
+      results: List<ExportResult>,
+      onProgress: (ExportProgress) -> Unit = {},
+  ) {
+    val archive =
+        withContext(Dispatchers.IO) { prepare(context, recordingId, contents, results, onProgress) }
+    val send = shareIntent(context, archive).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    context.startActivity(send)
+  }
+
+  /** Writes the archive to the cache directory, removing every export an earlier one left. */
   suspend fun prepare(
       context: Context,
       recordingId: String,
@@ -85,10 +109,8 @@ object Exporter {
       onProgress: (ExportProgress) -> Unit = {},
   ): File =
       withContext(Dispatchers.IO) {
-        val dir = File(context.cacheDir, EXPORT_DIR)
-        // One archive at a time: anything left from an earlier export is not needed.
-        dir.deleteRecursively()
-        dir.mkdirs()
+        val dir = exportDir(context)
+        clear(dir)
         File(dir, "taiga-$recordingId.zip").also { zip ->
           RecordingExport.write(
               id = recordingId,
@@ -101,6 +123,32 @@ object Exporter {
         }
       }
 
+  /** Removes the exports a newer one replaces. */
+  fun clear(dir: File) {
+    dir.deleteRecursively()
+    dir.mkdirs()
+  }
+
+  /**
+   * Removes the exports an earlier app run left behind. One that is still recent may be shared
+   * right now, so it stays until it is [maxAgeMs] old.
+   */
+  fun removeStale(
+      dir: File,
+      nowMs: Long = System.currentTimeMillis(),
+      maxAgeMs: Long = STALE_EXPORT_MS,
+  ) {
+    dir.listFiles()?.forEach { file ->
+      if (file.lastModified() < nowMs - maxAgeMs) file.deleteRecursively()
+    }
+  }
+
+  /** Called when the app starts, off the main thread: no export outlives the share it was made for. */
+  suspend fun cleanupOnStart(context: Context) =
+      withContext(Dispatchers.IO) { removeStale(exportDir(context)) }
+
+  private fun exportDir(context: Context): File = File(context.cacheDir, EXPORT_DIR)
+
   /** The share sheet for a prepared archive. */
   fun shareIntent(context: Context, file: File): Intent {
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
@@ -111,13 +159,4 @@ object Exporter {
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     return Intent.createChooser(send, null)
   }
-
-  /** The share sheet returned: an export is not kept on the phone once it has been handed over. */
-  fun discard(file: File) {
-    file.delete()
-    // The directory holds the one archive of the export it was made for.
-    file.parentFile?.delete()
-  }
-
-  private const val EXPORT_DIR = "export"
 }

@@ -12,7 +12,6 @@ import com.rbmr.taigasleep.recording.ExportSource
 import com.rbmr.taigasleep.recording.exportSource
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.sync.UploadFailure
-import java.io.File
 
 /** Where a running export is: it restores the raw files first when only the server has them. */
 enum class ExportPhase {
@@ -55,8 +54,6 @@ data class RecordingDetailUiState(
     val exportTotalBytes: Long = 0,
     /** What the user chose to export; the raw files and the metadata unless changed. */
     val exportContents: ExportContents = ExportContents(),
-    /** The archive the screen hands to the share sheet, from the moment it is ready. */
-    val exportFile: File? = null,
     val algorithms: List<AlgorithmDto> = emptyList(),
     val algorithmsLoading: Boolean = false,
     val algorithmsError: String? = null,
