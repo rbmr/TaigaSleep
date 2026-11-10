@@ -66,7 +66,6 @@
   <string name="settings_prevent_body">Keep Taiga alive overnight</string>
   <string name="settings_server_title">Server</string>
   <string name="settings_appearance_title">Appearance</string>
-  <string name="settings_appearance_body">System, light or dark</string>
   <string name="settings_appearance_body_system">Follow system</string>
   <string name="settings_appearance_body_light">Light</string>
   <string name="settings_appearance_body_dark">Dark</string>

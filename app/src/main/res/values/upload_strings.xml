@@ -19,13 +19,6 @@
   <string name="upload_notification_body">Taiga is uploading your night to the server.</string>
 
   <string name="upload_error_login">Log in to the server to upload.</string>
-  <string name="upload_error_network">The server could not be reached. Taiga will retry.</string>
-  <string name="upload_error_server">The server rejected the upload.</string>
-  <string name="upload_error_storage">The recording could not be read.</string>
-  <string name="upload_error_analysis">The analysis failed.</string>
-  <string name="upload_error_recording">The recording is still in progress.</string>
-  <string name="upload_error_generic">Upload failed.</string>
-  <string name="upload_error_version">The app and the server do not work together. Update whichever is older.</string>
 
   <string name="history_nights_label">Nights</string>
   <string name="history_local_only">Only on this phone</string>
@@ -39,7 +32,6 @@
   <string name="history_status_login">Login needed</string>
   <string name="history_status_update">Update needed</string>
   <string name="history_action_login">Log in</string>
-  <string name="history_refresh">Refresh</string>
   <string name="history_score_badge">%1$s %2$d</string>
   <string name="history_sleep_score_label">Score</string>
   <string name="history_no_sleep_score">No score</string>
@@ -47,9 +39,6 @@
 
   <string name="night_title">Night</string>
   <string name="night_back">Back</string>
-  <string name="night_more">More actions</string>
-  <string name="night_export">Export recording</string>
-  <string name="night_delete">Delete recording</string>
   <string name="night_delete_title">Delete this recording?</string>
   <string name="night_delete_body">This removes the recording and its analysis from this phone, and deletes the server copy. If the server is offline, the deletion is retried later.</string>
   <string name="night_delete_confirm">Delete</string>
@@ -168,7 +157,6 @@
   <string name="night_analysis_status_done">Ready</string>
   <string name="night_analysis_status_failed">Failed</string>
   <string name="night_sheet_close">Close</string>
-  <string name="night_metric_insufficient">Not enough data</string>
   <string name="night_metric_source">Source: %1$s</string>
   <string name="night_chart_fullscreen">Full screen</string>
   <string name="night_chart_close_fullscreen">Close full screen</string>

@@ -132,6 +132,8 @@ android {
   lint {
     baseline = file("lint-baseline.xml")
     abortOnError = true
+    // A resource nothing shows is a resource nothing needs: a new unused one fails the build.
+    error += "UnusedResources"
   }
 
   compileOptions {
