@@ -35,11 +35,10 @@ import com.rbmr.taigasleep.ui.components.TrendDoubleLineChart
 import com.rbmr.taigasleep.ui.components.TrendLineChart
 import com.rbmr.taigasleep.ui.components.TrendPoint
 import com.rbmr.taigasleep.ui.components.TrendScheduleChart
+import com.rbmr.taigasleep.ui.components.hoursAxis
+import com.rbmr.taigasleep.ui.components.totalSleepHours
 import com.rbmr.taigasleep.ui.components.trendClock
-import com.rbmr.taigasleep.ui.components.trendHeartRateAxis
-import com.rbmr.taigasleep.ui.components.trendHoursAxis
-import com.rbmr.taigasleep.ui.components.trendMillisecondsAxis
-import com.rbmr.taigasleep.ui.components.trendPercentAxis
+import com.rbmr.taigasleep.ui.components.trendNumber
 import com.rbmr.taigasleep.ui.components.trendWhole
 import com.rbmr.taigasleep.ui.components.trendWholeOrDash
 import com.rbmr.taigasleep.ui.history.TrendsUiState
@@ -216,9 +215,9 @@ private fun ScheduleCard(data: Trends, onOpen: (TrendNight) -> Unit) {
 private fun TotalSleepCard(data: Trends, onOpen: (TrendNight) -> Unit) {
   val title = stringResource(R.string.trends_total_sleep_title)
   val average = data.totalSleep
-  val points = data.points { it.totalSleepSeconds }
+  val points = data.points { totalSleepHours(it.totalSleepSeconds) }
   val intendedHours = data.intendedSleepMinutes?.div(60.0)
-  val (min, max) = trendHoursAxis(points, intendedHours)
+  val axis = hoursAxis(points.map { it?.value }, intendedHours)
   val value = average.value ?: 0.0
   val description =
       stringResource(
@@ -235,9 +234,7 @@ private fun TotalSleepCard(data: Trends, onOpen: (TrendNight) -> Unit) {
         TrendBarChart(
             days = data.days,
             points = points,
-            min = min,
-            max = max,
-            yFormat = { "${it.roundToInt()} h" },
+            axis = axis,
             target = intendedHours,
             targetLabel = data.intendedSleepMinutes?.let { formatSeconds(it * 60.0) },
             description = description,
@@ -310,7 +307,7 @@ private fun EfficiencyCard(data: Trends, onOpen: (TrendNight) -> Unit) {
   val title = stringResource(R.string.trends_efficiency_title)
   val average = data.efficiency
   val points = data.points { it.efficiency }
-  val (min, max) = trendPercentAxis(points)
+  val (min, max) = valueRange(points)
   val description =
       stringResource(
           R.string.trends_description_percent,
@@ -328,7 +325,7 @@ private fun EfficiencyCard(data: Trends, onOpen: (TrendNight) -> Unit) {
             points = points,
             min = min,
             max = max,
-            yFormat = { "${it.roundToInt()}%" },
+            yFormat = { "${trendNumber(it)}%" },
             description = description,
             tooltip = { night ->
               night.efficiency?.let { "${it.roundToInt()}%" } ?: "—"
@@ -359,7 +356,7 @@ private fun HeartRateCard(data: Trends, onOpen: (TrendNight) -> Unit) {
   val mean = data.heartRateMean
   val minPoints = data.points { it.heartRateMinBpm }
   val meanPoints = data.points { it.heartRateMeanBpm }
-  val (min, max) = trendHeartRateAxis(minPoints + meanPoints)
+  val (min, max) = valueRange(minPoints + meanPoints)
   val nights = minOf(minimum.nights, mean.nights)
   val description =
       stringResource(
@@ -382,7 +379,7 @@ private fun HeartRateCard(data: Trends, onOpen: (TrendNight) -> Unit) {
             secondLabel = stringResource(R.string.trends_legend_mean),
             min = min,
             max = max,
-            yFormat = { "${it.roundToInt()} bpm" },
+            yFormat = { "${trendNumber(it)} bpm" },
             description = description,
             tooltip = { night ->
               stringResource(
@@ -416,7 +413,7 @@ private fun HrvCard(data: Trends, onOpen: (TrendNight) -> Unit) {
   val title = stringResource(R.string.trends_hrv_title)
   val average = data.hrv
   val points = data.points { it.hrvRmssdMs }
-  val (min, max) = trendMillisecondsAxis(points)
+  val (min, max) = valueRange(points)
   val description =
       stringResource(
           R.string.trends_description_hrv,
@@ -434,7 +431,7 @@ private fun HrvCard(data: Trends, onOpen: (TrendNight) -> Unit) {
             points = points,
             min = min,
             max = max,
-            yFormat = { "${it.roundToInt()} ms" },
+            yFormat = { "${trendNumber(it)} ms" },
             description = description,
             tooltip = { night ->
               stringResource(
@@ -467,3 +464,9 @@ private fun Trends.points(value: (TrendNight) -> Double?): List<TrendPoint?> =
       if (night == null) null
       else value(night)?.let { TrendPoint(it, night.poorData, night) }
     }
+
+/** The data's own bounds; the shared axis widens them to evenly spaced round ticks. */
+private fun valueRange(points: List<TrendPoint?>): Pair<Double, Double> {
+  val values = points.mapNotNull { it?.value }
+  return (values.minOrNull() ?: 0.0) to (values.maxOrNull() ?: 1.0)
+}

@@ -55,6 +55,7 @@ import kotlin.math.log10
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 /** One night as a chart mark: its value, whether the night's data is poor, and where it opens. */
 data class TrendPoint(val value: Double, val poor: Boolean, val night: TrendNight)
@@ -70,37 +71,106 @@ fun trendDate(date: LocalDate): String =
     date.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))
 
 /**
- * The unit labels and gridlines a chart asks for, as a fraction from the top and its text. The two
- * ends of the axis are labelled as well, so a range that does not fall on a round step still reads.
+ * A y axis that ends on its outer ticks, so every label is a round, evenly spaced value. [min] and
+ * [max] are the data's own bounds; the axis is widened to the ticks that cover them and the raw
+ * bounds are not added as labels of their own.
  */
-fun trendTicks(min: Double, max: Double, format: (Double) -> String): List<Pair<Float, String>> {
-  if (!(max > min)) return listOf(0f to format(min))
-  val step = niceStep((max - min) / 3.0)
-  val values = mutableListOf<Double>()
-  var value = ceil(min / step) * step
-  while (value <= max + step * 0.001) {
-    values += value
-    value += step
-  }
-  if (values.none { abs(it - max) <= step * 0.001 }) values += max
-  if (values.none { abs(it - min) <= step * 0.001 }) values += min
-  return values.distinct().sortedDescending().map { tick ->
-    ((max - tick) / (max - min)).toFloat() to format(tick)
-  }
+data class TrendAxis(val min: Double, val max: Double, val ticks: List<Pair<Float, String>>) {
+  /** Where [value] sits from the top of the plot, 0 at the top and 1 at the bottom. */
+  fun fraction(value: Double): Float =
+      if (max <= min) 0.5f else ((max - value) / (max - min)).toFloat()
 }
 
-private fun niceStep(raw: Double): Double {
-  if (!(raw > 0)) return 1.0
-  val base = 10.0.pow(floor(log10(raw)))
-  val normalized = raw / base
-  val nice =
-      when {
-        normalized <= 1.0 -> 1.0
-        normalized <= 2.0 -> 2.0
-        normalized <= 5.0 -> 5.0
-        else -> 10.0
+/** The round steps the metric axes use, times a power of ten. */
+private val MetricSteps = doubleArrayOf(1.0, 2.0, 2.5, 5.0)
+
+/** The total-sleep axis counts whole hours, so its steps are whole hours as well. */
+private val HourSteps = doubleArrayOf(1.0, 2.0, 3.0, 5.0)
+
+/**
+ * The shared axis of every trend chart: the smallest round step that leaves at most five ticks,
+ * with the range extended to the outer ticks. Close values still get at least three ticks, and
+ * nothing is added for the raw minimum or maximum. [minStep] keeps the steps at or above a unit
+ * such as one hour.
+ */
+fun trendAxis(
+    min: Double,
+    max: Double,
+    format: (Double) -> String,
+    steps: DoubleArray = MetricSteps,
+    minStep: Double = 0.0,
+): TrendAxis {
+  val lowValue = if (min.isFinite()) min else 0.0
+  val highValue = if (max.isFinite()) max else lowValue
+  val low: Double
+  val high: Double
+  if (highValue > lowValue) {
+    low = lowValue
+    high = highValue
+  } else {
+    // A flat line still gets an axis around its value instead of a single label.
+    low = lowValue - 1.0
+    high = lowValue + 1.0
+  }
+  val step = chooseStep(low, high, steps, minStep)
+  val axisMin = floor(low / step) * step
+  var axisMax = ceil(high / step) * step
+  // A span narrower than the round steps still gets three labels instead of two.
+  while (tickCount(axisMin, axisMax, step) < 3) axisMax += step
+  val ticks = mutableListOf<Pair<Float, String>>()
+  var value = axisMax
+  while (value >= axisMin - step * 1e-6) {
+    ticks += ((axisMax - value) / (axisMax - axisMin)).toFloat() to format(value)
+    value -= step
+  }
+  return TrendAxis(axisMin, axisMax, ticks)
+}
+
+/** The smallest step from [steps] times a power of ten that gives an axis of at most five ticks. */
+private fun chooseStep(
+    low: Double,
+    high: Double,
+    steps: DoubleArray,
+    minStep: Double,
+): Double {
+  val span = (high - low).coerceAtLeast(1e-9)
+  var scale = maxOf(10.0.pow(floor(log10(span)) - 1), minStep)
+  repeat(14) {
+    for (multiple in steps) {
+      val step = multiple * scale
+      if (step > 0 &&
+          tickCount(floor(low / step) * step, ceil(high / step) * step, step) <= 5) {
+        return step
       }
-  return nice * base
+    }
+    scale *= 10
+  }
+  return scale
+}
+
+private fun tickCount(axisMin: Double, axisMax: Double, step: Double): Int =
+    ((axisMax - axisMin) / step).roundToInt() + 1
+
+/** A tick number without a needless decimal, so a 2.5 step still reads as such. */
+fun trendNumber(value: Double): String {
+  val whole = value.roundToLong()
+  if (abs(value - whole) < 1e-6) return whole.toString()
+  return String.format(Locale.getDefault(), "%.2f", value).trimEnd('0').trimEnd('.')
+}
+
+/** Total sleep arrives in seconds; the charts draw it in hours. */
+fun totalSleepHours(seconds: Double?): Double? = seconds?.div(3600.0)
+
+/** The total-sleep axis in hours, covering the values and the intended duration. */
+fun hoursAxis(values: List<Double?>, targetHours: Double?): TrendAxis {
+  val highest = maxOf(values.filterNotNull().maxOfOrNull { it } ?: 0.0, targetHours ?: 0.0, 1.0)
+  return trendAxis(
+      min = 0.0,
+      max = highest,
+      format = { "${trendNumber(it)} h" },
+      steps = HourSteps,
+      minStep = 1.0,
+  )
 }
 
 private val LeftLabelWidth = 54.dp
@@ -261,23 +331,23 @@ fun TrendLineChart(
 ) {
   var selected by remember(days, points) { mutableStateOf<Int?>(null) }
   val color = MaterialTheme.colorScheme.primary
-  val ticks = remember(min, max) { trendTicks(min, max, yFormat) }
+  val axis = remember(min, max) { trendAxis(min, max, yFormat) }
   TrendFrame(
       days = days,
       selected = selected,
-      yTicks = ticks,
+      yTicks = axis.ticks,
       description = description,
       large = large,
       modifier = if (large) modifier.fillMaxSize() else modifier.fillMaxWidth().height(176.dp),
       onTap = { index -> selected = index.takeIf { points.getOrNull(it) != null } },
       drawMarks = { plot, _ ->
-        drawTrendSeries(plot, points, color, large, min, max)
+        drawTrendSeries(plot, points, color, large, axis)
         selected?.let { index ->
           points.getOrNull(index)?.let { point ->
             drawCircle(
                 color,
                 radius = (if (large) 5.dp else 4.dp).toPx(),
-                center = Offset(plot.column(index, days.size), plot.y(fraction(point.value, min, max))),
+                center = Offset(plot.column(index, days.size), plot.y(axis.fraction(point.value))),
             )
           }
         }
@@ -308,7 +378,7 @@ fun TrendDoubleLineChart(
   var selected by remember(days, first, second) { mutableStateOf<Int?>(null) }
   val firstColor = MaterialTheme.taiga.chartHr
   val secondColor = MaterialTheme.colorScheme.primary
-  val ticks = remember(min, max) { trendTicks(min, max, yFormat) }
+  val axis = remember(min, max) { trendAxis(min, max, yFormat) }
   Column(modifier) {
     TrendLegend(
         first = firstLabel,
@@ -320,7 +390,7 @@ fun TrendDoubleLineChart(
     TrendFrame(
         days = days,
         selected = selected,
-        yTicks = ticks,
+        yTicks = axis.ticks,
         description = description,
         large = large,
         modifier =
@@ -331,8 +401,8 @@ fun TrendDoubleLineChart(
               index.takeIf { first.getOrNull(it) != null || second.getOrNull(it) != null }
         },
         drawMarks = { plot, _ ->
-          drawTrendSeries(plot, second, secondColor, large, min, max)
-          drawTrendSeries(plot, first, firstColor, large, min, max)
+          drawTrendSeries(plot, second, secondColor, large, axis)
+          drawTrendSeries(plot, first, firstColor, large, axis)
         },
         overlay = {
           trendTooltip(
@@ -353,9 +423,7 @@ fun TrendDoubleLineChart(
 fun TrendBarChart(
     days: List<LocalDate>,
     points: List<TrendPoint?>,
-    min: Double,
-    max: Double,
-    yFormat: (Double) -> String,
+    axis: TrendAxis,
     target: Double?,
     targetLabel: String?,
     description: String,
@@ -366,22 +434,21 @@ fun TrendBarChart(
 ) {
   var selected by remember(days, points) { mutableStateOf<Int?>(null) }
   val color = MaterialTheme.colorScheme.primary
-  val ticks = remember(min, max) { trendTicks(min, max, yFormat) }
   TrendFrame(
       days = days,
       selected = selected,
-      yTicks = ticks,
+      yTicks = axis.ticks,
       description = description,
       large = large,
       modifier = if (large) modifier.fillMaxSize() else modifier.fillMaxWidth().height(176.dp),
       onTap = { index -> selected = index.takeIf { points.getOrNull(it) != null } },
       drawMarks = { plot, paint ->
         val width = (plot.width / days.size.toFloat()) * if (large) 0.5f else 0.55f
-        val baseline = plot.y(fraction(min, min, max))
+        val baseline = plot.y(1f)
         for ((index, point) in points.withIndex()) {
           if (point == null) continue
           val center = plot.column(index, days.size)
-          val top = plot.y(fraction(point.value, min, max))
+          val top = plot.y(axis.fraction(point.value))
           drawRoundRect(
               color = color.copy(alpha = if (point.poor) 0.4f else 1f),
               topLeft = Offset(center - width / 2f, min(top, baseline)),
@@ -389,8 +456,8 @@ fun TrendBarChart(
               cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
           )
         }
-        if (target != null && target in min..max) {
-          val y = plot.y(fraction(target, min, max))
+        if (target != null && target >= axis.min && target <= axis.max) {
+          val y = plot.y(axis.fraction(target))
           drawLine(
               color = color,
               start = Offset(plot.left, y),
@@ -561,8 +628,7 @@ private fun DrawScope.drawTrendSeries(
     points: List<TrendPoint?>,
     color: Color,
     large: Boolean,
-    min: Double,
-    max: Double,
+    axis: TrendAxis,
 ) {
   val radius = (if (large) 3.5.dp else 2.5.dp).toPx()
   for (index in 1 until points.size) {
@@ -574,12 +640,12 @@ private fun DrawScope.drawTrendSeries(
         start =
             Offset(
                 plot.column(index - 1, points.size),
-                plot.y(fraction(from.value, min, max)),
+                plot.y(axis.fraction(from.value)),
             ),
         end =
             Offset(
                 plot.column(index, points.size),
-                plot.y(fraction(to.value, min, max)),
+                plot.y(axis.fraction(to.value)),
             ),
         strokeWidth = (if (large) 2.5.dp else 2.dp).toPx(),
         cap = StrokeCap.Round,
@@ -590,13 +656,10 @@ private fun DrawScope.drawTrendSeries(
     drawCircle(
         color = color.copy(alpha = if (point.poor) 0.4f else 1f),
         radius = radius,
-        center = Offset(plot.column(index, points.size), plot.y(fraction(point.value, min, max))),
+        center = Offset(plot.column(index, points.size), plot.y(axis.fraction(point.value))),
     )
   }
 }
-
-private fun fraction(value: Double, min: Double, max: Double): Float =
-    if (max <= min) 0.5f else ((max - value) / (max - min)).toFloat()
 
 private fun dayLabels(days: List<LocalDate>, maxLabels: Int = 3): Map<Int, String> {
   if (days.isEmpty()) return emptyMap()
@@ -622,46 +685,6 @@ private fun scheduleTicks(min: Int, max: Int): List<Pair<Float, String>> {
     minute += step
   }
   return ticks
-}
-
-/** The hours axis of the total sleep chart, at least one hour and a whole ceiling. */
-fun trendHoursAxis(points: List<TrendPoint?>, targetHours: Double?): Pair<Double, Double> {
-  val highest =
-      maxOf(
-          points.filterNotNull().maxOfOrNull { it.value } ?: 0.0,
-          targetHours ?: 0.0,
-      )
-  val max = ceil(highest).coerceAtLeast(1.0)
-  return 0.0 to max
-}
-
-/** The percent axis of the efficiency chart, kept inside 0 and 100. */
-fun trendPercentAxis(points: List<TrendPoint?>): Pair<Double, Double> {
-  val values = points.filterNotNull().map { it.value }
-  if (values.isEmpty()) return 0.0 to 100.0
-  var min = (floor((values.min() - 5) / 5) * 5).coerceAtLeast(0.0)
-  var max = (ceil((values.max() + 5) / 5) * 5).coerceAtMost(100.0)
-  if (max - min < 10) {
-    min = (min - 5).coerceAtLeast(0.0)
-    max = (max + 5).coerceAtMost(100.0)
-  }
-  return min to max
-}
-
-/** The bpm axis of a heart-rate chart, rounded to tens and never empty. */
-fun trendHeartRateAxis(points: List<TrendPoint?>): Pair<Double, Double> {
-  val values = points.filterNotNull().map { it.value }
-  if (values.isEmpty()) return 0.0 to 100.0
-  val min = (floor(values.min() / 10) * 10 - 5).coerceAtLeast(0.0)
-  var max = ceil(values.max() / 10) * 10 + 5
-  if (max - min < 20) max = min + 20
-  return min to max
-}
-
-/** The ms axis of the HRV chart: from zero to a whole rounded top. */
-fun trendMillisecondsAxis(points: List<TrendPoint?>): Pair<Double, Double> {
-  val highest = points.filterNotNull().maxOfOrNull { it.value } ?: 0.0
-  return 0.0 to ceil(highest / 20).coerceAtLeast(1.0) * 20
 }
 
 /** The compact integer a score or a percent tick shows. */
