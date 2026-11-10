@@ -124,18 +124,24 @@ private fun AnalysisRow(
     onSelect: (String) -> Unit,
 ) {
   val manual = stringResource(R.string.night_analysis_manual)
+  val name =
+      AlgorithmNames.display(run.algorithm.ifBlank { run.id }).let { displayName ->
+        if (run.version.isNotBlank()) {
+          stringResource(R.string.night_analysis_name_version, displayName, run.version)
+        } else {
+          displayName
+        }
+      }
+  val label =
+      if (run.origin == AnalysisOrigin.MANUAL) {
+        stringResource(R.string.night_analysis_name_manual, name, manual)
+      } else {
+        name
+      }
   Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
     Column(Modifier.weight(1f)) {
       Text(
-          text =
-              buildString {
-                append(AlgorithmNames.display(run.algorithm.ifBlank { run.id }))
-                if (run.version.isNotBlank()) {
-                  append(" ")
-                  append(run.version)
-                }
-                if (run.origin == AnalysisOrigin.MANUAL) append(" · $manual")
-              },
+          text = label,
           style = MaterialTheme.typography.titleSmall,
       )
       Text(
@@ -175,7 +181,7 @@ private fun AlgorithmRow(algorithm: AlgorithmDto, busy: Boolean, onRun: (String)
             style = MaterialTheme.typography.titleSmall,
         )
         Text(
-            text = "v${algorithm.version}",
+            text = stringResource(R.string.night_analysis_version, algorithm.version),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -194,7 +200,11 @@ private fun AlgorithmRow(algorithm: AlgorithmDto, busy: Boolean, onRun: (String)
     if (algorithm.supported_stages.isNotEmpty()) {
       val stages = algorithm.supported_stages.map { stringResource(stageLabelRes(it)) }
       Text(
-          text = stringResource(R.string.night_analysis_stages, stages.joinToString(", ")),
+          text =
+              stringResource(
+                  R.string.night_analysis_stages,
+                  stages.joinToString(stringResource(R.string.night_analysis_list_separator)),
+              ),
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
       )

@@ -267,7 +267,7 @@ private fun WarningCard(warnings: List<String>) {
     Spacer(Modifier.height(8.dp))
     warnings.forEach {
       Text(
-          text = "• $it",
+          text = stringResource(R.string.night_warning_item, it),
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
       )

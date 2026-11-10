@@ -223,7 +223,7 @@ internal fun ScoreComponentRows(components: List<ResultScoreComponentDto>) {
         )
       }
       Text(
-          text = "${component.value.roundToInt()}%",
+          text = stringResource(R.string.night_percent, component.value.roundToInt()),
           style = MaterialTheme.typography.titleMedium,
           color = MaterialTheme.colorScheme.onSurface,
       )

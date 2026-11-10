@@ -46,7 +46,7 @@ internal fun MetricGrid(items: List<ResultItemDto>, onMetric: (MetricSpec) -> Un
           val value = formatItemValue(spec.kind, spec.itemValue)
           MetricTile(
               spec = spec,
-              value = value ?: "—",
+              value = value ?: stringResource(R.string.night_value_none),
               onClick = { onMetric(spec) },
               modifier = Modifier.weight(1f).fillMaxHeight(),
           )

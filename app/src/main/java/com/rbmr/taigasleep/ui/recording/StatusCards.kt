@@ -67,9 +67,13 @@ internal fun LazyListScope.statusCards(
               text =
                   if (state.status == RecordingStatus.UPLOADING) {
                     stringResource(
-                        R.string.night_uploading_progress,
-                        (state.progress * 100).toInt().coerceIn(0, 100),
-                    ) + " · " + stringResource(R.string.night_uploading_body)
+                        R.string.night_uploading_progress_body,
+                        stringResource(
+                            R.string.night_uploading_progress,
+                            (state.progress * 100).toInt().coerceIn(0, 100),
+                        ),
+                        stringResource(R.string.night_uploading_body),
+                    )
                   } else {
                     stringResource(R.string.night_queued_body)
                   },

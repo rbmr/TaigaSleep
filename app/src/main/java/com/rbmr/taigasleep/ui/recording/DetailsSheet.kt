@@ -66,7 +66,7 @@ internal fun RecordingDetailsSheet(
           label = stringResource(R.string.night_details_stopped),
           value =
               state.endUtcMs?.takeIf { it > 0 }?.let { formatRecordingDateAndTime(it) }
-                  ?: "—",
+                  ?: stringResource(R.string.night_value_none),
       )
       DetailRow(
           label = stringResource(R.string.night_details_device),
@@ -141,7 +141,7 @@ internal fun RecordingDetailsSheet(
                 else ->
                     state.remoteCreatedAtMs?.takeIf { it > 0 }?.let {
                       formatRecordingDateAndTime(it)
-                    } ?: "—"
+                    } ?: stringResource(R.string.night_value_none)
               },
       )
       Row(

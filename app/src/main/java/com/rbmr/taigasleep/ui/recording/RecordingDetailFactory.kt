@@ -114,6 +114,7 @@ class RecordingDetailFactory(
                 rawRestoreFailed = app.getString(R.string.night_raw_restore_failed),
                 rawDeleteFailed = app.getString(R.string.night_raw_delete_failed),
                 rawNotUploaded = app.getString(R.string.night_raw_not_uploaded),
+                errorDetail = app.getString(R.string.night_error_detail),
             ),
     ) as T
   }
