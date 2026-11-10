@@ -181,10 +181,29 @@ class RecordingRecoveryTest {
     val dir = open(store)
     val reason = "the system refused to keep the service in the foreground"
 
-    val id = RecordingRecovery.abandon(store, "20261023_223000", reason, clock)
+    val abandoned = RecordingRecovery.abandon(store, "20261023_223000", reason, clock)
 
-    assertEquals("20261023_223000", id)
+    assertEquals(Abandoned.Interrupted("20261023_223000"), abandoned)
     assertEquals(RecordingPhase.INTERRUPTED, state(dir))
+    assertTrue(File(dir, "events.jsonl").readLines().any { it.contains(reason) })
+  }
+
+  @Test
+  fun `a refused foreground service keeps an on-device night for the fetch retry`() {
+    val store = store()
+    val dir = open(store, mode = RecordingMode.ON_DEVICE)
+    val reason = "the system refused to keep the service in the foreground"
+
+    val abandoned = RecordingRecovery.abandon(store, "20261023_223000", reason, clock)
+
+    val meta = RecordingMeta.read(dir)!!
+    assertEquals(Abandoned.FetchPending(meta), abandoned)
+    assertEquals(RecordingPhase.FETCH_PENDING, meta.state)
+    assertTrue(meta.fetchPending)
+    // The fetch sets the end; the tracker holds the rest of the night until then.
+    assertNull(meta.endUtcMs)
+    // The existing retry finds it, exactly as it does after a failed stop.
+    assertEquals("20261023_223000", store.fetchPending()?.recordingId)
     assertTrue(File(dir, "events.jsonl").readLines().any { it.contains(reason) })
   }
 

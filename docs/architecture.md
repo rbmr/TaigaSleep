@@ -186,7 +186,9 @@ A Stream recording is handed from one process to the next instead of being decla
   with the same resume action. Only a recording without a marker is an orphan and becomes
   `interrupted`; the service, not those callers, decides whether a marked one can continue.
 - The watchdog also rebuilds the live session of a service that is still there but whose
-  heartbeat stopped, because resuming it would find its session in place and change nothing.
+  heartbeat stopped, because resuming it would find its session in place and change nothing. It
+  does so on a thread of its own: the stalled control thread is what the rebuild has to replace,
+  so queueing the rebuild behind it would never run it.
 - A recording the tracker stores itself is adopted on resume, never started a second time.
 - A stream that stops delivering while the link still says connected is recovered instead of
   waited out: the streams are restarted after 30 s of silence, the link is dropped and made again
@@ -198,8 +200,10 @@ A Stream recording is handed from one process to the next instead of being decla
   is rolled back to the last good frame and counted instead of silently swallowed. Below an hour
   of the selected streams left, the recording state carries a storage problem the screen and the
   notification show.
-- When the system refuses to keep the service in the foreground, the recording ends as
-  `interrupted` with that reason instead of restarting into the same refusal.
+- When the system refuses to keep the service in the foreground, a streamed recording ends as
+  `interrupted` with that reason instead of restarting into the same refusal. An on-device one
+  becomes `fetch_pending` instead: the tracker still holds the night, so the existing fetch retry
+  keeps it recoverable rather than losing it.
 
 ### Ending a recording
 
