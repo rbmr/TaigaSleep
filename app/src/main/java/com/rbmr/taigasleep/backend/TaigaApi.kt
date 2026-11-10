@@ -3,7 +3,6 @@ package com.rbmr.taigasleep.backend
 import com.rbmr.taigasleep.BuildConfig
 import java.io.File
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -144,7 +143,7 @@ class TaigaConflictException(
 class OkHttpTaigaApi(
     private val baseUrl: String,
     private val token: String,
-    private val client: OkHttpClient = defaultTaigaClient(),
+    private val client: OkHttpClient,
     private val userAgent: String = "taiga-sleep-android/${BuildConfig.VERSION_NAME}",
 ) : TaigaClient {
   private val json =
@@ -344,15 +343,6 @@ class OkHttpTaigaApi(
     val OCTET = "application/octet-stream".toMediaType()
   }
 }
-
-private fun defaultTaigaClient(): OkHttpClient =
-    OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
-        .writeTimeout(90, TimeUnit.SECONDS)
-        .callTimeout(5, TimeUnit.MINUTES)
-        .retryOnConnectionFailure(true)
-        .build()
 
 @Serializable private data class ApiErrorDto(val code: String = "", val message: String = "")
 

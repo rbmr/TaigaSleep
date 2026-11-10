@@ -3,7 +3,6 @@ package com.rbmr.taigasleep.backend
 import com.rbmr.taigasleep.BuildConfig
 import java.io.EOFException
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.awaitClose
@@ -56,11 +55,11 @@ fun interface EventTransport {
 
 /**
  * Reads the stream over OkHttp. Cancelling the collector cancels the call, which unblocks the read.
- * It uses a client of its own, so a stream that is open for hours never takes a connection or a
- * dispatcher slot from the ordinary calls.
+ * The timeout that fits a long-lived stream is the one [HttpClients.events] gives it; the call
+ * itself shares the app's connection pool and dispatcher with everything else.
  */
 class OkHttpEventTransport(
-    private val client: OkHttpClient = defaultEventClient(),
+    private val client: OkHttpClient,
     private val userAgent: String = "taiga-sleep-android/${BuildConfig.VERSION_NAME}",
 ) : EventTransport {
   override fun open(baseUrl: String, token: String): Flow<RemoteEvent> = callbackFlow {
@@ -132,14 +131,6 @@ class OkHttpEventTransport(
  * dead, and the read gives up to let the connection be replaced.
  */
 internal const val EVENT_READ_TIMEOUT_SECONDS = 60L
-
-internal fun defaultEventClient(): OkHttpClient =
-    OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(EVENT_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        // The stream is meant to stay open: there is no deadline for the call as a whole.
-        .callTimeout(0, TimeUnit.SECONDS)
-        .build()
 
 /**
  * An event stream that keeps itself connected. It reconnects with a growing pause (1 second,

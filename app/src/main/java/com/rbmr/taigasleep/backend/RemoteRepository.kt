@@ -31,7 +31,8 @@ import kotlinx.coroutines.withContext
 class RemoteRepository internal constructor(
     private val store: RemoteStore,
     private val api: RemoteApi,
-    transport: EventTransport = OkHttpEventTransport(),
+    private val clients: HttpClients,
+    transport: EventTransport = OkHttpEventTransport(clients.events),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
   private val mutex = Mutex()
@@ -101,7 +102,7 @@ class RemoteRepository internal constructor(
   fun api(): TaigaClient? {
     val baseUrl = savedUrl.takeIf { it.isNotBlank() } ?: return null
     val token = store.token ?: return null
-    return OkHttpTaigaApi(baseUrl = baseUrl, token = token)
+    return OkHttpTaigaApi(baseUrl = baseUrl, token = token, client = clients.api)
   }
 
   /**
