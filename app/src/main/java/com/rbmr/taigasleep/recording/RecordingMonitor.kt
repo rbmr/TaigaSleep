@@ -6,6 +6,7 @@ import com.rbmr.taigasleep.tracker.Clock
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.EcgBatch
 import com.rbmr.taigasleep.tracker.HrSample
+import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.Stamp
 import kotlin.math.abs
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +31,12 @@ interface SampleMonitor {
  * service thread, so every mutation is taken under one short lock. Samples only update counters;
  * they never publish or write events. Events and a 1 Hz publish happen in [tick], plus immediately
  * on link, battery and phase changes.
+ *
+ * Staleness has two consumers with different jobs: the published state says how the recording looks
+ * now (a stream is stale after [STALE_MS]), while [StreamRecoveryPolicy] decides what to do about a
+ * stream that stays silent. The monitor reports every HR sample and every link change to it and
+ * records each step with its reason; the service performs the steps. It recovers only a streamed
+ * recording; an on-device one has no live stream to recover.
  */
 class RecordingMonitor(
     private val meta: RecordingMeta,
@@ -45,6 +52,9 @@ class RecordingMonitor(
 
   private val startedElapsedMs = clock.elapsedNs() / NS_PER_MS
   private val elapsedBaseMs = (clock.phoneNs() / NS_PER_MS - meta.startUtcMs).coerceAtLeast(0)
+
+  /** The recovery ladder for a stream that stops delivering, reset with the monitor. */
+  private val recovery = StreamRecoveryPolicy(startedElapsedMs)
 
   private var phase = RecordingState.Phase.STARTING
   private var link = RecordingState.LinkState.DISCONNECTED
@@ -95,6 +105,7 @@ class RecordingMonitor(
       hrBpm = sample.hr
       hrContactSupported = sample.contactSupported
       rrAvailable = sample.rrAvailable
+      recovery.onHrSample(stamp.elapsedNs / NS_PER_MS)
       if (sample.contactSupported) {
         if (rawContact != sample.contact) {
           val before = rawContact
@@ -153,6 +164,7 @@ class RecordingMonitor(
       }
       link = next
       linkSinceMs = nowMs
+      recovery.onLink(next == RecordingState.LinkState.CONNECTED, nowMs)
       when {
         next == RecordingState.LinkState.CONNECTED ->
             events += (if (first) "connect" else "reconnect") to meta.sensorName
@@ -207,18 +219,39 @@ class RecordingMonitor(
     }
   }
 
-  /** Evaluates contact hysteresis, stream staleness, storage health and publishes at 1 Hz. */
-  fun tick(nowNs: Long) {
+  /**
+   * Evaluates contact hysteresis, stream staleness, storage health and the recovery ladder, and
+   * publishes at 1 Hz. Returns the recovery steps of this tick for the service to perform.
+   */
+  fun tick(nowNs: Long): List<RecoveryStep> {
     val nowMs = nowNs / NS_PER_MS
     val events = ArrayList<Pair<String, String>>(2)
+    val steps: List<RecoveryStep>
     synchronized(lock) {
       evaluateContact(nowMs)
       evaluateStreams(nowNs, events)
       evaluateQuality(events)
       evaluateStorage(nowNs, events)
+      steps = evaluateRecovery(nowMs)
       publishLocked(nowMs)
     }
     emit(events)
+    emitRecovery(steps)
+    return steps
+  }
+
+  /**
+   * The phone's Bluetooth radio went off or came back. Returns what the service has to perform; the
+   * reason of the step it records says what the radio did.
+   */
+  fun onBluetooth(enabled: Boolean): List<RecoveryStep> {
+    val steps: List<RecoveryStep>
+    synchronized(lock) {
+      if (!recovers()) return emptyList()
+      steps = recovery.onBluetooth(enabled, clock.elapsedNs() / NS_PER_MS)
+    }
+    emitRecovery(steps)
+    return steps
   }
 
   // Derivation. Everything below runs under the lock.
@@ -335,6 +368,19 @@ class RecordingMonitor(
       storageError = error
       events += "storage_error" to "writing to the phone failed: $error"
     }
+  }
+
+  /** Only a streamed recording that is still running has live streams to recover. */
+  private fun recovers(): Boolean =
+      meta.mode == RecordingMode.STREAM &&
+          phase == RecordingState.Phase.RECORDING &&
+          RecordingState.StreamKind.HR in streams
+
+  private fun evaluateRecovery(nowMs: Long): List<RecoveryStep> =
+      if (recovers()) recovery.evaluate(nowMs) else emptyList()
+
+  private fun emitRecovery(steps: List<RecoveryStep>) {
+    emit(steps.map { "recovery" to it.reason })
   }
 
   private fun publishLocked(nowMs: Long) {

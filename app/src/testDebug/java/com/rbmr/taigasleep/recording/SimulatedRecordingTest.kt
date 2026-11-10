@@ -11,6 +11,7 @@ import com.rbmr.taigasleep.tracker.SimulatedSensor
 import com.rbmr.taigasleep.tracker.StreamConfig
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -142,6 +143,84 @@ class SimulatedRecordingTest {
     assertTrue(tornOut, tornOut.contains("acc.log") && tornOut.contains("hr.log"))
   }
 
+
+  /**
+   * A strap that keeps the link up but stops notifying is the failure the SDK cannot see: no error,
+   * no disconnect, just silence. The policy restarts the streams after 30 s, and the same recording
+   * writes again. The steps are performed here the way the service performs them.
+   */
+  @Test
+  fun aConnectedStreamThatStopsDeliveringIsRecoveredAndWritesAgain() = runBlocking {
+    val clock = TestClock()
+    val root = File("build/fixtures-stall").apply { deleteRecursively(); mkdirs() }
+    val writer = RecordingWriter.create(root, meta(clock), clock)
+    val monitor =
+        RecordingMonitor(
+            meta = writer.meta,
+            clock = clock,
+            event = writer::event,
+            storageHealth = writer::storageHealth,
+        )
+    val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
+    val fanout = SampleFanout(writer, monitor) { message -> writer.event("error", message) }
+    sensor.connect()
+    sensor.startStreams(StreamConfig(ecg = true, acc = true), fanout)
+    monitor.onPhase(RecordingState.Phase.RECORDING)
+    monitor.onLink(sensor.connection.value)
+    monitor.onBattery(sensor.battery.value)
+
+    val recoveries = mutableListOf<RecoveryStep>()
+    var link = sensor.connection.value
+    var msSinceTick = 0L
+    suspend fun run(ms: Long) {
+      repeat((ms / 100).toInt()) {
+        clock.advanceMs(100)
+        sensor.pump(clock.elapsedNs())
+        if (sensor.connection.value != link) {
+          link = sensor.connection.value
+          monitor.onLink(link)
+        }
+        msSinceTick += 100
+        if (msSinceTick < 1_000) return@repeat
+        msSinceTick = 0
+        for (step in monitor.tick(clock.elapsedNs())) {
+          recoveries += step
+          executeRecovery(
+              step,
+              sensor,
+              StreamConfig(ecg = true, acc = true),
+              fanout,
+              reconnectPauseMs = 0,
+          )
+        }
+      }
+    }
+
+    // Ten seconds reach the phone, then the strap stays connected and goes silent.
+    run(10_000)
+    val before = samples(File(writer.dir, "hr.log"), 1)
+    assertTrue("the recording should write while the streams run", before > 0)
+    sensor.stopEmittingUntilRestarted()
+    run(29_000)
+    assertEquals(ConnectionState.CONNECTED, sensor.connection.value)
+    assertEquals("nothing recovers the stream on its own", 0, recoveries.size)
+    assertEquals(before, samples(File(writer.dir, "hr.log"), 1))
+
+    // The restart the policy asks for brings the notifications back: the recording writes again.
+    run(5_000)
+    assertEquals(RecoveryStepKind.RESTART_STREAMS, recoveries.single().kind)
+    assertEquals(ConnectionState.CONNECTED, sensor.connection.value)
+    assertTrue(
+        "the recording should write after the recovery",
+        samples(File(writer.dir, "hr.log"), 1) > before,
+    )
+    val events = File(writer.dir, "events.jsonl").readLines()
+    assertTrue(events.toString(), events.any { it.contains("\"recovery\"") && it.contains("30 s") })
+
+    sensor.stopStreams()
+    writer.finish(RecordingPhase.STOPPED, "test stop")
+    assertEquals(RecordingState.OverallState.OK, monitor.state.value.overall.state)
+  }
 
   @Test
   fun anOnDeviceRecordingStaysOnTheTrackerUntilItIsFetched() {

@@ -8,6 +8,7 @@ import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.EcgBatch
 import com.rbmr.taigasleep.tracker.HrSample
+import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.Stamp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -225,6 +226,72 @@ class RecordingMonitorTest {
     assertEquals(RecordingState.StreamStatus.OK, ecg.status)
     assertEquals(1, ecg.restarts)
     assertEquals(listOf("stream_stalled", "stream_recovered"), events.map { it.first })
+  }
+
+  @Test
+  fun aStalledHrAsksForRecoveryAfterThirtySecondsAndRecordsWhy() {
+    val m = monitor()
+    m.onPhase(RecordingState.Phase.RECORDING)
+    m.onLink(ConnectionState.CONNECTED)
+    m.hr()
+    m.tick()
+
+    // The stale display comes after a few seconds; recovery waits for real silence.
+    clock.advanceMs(29_000)
+    assertEquals(emptyList<RecoveryStep>(), m.tick())
+    clock.advanceMs(1_000)
+    val steps = m.tick()
+    assertEquals(RecoveryStepKind.RESTART_STREAMS, steps.single().kind)
+    assertEquals("recovery" to steps.single().reason, events.last())
+    assertTrue(events.last().second.contains("30 s"))
+
+    // The monitor keeps the ladder going when the stream stays silent.
+    clock.advanceMs(30_000)
+    assertEquals(RecoveryStepKind.RECONNECT, m.tick().single().kind)
+    assertEquals(2, events.count { it.first == "recovery" })
+
+    // A sample that arrives resets it: no further steps from the old stall.
+    clock.advanceMs(10_000)
+    m.hr()
+    m.tick()
+    clock.advanceMs(10_000)
+    assertTrue(m.tick().isEmpty())
+  }
+
+  @Test
+  fun aBluetoothCycleAsksToReconnectAsSoonAsTheRadioIsBack() {
+    val m = monitor()
+    m.onPhase(RecordingState.Phase.RECORDING)
+    m.onLink(ConnectionState.CONNECTED)
+    m.hr()
+    m.tick()
+
+    val wait = m.onBluetooth(false).single()
+    assertEquals(RecoveryStepKind.WAIT, wait.kind)
+    assertEquals("recovery" to wait.reason, events.last())
+
+    clock.advanceMs(5 * 60_000)
+    assertTrue("nothing is escalated while the radio is off", m.tick().isEmpty())
+
+    val reconnect = m.onBluetooth(true).single()
+    assertEquals(RecoveryStepKind.RECONNECT, reconnect.kind)
+    assertEquals("recovery" to reconnect.reason, events.last())
+  }
+
+  @Test
+  fun anOnDeviceRecordingAsksForNoStreamRecovery() {
+    val m =
+        RecordingMonitor(
+            meta().copy(mode = RecordingMode.ON_DEVICE),
+            clock,
+            { type, message -> events += type to message },
+        ) { health }
+    m.onPhase(RecordingState.Phase.RECORDING)
+    m.onLink(ConnectionState.CONNECTED)
+    clock.advanceMs(10 * 60_000)
+    assertTrue(m.tick().isEmpty())
+    assertTrue(m.onBluetooth(false).isEmpty())
+    assertTrue(events.none { it.first == "recovery" })
   }
 
   @Test
