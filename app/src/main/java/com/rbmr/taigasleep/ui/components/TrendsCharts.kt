@@ -140,10 +140,12 @@ private fun TrendFrame(
     overlay: @Composable BoxScope.() -> Unit,
 ) {
   val density = LocalDensity.current
-  val leftLabelWidth = if (large) LargeLeftLabelWidth else LeftLabelWidth
+  // A large system font enlarges the axis labels too, so the room reserved for them follows it.
+  val fontScale = density.fontScale.coerceIn(1f, 1.6f)
+  val leftLabelWidth = (if (large) LargeLeftLabelWidth else LeftLabelWidth) * fontScale
   val leftPx = with(density) { leftLabelWidth.toPx() }
   val topPx = with(density) { (if (large) 10.dp else 8.dp).toPx() }
-  val bottomPx = with(density) { (if (large) 28.dp else 22.dp).toPx() }
+  val bottomPx = with(density) { ((if (large) 28.dp else 22.dp) * fontScale).toPx() }
   val labelSp = if (large) 13.sp else 8.sp
   val gridColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f)
   val axisColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
@@ -596,7 +598,7 @@ private fun DrawScope.drawTrendSeries(
 private fun fraction(value: Double, min: Double, max: Double): Float =
     if (max <= min) 0.5f else ((max - value) / (max - min)).toFloat()
 
-private fun dayLabels(days: List<LocalDate>, maxLabels: Int = 4): Map<Int, String> {
+private fun dayLabels(days: List<LocalDate>, maxLabels: Int = 3): Map<Int, String> {
   if (days.isEmpty()) return emptyMap()
   val formatter = DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())
   val step = ceil(days.size / maxLabels.toDouble()).toInt().coerceAtLeast(1)
