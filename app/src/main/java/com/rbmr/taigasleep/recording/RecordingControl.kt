@@ -273,6 +273,7 @@ class RecordingControl(
   /**
    * The window this recording rings for, or null when it has none. An on-device night has no live
    * data, so the window cannot be used there, and movement needs the accelerometer to be recorded.
+   * A window without a chosen signal still has its end, which rings like any other.
    */
   private fun wakeOf(
       window: WakeWindow?,
@@ -282,10 +283,9 @@ class RecordingControl(
       nowUtcMs: Long,
   ): ArmedWake? {
     if (window == null || mode != RecordingMode.STREAM) return null
-    val triggers = window.copy(movement = window.movement && config.acc)
-    if (!triggers.triggers) return null
-    val bounds = triggers.bounds(nowUtcMs)
-    return ArmedWake(recordingId, triggers, bounds.startUtcMs, bounds.endUtcMs)
+    val chosen = window.copy(movement = window.movement && config.acc)
+    val bounds = chosen.bounds(nowUtcMs)
+    return ArmedWake(recordingId, chosen, bounds.startUtcMs, bounds.endUtcMs)
   }
 
   /** Picks up the recording that was running before this process or service instance died. */

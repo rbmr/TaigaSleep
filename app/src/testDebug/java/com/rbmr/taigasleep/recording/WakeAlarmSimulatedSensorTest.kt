@@ -88,6 +88,20 @@ class WakeAlarmSimulatedSensorTest {
     assertEquals(0, host.firedAlarms)
   }
 
+  @Test
+  fun `a window without a chosen signal still arms its end`() {
+    val store = RecordingStore(tmp.newFolder())
+    val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
+    val host = FakeHost(sensor)
+    val window = WakeWindow(6 * 60 + 30, 7 * 60, heartRate = false, movement = false)
+    control = RecordingControl(store, clock, host).also { it.start(request(sensor, window)) }
+    await("the window to be armed") { host.armed != null }
+
+    val nowMs = clock.phoneNs / 1_000_000
+    assertEquals(window.bounds(nowMs).endUtcMs, host.armed!!.endUtcMs)
+    assertEquals("nothing may ring before the end", 0, host.firedAlarms)
+  }
+
   /** A window that is open now: ten minutes before this moment and twenty after it. */
   private fun windowAroundNow(): WakeWindow {
     val local = Instant.ofEpochMilli(clock.phoneNs / 1_000_000).atZone(ZoneId.systemDefault())
