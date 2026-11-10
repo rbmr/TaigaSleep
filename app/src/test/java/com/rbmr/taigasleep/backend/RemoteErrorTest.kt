@@ -17,6 +17,7 @@ class RemoteErrorTest {
             RemoteError.NotTaiga,
             RemoteError.BadCredentials,
             RemoteError.SessionExpired,
+            RemoteError.StorageFull,
             RemoteError.MalformedResponse,
             RemoteError.Http(500),
             RemoteError.IncompatibleApi(required = 3, server = 2),
@@ -25,5 +26,11 @@ class RemoteErrorTest {
     for (error in errors) {
       assertEquals(error, remoteErrorFromLabel(error.label))
     }
+  }
+
+  @Test
+  fun `a full server quota maps to its own reason`() {
+    assertEquals(RemoteError.StorageFull, remoteErrorForCode(ApiCode.STORAGE_QUOTA_EXCEEDED))
+    assertEquals(RemoteError.StorageFull, remoteErrorFromLabel(RemoteError.StorageFull.label))
   }
 }
