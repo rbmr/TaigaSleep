@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -437,6 +439,75 @@ func TestChunkLimits(t *testing.T) {
 	s.expect(201, http.MethodPut, "/v1/recordings/big", alice, testMeta("big", "recording"), nil)
 	if st, _, b := appendChunk(s, alice, "big", "hr.log", 0, make([]byte, 1024*1024+1), nil); st != 413 || decode[ErrorResponse](t, b).Code != "chunk_too_large" {
 		t.Fatalf("oversized chunk = %d %s", st, b)
+	}
+}
+
+// seedStoredBytes puts a file of size bytes into a recording without uploading it, so
+// a test can reach a quota without sending gigabytes through the API.
+func seedStoredBytes(t *testing.T, s *server, id string, size int64) {
+	t.Helper()
+	dir := recordingDir(s.app, id)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(filepath.Join(dir, "hr.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(size); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	record, err := s.app.FindRecordById("recordings", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Set("files", map[string]FileEntry{"hr.log": {Encoding: encodingIdentity, UncompressedSize: size}})
+	if err := s.app.Save(record); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStorageQuota(t *testing.T) {
+	t.Setenv("TAIGA_USER_QUOTA_GB", "1")
+	s := newServer(t)
+	alice, bob := s.tokens["alice"], s.tokens["bob"]
+	quota := int64(1) * 1024 * 1024 * 1024
+
+	// One account whose recordings already fill the quota.
+	s.expect(201, http.MethodPut, "/v1/recordings/full", alice, testMeta("full", "recording"), nil)
+	seedStoredBytes(t, s, "full", quota)
+	s.expect(201, http.MethodPut, "/v1/recordings/more", alice, testMeta("more", "recording"), nil)
+	if st, _, body := appendChunk(s, alice, "more", "hr.log", 0, []byte("frames"), nil); st != 413 ||
+		decode[ErrorResponse](t, body).Code != "storage_quota_exceeded" {
+		t.Fatalf("upload beyond the quota = %d %s", st, body)
+	}
+
+	// The quota is per account: another account still uploads.
+	s.expect(201, http.MethodPut, "/v1/recordings/bobs", bob, testMeta("bobs", "recording"), nil)
+	if st, _, body := appendChunk(s, bob, "bobs", "hr.log", 0, []byte("frames"), nil); st != 204 {
+		t.Fatalf("another account = %d %s", st, body)
+	}
+
+	// Deleting the bytes makes room again.
+	s.expect(204, http.MethodDelete, "/v1/recordings/full", alice, nil, nil)
+	if st, _, body := appendChunk(s, alice, "more", "hr.log", 0, []byte("frames"), nil); st != 204 {
+		t.Fatalf("upload after freeing space = %d %s", st, body)
+	}
+}
+
+func TestZeroStorageQuotaIsUnlimited(t *testing.T) {
+	t.Setenv("TAIGA_USER_QUOTA_GB", "0")
+	s := newServer(t)
+	alice := s.tokens["alice"]
+	s.expect(201, http.MethodPut, "/v1/recordings/full", alice, testMeta("full", "recording"), nil)
+	seedStoredBytes(t, s, "full", int64(1024)*1024*1024*1024)
+	s.expect(201, http.MethodPut, "/v1/recordings/more", alice, testMeta("more", "recording"), nil)
+	if st, _, body := appendChunk(s, alice, "more", "hr.log", 0, []byte("frames"), nil); st != 204 {
+		t.Fatalf("quota 0 must not limit an upload: %d %s", st, body)
 	}
 }
 

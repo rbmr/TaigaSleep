@@ -277,6 +277,8 @@ func Routes() []openAPIRoute {
 			Description: "`Upload-Offset` must equal the stored size (0 creates the file); otherwise the answer is 409 " +
 				"`offset_mismatch` with the current offset in `Upload-Offset`. Send `Content-Encoding: gzip` for a chunk " +
 				"that is one complete gzip member, or nothing for plain bytes. A file's encoding is fixed by its first chunk. " +
+				"A chunk that would push the account's stored recordings beyond its quota (TAIGA_USER_QUOTA_GB) is refused " +
+				"with 413 `storage_quota_exceeded`. " +
 				"The backend stores the bytes as they are; checking frames is the worker's job.",
 			Access: accessUser,
 			Params: append(fileParams(),
