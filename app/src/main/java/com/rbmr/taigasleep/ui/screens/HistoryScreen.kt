@@ -39,19 +39,26 @@ import com.rbmr.taigasleep.ui.components.ScoreBadge
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SectionLabel
 import com.rbmr.taigasleep.ui.components.StageBar
+import com.rbmr.taigasleep.ui.components.StatusBanner
+import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.history.HistoryUiState
 import com.rbmr.taigasleep.ui.history.HistoryViewModel
+import com.rbmr.taigasleep.ui.history.ServerWarning
 
 /**
  * The list shows what the user has: one line of status, one result summary, and nothing to operate.
  * Opening a recording is the only action here; retry, export and delete live in the recording screen.
+ *
+ * A server that is missing, unreachable or has no accepted login is said once at the top, because
+ * without one the recordings stay unanalyzed. Tapping that card opens the server page.
  *
  * The screen only draws the state its view model holds (see [HistoryViewModel]).
  */
 @Composable
 fun HistoryScreen(
     onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
+    onOpenServer: () -> Unit,
 ) {
   val context = LocalContext.current
   val factory = remember { HistoryViewModel.Factory(context) }
@@ -64,13 +71,14 @@ fun HistoryScreen(
     onPauseOrDispose {}
   }
 
-  HistoryScreen(state = state, onOpenRecording = onOpenRecording)
+  HistoryScreen(state = state, onOpenRecording = onOpenRecording, onOpenServer = onOpenServer)
 }
 
 @Composable
 fun HistoryScreen(
     state: HistoryUiState,
     onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
+    onOpenServer: () -> Unit,
 ) {
   LazyColumn(
       modifier = Modifier.fillMaxSize().statusBarsPadding(),
@@ -84,6 +92,18 @@ fun HistoryScreen(
           subtitle = stringResource(R.string.history_subtitle),
           modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
       )
+    }
+
+    val warning = state.serverWarning
+    if (warning != null) {
+      item {
+        StatusBanner(
+            kind = StatusKind.Warn,
+            title = stringResource(warning.titleRes),
+            body = stringResource(R.string.history_server_warning_body),
+            onClick = onOpenServer,
+        )
+      }
     }
 
     if (state.items.isEmpty()) {
@@ -192,3 +212,12 @@ private fun rowStatus(item: RecordingView): String =
           )
       RecordingStatus.READY -> stringResource(R.string.history_status_ready)
     }
+
+/** The one line that says why a night is not analyzed yet; the body under it is the same for all. */
+private val ServerWarning.titleRes: Int
+  get() =
+      when (this) {
+        ServerWarning.NOT_CONFIGURED -> R.string.history_server_warning_no_server
+        ServerWarning.UNREACHABLE -> R.string.history_server_warning_unreachable
+        ServerWarning.LOGIN_NEEDED -> R.string.history_server_warning_login_needed
+      }
