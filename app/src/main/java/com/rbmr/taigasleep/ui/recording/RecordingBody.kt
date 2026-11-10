@@ -53,6 +53,9 @@ internal fun RecordingBody(
   val run = state.result
   val analysis = run?.result
   val processed = run?.isSucceeded == true
+  // Whether the night has a finished analysis is what the library knows, not whether its result
+  // has been read yet.
+  val analysed = state.analysed
   val headerLine =
       formatNightHeader(
           tracker = state.recordingTracker.ifBlank { stringResource(R.string.night_device_unknown) },
@@ -78,7 +81,7 @@ internal fun RecordingBody(
     item {
       RecordingHeaderCard(
           state = analysis?.let(::sleepScoreCardState),
-          processed = processed,
+          processed = analysed,
           onScoreClick = { if (run != null) onOpenSleepScore() },
           onExplainExperimental = onExplainScore,
       )
@@ -159,7 +162,7 @@ internal fun RecordingBody(
               onExpand = onExpand,
               onOpenQuality = onOpenQuality,
           )
-      else ->
+      !analysed ->
           statusCards(
               state = state,
               onUpload = onUpload,

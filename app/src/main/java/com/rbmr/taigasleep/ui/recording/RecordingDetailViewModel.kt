@@ -39,11 +39,14 @@ class RecordingDetailViewModel(
     dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : ViewModel() {
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+  private val known = recordingIn(library.recordings.value)
   private val _state =
       MutableStateFlow(
           RecordingDetailUiState(
+              recording = known,
               connected = library.remoteStatus.value is RemoteStatus.Connected,
               loginError = texts.loginError,
+              canExport = canExportOf(known),
           )
       )
   val state: StateFlow<RecordingDetailUiState> = _state.asStateFlow()
