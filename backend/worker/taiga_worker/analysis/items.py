@@ -180,7 +180,6 @@ PERCENT_FROM_FRACTION = {"sleep_efficiency", "movement_index"}
 QUALITY_COMPONENTS = {
     "usable_epoch_coverage": "Usable epoch coverage",
     "artifact_free_rate": "Artifact-free epochs",
-    "mean_stage_confidence": "Mean stage confidence",
     "hr_coverage": "Heart-rate coverage",
 }
 
@@ -282,7 +281,7 @@ def score_items(
         quality,
         QUALITY_COMPONENTS,
         "How much of the recording could be used for staging: epoch coverage, artifact-free "
-        "time, stage confidence and heart-rate coverage, each weighted.",
+        "time and heart-rate coverage, each weighted.",
         ["stages", "hr"],
     )
     if data_quality is not None:

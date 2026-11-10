@@ -5,8 +5,18 @@ from pathlib import Path
 
 import pytest
 
-from taiga_worker.analysis.contract import CONTRACT_VERSION, AnalysisError
+from taiga_worker.analysis.contract import (
+    AASM4_STAGES,
+    CONTRACT_VERSION,
+    AlgorithmInfo,
+    AnalysisError,
+    RegisteredAlgorithm,
+    Stager,
+    StagingResult,
+    StreamNeed,
+)
 from taiga_worker.analysis.pipeline import run_analysis
+from taiga_worker.analysis.registry import Registry
 from tests import analysis_fixture as fx
 
 
@@ -130,3 +140,54 @@ def test_items_omit_metrics_the_algorithm_does_not_support() -> None:
     )
 
     assert [item["id"] for item in items] == ["hr_mean_bpm"]
+
+
+PROBE_INFO = AlgorithmInfo(
+    id="confidence-probe",
+    version="1.0.0",
+    name="Confidence probe",
+    description="Synthetic stager that reports a fixed per-epoch confidence.",
+    license="MIT",
+    needs=(StreamNeed("hr", required=True),),
+    stage_scheme="aasm4",
+    supported_stages=AASM4_STAGES,
+    capabilities=frozenset({"stages", "confidence"}),
+)
+
+
+class _ProbeStager(Stager):
+    info = PROBE_INFO
+    confidence = 0.5
+
+    def stage(self, recording, params):
+        grid = recording.epochs(30)
+        return StagingResult(
+            stages=["light"] * grid.count,
+            confidence=[self.confidence] * grid.count,
+        )
+
+
+def _data_quality_with_confidence(tmp_path: Path, confidence: float) -> dict:
+    fx.write_recording(tmp_path, duration_s=240)
+    stager = _ProbeStager()
+    stager.confidence = confidence
+    registry = Registry(
+        algorithms={
+            (PROBE_INFO.id, PROBE_INFO.version): RegisteredAlgorithm(
+                info=PROBE_INFO,
+                stager=stager,
+                source="test",
+            )
+        }
+    )
+    payload = run_analysis(tmp_path, PROBE_INFO.id, {}, registry=registry).to_dict()
+    return next(item for item in payload["items"] if item["id"] == "data_quality")
+
+
+def test_the_data_quality_score_does_not_depend_on_stage_confidence(tmp_path: Path) -> None:
+    unsure = _data_quality_with_confidence(tmp_path / "unsure", 0.01)
+    certain = _data_quality_with_confidence(tmp_path / "certain", 1.0)
+
+    assert unsure["value"] == certain["value"]
+    assert unsure["components"] == certain["components"]
+    assert all(component["id"] != "mean_stage_confidence" for component in unsure["components"])

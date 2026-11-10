@@ -261,7 +261,6 @@ def run_analysis(
         grid,
         result.stages,
         info,
-        confidence=confidence,
         artifacts=result.artifacts,
         beats_s=result.beats_s,
         supported_stages=result.supported_stages,
