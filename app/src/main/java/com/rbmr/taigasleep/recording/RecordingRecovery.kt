@@ -118,12 +118,12 @@ object RecordingRecovery {
     return try {
       val dir = store.dir(meta.recordingId)
       EventLog.append(dir, clock.phoneNs(), clock.elapsedNs(), "error", reason)
-      meta.copy(
+      val ended =
+          meta.copy(
               state = RecordingPhase.INTERRUPTED,
               endUtcMs = store.lastFrameMs(dir) ?: meta.startUtcMs,
           )
-          .write(dir)
-      meta.recordingId
+      if (ended.write(dir)) meta.recordingId else null
     } catch (_: Exception) {
       null
     }

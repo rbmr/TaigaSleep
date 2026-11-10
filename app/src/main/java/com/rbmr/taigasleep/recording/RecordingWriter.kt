@@ -220,15 +220,13 @@ private constructor(
   fun markFetchPending(): Boolean {
     if (closed) return false
     val updated = meta.copy(state = RecordingPhase.FETCH_PENDING, fetchPending = true)
-    return try {
-      updated.write(dir)
-      meta = updated
-      true
-    } catch (e: IOException) {
-      failure = e.message ?: "metadata write failed"
-      Log.e(TAG, "fetch pending metadata write failed", e)
-      false
+    if (!updated.write(dir)) {
+      failure = "metadata write failed"
+      Log.e(TAG, "fetch pending metadata write failed")
+      return false
     }
+    meta = updated
+    return true
   }
 
   /** How many samples of each tracker entry are already on this phone. */
@@ -241,15 +239,13 @@ private constructor(
   @Synchronized
   fun beginEntryImport(entryId: String): Boolean {
     val updated = meta.copy(importStarted = entryId, importStart = mark())
-    return try {
-      updated.write(dir)
-      meta = updated
-      true
-    } catch (e: IOException) {
-      failure = e.message ?: "metadata write failed"
-      Log.e(TAG, "import mark metadata write failed", e)
-      false
+    if (!updated.write(dir)) {
+      failure = "metadata write failed"
+      Log.e(TAG, "import mark metadata write failed")
+      return false
     }
+    meta = updated
+    return true
   }
 
   /** Rolls back a tracker entry that was being appended when the previous process died. */
@@ -268,14 +264,13 @@ private constructor(
     }
     if (!ok) return false
     val updated = meta.copy(importStarted = null, importStart = emptyMap())
-    return try {
-      updated.write(dir)
-      meta = updated
-      true
-    } catch (e: IOException) {
-      failure = e.message ?: "metadata write failed"
-      false
+    if (!updated.write(dir)) {
+      failure = "metadata write failed"
+      Log.e(TAG, "import rollback metadata write failed")
+      return false
     }
+    meta = updated
+    return true
   }
 
   /** Records the samples of one tracker entry that are safely stored. */
@@ -287,15 +282,13 @@ private constructor(
             importStarted = null,
             importStart = emptyMap(),
         )
-    return try {
-      updated.write(dir)
-      meta = updated
-      true
-    } catch (e: IOException) {
-      failure = e.message ?: "metadata write failed"
-      Log.e(TAG, "imported metadata write failed", e)
-      false
+    if (!updated.write(dir)) {
+      failure = "metadata write failed"
+      Log.e(TAG, "imported metadata write failed")
+      return false
     }
+    meta = updated
+    return true
   }
 
   /** Closes the logs without touching meta.json (the state stays whatever it was). */
@@ -312,7 +305,13 @@ private constructor(
     }
   }
 
-  /** Closes the logs and rewrites meta.json with the final state. Idempotent. */
+  /**
+   * Closes the logs and rewrites meta.json with the final state. Idempotent.
+   *
+   * A phone that cannot take the last metadata write must not take the app down at stop: the
+   * recording is then remembered in memory as interrupted, and the event log gets the reason. The
+   * next app start finds the directory still marked `recording` and closes it the same way.
+   */
   @Synchronized
   fun finish(state: RecordingPhase, message: String) {
     if (closed) return
@@ -324,13 +323,20 @@ private constructor(
     event(type, message)
     close()
     // A retry must not move the end of a recording that already ended when the user stopped it.
-    meta =
+    val ended =
         meta.copy(
             state = state,
             endUtcMs = meta.endUtcMs ?: clock.phoneNs() / 1_000_000L,
             fetchPending = state == RecordingPhase.FETCH_PENDING,
         )
-    meta.write(dir)
+    if (ended.write(dir)) {
+      meta = ended
+      return
+    }
+    failure = "the recording state could not be saved"
+    meta = ended.copy(state = RecordingPhase.INTERRUPTED)
+    Log.e(TAG, "final metadata write failed")
+    event("error", "could not save the recording state: writing meta.json failed")
   }
 
   companion object {
@@ -345,7 +351,7 @@ private constructor(
     fun create(root: File, meta: RecordingMeta, clock: Clock): RecordingWriter {
       val dir = File(root, meta.recordingId)
       check(dir.mkdirs()) { "recording dir exists: ${meta.recordingId}" }
-      meta.write(dir)
+      if (!meta.write(dir)) throw IOException("could not write ${RecordingMeta.FILE_NAME}")
       return RecordingWriter(dir, meta, clock).also {
         it.openLogs()
         it.event("start", "recording started")
@@ -354,12 +360,13 @@ private constructor(
 
     /**
      * Reopens an unfinished recording: truncates each log to its last valid frame and flips the state
-     * back to recording. Returns null if the directory has no readable meta.json.
+     * back to recording. Returns null if the directory has no readable meta.json or the phone will not
+     * take the write, so the caller retries later instead of crashing.
      */
     fun resume(dir: File, clock: Clock, message: String): RecordingWriter? {
       val meta = RecordingMeta.read(dir) ?: return null
       val resumed = meta.copy(state = RecordingPhase.RECORDING, endUtcMs = null)
-      resumed.write(dir)
+      if (!resumed.write(dir)) return null
       return RecordingWriter(dir, resumed, clock).also {
         it.openLogs()
         it.event("service_restart", message)

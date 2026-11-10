@@ -104,9 +104,10 @@ class RecordingStore(val root: File) {
       try {
         val now = System.currentTimeMillis() * 1_000_000L
         EventLog.append(dir, now, 0, "error", "unfinished recording found on app start")
-        meta.copy(state = RecordingPhase.INTERRUPTED, endUtcMs = end).write(dir)
-        changed += meta.recordingId
       } catch (_: java.io.IOException) {}
+      if (meta.copy(state = RecordingPhase.INTERRUPTED, endUtcMs = end).write(dir)) {
+        changed += meta.recordingId
+      }
     }
     return changed
   }

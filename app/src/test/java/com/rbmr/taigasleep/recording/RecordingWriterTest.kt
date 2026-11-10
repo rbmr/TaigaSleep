@@ -85,6 +85,26 @@ class RecordingWriterTest {
   }
 
   @Test
+  fun aFailedFinalMetaWriteEndsTheRecordingAndRecordsWhy() {
+    val root = tmp.newFolder("rec")
+    val w = RecordingWriter.create(root, meta(), clock)
+    w.writeHr(stamp(), HrSample(60, true, true, false, IntArray(0)))
+    // The phone refuses the last write: a directory where the temporary file belongs makes the
+    // atomic rewrite fail, exactly as a full disk does.
+    File(w.dir, "meta.json.tmp").mkdirs()
+
+    w.finish(RecordingPhase.STOPPED, "stopped by user")
+
+    // Nothing escaped to the caller; in memory the recording ends as interrupted, and the log has
+    // the reason. The on-disk state is still the start one, which the next app start closes.
+    assertEquals(RecordingPhase.INTERRUPTED, w.meta.state)
+    val errors = events(w.dir).filter { it.getString("type") == "error" }
+    assertEquals(1, errors.size)
+    assertTrue(errors.single().getString("message").contains("could not save the recording state"))
+    assertEquals(RecordingPhase.RECORDING, RecordingMeta.read(w.dir)!!.state)
+  }
+
+  @Test
   fun writesAllStreamsAndEventsInOrder() {
     val root = tmp.newFolder("rec")
     val w = RecordingWriter.create(root, meta(), clock)
