@@ -53,8 +53,16 @@ internal fun FinishingHome(
   ) {
     item {
       ScreenHeader(
-          title = stringResource(R.string.rec_finishing_title),
-          subtitle = stringResource(R.string.rec_finishing_subtitle),
+          title =
+              stringResource(
+                  if (finishing.done) R.string.rec_finishing_done_title
+                  else R.string.rec_finishing_title
+              ),
+          subtitle =
+              stringResource(
+                  if (finishing.done) R.string.rec_finishing_done_subtitle
+                  else R.string.rec_finishing_subtitle
+              ),
       )
     }
     item { HomeLogo(LogoVariant.Sleeping, glow = false) }

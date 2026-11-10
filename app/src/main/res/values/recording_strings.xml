@@ -116,6 +116,8 @@
   <string name="rec_cancel">Cancel</string>
   <string name="rec_finishing_title">Finishing up</string>
   <string name="rec_finishing_subtitle">Keep the tracker nearby until this is done.</string>
+  <string name="rec_finishing_done_title">Night saved</string>
+  <string name="rec_finishing_done_subtitle">Everything is on this phone now.</string>
   <string name="rec_finishing_step_tracker">Stopping the tracker</string>
   <string name="rec_finishing_step_fetch">Fetching from the tracker</string>
   <string name="rec_finishing_step_save">Saving on this phone</string>
