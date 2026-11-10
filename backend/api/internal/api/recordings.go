@@ -276,8 +276,12 @@ func GetRecording(e *core.RequestEvent) error {
 
 func PatchRecording(e *core.RequestEvent) error {
 	var body RecordingPatch
-	if err := json.NewDecoder(io.LimitReader(e.Request.Body, 4096)).Decode(&body); err != nil || body.Complete == nil {
-		return badRequest("invalid_body", `the body must be {"complete": true}`)
+	const expected = `the body must be {"complete": true}`
+	if err := decodeBody(e, bodyLimitSmall, &body, expected, false); err != nil {
+		return err
+	}
+	if body.Complete == nil {
+		return badRequest("invalid_body", expected)
 	}
 	var saved *core.Record
 	err := e.App.RunInTransaction(func(txApp core.App) error {

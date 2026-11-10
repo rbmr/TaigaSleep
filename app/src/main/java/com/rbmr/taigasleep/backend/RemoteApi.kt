@@ -43,10 +43,12 @@ class OkHttpRemoteApi(
         try {
           execute(Request.Builder().url(url(baseUrl, VERSION)).get().header("Accept", JSON).build())
         } catch (e: RemoteHttpException) {
-          when (e.status) {
+          // The version route is the whole contract's front door: without it the address is not
+          // this project's backend.
+          throw when (e.status) {
             404,
-            405 -> return legacyVersion(baseUrl)
-            else -> throw RemoteFailure(RemoteError.Http(e.status))
+            405 -> RemoteFailure(RemoteError.NotTaiga)
+            else -> RemoteFailure(RemoteError.Http(e.status))
           }
         }
     val version =
@@ -58,33 +60,6 @@ class OkHttpRemoteApi(
     // The service name is what tells a Taiga backend apart from any other JSON endpoint.
     if (version.service != "taiga-sleep") throw RemoteFailure(RemoteError.NotTaiga)
     return ServerVersion(version = version.version, api = version.api)
-  }
-
-  /**
-   * A backend of API 1 has no `/v1` routes but announces itself on its old health route. Reading
-   * that lets the app report "different API revision" instead of "not a Taiga server".
-   */
-  private fun legacyVersion(baseUrl: String): ServerVersion {
-    val body =
-        try {
-          execute(
-              Request.Builder().url(url(baseUrl, LEGACY_HEALTH)).get().header("Accept", JSON).build()
-          )
-        } catch (e: RemoteHttpException) {
-          throw when (e.status) {
-            404,
-            405 -> RemoteFailure(RemoteError.NotTaiga)
-            else -> RemoteFailure(RemoteError.Http(e.status))
-          }
-        }
-    val health =
-        try {
-          json.decodeFromString<VersionDto>(body)
-        } catch (_: Exception) {
-          throw RemoteFailure(RemoteError.NotTaiga)
-        }
-    if (health.service != "taiga-sleep") throw RemoteFailure(RemoteError.NotTaiga)
-    return ServerVersion(version = health.version, api = health.api)
   }
 
   override fun login(baseUrl: String, email: String, password: String): AuthSession {
@@ -207,7 +182,6 @@ class OkHttpRemoteApi(
 
   private companion object {
     const val VERSION = "/v1/version"
-    const val LEGACY_HEALTH = "/api/taiga/health"
     const val ME = "/v1/me"
     const val LOGIN = "/v1/auth/login"
     const val REFRESH = "/v1/auth/refresh"

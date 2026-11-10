@@ -368,26 +368,6 @@ private fun HideDialogSystemBars() {
 }
 
 @Composable
-internal fun ChartTooltip(time: String, value: String, modifier: Modifier = Modifier) {
-  Surface(
-      modifier = modifier,
-      shape = RoundedCornerShape(10.dp),
-      color = MaterialTheme.colorScheme.surfaceContainerHighest,
-      tonalElevation = 3.dp,
-      shadowElevation = 3.dp,
-  ) {
-    Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-      Text(
-          text = time,
-          style = MaterialTheme.typography.labelSmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-      Text(text = value, style = MaterialTheme.typography.labelLarge)
-    }
-  }
-}
-
-@Composable
 private fun TimeChart(
     startUnixMs: Long,
     totalSeconds: Long,
@@ -412,10 +392,7 @@ private fun TimeChart(
   val selectedColor = MaterialTheme.colorScheme.primary
   val ticks = remember(startUnixMs, totalSeconds) { hourTicks(startUnixMs, totalSeconds) }
   var selected by remember { mutableStateOf<Int?>(null) }
-  val selectedFraction =
-      selected?.let { index ->
-        if (pointCount <= 1) 0f else index.toFloat() / (pointCount - 1).toFloat()
-      }
+  val selectedFraction = selected?.let { index -> markFraction(index, pointCount) }
 
   Box(modifier) {
     Canvas(
@@ -530,9 +507,8 @@ private fun TimeChart(
       ChartTooltip(
           time = clock(epochTimeMs(startUnixMs, totalSeconds, pointCount, selectedIndex)),
           value = valueAt(selectedIndex),
-          modifier =
-              Modifier.align(if (fraction < 0.5f) Alignment.TopEnd else Alignment.TopStart)
-                  .padding(top = 4.dp, start = leftLabelWidth + 8.dp, end = 8.dp),
+          fraction = fraction,
+          labelWidth = leftLabelWidth,
       )
     }
   }

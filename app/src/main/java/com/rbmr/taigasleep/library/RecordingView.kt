@@ -53,10 +53,7 @@ data class BackupState(
     val detail: String? = null,
     val warning: String? = null,
     val uploadedAtMs: Long? = null,
-) {
-  val isBackedUp: Boolean
-    get() = phase == BackupPhase.BACKED_UP
-}
+)
 
 enum class AnalysisStatus {
   QUEUED,
@@ -126,9 +123,6 @@ data class RecordingView(
 
   val model: String?
     get() = selectedAnalysis?.algorithm?.takeIf { it.isNotBlank() }
-
-  val modelVersion: String?
-    get() = selectedAnalysis?.version?.takeIf { it.isNotBlank() }
 
   val isDone: Boolean
     get() = status == RecordingStatus.READY

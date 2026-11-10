@@ -11,18 +11,14 @@ check, whichever way it was uploaded, before the analysis subprocess sees it.
 from __future__ import annotations
 
 import json
-import struct
-import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
-# The frame-log constants come from docs/recording-format.md.
-HEADER_SIZE = 8
-MAX_PAYLOAD = 1 << 20
+from .frames import HEADER_SIZE, STREAM_IDS, FrameError, check_header, iter_frames
+
 MAX_EVENT_LINE = 8 * 1024
 
-STREAM_IDS = {"hr.log": 1, "ecg.log": 2, "acc.log": 3}
-RECORDING_FILES = {"events.jsonl", "hr.log", "ecg.log", "acc.log"}
+RECORDING_FILES = {"events.jsonl", *STREAM_IDS}
 
 
 @dataclass(frozen=True)
@@ -53,40 +49,21 @@ def verify_recording_file(path: Path, name: str) -> FrameCheck:
 
 def _verify_log(path: Path, data: bytes, name: str, stream: int) -> FrameCheck:
     size = len(data)
-    if size < HEADER_SIZE or data[:4] != b"TSLG" or data[4] != 1 or data[5] != stream:
-        _truncate(path, 0)
-        return FrameCheck(name, size, 0, 0, 0, True, "invalid frame-log header")
-    if data[6] != 0 or data[7] != 0:
+    try:
+        check_header(data, stream)
+    except FrameError:
         _truncate(path, 0)
         return FrameCheck(name, size, 0, 0, 0, True, "invalid frame-log header")
 
     frames = 0
     valid = HEADER_SIZE
-    at = HEADER_SIZE
-    while at < size:
-        if size - at < 4:
-            error = f"truncated frame at byte {at}"
-            _truncate(path, valid)
-            return FrameCheck(name, size, valid, frames, 0, True, error)
-        length = struct.unpack_from("<I", data, at)[0]
-        if length > MAX_PAYLOAD:
-            error = f"frame payload too large at byte {at}"
-            _truncate(path, valid)
-            return FrameCheck(name, size, valid, frames, 0, True, error)
-        end = at + 8 + length
-        if end > size:
-            error = f"truncated frame at byte {at}"
-            _truncate(path, valid)
-            return FrameCheck(name, size, valid, frames, 0, True, error)
-        payload = data[at + 4 : at + 4 + length]
-        expected = struct.unpack_from("<I", data, at + 4 + length)[0]
-        if expected != zlib.crc32(payload) & 0xFFFFFFFF:
-            error = f"frame CRC mismatch at byte {at}"
-            _truncate(path, valid)
-            return FrameCheck(name, size, valid, frames, 0, True, error)
-        at = end
-        frames += 1
-        valid = at
+    try:
+        for frame in iter_frames(data, stream):
+            valid = frame.end
+            frames += 1
+    except FrameError as exc:
+        _truncate(path, valid)
+        return FrameCheck(name, size, valid, frames, 0, True, f"{exc} at byte {exc.offset}")
     return FrameCheck(name, size, valid, frames, 0, False, None)
 
 

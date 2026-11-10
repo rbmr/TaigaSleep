@@ -1,8 +1,6 @@
 package api
 
 import (
-	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -48,8 +46,12 @@ func tokenFor(record *core.Record) (TokenResponse, error) {
 
 func Login(e *core.RequestEvent) error {
 	var body LoginRequest
-	if err := json.NewDecoder(io.LimitReader(e.Request.Body, 4096)).Decode(&body); err != nil || body.Email == "" || body.Password == "" {
-		return badRequest("invalid_body", "email and password are required")
+	const expected = "email and password are required"
+	if err := decodeBody(e, bodyLimitSmall, &body, expected, false); err != nil {
+		return err
+	}
+	if body.Email == "" || body.Password == "" {
+		return badRequest("invalid_body", expected)
 	}
 	key := e.RealIP() + "|" + strings.ToLower(body.Email)
 	if logins.blocked(key) {

@@ -32,8 +32,6 @@ private class FakeRecordingSource(
       MutableStateFlow<RemoteStatus>(RemoteStatus.NotConfigured)
   val cachedKeys = mutableListOf<String>()
 
-  override fun reload() = Unit
-
   override fun recording(key: String): RecordingView? =
       recordings.value.firstOrNull { it.key == key }
 

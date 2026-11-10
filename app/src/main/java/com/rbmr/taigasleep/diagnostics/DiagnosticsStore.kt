@@ -55,9 +55,6 @@ class DiagnosticsStore(
     closeQuietly()
   }
 
-  /** Name of the file currently being written, or null before the first append. */
-  @Synchronized fun currentFile(): File? = current
-
   /** Deletes files older than the age cap, then oldest files until the size cap holds. */
   @Synchronized
   fun trim(nowMs: Long) {

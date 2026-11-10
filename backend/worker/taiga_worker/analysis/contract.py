@@ -356,9 +356,6 @@ class EpochGrid:
     def duration_s(self) -> float:
         return float(self.count * self.epoch_seconds)
 
-    def epoch_start_unix_ns(self, index: int) -> int:
-        return self.start_unix_ns + index * self.epoch_seconds * 1_000_000_000
-
 
 @dataclass(frozen=True)
 class ResampledStream:
@@ -383,13 +380,6 @@ class Recording:
     @property
     def duration_s(self) -> float:
         return max(0.0, (self.end_unix_ns - self.start_unix_ns) / 1_000_000_000)
-
-    def has_stream(self, name: StreamName) -> bool:
-        return getattr(self, name) is not None
-
-    def stream_rate(self, name: StreamName) -> float | None:
-        stream = getattr(self, name)
-        return None if stream is None else stream.rate_hz
 
     def epochs(self, seconds: int = 30) -> EpochGrid:
         from .epochs import build_epoch_grid

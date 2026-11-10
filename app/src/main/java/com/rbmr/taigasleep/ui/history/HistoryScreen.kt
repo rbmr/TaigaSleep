@@ -1,4 +1,4 @@
-package com.rbmr.taigasleep.ui.screens
+package com.rbmr.taigasleep.ui.history
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement

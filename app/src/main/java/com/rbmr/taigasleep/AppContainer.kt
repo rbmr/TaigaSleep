@@ -20,7 +20,6 @@ import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.sync.UploadScheduler
 import com.rbmr.taigasleep.sync.UploadStore
-import com.rbmr.taigasleep.sync.db.LegacyFilesMigration
 import com.rbmr.taigasleep.sync.db.TaigaDatabase
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -34,7 +33,7 @@ import okhttp3.OkHttpClient
  * [Context.appContainer] and never construct these classes themselves.
  */
 class AppContainer(private val application: Application) {
-  /** Long-lived work of the wiring itself: what the stores publish and the one-time file import. */
+  /** Long-lived work of the wiring itself: what the stores publish. */
   val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
   val recordingStore: RecordingStore by lazy {
@@ -45,33 +44,9 @@ class AppContainer(private val application: Application) {
   /** Everything the app learned from the server, in one database. */
   val database: TaigaDatabase by lazy { TaigaDatabase.open(application) }
 
-  /**
-   * The one-time move of the state that older versions kept in files into [database]. It reads the
-   * files of the places older versions wrote and leaves them untouched.
-   */
-  val legacyFilesMigration: LegacyFilesMigration by lazy {
-    LegacyFilesMigration(
-        recordingsRoot = recordingStore.root,
-        uploadPreferences = application.getSharedPreferences("uploads", Context.MODE_PRIVATE),
-        historyFile = File(application.filesDir, "history/remote-recordings.json"),
-        analysisRoot = File(application.filesDir, "analysis"),
-        deletePreferences = application.getSharedPreferences("deletes", Context.MODE_PRIVATE),
-        account = { remoteRepository.accountKey },
-        legacyAccount = { remoteRepository.legacyAccountKey },
-    )
-  }
-
-  /**
-   * The sync state of every recording, for the account that is active, and the one-time import of
-   * the files an older version wrote, which must run before the store reads or writes anything.
-   */
+  /** The sync state of every recording, for the account that is active. */
   val uploadStore: UploadStore by lazy {
-    UploadStore(
-        database.uploadStates(),
-        remoteRepository.accounts,
-        scope,
-        awaitLegacyImport = { legacyFilesMigration.awaitMigrated(database) },
-    )
+    UploadStore(database.uploadStates(), remoteRepository.accounts, scope)
   }
 
   /**
@@ -93,39 +68,19 @@ class AppContainer(private val application: Application) {
   }
 
   val pendingDeleteStore: PendingDeleteStore by lazy {
-    PendingDeleteStore(
-        database.pendingDeletes(),
-        remoteRepository.accounts,
-        scope,
-        awaitLegacyImport = { legacyFilesMigration.awaitMigrated(database) },
-    )
+    PendingDeleteStore(database.pendingDeletes(), remoteRepository.accounts, scope)
   }
 
-  val resultCache: ResultCache by lazy {
-    ResultCache(
-        database.analysisResults(),
-        awaitLegacyImport = { legacyFilesMigration.awaitMigrated(database) },
-    )
-  }
+  val resultCache: ResultCache by lazy { ResultCache(database.analysisResults()) }
 
   /**
    * The one read of the library: every fact the screens show about a recording, in one query joined
    * with the recordings on this phone. Every store that writes a row publishes through it.
    */
-  val recordingRows: RecordingRows by lazy {
-    RecordingRows(
-        database.library(),
-        awaitLegacyImport = { legacyFilesMigration.awaitMigrated(database) },
-    )
-  }
+  val recordingRows: RecordingRows by lazy { RecordingRows(database.library()) }
 
   val remoteHistoryCache: RemoteHistoryCache by lazy {
-    // The list of an older app holds recording summaries this version cannot read.
-    File(application.filesDir, "history/remote-sessions.json").delete()
-    RemoteHistoryCache(
-        database.remoteRecordings(),
-        awaitLegacyImport = { legacyFilesMigration.awaitMigrated(database) },
-    )
+    RemoteHistoryCache(database.remoteRecordings())
   }
 
   val analysisSettingsStore: AnalysisSettingsStore by lazy {

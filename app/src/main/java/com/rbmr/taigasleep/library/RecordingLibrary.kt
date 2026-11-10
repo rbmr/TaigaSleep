@@ -36,8 +36,8 @@ import kotlinx.coroutines.withContext
  * Everything the database knows about a recording is one query, parameterised by the active account
  * and joined with the recordings on this phone: the sync state, the server's list with its runs, the
  * run each recording shows, the payloads this phone holds and the recordings the server no longer
- * has. A write anywhere in the app reaches the screens without a reload, and a recording the phone
- * does not have is a row of its own. The raw bytes and the analyses stay independent:
+ * has. A write anywhere in the app reaches the screens without asking for one, and a recording the
+ * phone does not have is a row of its own. The raw bytes and the analyses stay independent:
  * [RecordingView.backup] says where the bytes are and [RecordingView.analyses] lists every requested
  * result. [RecordingView.status] is only a derived display summary.
  */
@@ -51,8 +51,6 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   private val deletes = context.appContainer.pendingDeleteStore
   private val uploads = context.appContainer.uploadStore
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-  private var loadedAccount: String? = null
 
   /** The one connection state, shared with the screens so they do not touch the remote store. */
   override val remoteStatus = remote.status
@@ -77,21 +75,6 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
           }
           .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
-  init {
-    reload()
-  }
-
-  /** Catch up with a change of account, for example after the app resumed. */
-  override fun reload() {
-    val account = remote.accountKey
-    // What an older version saved under the address and the email belongs to this account now.
-    val legacy = remote.legacyAccountKey
-    if (account != null && legacy != null && account != loadedAccount) {
-      scope.launch { history.adopt(legacy, account) }
-    }
-    loadedAccount = account
-  }
-
   override fun recording(key: String): RecordingView? = recordings.value.firstOrNull { it.key == key }
 
   /** The full cached payload for one analysis, if the active account's copy is on this phone. */
@@ -101,9 +84,6 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   /** Whether another account already has a server copy of this recording. */
   override suspend fun uploadedElsewhere(localId: String): Boolean =
       uploads.otherAccount(localId) != null
-
-  /** Fetch the server's recording list and cache it. Does not touch local recordings. */
-  suspend fun refreshList(): Result<Unit> = fetchList().map { }
 
   /**
    * Reads the list, saves it for [session]'s account and returns what was saved, or null when the
@@ -231,7 +211,6 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
    */
   override suspend fun reconcile() {
     withContext(Dispatchers.IO) {
-      reload()
       fetchList().getOrNull() ?: return@withContext
       // The recordings as the screens see them now, with the list that was just fetched. They
       // come from disk: the screens may not have loaded them yet when the app has just opened.

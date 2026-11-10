@@ -8,7 +8,7 @@
         errorLine2="      ^">
         <location
             file="src/main/java/com/rbmr/taigasleep/tracker/polar/PolarH10Sensor.kt"
-            line="457"
+            line="511"
             column="7"/>
     </issue>
 
@@ -58,7 +58,7 @@
 
     <issue
         id="AndroidGradlePluginVersion"
-        message="A newer version of Gradle than 9.4.1 is available: 9.9.0"
+        message="A newer version of Gradle than 9.4.1 is available: 9.9.1"
         errorLine1="distributionUrl=https\://services.gradle.org/distributions/gradle-9.4.1-bin.zip"
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -201,29 +201,7 @@
 
     <issue
         id="NewerVersionAvailable"
-        message="A newer version of org.json:json than 20240303 is available: 20260814"
-        errorLine1="orgJson = &quot;20240303&quot;"
-        errorLine2="          ~~~~~~~~~~">
-        <location
-            file="../gradle/libs.versions.toml"
-            line="14"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="NewerVersionAvailable"
         message="A newer version of com.squareup.okhttp3:mockwebserver than 4.12.0 is available: 5.5.1"
-        errorLine1="okhttp = &quot;4.12.0&quot;"
-        errorLine2="         ~~~~~~~~">
-        <location
-            file="../gradle/libs.versions.toml"
-            line="15"
-            column="10"/>
-    </issue>
-
-    <issue
-        id="NewerVersionAvailable"
-        message="A newer version of com.squareup.okhttp3:okhttp than 4.12.0 is available: 5.5.1"
         errorLine1="okhttp = &quot;4.12.0&quot;"
         errorLine2="         ~~~~~~~~">
         <location
@@ -261,7 +239,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/com/rbmr/taigasleep/ui/components/Components.kt"
-            line="130"
+            line="132"
             column="5"/>
     </issue>
 
@@ -271,38 +249,32 @@
         errorLine1="      rememberPagerState(initialPage = initialPage(repository.state.value).ordinal) {"
         errorLine2="                                                                    ~~~~~">
         <location
-            file="src/main/java/com/rbmr/taigasleep/ui/screens/RemoteScreen.kt"
+            file="src/main/java/com/rbmr/taigasleep/ui/settings/RemoteScreen.kt"
             line="112"
             column="69"/>
     </issue>
 
     <issue
         id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;and&quot;): This should probably be a plural rather than a string"
-        errorLine1="  &lt;string name=&quot;night_heart_rate_chart_description&quot;>Heart rate from %1$s to %2$s, between %3$d and %4$d bpm&lt;/string>"
-        errorLine2="  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Formatting %d followed by words (&quot;and&quot;): This should probably be a plural rather than a string">
         <location
             file="src/main/res/values/upload_strings.xml"
-            line="157"
+            line="171"
             column="3"/>
     </issue>
 
     <issue
         id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;clean&quot;): This should probably be a plural rather than a string"
-        errorLine1="  &lt;string name=&quot;night_hrv_supporting&quot;>HRV uses %1$d clean RR intervals.&lt;/string>"
-        errorLine2="  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Formatting %d followed by words (&quot;clean&quot;): This should probably be a plural rather than a string">
         <location
             file="src/main/res/values/upload_strings.xml"
-            line="160"
+            line="174"
             column="3"/>
     </issue>
 
     <issue
         id="InsecureBaseConfiguration"
-        message="Insecure Base Configuration"
-        errorLine1="  &lt;base-config cleartextTrafficPermitted=&quot;true&quot; />"
-        errorLine2="                                          ~~~~">
+        message="Insecure Base Configuration">
         <location
             file="src/main/res/xml/network_security_config.xml"
             line="9"
@@ -316,15 +288,13 @@
         errorLine2="                           ~~~~~">
         <location
             file="src/main/AndroidManifest.xml"
-            line="31"
+            line="36"
             column="28"/>
     </issue>
 
     <issue
         id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 31"
-        errorLine1="      tools:targetApi=&quot;s&quot; />"
-        errorLine2="      ~~~~~~~~~~~~~~~~~~~">
+        message="Unnecessary; `SDK_INT` is always >= 31">
         <location
             file="src/main/AndroidManifest.xml"
             line="9"
@@ -368,241 +338,8 @@
     </issue>
 
     <issue
-        id="UnusedResources"
-        message="The resource `R.string.g_helper_app_info` appears to be unused"
-        errorLine1="  &lt;string name=&quot;g_helper_app_info&quot;>Open app info&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/guidance_strings.xml"
-            line="33"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.rec_connected_title` appears to be unused"
-        errorLine1="  &lt;string name=&quot;rec_connected_title&quot;>%1$s&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/recording_strings.xml"
-            line="20"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.rec_active_no_contact` appears to be unused"
-        errorLine1="  &lt;string name=&quot;rec_active_no_contact&quot;>No skin contact&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/recording_strings.xml"
-            line="71"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.rec_export` appears to be unused"
-        errorLine1="  &lt;string name=&quot;rec_export&quot;>Export zip&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/recording_strings.xml"
-            line="106"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.rec_state_recording` appears to be unused"
-        errorLine1="  &lt;string name=&quot;rec_state_recording&quot;>recording&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/recording_strings.xml"
-            line="107"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.rec_state_stopped` appears to be unused"
-        errorLine1="  &lt;string name=&quot;rec_state_stopped&quot;>stopped&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/recording_strings.xml"
-            line="108"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.rec_state_forced_stop` appears to be unused"
-        errorLine1="  &lt;string name=&quot;rec_state_forced_stop&quot;>force stopped&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/recording_strings.xml"
-            line="109"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.rec_state_interrupted` appears to be unused"
-        errorLine1="  &lt;string name=&quot;rec_state_interrupted&quot;>interrupted&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/recording_strings.xml"
-            line="110"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.settings_appearance_body` appears to be unused"
-        errorLine1="  &lt;string name=&quot;settings_appearance_body&quot;>System, light or dark&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="39"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.upload_error_network` appears to be unused"
-        errorLine1="  &lt;string name=&quot;upload_error_network&quot;>The server could not be reached. Taiga will retry.&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/upload_strings.xml"
-            line="22"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.upload_error_server` appears to be unused"
-        errorLine1="  &lt;string name=&quot;upload_error_server&quot;>The server rejected the upload.&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/upload_strings.xml"
-            line="23"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.upload_error_storage` appears to be unused"
-        errorLine1="  &lt;string name=&quot;upload_error_storage&quot;>The recording could not be read.&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/upload_strings.xml"
-            line="24"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.upload_error_analysis` appears to be unused"
-        errorLine1="  &lt;string name=&quot;upload_error_analysis&quot;>The analysis failed.&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/upload_strings.xml"
-            line="25"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.upload_error_recording` appears to be unused"
-        errorLine1="  &lt;string name=&quot;upload_error_recording&quot;>The recording is still in progress.&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/upload_strings.xml"
-            line="26"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.upload_error_generic` appears to be unused"
-        errorLine1="  &lt;string name=&quot;upload_error_generic&quot;>Upload failed.&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/upload_strings.xml"
-            line="27"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.upload_error_version` appears to be unused"
-        errorLine1="  &lt;string name=&quot;upload_error_version&quot;>The app and the server speak different API versions. Update whichever is older.&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/upload_strings.xml"
-            line="28"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.history_refresh` appears to be unused"
-        errorLine1="  &lt;string name=&quot;history_refresh&quot;>Refresh&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/upload_strings.xml"
-            line="42"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.night_more` appears to be unused"
-        errorLine1="  &lt;string name=&quot;night_more&quot;>More actions&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/upload_strings.xml"
-            line="50"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.night_export` appears to be unused"
-        errorLine1="  &lt;string name=&quot;night_export&quot;>Export recording&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/upload_strings.xml"
-            line="51"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.night_delete` appears to be unused"
-        errorLine1="  &lt;string name=&quot;night_delete&quot;>Delete recording&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/upload_strings.xml"
-            line="52"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.night_metric_insufficient` appears to be unused"
-        errorLine1="  &lt;string name=&quot;night_metric_insufficient&quot;>Not enough data&lt;/string>"
-        errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/upload_strings.xml"
-            line="147"
-            column="11"/>
-    </issue>
-
-    <issue
         id="MonochromeLauncherIcon"
-        message="The application adaptive icon is missing a monochrome tag"
-        errorLine1="&lt;adaptive-icon xmlns:android=&quot;http://schemas.android.com/apk/res/android&quot;>"
-        errorLine2="^">
+        message="The application adaptive icon is missing a monochrome tag">
         <location
             file="src/debug/res/mipmap-anydpi-v26/ic_launcher.xml"
             line="2"
@@ -611,9 +348,7 @@
 
     <issue
         id="MonochromeLauncherIcon"
-        message="The application adaptive icon is missing a monochrome tag"
-        errorLine1="&lt;adaptive-icon xmlns:android=&quot;http://schemas.android.com/apk/res/android&quot;>"
-        errorLine2="^">
+        message="The application adaptive icon is missing a monochrome tag">
         <location
             file="src/main/res/mipmap-anydpi-v26/ic_launcher.xml"
             line="2"
@@ -622,9 +357,7 @@
 
     <issue
         id="MonochromeLauncherIcon"
-        message="The application adaptive roundIcon is missing a monochrome tag"
-        errorLine1="&lt;adaptive-icon xmlns:android=&quot;http://schemas.android.com/apk/res/android&quot;>"
-        errorLine2="^">
+        message="The application adaptive roundIcon is missing a monochrome tag">
         <location
             file="src/debug/res/mipmap-anydpi-v26/ic_launcher_round.xml"
             line="2"
@@ -633,9 +366,7 @@
 
     <issue
         id="MonochromeLauncherIcon"
-        message="The application adaptive roundIcon is missing a monochrome tag"
-        errorLine1="&lt;adaptive-icon xmlns:android=&quot;http://schemas.android.com/apk/res/android&quot;>"
-        errorLine2="^">
+        message="The application adaptive roundIcon is missing a monochrome tag">
         <location
             file="src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml"
             line="2"
@@ -722,22 +453,11 @@
     <issue
         id="UseKtx"
         message="Use the KTX extension function `SharedPreferences.edit` instead?"
-        errorLine1="      prefs.edit().putString(KEY, json.encodeToString&lt;Map&lt;String, PendingDelete>>(next)).apply()"
-        errorLine2="      ~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/rbmr/taigasleep/sync/PendingDeleteStore.kt"
-            line="49"
-            column="7"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `SharedPreferences.edit` instead?"
         errorLine1="    set(value) = prefs.edit().apply { if (value == null) remove(KEY_ACTIVE) else putString(KEY_ACTIVE, value) }.apply()"
         errorLine2="                 ~~~~~~~~~~~~">
         <location
             file="src/main/java/com/rbmr/taigasleep/recording/RecordingPrefs.kt"
-            line="16"
+            line="17"
             column="18"/>
     </issue>
 
@@ -748,7 +468,7 @@
         errorLine2="                 ~~~~~~~~~~~~">
         <location
             file="src/main/java/com/rbmr/taigasleep/recording/RecordingPrefs.kt"
-            line="21"
+            line="22"
             column="18"/>
     </issue>
 
@@ -759,7 +479,7 @@
         errorLine2="        ^">
         <location
             file="src/main/java/com/rbmr/taigasleep/recording/RecordingPrefs.kt"
-            line="30"
+            line="31"
             column="9"/>
     </issue>
 
@@ -770,7 +490,7 @@
         errorLine2="      ~~~~~~~~~~~~">
         <location
             file="src/main/java/com/rbmr/taigasleep/recording/RecordingPrefs.kt"
-            line="49"
+            line="50"
             column="7"/>
     </issue>
 
@@ -781,7 +501,7 @@
         errorLine2="      ~~~~~~~~~~~~">
         <location
             file="src/main/java/com/rbmr/taigasleep/recording/RecordingPrefs.kt"
-            line="52"
+            line="53"
             column="7"/>
     </issue>
 
@@ -792,7 +512,7 @@
         errorLine2="      ~~~~~~~~~~~~">
         <location
             file="src/main/java/com/rbmr/taigasleep/recording/RecordingPrefs.kt"
-            line="59"
+            line="60"
             column="7"/>
     </issue>
 
@@ -825,7 +545,7 @@
         errorLine2="    ~~~~~~~~~~~~">
         <location
             file="src/main/java/com/rbmr/taigasleep/sync/UploadSettings.kt"
-            line="59"
+            line="55"
             column="5"/>
     </issue>
 
@@ -836,7 +556,7 @@
         errorLine2="    ~~~~~~~~~~~~">
         <location
             file="src/main/java/com/rbmr/taigasleep/sync/UploadSettings.kt"
-            line="64"
+            line="60"
             column="5"/>
     </issue>
 
@@ -847,29 +567,7 @@
         errorLine2="    ^">
         <location
             file="src/main/java/com/rbmr/taigasleep/sync/UploadSettings.kt"
-            line="69"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `SharedPreferences.edit` instead?"
-        errorLine1="    prefs"
-        errorLine2="    ^">
-        <location
-            file="src/main/java/com/rbmr/taigasleep/sync/UploadSettings.kt"
-            line="100"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `SharedPreferences.edit` instead?"
-        errorLine1="    prefs?.edit()?.remove(KEY_RECORDS)?.apply()"
-        errorLine2="    ~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/rbmr/taigasleep/sync/UploadStore.kt"
-            line="139"
+            line="65"
             column="5"/>
     </issue>
 
@@ -880,7 +578,7 @@
         errorLine2="                                ~">
         <location
             file="src/main/java/com/rbmr/taigasleep/backend/EventStream.kt"
-            line="231"
+            line="225"
             column="33"/>
     </issue>
 

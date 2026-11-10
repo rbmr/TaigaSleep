@@ -103,7 +103,6 @@ object Payloads {
   class Batch(
       val phoneNs: Long,
       val elapsedNs: Long,
-      val tsMode: Int,
       val t: LongArray,
       /** ECG: microvolts, one per sample. ACC: milli-g, interleaved x, y, z. */
       val values: IntArray,
@@ -139,6 +138,6 @@ object Payloads {
         }
     val values =
         IntArray(n * perSample) { if (signed16) b.short.toInt() else b.int }
-    return Batch(phone, elapsed, mode, t, values)
+    return Batch(phone, elapsed, t, values)
   }
 }

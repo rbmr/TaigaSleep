@@ -1,4 +1,4 @@
-package com.rbmr.taigasleep.ui.screens
+package com.rbmr.taigasleep.ui.settings
 
 import com.rbmr.taigasleep.backend.AccessTokenDto
 import com.rbmr.taigasleep.backend.AccessTokenListDto

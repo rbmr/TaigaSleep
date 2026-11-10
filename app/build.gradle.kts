@@ -132,6 +132,8 @@ android {
   lint {
     baseline = file("lint-baseline.xml")
     abortOnError = true
+    // A resource nothing shows is a resource nothing needs: a new unused one fails the build.
+    error += "UnusedResources"
   }
 
   compileOptions {
@@ -172,8 +174,6 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
 
   testImplementation(libs.junit)
-  // The android.jar stub of org.json does nothing in JVM tests.
-  testImplementation(libs.org.json)
   testImplementation(libs.okhttp.mockwebserver)
   // Room needs the Android SQLite stack; Robolectric provides it in JVM tests.
   testImplementation(libs.robolectric)

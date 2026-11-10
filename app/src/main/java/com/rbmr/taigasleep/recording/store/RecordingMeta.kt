@@ -6,8 +6,15 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonObject
 
 enum class RecordingPhase(val wire: String) {
   RECORDING("recording"),
@@ -80,151 +87,134 @@ data class RecordingMeta(
     /** How many tracker connections in a row could not remove [trackerRemovalPending]. */
     val trackerRemovalFailures: Int = 0,
 ) {
-  fun toJson(): JSONObject =
-      JSONObject()
-          .put("format", "taiga-recording")
-          .put("version", 1)
-          .put("session_id", recordingId)
-          .put("state", state.wire)
-          .put("mode", mode.wire)
-          .put("start_utc_ms", startUtcMs)
-          .put("end_utc_ms", endUtcMs ?: JSONObject.NULL)
-          .put("timezone", timezone)
-          .put(
-              "app",
-              JSONObject().put("version", appVersion).put("version_code", appVersionCode),
-          )
-          .put(
-              "phone",
-              JSONObject()
-                  .put("manufacturer", phoneManufacturer)
-                  .put("model", phoneModel)
-                  .put("android", android)
-                  .put("sdk", sdk),
-          )
-          .put(
-              "sensor",
-              JSONObject()
-                  .put("kind", sensorKind)
-                  .put("id", sensorId)
-                  .put("name", sensorName)
-                  .put("firmware", sensorFirmware ?: JSONObject.NULL)
-                  .put("battery_percent_at_start", sensorBatteryAtStart ?: JSONObject.NULL),
-          )
-          .put(
-              "config",
-              JSONObject()
-                  .put("hr", config.hr)
-                  .put("ecg", config.ecg)
-                  .put("acc", config.acc)
-                  .put("ecg_rate_hz", config.ecgRateHz)
-                  .put("acc_rate_hz", config.accRateHz)
-                  .put("acc_range_g", config.accRangeG),
-          )
-          .apply {
-            if (mode == RecordingMode.ON_DEVICE) {
-              put(
-                  "on_device",
-                  JSONObject()
-                      .put("fetch_pending", fetchPending)
-                      .put("imported_entries", JSONObject(importedEntries))
-                      .put("import_started", importStarted ?: JSONObject.NULL)
-                      .put(
-                          "import_start",
-                          JSONObject().apply {
-                            for ((stream, position) in importStart) {
-                              put(
-                                  stream.toString(),
-                                  JSONObject()
-                                      .put("bytes", position.bytes)
-                                      .put("frames", position.frames),
-                              )
-                            }
-                          },
-                      )
-                      .put("tracker_removal_pending", JSONArray(trackerRemovalPending))
-                      .put("tracker_removal_failures", trackerRemovalFailures),
-              )
-            }
-          }
+  /** meta.json as this version writes it: every key of the format, null where there is no value. */
+  fun toJson(): JsonObject {
+    val onDevice =
+        if (mode != RecordingMode.ON_DEVICE) null
+        else
+            OnDeviceJson(
+                fetchPending = fetchPending,
+                importedEntries = importedEntries,
+                importStarted = importStarted,
+                importStart =
+                    importStart.mapKeys { it.key.toString() }.mapValues {
+                      PositionJson(bytes = it.value.bytes, frames = it.value.frames)
+                    },
+                trackerRemovalPending = trackerRemovalPending,
+                trackerRemovalFailures = trackerRemovalFailures,
+            )
+    val json =
+        metaJson
+            .encodeToJsonElement(
+                MetaJson(
+                    sessionId = recordingId,
+                    state = state.wire,
+                    mode = mode.wire,
+                    startUtcMs = startUtcMs,
+                    endUtcMs = endUtcMs,
+                    timezone = timezone,
+                    app = AppJson(version = appVersion, versionCode = appVersionCode),
+                    phone =
+                        PhoneJson(
+                            manufacturer = phoneManufacturer,
+                            model = phoneModel,
+                            android = android,
+                            sdk = sdk,
+                        ),
+                    sensor =
+                        SensorJson(
+                            kind = sensorKind,
+                            id = sensorId,
+                            name = sensorName,
+                            firmware = sensorFirmware,
+                            batteryPercentAtStart = sensorBatteryAtStart,
+                        ),
+                    config =
+                        ConfigJson(
+                            hr = config.hr,
+                            ecg = config.ecg,
+                            acc = config.acc,
+                            ecgRateHz = config.ecgRateHz,
+                            accRateHz = config.accRateHz,
+                            accRangeG = config.accRangeG,
+                        ),
+                    onDevice = onDevice,
+                )
+            )
+            .jsonObject
+    // Only an on-device recording carries that object: a streamed one has no such key at all.
+    return if (onDevice == null) JsonObject(json - ON_DEVICE) else json
+  }
 
   companion object {
-    fun fromJson(o: JSONObject): RecordingMeta {
-      val app = o.getJSONObject("app")
-      val phone = o.getJSONObject("phone")
-      val sensor = o.getJSONObject("sensor")
-      val config = o.getJSONObject("config")
-      val onDevice = o.optJSONObject("on_device")
-      val imported = LinkedHashMap<String, Int>()
-      onDevice?.optJSONObject("imported_entries")?.let { entries ->
-        val names = entries.keys()
-        while (names.hasNext()) {
-          val name = names.next()
-          imported[name] = entries.optInt(name)
-        }
-      }
-      val importStart = LinkedHashMap<Int, LogPosition>()
-      onDevice?.optJSONObject("import_start")?.let { positions ->
-        val names = positions.keys()
-        while (names.hasNext()) {
-          val key = names.next()
-          val stream = key.toIntOrNull() ?: continue
-          val position = positions.optJSONObject(key) ?: continue
-          importStart[stream] =
-              LogPosition(position.optLong("bytes"), position.optLong("frames"))
-        }
-      }
-      val trackerRemovalPending = mutableListOf<String>()
-      onDevice?.optJSONArray("tracker_removal_pending")?.let { pending ->
-        for (index in 0 until pending.length()) {
-          pending.optString(index).takeIf { it.isNotEmpty() }?.let { trackerRemovalPending += it }
-        }
-      }
+    fun fromJson(o: JsonObject): RecordingMeta {
+      val json = metaJson.decodeFromJsonElement<MetaJson>(o)
       return RecordingMeta(
-          recordingId = o.getString("session_id"),
-          state = RecordingPhase.fromWire(o.optString("state")),
-          mode = RecordingMode.fromWire(o.optString("mode")) ?: RecordingMode.STREAM,
-          startUtcMs = o.getLong("start_utc_ms"),
-          endUtcMs = if (o.isNull("end_utc_ms")) null else o.getLong("end_utc_ms"),
-          timezone = o.optString("timezone"),
-          appVersion = app.optString("version"),
-          appVersionCode = app.optInt("version_code"),
-          phoneManufacturer = phone.optString("manufacturer"),
-          phoneModel = phone.optString("model"),
-          android = phone.optString("android"),
-          sdk = phone.optInt("sdk"),
-          sensorKind = sensor.getString("kind"),
-          sensorId = sensor.getString("id"),
-          sensorName = sensor.optString("name"),
-          sensorFirmware = if (sensor.isNull("firmware")) null else sensor.getString("firmware"),
-          sensorBatteryAtStart =
-              if (sensor.isNull("battery_percent_at_start")) null
-              else sensor.getInt("battery_percent_at_start"),
+          recordingId = json.sessionId,
+          state = RecordingPhase.fromWire(json.state),
+          mode = RecordingMode.fromWire(json.mode) ?: RecordingMode.STREAM,
+          startUtcMs = json.startUtcMs,
+          endUtcMs = json.endUtcMs,
+          timezone = json.timezone,
+          appVersion = json.app.version,
+          appVersionCode = json.app.versionCode,
+          phoneManufacturer = json.phone.manufacturer,
+          phoneModel = json.phone.model,
+          android = json.phone.android,
+          sdk = json.phone.sdk,
+          sensorKind = json.sensor.kind,
+          sensorId = json.sensor.id,
+          sensorName = json.sensor.name,
+          sensorFirmware = json.sensor.firmware,
+          sensorBatteryAtStart = json.sensor.batteryPercentAtStart,
           config =
               RecordingConfig(
-                  hr = config.optBoolean("hr", true),
-                  ecg = config.optBoolean("ecg"),
-                  acc = config.optBoolean("acc"),
-                  ecgRateHz = config.optInt("ecg_rate_hz", 130),
-                  accRateHz = config.optInt("acc_rate_hz", 50),
-                  accRangeG = config.optInt("acc_range_g", 8),
+                  hr = json.config.hr,
+                  ecg = json.config.ecg,
+                  acc = json.config.acc,
+                  ecgRateHz = json.config.ecgRateHz,
+                  accRateHz = json.config.accRateHz,
+                  accRangeG = json.config.accRangeG,
               ),
-          fetchPending = onDevice?.optBoolean("fetch_pending", false) ?: false,
-          importedEntries = imported,
-          importStarted =
-              if (onDevice == null || onDevice.isNull("import_started")) null
-              else onDevice.optString("import_started").takeIf { it.isNotEmpty() },
-          importStart = importStart,
-          trackerRemovalPending = trackerRemovalPending,
-          trackerRemovalFailures = onDevice?.optInt("tracker_removal_failures", 0) ?: 0,
+          fetchPending = json.onDevice?.fetchPending ?: false,
+          importedEntries = json.onDevice?.importedEntries.orEmpty(),
+          importStarted = json.onDevice?.importStarted?.takeIf { it.isNotEmpty() },
+          // A key that is not a stream id is skipped rather than making the file unreadable.
+          importStart =
+              json.onDevice?.importStart.orEmpty().mapNotNull { (key, position) ->
+                key.toIntOrNull()?.let {
+                  it to LogPosition(bytes = position.bytes, frames = position.frames)
+                }
+              }.toMap(),
+          trackerRemovalPending =
+              json.onDevice?.trackerRemovalPending.orEmpty().filter { it.isNotEmpty() },
+          trackerRemovalFailures = json.onDevice?.trackerRemovalFailures ?: 0,
       )
     }
 
     const val FILE_NAME = "meta.json"
 
+    /** The object only an on-device recording has. */
+    private const val ON_DEVICE = "on_device"
+
+    /**
+     * The file itself. [encodeDefaults] and [explicitNulls] write every key the format has; a value
+     * this version cannot name falls back to its default instead of making the file unreadable, and
+     * a key a newer version added is ignored.
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    private val metaJson = Json {
+      encodeDefaults = true
+      explicitNulls = true
+      ignoreUnknownKeys = true
+      coerceInputValues = true
+      prettyPrint = true
+      prettyPrintIndent = "  "
+    }
+
     fun read(dir: File): RecordingMeta? =
         try {
-          fromJson(JSONObject(File(dir, FILE_NAME).readText()))
+          fromJson(metaJson.parseToJsonElement(File(dir, FILE_NAME).readText()).jsonObject)
         } catch (_: Exception) {
           null
         }
@@ -239,7 +229,7 @@ data class RecordingMeta(
       try {
         val tmp = File(dir, "$FILE_NAME.tmp")
         FileOutputStream(tmp).use {
-          it.write(toJson().toString(2).toByteArray())
+          it.write(metaJson.encodeToString(JsonElement.serializer(), toJson()).toByteArray())
           it.fd.sync()
         }
         Files.move(
@@ -261,15 +251,87 @@ object EventLog {
 
   fun append(dir: File, phoneNs: Long, elapsedNs: Long, type: String, message: String) {
     val line =
-        JSONObject()
-            .put("phone_ns", phoneNs)
-            .put("elapsed_ns", elapsedNs)
-            .put("type", type)
-            .put("message", message)
-            .toString() + "\n"
+        Json.encodeToString(
+            EventJson(phoneNs = phoneNs, elapsedNs = elapsedNs, type = type, message = message)
+        ) + "\n"
     FileOutputStream(File(dir, FILE_NAME), true).use {
       it.write(line.toByteArray())
       it.fd.sync()
     }
   }
 }
+
+/** meta.json as it is on disk: the keys and the value of each. */
+@Serializable
+private data class MetaJson(
+    val format: String = "taiga-recording",
+    val version: Int = 1,
+    @SerialName("session_id") val sessionId: String,
+    val state: String = "",
+    val mode: String = "",
+    @SerialName("start_utc_ms") val startUtcMs: Long,
+    @SerialName("end_utc_ms") val endUtcMs: Long? = null,
+    val timezone: String = "",
+    val app: AppJson,
+    val phone: PhoneJson,
+    val sensor: SensorJson,
+    val config: ConfigJson,
+    @SerialName("on_device") val onDevice: OnDeviceJson? = null,
+)
+
+@Serializable
+private data class AppJson(
+    val version: String = "",
+    @SerialName("version_code") val versionCode: Int = 0,
+)
+
+@Serializable
+private data class PhoneJson(
+    val manufacturer: String = "",
+    val model: String = "",
+    val android: String = "",
+    val sdk: Int = 0,
+)
+
+@Serializable
+private data class SensorJson(
+    val kind: String,
+    val id: String,
+    val name: String = "",
+    val firmware: String? = null,
+    @SerialName("battery_percent_at_start") val batteryPercentAtStart: Int? = null,
+)
+
+@Serializable
+private data class ConfigJson(
+    val hr: Boolean = true,
+    val ecg: Boolean = false,
+    val acc: Boolean = false,
+    @SerialName("ecg_rate_hz") val ecgRateHz: Int = 130,
+    @SerialName("acc_rate_hz") val accRateHz: Int = 50,
+    @SerialName("acc_range_g") val accRangeG: Int = 8,
+)
+
+/** The tracker's part of an on-device recording: what is imported and what still has to go. */
+@Serializable
+private data class OnDeviceJson(
+    @SerialName("fetch_pending") val fetchPending: Boolean = false,
+    @SerialName("imported_entries") val importedEntries: Map<String, Int> = emptyMap(),
+    @SerialName("import_started") val importStarted: String? = null,
+    @SerialName("import_start") val importStart: Map<String, PositionJson> = emptyMap(),
+    @SerialName("tracker_removal_pending") val trackerRemovalPending: List<String> = emptyList(),
+    @SerialName("tracker_removal_failures") val trackerRemovalFailures: Int = 0,
+)
+
+/** Where one stream log stood before an import began. */
+@Serializable
+private data class PositionJson(val bytes: Long, val frames: Long)
+
+/** One line of events.jsonl. */
+@Serializable
+private data class EventJson(
+    @SerialName("phone_ns") val phoneNs: Long,
+    @SerialName("elapsed_ns") val elapsedNs: Long,
+    val type: String,
+    val message: String,
+)

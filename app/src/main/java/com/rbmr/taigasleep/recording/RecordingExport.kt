@@ -62,12 +62,12 @@ object RecordingExport {
 
   /**
    * The files of [dir] the selected contents ask for, in archive order. Everything that is not a raw
-   * stream log counts as metadata, so a file a newer version adds is exported with the metadata.
-   * The upload state of an older version and partial writes stay out.
+   * stream log counts as metadata, so a file a newer version adds is exported with the metadata, and
+   * partial writes stay out.
    */
   private fun archiveFiles(dir: File, contents: ExportContents): List<File> =
       (dir.listFiles() ?: emptyArray())
-          .filter { it.isFile && !it.name.endsWith(".tmp") && it.name != RecordingStore.SYNC_FILE }
+          .filter { it.isFile && !it.name.endsWith(".tmp") }
           .filter { contents.raw || it.name !in RecordingStore.RAW_FILES }
           .filter { contents.metadata || it.name in RecordingStore.RAW_FILES }
           .sortedBy { it.name }

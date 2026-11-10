@@ -2,7 +2,6 @@ package com.rbmr.taigasleep.sync.db
 
 import androidx.room.Entity
 import androidx.room.Index
-import androidx.room.PrimaryKey
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.backend.AnalysisSummaryDto
@@ -15,15 +14,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
-/**
- * The database keeps everything the app learned from the server. Every row is keyed by the account
- * key of `RemoteRepository.accountKey`, so a row can never be read under another account. A blank
- * account is the state that was written before facts carried an account: it belongs to the first
- * account that logs in, exactly as the files it came from did.
- */
-internal const val NO_ACCOUNT = ""
-
-/** The sync state of one recording for one account, the row behind a recording's `sync.json`. */
+/** The sync state of one recording for one account. */
 @Entity(tableName = "upload_state", primaryKeys = ["account", "recordingId"])
 data class UploadStateRow(
     val account: String,
@@ -41,7 +32,7 @@ data class UploadStateRow(
     val manualAnalysisIds: List<String> = emptyList(),
 )
 
-/** One recording of one account's server list, the row behind an entry of `remote-recordings.json`. */
+/** One recording of one account's server list, as the list the server sent has it. */
 @Entity(tableName = "remote_recording", primaryKeys = ["account", "recordingId"])
 data class RemoteRecordingRow(
     val account: String,
@@ -128,10 +119,6 @@ data class PendingDeleteRow(
     val remoteId: String,
     val requestedAtMs: Long,
 )
-
-/** The one marker row that says the migration off the files has run. */
-@Entity(tableName = "migration")
-data class MigrationRow(@PrimaryKey val id: String, val completedAtMs: Long)
 
 /** The JSON the rows use, the same shape the stores wrote so a row round-trips what they read. */
 internal val rowJson = Json {

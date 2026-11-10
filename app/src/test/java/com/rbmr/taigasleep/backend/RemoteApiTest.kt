@@ -98,36 +98,13 @@ class RemoteApiTest {
   }
 
   @Test
-  fun `a missing version route and a missing legacy route mean the URL is wrong`() {
+  fun `a missing version route means the URL is wrong`() {
     server.enqueue(json("""{"code":"not_found","message":"not found"}""", code = 404))
-    server.enqueue(json("""{"message":"Not Found"}""", code = 404))
 
     assertEquals(RemoteError.NotTaiga, failure { api.version(baseUrl) })
 
     assertEquals("/v1/version", server.takeRequest().path)
-    assertEquals("/api/taiga/health", server.takeRequest().path)
-  }
-
-  @Test
-  fun `a backend of the previous api revision is recognised by its old health route`() {
-    server.enqueue(json("""{"message":"Not Found"}""", code = 404))
-    server.enqueue(
-        json("""{"status":"ok","service":"taiga-sleep","version":"0.2.0","api":1,"time":"now"}""")
-    )
-
-    val version = api.version(baseUrl)
-
-    // The caller compares the revision with its own and reports the mismatch.
-    assertEquals(1, version.api)
-    assertEquals("0.2.0", version.version)
-  }
-
-  @Test
-  fun `another service on the old health route is not a taiga server`() {
-    server.enqueue(json("""{"message":"Not Found"}""", code = 404))
-    server.enqueue(json("""{"status":"ok","service":"something-else"}"""))
-
-    assertEquals(RemoteError.NotTaiga, failure { api.version(baseUrl) })
+    assertEquals(1, server.requestCount)
   }
 
   @Test

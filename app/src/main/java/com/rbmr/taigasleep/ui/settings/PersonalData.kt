@@ -1,4 +1,4 @@
-package com.rbmr.taigasleep.ui.screens
+package com.rbmr.taigasleep.ui.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable

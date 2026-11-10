@@ -328,6 +328,58 @@ class ArchitectureTest {
   }
 
   /**
+   * `ui/` is one package per feature, and a feature is a screen with the view model it draws from:
+   * a view model used from another package means the screen or the view model is in the wrong one.
+   */
+  @Test
+  fun `a view model lives in the package of the screen that uses it`() {
+    val violations = ViewModelHome.violations(uiFiles())
+
+    assertTrue(
+        "A view model is used from another package (${violations.size}):\n" +
+            violations.joinToString("\n") { "  $it" },
+        violations.isEmpty(),
+    )
+  }
+
+  @Test
+  fun `the view model home checker reports one used from another package`() {
+    val sources =
+        mapOf(
+            "history/NightViewModel.kt" to
+                """
+                package com.rbmr.taigasleep.ui.history
+
+                class NightViewModel
+                """
+                    .trimIndent(),
+            "history/NightScreen.kt" to
+                """
+                package com.rbmr.taigasleep.ui.history
+
+                fun NightScreen(model: NightViewModel) = model
+                """
+                    .trimIndent(),
+            "settings/OtherScreen.kt" to
+                """
+                package com.rbmr.taigasleep.ui.settings
+
+                fun OtherScreen(model: com.rbmr.taigasleep.ui.history.NightViewModel) = model
+                """
+                    .trimIndent(),
+        )
+
+    assertEquals(
+        listOf(
+            "settings/OtherScreen.kt -> NightViewModel: it lives in " +
+                "`com.rbmr.taigasleep.ui.history`; move it to the package of the screen that " +
+                "uses it, or the screen to its package"
+        ),
+        ViewModelHome.violations(sources),
+    )
+  }
+
+  /**
    * Outside `sync`, the package's surface is [SyncSurface.ALLOWED]: the service that owns the
    * sequences, the state a screen shows, the settings, and the data the library composes. A new
    * name is a decision about what the package exposes, so the test fails until it is written down.
@@ -384,14 +436,17 @@ class ArchitectureTest {
 
   private fun uiBaseline(): File = File(moduleDir(), "src/test/resources/ui-import-baseline.txt")
 
-  /** Every non-view-model Kotlin file under `ui/` in the main source set, keyed by its path in `ui/`. */
-  private fun uiSources(): Map<String, String> {
+  /** Every Kotlin file under `ui/` in the main source set, keyed by its path in `ui/`. */
+  private fun uiFiles(): Map<String, String> {
     val marker = "/ui/"
     return appSources()
         .filter { (path, _) -> path.startsWith("src/main/java/") && marker in path }
         .associate { (path, source) -> path.substringAfter(marker) to source }
-        .filterKeys { !it.endsWith("ViewModel.kt") }
   }
+
+  /** The same files without the view models, which is what the import ratchet counts. */
+  private fun uiSources(): Map<String, String> =
+      uiFiles().filterKeys { !it.endsWith("ViewModel.kt") }
 
   private fun documentedTable(lines: List<String>): Map<String, Set<String>> {
     val section = lines.dropWhile { it.trim() != "## App structure" }.drop(1).takeWhile { !it.startsWith("## ") }
@@ -645,6 +700,40 @@ private object UiImports {
           else -> null
         }
       }
+}
+
+/**
+ * Where a view model lives: in the package of the screen that uses it, so a feature is one
+ * directory. A screen that names another package's view model is reported; so is a helper file,
+ * because the pair belongs together. View models naming each other are not the screen, so they are
+ * left alone.
+ */
+private object ViewModelHome {
+  private val PACKAGE = Regex("""^\s*package\s+([\w.]+)""", RegexOption.MULTILINE)
+
+  fun violations(sources: Map<String, String>): List<String> =
+      sources
+          .filterKeys { it.endsWith("ViewModel.kt") }
+          .flatMap { (path, source) ->
+            val model = path.substringAfterLast('/').removeSuffix(".kt")
+            val home = packageOf(source) ?: return@flatMap emptyList()
+            val named = Regex("""\b${Regex.escape(model)}\b""")
+            sources
+                .filter { (other, text) ->
+                  other != path && !other.endsWith("ViewModel.kt") && named.containsMatchIn(text)
+                }
+                .mapNotNull { (other, text) ->
+                  val there = packageOf(text)
+                  if (there == null || there == home) null
+                  else
+                      "$other -> $model: it lives in `$home`; move it to the package of the " +
+                          "screen that uses it, or the screen to its package"
+                }
+          }
+          .distinct()
+
+  private fun packageOf(source: String): String? =
+      PACKAGE.find(source)?.groupValues?.get(1)
 }
 
 /**

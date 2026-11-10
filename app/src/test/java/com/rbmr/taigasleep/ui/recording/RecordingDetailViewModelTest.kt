@@ -57,10 +57,6 @@ private class FakeLibrary(initial: List<RecordingView>) : RecordingSource {
   var algorithms: Result<List<AlgorithmDto>> = Result.success(emptyList())
   var manual: Result<Unit> = Result.success(Unit)
 
-  override fun reload() {
-    calls += "reload"
-  }
-
   override fun recording(key: String): RecordingView? =
       recordings.value.firstOrNull { it.key == key }
 

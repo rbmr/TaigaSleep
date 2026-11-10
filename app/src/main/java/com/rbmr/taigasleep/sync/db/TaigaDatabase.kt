@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
  * The one store of what the app learned from the server: the sync state of every recording, the
@@ -24,9 +26,8 @@ import androidx.room.TypeConverters
             RemoteSelectionRow::class,
             AnalysisResultRow::class,
             PendingDeleteRow::class,
-            MigrationRow::class,
         ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 @TypeConverters(RowConverters::class)
@@ -41,13 +42,23 @@ abstract class TaigaDatabase : RoomDatabase() {
 
   abstract fun pendingDeletes(): PendingDeleteDao
 
-  abstract fun migrations(): MigrationDao
-
   companion object {
     const val FILE_NAME = "taiga.db"
 
+    /**
+     * Version 1 also held a table of marker rows, one per step of an import the app no longer runs.
+     * Dropping it leaves what every other table holds on an installed phone untouched.
+     */
+    private val DROP_IMPORT_MARKERS =
+        object : Migration(1, 2) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("DROP TABLE IF EXISTS migration")
+          }
+        }
+
     fun open(context: Context): TaigaDatabase =
         Room.databaseBuilder(context.applicationContext, TaigaDatabase::class.java, FILE_NAME)
+            .addMigrations(DROP_IMPORT_MARKERS)
             .build()
   }
 }

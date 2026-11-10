@@ -5,8 +5,6 @@ import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.sync.db.LibraryDao
 import com.rbmr.taigasleep.sync.db.toEntries
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 
 /**
@@ -40,24 +38,14 @@ data class LibraryEntry(
  * of [com.rbmr.taigasleep.sync.db.TaigaDatabase] and parameterised by the account that is active.
  *
  * The ids of the recordings on this phone are a parameter of the query, because they decide the key
- * a server row belongs to. A write anywhere in the app reaches the screen through [observe] without
- * a reload.
+ * a server row belongs to. A write anywhere in the app reaches the screen through [observe].
  */
-class RecordingRows internal constructor(
-    private val dao: LibraryDao,
-    /** The one-time move of the files an older version wrote into the database. */
-    private val awaitLegacyImport: suspend () -> Unit = {},
-) {
+class RecordingRows internal constructor(private val dao: LibraryDao) {
   /** The library of [account], with [localIds] the recordings on this phone. */
   fun observe(account: String, localIds: List<String>): Flow<List<LibraryEntry>> =
-      flow {
-        awaitLegacyImport()
-        emitAll(dao.observe(account, localIds, REMOTE_KEY_PREFIX).map { it.toEntries(account) })
-      }
+      dao.observe(account, localIds, REMOTE_KEY_PREFIX).map { it.toEntries(account) }
 
   /** The same read, once, for a step that is not drawing a screen. */
-  suspend fun load(account: String, localIds: List<String>): List<LibraryEntry> {
-    awaitLegacyImport()
-    return dao.rows(account, localIds, REMOTE_KEY_PREFIX).toEntries(account)
-  }
+  suspend fun load(account: String, localIds: List<String>): List<LibraryEntry> =
+      dao.rows(account, localIds, REMOTE_KEY_PREFIX).toEntries(account)
 }

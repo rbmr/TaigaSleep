@@ -14,9 +14,6 @@ interface LibrarySource {
   val recordings: StateFlow<List<RecordingView>>
 
   val remoteStatus: StateFlow<RemoteStatus>
-
-  /** Re-read the cached server list, for example after the account or the app resumed. */
-  fun reload()
 }
 
 /** One recording, for the screen that shows it: its stored copy, its result and its pending runs. */

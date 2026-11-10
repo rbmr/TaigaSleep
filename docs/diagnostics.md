@@ -52,7 +52,6 @@ Diagnostics.heartbeat()                                // extra diag_heartbeat n
 Diagnostics.logSync("watchdog_giving_up", mapOf(...))  // written + fsynced before returning
 Diagnostics.markRunning()                              // see "Run marker"
 Diagnostics.markCleanShutdown("user_stopped")
-val zip: File = Diagnostics.exportZip(context)         // blocking, call off the main thread
 ```
 
 `log` values may be `null`, `Boolean`, numbers, strings, enums, maps and lists (nested up to 6
@@ -156,12 +155,7 @@ after a clean finish; that shows up as an `exit_info` line, not as an unclean ve
   `elapsed_ms` advancing but no heartbeat during device sleep is not a kill; compare `pid` before
   and after.
 
-## Export and the reader
-
-`Diagnostics.exportZip(context)` fsyncs, then zips the directory to
-`cacheDir/diagnostics_<time>.zip` (older exports are deleted) and returns it. There is no UI for it;
-a "Share diagnostics" button (settings screen) would call it off the main thread and share the file
-through a `FileProvider`.
+## Reading the directory
 
 Pull and read:
 

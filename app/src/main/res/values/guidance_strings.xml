@@ -30,7 +30,6 @@
   <string name="g_verdict_not_ready">Not ready</string>
 
   <!-- Helper buttons -->
-  <string name="g_helper_app_info">Open app info</string>
   <string name="g_helper_exemption">Allow in background</string>
 
   <!-- OnePlus -->

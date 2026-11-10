@@ -6,6 +6,7 @@ TaigaApp.kt 4
 alarm/AlarmActivity.kt 1
 alarm/AlarmScreen.kt 0
 components/Buttons.kt 0
+components/ChartTooltip.kt 0
 components/Components.kt 0
 components/PreviewTheme.kt 0
 components/RecordingCharts.kt 2
@@ -14,6 +15,8 @@ components/Status.kt 0
 components/TaigaBottomBar.kt 0
 components/TaigaLogo.kt 0
 components/TrendsCharts.kt 0
+history/HistoryScreen.kt 1
+history/TrendsScreen.kt 0
 home/ActiveHome.kt 0
 home/DataSheet.kt 1
 home/FinishingHome.kt 1
@@ -37,14 +40,12 @@ recording/ScoreCard.kt 2
 recording/SharedComponents.kt 1
 recording/SleepSection.kt 1
 recording/StatusCards.kt 1
-screens/AboutScreen.kt 0
-screens/FlowScreen.kt 11
-screens/HistoryScreen.kt 1
-screens/PersonalData.kt 0
-screens/RemoteScreen.kt 7
-screens/SettingsScreen.kt 4
-screens/TokensScreen.kt 1
-screens/TrendsScreen.kt 0
+settings/AboutScreen.kt 0
+settings/FlowScreen.kt 11
+settings/PersonalData.kt 0
+settings/RemoteScreen.kt 7
+settings/SettingsScreen.kt 4
+settings/TokensScreen.kt 1
 theme/Color.kt 0
 theme/Theme.kt 0
 theme/ThemeMode.kt 0

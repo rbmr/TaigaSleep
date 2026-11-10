@@ -9,9 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.sync.Mutex
@@ -76,15 +74,7 @@ data class UploadRecord(
     val keepRawOnPhone: Boolean = false,
     /** Analyses the user requested explicitly. A finished manual run wins the default selection. */
     val manualAnalysisIds: List<String> = emptyList(),
-) {
-  val isPending: Boolean
-    get() =
-        phase == UploadPhase.LOCAL ||
-            phase == UploadPhase.QUEUED ||
-            phase == UploadPhase.UPLOADING ||
-            phase == UploadPhase.PROCESSING ||
-            phase == UploadPhase.FAILED
-}
+)
 
 /**
  * When the server confirmed that this recording is complete, or null while it has not. Full
@@ -129,23 +119,18 @@ private fun UploadRecord.finishedAt(): Long? = uploadedAtMs ?: updatedAtMs.takeI
  *
  * [records] is the active account's rows as the database publishes them, and is what History and the
  * recording screen observe. Reads and writes are suspend, so they run beside the caller's work
- * instead of on the thread that draws. Every call first waits for the one-time import of the state
- * an older version kept in files, so nothing of the app's own state is read or written before it.
+ * instead of on the thread that draws.
  */
 class UploadStore internal constructor(
     private val states: UploadStateDao,
     private val accounts: StateFlow<String?>,
     scope: CoroutineScope,
-    /** The one-time move of the files an older version wrote into the database. */
-    private val awaitLegacyImport: suspend () -> Unit = {},
 ) {
   /** The rows of every recording the database holds, for the account that is active now. */
   @OptIn(ExperimentalCoroutinesApi::class)
   val records: StateFlow<Map<String, UploadRecord>> =
-      flow {
-            awaitLegacyImport()
-            emitAll(accounts.flatMapLatest { states.observe(it.orEmpty()) })
-          }
+      accounts
+          .flatMapLatest { states.observe(it.orEmpty()) }
           .map { rows -> rows.associate { it.recordingId to it.toUploadRecord() } }
           .stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
@@ -157,13 +142,11 @@ class UploadStore internal constructor(
 
   /** The row for one recording, by default the active account's. */
   suspend fun record(id: String, account: String? = null): UploadRecord? {
-    awaitLegacyImport()
     return states.row(account ?: active(), id)?.toUploadRecord()
   }
 
   /** Another account that already has a server copy of this recording, or null. */
   suspend fun otherAccount(id: String): String? {
-    awaitLegacyImport()
     return states.otherAccounts(id, active()).firstOrNull()
   }
 
@@ -297,7 +280,6 @@ class UploadStore internal constructor(
 
   /** The user downloaded this recording's raw files again; keep them out of automatic cleanup. */
   suspend fun markKeepRaw(id: String, account: String? = null) {
-    awaitLegacyImport()
     val target = account ?: active()
     writes.withLock {
       val current = states.row(target, id)?.toUploadRecord() ?: return
@@ -307,7 +289,6 @@ class UploadStore internal constructor(
 
   /** Drops the row of one recording for the active account; the recording itself is not touched. */
   suspend fun clear(id: String, account: String? = null) {
-    awaitLegacyImport()
     states.delete(account ?: active(), id)
   }
 
@@ -316,7 +297,6 @@ class UploadStore internal constructor(
       account: String? = null,
       transform: (UploadRecord) -> UploadRecord,
   ) {
-    awaitLegacyImport()
     val target = account ?: active()
     writes.withLock {
       val current = states.row(target, id)?.toUploadRecord() ?: UploadRecord(id = id)

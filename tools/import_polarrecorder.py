@@ -26,6 +26,10 @@ session id and start time unless --timezone is given.
 Every written session is re-read and validated with the rules in
 tools/read_recording.py (header, CRC, payload shape, sample counts, clock
 monotonicity, events and meta). A session that fails validation is removed.
+The frame format itself comes from the worker, so run the tool from the worker
+environment (see tools/README.md):
+
+    uv run --project backend/worker --frozen python tools/import_polarrecorder.py ...
 
 Options:
   --out DIR         output directory (required; keep it out of the repository)
@@ -33,7 +37,7 @@ Options:
   --timezone TZ     meta.json timezone; default: inferred UTC offset
   --sensor-kind K   override the sensor kind derived from the directory name
 
-Stdlib only. Existing session directories are never overwritten.
+Existing session directories are never overwritten.
 
 Exit status: 0 all sessions converted or skipped, 1 any session failed.
 """
@@ -45,16 +49,15 @@ import re
 import shutil
 import struct
 import sys
-import zlib
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend", "worker"))
 import read_recording  # noqa: E402  (sibling tool, same repository)
+from taiga_worker import frames  # noqa: E402  (the worker owns the frame format)
 
-MAGIC = b"TSLG"
-VERSION = 1
-STREAM_HR, STREAM_ECG, STREAM_ACC = 1, 2, 3
-MAX_PAYLOAD = 1 << 20
+STREAM_HR, STREAM_ECG, STREAM_ACC = frames.STREAM_HR, frames.STREAM_ECG, frames.STREAM_ACC
 MAX_BATCH_SAMPLES = 0xFFFF
 SESSION_PREFIX = "PolarRecording_"
 STREAM_FILES = ((STREAM_HR, "HR", "hr.log"),
@@ -157,25 +160,6 @@ def last_phone_ns(directory, stem):
   return None
 
 
-def trunc_div(a, b):
-  """Integer division truncating toward zero, matching read_recording.py."""
-  quotient = abs(a) // abs(b)
-  return quotient if (a >= 0) == (b >= 0) else -quotient
-
-
-def timestamps(values):
-  """Return (mode, ts_bytes) for `u8 ts_mode | u16 n | ts | payload`."""
-  count = len(values)
-  if count <= 1:
-    value = values[0]
-    return 0, struct.pack("<qq", value, value)
-  first, last = values[0], values[-1]
-  if all(first + trunc_div((last - first) * index, count - 1) == value
-         for index, value in enumerate(values)):
-    return 0, struct.pack("<qq", first, last)
-  return 1, struct.pack(f"<{count}q", *values)
-
-
 def clamp(value, low, high):
   return max(low, min(high, int(value)))
 
@@ -188,15 +172,14 @@ def note_clamp(clamps, label, phone_ns):
 class Writer:
   def __init__(self, path, stream):
     self.handle = open(path, "wb")
-    self.handle.write(MAGIC + bytes([VERSION, stream]) + b"\x00\x00")
+    self.handle.write(frames.frame_header(stream))
     self.count = 0
 
   def write(self, payload):
-    if len(payload) > MAX_PAYLOAD:
-      raise ConvertError(f"frame payload is {len(payload)} bytes (max {MAX_PAYLOAD})")
-    self.handle.write(struct.pack("<I", len(payload)))
-    self.handle.write(payload)
-    self.handle.write(struct.pack("<I", zlib.crc32(payload) & 0xFFFFFFFF))
+    try:
+      self.handle.write(frames.encode_frame(payload))
+    except ValueError as exc:
+      raise ConvertError(str(exc)) from exc
     self.count += 1
 
   def __enter__(self):
@@ -373,16 +356,13 @@ def convert(source, out_dir, min_hours, timezone_override, sensor_kind):
                 flags = ((1 if sample.get("contactStatusSupported") else 0) |
                          (2 if sample.get("contactStatus") else 0) |
                          (4 if sample.get("rrAvailable") else 0))
-                payload = (struct.pack("<qqHBB", phone_ns, elapsed_ns, hr, flags, len(rrs)) +
-                           struct.pack(f"<{len(rrs)}H", *rrs))
-                writer.write(payload)
+                writer.write(frames.hr_payload(phone_ns, elapsed_ns, hr, flags, rrs))
                 samples += 1
               continue
             if len(items) > MAX_BATCH_SAMPLES:
               raise ConvertError(f"{stem}: batch has {len(items)} samples "
                                  f"(max {MAX_BATCH_SAMPLES})")
             ts = [int(sample["timeStamp"]) for sample in items]
-            mode, ts_bytes = timestamps(ts)
             if stream == STREAM_ECG:
               values = []
               for sample in items:
@@ -391,9 +371,7 @@ def convert(source, out_dir, min_hours, timezone_override, sensor_kind):
                   note_clamp(clamps, "ECG", phone_ns)
                   voltage = clamp(voltage, -(2**31), 2**31 - 1)
                 values.append(voltage)
-              payload = (struct.pack("<qq", phone_ns, elapsed_ns) +
-                         struct.pack("<BH", mode, len(ts)) + ts_bytes +
-                         struct.pack(f"<{len(values)}i", *values))
+              writer.write(frames.ecg_payload(phone_ns, elapsed_ns, ts, values))
             else:
               values = []
               for sample in items:
@@ -403,10 +381,7 @@ def convert(source, out_dir, min_hours, timezone_override, sensor_kind):
                     note_clamp(clamps, "ACC", phone_ns)
                     value = clamp(value, -32768, 32767)
                   values.append(value)
-              payload = (struct.pack("<qq", phone_ns, elapsed_ns) +
-                         struct.pack("<BH", mode, len(ts)) + ts_bytes +
-                         struct.pack(f"<{len(values)}h", *values))
-            writer.write(payload)
+              writer.write(frames.acc_payload(phone_ns, elapsed_ns, ts, values))
             samples += len(items)
           except (KeyError, TypeError, ValueError, struct.error) as exc:
             raise ConvertError(f"{stem}: invalid batch at {phone_ns}: {exc}") from exc
@@ -450,23 +425,22 @@ def convert(source, out_dir, min_hours, timezone_override, sensor_kind):
       handle.write("\n")
     os.replace(meta_path + ".tmp", meta_path)
 
-    events = [{"phone_ns": start_ns, "elapsed_ns": 0, "type": "start",
-               "message": "imported from PolarRecorder"}]
+    events = [(start_ns, frames.event_line(start_ns, 0, "start", "imported from PolarRecorder"))]
     for stream, stem, filename in STREAM_FILES:
       if filename in counts and starts[stream] is not None:
         first = starts[stream]
-        events.append({"phone_ns": first, "elapsed_ns": first - start_ns,
-                       "type": "stream", "message": f"{stem.lower()} streaming"})
+        events.append((first, frames.event_line(
+            first, first - start_ns, "stream", f"{stem.lower()} streaming")))
     for label, (count, phone_ns) in clamps.items():
-      events.append({"phone_ns": phone_ns, "elapsed_ns": phone_ns - start_ns,
-                     "type": "error",
-                     "message": f"{label} values out of range clamped ({count})"})
-    events.append({"phone_ns": end_ns, "elapsed_ns": end_ns - start_ns,
-                   "type": "stop", "message": "imported from PolarRecorder"})
-    events.sort(key=lambda event: event["phone_ns"])
-    with open(os.path.join(target, "events.jsonl"), "w", encoding="utf-8") as handle:
-      for event in events:
-        handle.write(json.dumps(event, separators=(",", ":")) + "\n")
+      events.append((phone_ns, frames.event_line(
+          phone_ns, phone_ns - start_ns, "error",
+          f"{label} values out of range clamped ({count})")))
+    events.append((end_ns, frames.event_line(end_ns, end_ns - start_ns, "stop",
+                                            "imported from PolarRecorder")))
+    events.sort(key=lambda event: event[0])
+    with open(os.path.join(target, "events.jsonl"), "wb") as handle:
+      for _, line in events:
+        handle.write(line)
 
     report = validate(target, counts, start_ns, end_ns)
   except Exception:
@@ -499,12 +473,11 @@ def validate(directory, expected, start_ns, end_ns):
     try:
       for payload in payloads:
         if stream == STREAM_HR:
-          elapsed_ns = read_recording.parse_hr(payload)["elapsed_ns"]
+          elapsed_ns = frames.read_hr(payload).elapsed_ns
         else:
-          per_sample, fmt = (1, "i") if stream == STREAM_ECG else (3, "h")
-          batch = read_recording.parse_batch(payload, per_sample, fmt)
-          elapsed_ns = batch["elapsed_ns"]
-          samples = batch["t"]
+          batch = frames.read_ecg(payload) if stream == STREAM_ECG else frames.read_acc(payload)
+          elapsed_ns = batch.elapsed_ns
+          samples = batch.timestamps_ns
           if any(later < earlier for earlier, later in zip(samples, samples[1:])):
             raise ConvertError(f"{filename}: sample timestamps go backwards")
         if elapsed_ns < 0:

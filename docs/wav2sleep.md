@@ -133,9 +133,8 @@ stager whose required streams and rates match the recording. Re-analysis of a
 local recording uses the same selection instead of hard-coding `baseline`.
 
 A recording without ECG falls back to the built-in baseline. A recording with
-ECG but too little usable data still fails with `insufficient_ecg`; automatic
-fallback to another stager is tracked in #32, together with user-configurable
-preferences and comparison UI. There are no accuracy claims without labels.
+ECG but too little usable data fails with `insufficient_ecg` instead of silently
+using another stager. There are no accuracy claims without labels.
 
 ## Why the stage timeline looked rough
 
@@ -290,7 +289,7 @@ page cache. A host below 4 GB should use the baseline-only image.
 
 ## Comparing with SleepECG
 
-Run the same recording through both optional stagers once #22 lands:
+Run the same recording through both optional stagers:
 
 ```bash
 cd backend

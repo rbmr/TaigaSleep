@@ -8,15 +8,18 @@ saturation masks, gaps, and stream coverage. Algorithms never parse bytes.
 from __future__ import annotations
 
 import json
-import math
 import struct
-import zlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Sequence
+from typing import Sequence
 
 import numpy as np
 
+from ..frames import (
+    POLAR_EPOCH_OFFSET_NS,
+    FrameError,
+    iter_frames,
+)
 from .contract import (
     AccStream,
     AnalysisError,
@@ -32,9 +35,6 @@ from .contract import (
     StreamReport,
 )
 
-HEADER_SIZE = 8
-MAX_PAYLOAD = 1 << 20
-POLAR_EPOCH_OFFSET_NS = 946_684_800_000_000_000
 ECG_RAIL_UV = 18_000.0
 HR_MIN_BPM = 20.0
 HR_MAX_BPM = 240.0
@@ -79,47 +79,6 @@ def _read_bytes(path: Path) -> bytes | None:
         return None
 
 
-def _iter_payloads(data: bytes, expected_stream: int) -> Iterator[tuple[bytes, int]]:
-    """Yield payloads until the first truncated or bad-CRC frame."""
-
-    if len(data) == 0:
-        return
-    if len(data) < HEADER_SIZE:
-        raise _FrameError(0, "truncated frame-log header")
-    if data[:4] != b"TSLG":
-        raise _FrameError(0, "invalid frame-log magic")
-    if data[4] != 1:
-        raise _FrameError(0, f"unsupported frame-log version {data[4]}")
-    if data[5] != expected_stream:
-        raise _FrameError(0, f"wrong stream id {data[5]} (expected {expected_stream})")
-    if data[6] != 0 or data[7] != 0:
-        raise _FrameError(0, "invalid frame-log header reserved bytes")
-
-    pos = HEADER_SIZE
-    while pos < len(data):
-        if len(data) - pos < 8:
-            raise _FrameError(pos, "truncated frame")
-        length = struct.unpack_from("<I", data, pos)[0]
-        if length > MAX_PAYLOAD:
-            raise _FrameError(pos, f"frame payload too large ({length})")
-        end = pos + 8 + length
-        if end > len(data):
-            raise _FrameError(pos, "truncated frame")
-        payload = data[pos + 4 : pos + 4 + length]
-        expected_crc = struct.unpack_from("<I", data, pos + 4 + length)[0]
-        actual_crc = zlib.crc32(payload) & 0xFFFFFFFF
-        if expected_crc != actual_crc:
-            raise _FrameError(pos, "frame CRC mismatch")
-        yield payload, pos + 4 + length
-        pos = end
-
-
-class _FrameError(Exception):
-    def __init__(self, offset: int, message: str) -> None:
-        super().__init__(message)
-        self.offset = offset
-
-
 def _scan(path: Path, expected_stream: int, on_payload) -> FrameLogInfo:
     data = _read_bytes(path)
     if data is None:
@@ -130,12 +89,12 @@ def _scan(path: Path, expected_stream: int, on_payload) -> FrameLogInfo:
     frames = 0
     valid_bytes = 0
     try:
-        for payload, end in _iter_payloads(data, expected_stream):
-            on_payload(payload)
+        for frame in iter_frames(data, expected_stream):
+            on_payload(frame.payload)
             frames += 1
-            valid_bytes = end
-    except _FrameError as exc:
-        valid_bytes = valid_bytes or 0
+            # The report counts up to the payload end, not the CRC that follows it.
+            valid_bytes = frame.payload_end
+    except FrameError as exc:
         return FrameLogInfo(
             True,
             frames,
@@ -155,11 +114,11 @@ def _decode_hr(path: Path) -> tuple[list[np.ndarray], list[np.ndarray], list[np.
 
     def on_payload(payload: bytes) -> None:
         if len(payload) < 20:
-            raise _FrameError(0, "HR payload is too short")
+            raise FrameError(0, "HR payload is too short")
         phone_ns, elapsed_ns, hr, flag, n_rr = struct.unpack_from("<qqHBB", payload, 0)
         expected = 20 + 2 * n_rr
         if len(payload) != expected:
-            raise _FrameError(0, "HR payload length mismatch")
+            raise FrameError(0, "HR payload length mismatch")
         rr_values = np.frombuffer(payload, dtype="<u2", count=n_rr, offset=20).astype(
             np.float32, copy=False
         )
@@ -191,27 +150,27 @@ def _decode_ecg(path: Path) -> tuple[_RawEcg, FrameLogInfo]:
 
     def on_payload(payload: bytes) -> None:
         if len(payload) < 19:
-            raise _FrameError(0, "ECG payload is too short")
+            raise FrameError(0, "ECG payload is too short")
         phone_ns, elapsed_ns, mode, n = struct.unpack_from("<qqBH", payload, 0)
         if n == 0:
             return
         if mode == 0:
             if len(payload) < 35:
-                raise _FrameError(0, "ECG linear payload is too short")
+                raise FrameError(0, "ECG linear payload is too short")
             first, last = struct.unpack_from("<qq", payload, 19)
             t = _reconstruct_linear(first, last, n)
             values_offset = 35
         elif mode == 1:
             values_offset = 19 + 8 * n
             if len(payload) < values_offset:
-                raise _FrameError(0, "ECG explicit payload is too short")
+                raise FrameError(0, "ECG explicit payload is too short")
             t = np.frombuffer(payload, dtype="<i8", count=n, offset=19).astype(np.int64, copy=True)
         else:
-            raise _FrameError(0, f"unknown ECG timestamp mode {mode}")
+            raise FrameError(0, f"unknown ECG timestamp mode {mode}")
 
         expected = values_offset + 4 * n
         if len(payload) != expected:
-            raise _FrameError(0, "ECG payload length mismatch")
+            raise FrameError(0, "ECG payload length mismatch")
         values = np.frombuffer(payload, dtype="<i4", count=n, offset=values_offset).astype(
             np.float32, copy=False
         )
@@ -229,27 +188,27 @@ def _decode_acc(path: Path) -> tuple[_RawAcc, FrameLogInfo]:
 
     def on_payload(payload: bytes) -> None:
         if len(payload) < 19:
-            raise _FrameError(0, "ACC payload is too short")
+            raise FrameError(0, "ACC payload is too short")
         phone_ns, elapsed_ns, mode, n = struct.unpack_from("<qqBH", payload, 0)
         if n == 0:
             return
         if mode == 0:
             if len(payload) < 35:
-                raise _FrameError(0, "ACC linear payload is too short")
+                raise FrameError(0, "ACC linear payload is too short")
             first, last = struct.unpack_from("<qq", payload, 19)
             t = _reconstruct_linear(first, last, n)
             values_offset = 35
         elif mode == 1:
             values_offset = 19 + 8 * n
             if len(payload) < values_offset:
-                raise _FrameError(0, "ACC explicit payload is too short")
+                raise FrameError(0, "ACC explicit payload is too short")
             t = np.frombuffer(payload, dtype="<i8", count=n, offset=19).astype(np.int64, copy=True)
         else:
-            raise _FrameError(0, f"unknown ACC timestamp mode {mode}")
+            raise FrameError(0, f"unknown ACC timestamp mode {mode}")
 
         expected = values_offset + 6 * n
         if len(payload) != expected:
-            raise _FrameError(0, "ACC payload length mismatch")
+            raise FrameError(0, "ACC payload length mismatch")
         values = np.frombuffer(payload, dtype="<i2", count=3 * n, offset=values_offset).astype(
             np.float32, copy=False
         )
@@ -268,14 +227,6 @@ def _reconstruct_linear(first: int, last: int, n: int) -> np.ndarray:
     span = last - first
     idx = np.arange(n, dtype=np.int64)
     return first + (span * idx) // (n - 1)
-
-
-def _cat(items: Sequence[np.ndarray], dtype, shape_tail: tuple[int, ...] = ()) -> np.ndarray:
-    if not items:
-        return np.empty((0,) + shape_tail, dtype=dtype)
-    if shape_tail:
-        return np.concatenate(items, axis=0).astype(dtype, copy=False)
-    return np.concatenate(items).astype(dtype, copy=False)
 
 
 def _relative_from_elapsed(
