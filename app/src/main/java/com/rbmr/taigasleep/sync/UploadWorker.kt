@@ -128,6 +128,7 @@ class UploadWorker(
               dir = dir,
               onProgress = { store.markUploading(localId, it) },
               onCreated = { store.markOnServer(localId) },
+              onCompleted = { store.markUploadConfirmed(localId) },
               compress = UploadSettings.get(context).compressUploads.value,
               cacheDir = File(context.filesDir, "upload-cache/$localId"),
           )

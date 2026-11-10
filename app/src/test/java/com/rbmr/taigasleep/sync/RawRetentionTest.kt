@@ -51,61 +51,87 @@ class RawRetentionTest {
 
   @Test
   fun cleanupNeedsAConfirmedUpload() {
-    with(RawRetention) {
-      assertNull(UploadRecord(id = "local", phase = UploadPhase.LOCAL).uploadConfirmedAt())
-      assertNull(
-          UploadRecord(id = "queued", phase = UploadPhase.QUEUED, onServer = true)
-              .uploadConfirmedAt()
-      )
-      assertNull(
-          UploadRecord(
-                  id = "failed-before-complete",
-                  phase = UploadPhase.FAILED,
-                  onServer = true,
-                  updatedAtMs = 10,
-              )
-              .uploadConfirmedAt()
-      )
-    }
+    assertNull(UploadRecord(id = "local", phase = UploadPhase.LOCAL).uploadConfirmedAt())
+    assertNull(
+        UploadRecord(id = "queued", phase = UploadPhase.QUEUED, onServer = true)
+            .uploadConfirmedAt()
+    )
+    assertNull(
+        UploadRecord(
+                id = "failed-before-complete",
+                phase = UploadPhase.FAILED,
+                onServer = true,
+                updatedAtMs = 10,
+            )
+            .uploadConfirmedAt()
+    )
+  }
+
+  @Test
+  fun aRecordingThatReachedTheEndWithoutTheServersWordIsNeverTrimmed() {
+    // The old behaviour recorded the upload as confirmed as the last byte went out, so a record
+    // like this says only that the transfer got to its end.
+    val interrupted =
+        UploadRecord(
+            id = "interrupted",
+            onServer = true,
+            phase = UploadPhase.UPLOADING,
+            progress = 1f,
+            uploadedAtMs = 1_000,
+            updatedAtMs = 2_000,
+        )
+    val failed =
+        UploadRecord(
+            id = "failed",
+            onServer = true,
+            phase = UploadPhase.FAILED,
+            failure = UploadFailure.NETWORK,
+            progress = 1f,
+            uploadedAtMs = 1_000,
+            updatedAtMs = 2_000,
+        )
+
+    assertNull(interrupted.uploadConfirmedAt())
+    assertNull(failed.uploadConfirmedAt())
   }
 
   @Test
   fun theConfirmationTimeIsRemembered() {
-    with(RawRetention) {
-      assertEquals(
-          5_000L,
-          UploadRecord(
-                  id = "processing",
-                  phase = UploadPhase.PROCESSING,
-                  onServer = true,
-                  uploadedAtMs = 5_000,
-                  updatedAtMs = 9_000,
-              )
-              .uploadConfirmedAt(),
-      )
-      // A failed analysis does not undo the confirmed upload; the raw files are on the server.
-      assertEquals(
-          5_000L,
-          UploadRecord(
-                  id = "analysis-failed",
-                  phase = UploadPhase.FAILED,
-                  onServer = true,
-                  uploadedAtMs = 5_000,
-                  updatedAtMs = 9_000,
-              )
-              .uploadConfirmedAt(),
-      )
-      // Records written before uploadedAtMs existed fall back to their last transition.
-      assertEquals(
-          9_000L,
-          UploadRecord(
-                  id = "old",
-                  phase = UploadPhase.DONE,
-                  onServer = true,
-                  updatedAtMs = 9_000,
-              )
-              .uploadConfirmedAt(),
-      )
-    }
+    assertEquals(
+        5_000L,
+        UploadRecord(
+                id = "processing",
+                phase = UploadPhase.PROCESSING,
+                onServer = true,
+                uploadedAtMs = 5_000,
+                updatedAtMs = 9_000,
+            )
+            .uploadConfirmedAt(),
+    )
+    // A failed analysis does not undo the confirmed upload; the raw files are on the server.
+    assertEquals(
+        5_000L,
+        UploadRecord(
+                id = "analysis-failed",
+                phase = UploadPhase.FAILED,
+                onServer = true,
+                failure = UploadFailure.ANALYSIS,
+                uploadedAtMs = 5_000,
+                updatedAtMs = 9_000,
+                confirmedOnServer = true,
+            )
+            .uploadConfirmedAt(),
+    )
+    // Records written before uploadedAtMs existed fall back to their last transition.
+    assertEquals(
+        9_000L,
+        UploadRecord(
+                id = "old",
+                phase = UploadPhase.DONE,
+                onServer = true,
+                updatedAtMs = 9_000,
+            )
+            .uploadConfirmedAt(),
+    )
   }
 }

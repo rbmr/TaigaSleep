@@ -18,6 +18,7 @@ import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -45,7 +46,27 @@ class UploadEngineTest {
       cacheDir: File? = null,
       onProgress: (Float) -> Unit = {},
       onCreated: () -> Unit = {},
-  ) = UploadEngine(client, id, dir, onProgress, onCreated, compress, cacheDir)
+      onCompleted: () -> Unit = {},
+  ) =
+      UploadEngine(
+          client = client,
+          id = id,
+          dir = dir,
+          onProgress = onProgress,
+          onCreated = onCreated,
+          onCompleted = onCompleted,
+          compress = compress,
+          cacheDir = cacheDir,
+      )
+
+  /** The engine wired the way an upload reports into the sync state. */
+  private fun storeEngine(client: TaigaClient, store: UploadStore) =
+      engine(
+          client = client,
+          onProgress = { store.markUploading(id, it) },
+          onCreated = { store.markOnServer(id) },
+          onCompleted = { store.markUploadConfirmed(id) },
+      )
 
   @Test
   fun theRecordingIsCreatedFromMetaJsonAtThePhonesId() = runBlocking {
@@ -58,6 +79,44 @@ class UploadEngineTest {
     assertEquals(listOf(id to meta), client.puts)
     assertEquals(1, created)
     assertTrue(client.complete)
+  }
+
+  @Test
+  fun fullProgressAloneDoesNotConfirmTheUpload() = runBlocking {
+    File(dir, "hr.log").writeBytes(ByteArray(10))
+    val store = UploadStore(MemorySync())
+    val client = FakeClient()
+    client.completeError = TaigaNetworkException(IOException("offline"))
+
+    runCatching { storeEngine(client, store).run() }
+
+    val record = store.record(id)!!
+    assertEquals(1f, record.progress, 0.001f)
+    assertNull(record.uploadedAtMs)
+    assertNull(record.uploadConfirmedAt())
+  }
+
+  @Test
+  fun theServerAcceptingTheRecordingConfirmsTheUpload() = runBlocking {
+    File(dir, "hr.log").writeBytes(ByteArray(10))
+    val store = UploadStore(MemorySync())
+
+    storeEngine(FakeClient(), store).run()
+
+    val record = store.record(id)!!
+    assertEquals(1f, record.progress, 0.001f)
+    assertTrue(record.uploadConfirmedAt() != null)
+  }
+
+  @Test
+  fun aRecordingTheServerAlreadyHasIsConfirmedWithoutCompletingItAgain() = runBlocking {
+    val store = UploadStore(MemorySync())
+    val client = FakeClient(sealed = true)
+
+    storeEngine(client, store).run()
+
+    assertEquals(0, client.completeCalls)
+    assertTrue(store.record(id)!!.uploadConfirmedAt() != null)
   }
 
   @Test
@@ -439,6 +498,7 @@ class UploadEngineTest {
 
     var putError: Exception? = null
     var appendError: Exception? = null
+    var completeError: Exception? = null
     var failAfterAppends = -1
     var moveOffsetOnce = -1L
     var reportOffset = true
@@ -517,10 +577,28 @@ class UploadEngineTest {
 
     override suspend fun completeRecording(id: String): RecordingDto {
       completeCalls++
+      completeError?.let { throw it }
       complete = true
       return recording(id)
     }
 
     private fun recording(id: String) = RecordingDto(id = id, state = "stopped", complete = complete)
+  }
+}
+
+/** Sync state kept in memory, so an engine test can read what an upload reported. */
+private class MemorySync : UploadRecordsStorage {
+  private val documents = mutableMapOf<String, String>()
+
+  override fun ids(): Set<String> = documents.keys
+
+  override fun read(id: String): String? = documents[id]
+
+  override fun write(id: String, json: String) {
+    documents[id] = json
+  }
+
+  override fun delete(id: String) {
+    documents.remove(id)
   }
 }

@@ -178,17 +178,6 @@ internal object RawRetention {
         }
       }
 
-  /** When the server last confirmed the upload, or null while no server copy exists. */
-  internal fun UploadRecord.uploadConfirmedAt(): Long? {
-    uploadedAtMs?.let { return it }
-    // Records written before uploadedAtMs existed fall back to their last transition.
-    return when (phase) {
-      UploadPhase.PROCESSING,
-      UploadPhase.DONE -> updatedAtMs.takeIf { it > 0 }
-      else -> null
-    }
-  }
-
   private fun hasStreams(dir: File): Boolean =
       RecordingStore.RAW_FILES.any { name -> File(dir, name).let { it.isFile && it.length() > 0 } }
 
