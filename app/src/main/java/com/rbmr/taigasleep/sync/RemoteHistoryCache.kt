@@ -29,17 +29,12 @@ import kotlinx.coroutines.sync.withLock
  * what the server answering with nothing leaves behind: a History row is never drawn from a list
  * that does not exist.
  */
-class RemoteHistoryCache internal constructor(
-    private val dao: RemoteRecordingDao,
-    /** The one-time move of the files an older version wrote into the database. */
-    private val awaitLegacyImport: suspend () -> Unit = {},
-) {
+class RemoteHistoryCache internal constructor(private val dao: RemoteRecordingDao) {
   /** Serialises the writes of one account's list, so two of them cannot lose each other. */
   private val writes = Mutex()
 
   suspend fun load(accountKey: String): RecordingSummaryListDto? {
     if (accountKey.isBlank()) return null
-    awaitLegacyImport()
     return dao.rows(accountKey).toList(dao.analysisRows(accountKey))
   }
 
@@ -49,14 +44,12 @@ class RemoteHistoryCache internal constructor(
    */
   suspend fun selected(accountKey: String): Map<String, String> {
     if (accountKey.isBlank()) return emptyMap()
-    awaitLegacyImport()
     return dao.selections(accountKey).associate { it.recordingKey to it.analysisId }
   }
 
   /** The run one recording shows, or null when no choice was saved for it. */
   suspend fun selected(accountKey: String, key: String): String? {
     if (accountKey.isBlank() || key.isBlank()) return null
-    awaitLegacyImport()
     return dao.selection(accountKey, key)
   }
 
@@ -66,14 +59,12 @@ class RemoteHistoryCache internal constructor(
    */
   suspend fun startedAt(accountKey: String, recordingId: String): String? {
     if (accountKey.isBlank() || recordingId.isBlank()) return null
-    awaitLegacyImport()
     return dao.startedAt(accountKey, recordingId)
   }
 
   /** Remember the run a recording shows. Null forgets it, as when the server no longer has a run. */
   suspend fun select(accountKey: String, key: String, analysisId: String?) {
     if (accountKey.isBlank() || key.isBlank()) return
-    awaitLegacyImport()
     writes.withLock {
       if (analysisId.isNullOrBlank()) {
         dao.deleteSelection(accountKey, key)
@@ -86,7 +77,6 @@ class RemoteHistoryCache internal constructor(
   /** Replaces the server's list for [accountKey], keeping the run each recording shows. */
   suspend fun save(accountKey: String, recordings: RecordingSummaryListDto) {
     if (accountKey.isBlank()) return
-    awaitLegacyImport()
     val rows =
         recordings.items.mapIndexed { position, item ->
           item.recording.toRow(accountKey, position)
@@ -108,7 +98,6 @@ class RemoteHistoryCache internal constructor(
    */
   suspend fun saveSummary(accountKey: String, summary: RecordingSummaryDto) {
     if (accountKey.isBlank()) return
-    awaitLegacyImport()
     if (dao.isHidden(accountKey, summary.recording.id) > 0) return
     val rows = dao.rows(accountKey)
     val existing = rows.firstOrNull { it.recordingId == summary.recording.id }
@@ -132,7 +121,6 @@ class RemoteHistoryCache internal constructor(
    */
   suspend fun remove(accountKey: String, recordingId: String, keepOut: Boolean = true) {
     if (accountKey.isBlank() || recordingId.isBlank()) return
-    awaitLegacyImport()
     writes.withLock {
       if (keepOut) dao.hide(accountKey, recordingId) else dao.delete(accountKey, recordingId)
       dao.deleteSelection(accountKey, recordingId)
@@ -146,28 +134,13 @@ class RemoteHistoryCache internal constructor(
    */
   suspend fun removed(accountKey: String): Set<String> {
     if (accountKey.isBlank()) return emptySet()
-    awaitLegacyImport()
     return dao.hiddenIds(accountKey).toSet()
   }
 
   /** Whether the server no longer has this recording for [accountKey]. */
   suspend fun isHidden(accountKey: String, recordingId: String): Boolean {
     if (accountKey.isBlank() || recordingId.isBlank()) return false
-    awaitLegacyImport()
     return dao.isHidden(accountKey, recordingId) > 0
-  }
-
-  /**
-   * An older version kept only one account's list, keyed by the address and the email. The first time
-   * this version sees that session, the saved list moves to the account key it now uses.
-   */
-  suspend fun adopt(oldKey: String, accountKey: String) {
-    if (oldKey.isBlank() || accountKey.isBlank() || oldKey == accountKey) return
-    awaitLegacyImport()
-    writes.withLock {
-      if (dao.count(accountKey) > 0) return@withLock
-      dao.adopt(oldKey, accountKey)
-    }
   }
 
   companion object {

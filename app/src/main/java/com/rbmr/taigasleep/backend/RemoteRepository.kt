@@ -90,16 +90,6 @@ class RemoteRepository internal constructor(
    */
   val accounts: StateFlow<String?> = _accounts.asStateFlow()
 
-  /**
-   * The identity older versions used for their caches: the address plus the email. It only serves to
-   * adopt what those versions stored the first time this one sees the session.
-   */
-  val legacyAccountKey: String?
-    get() {
-      if (savedUrl.isBlank() || savedEmail.isBlank() || store.token == null) return null
-      return "${savedUrl}|${savedEmail}"
-    }
-
   val hasSession: Boolean
     get() = store.token != null
 

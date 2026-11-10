@@ -1,6 +1,5 @@
 package com.rbmr.taigasleep.recording
 
-import com.rbmr.taigasleep.recording.store.RecordingStore
 import java.io.File
 import java.nio.file.Files
 import java.util.zip.ZipEntry
@@ -26,7 +25,6 @@ class RecordingExportTest {
     File(dir, "ecg.log").writeBytes(ByteArray(1_000))
     File(dir, "meta.json").writeText("""{"version":1}""")
     File(dir, "events.jsonl").writeText("""{"event":"start"}""" + "\n")
-    File(dir, RecordingStore.SYNC_FILE).writeText("""{"phase":"DONE"}""")
   }
 
   private fun export(contents: ExportContents, results: List<ExportResult> = emptyList()): ZipFile {
@@ -184,13 +182,12 @@ class RecordingExportTest {
   }
 
   @Test
-  fun `partial writes and the old upload state stay out of every export`() {
+  fun `partial writes stay out of every export`() {
     night()
     File(dir, "hr.log.tmp").writeText("half a frame")
 
     export(ExportContents(raw = true, metadata = true)).use { zip ->
       assertFalse("night/hr.log.tmp" in zip.names())
-      assertFalse("night/${RecordingStore.SYNC_FILE}" in zip.names())
     }
   }
 }

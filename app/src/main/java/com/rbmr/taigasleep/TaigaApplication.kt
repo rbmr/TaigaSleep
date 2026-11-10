@@ -34,13 +34,6 @@ class TaigaApplication : Application() {
     Diagnostics.init(this)
     registerActivityLifecycleCallbacks(lifecycleLogger)
     DebugTools.install(this)
-    // Move the state an older version kept in files into the database, once, and retry it when an
-    // account appears: the stores wait for it, so nothing of theirs runs before the import.
-    container.legacyFilesMigration.start(
-        container.scope,
-        container.database,
-        container.remoteRepository.accounts,
-    )
     CoroutineScope(Dispatchers.IO).launch {
       // Apply the raw-retention setting to any recording whose cleanup time has passed.
       container.syncService.enforceRawRetention()

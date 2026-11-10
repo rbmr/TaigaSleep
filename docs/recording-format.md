@@ -28,10 +28,8 @@ recordings to Parquet.
 ```
 
 The upload state of a recording is not part of its directory: it lives in the app's
-database, one row per recording and account. An older version wrote it to
-`sync.json` here; that file is imported once and deleted, and is excluded from an
-export until it is gone, because it describes this phone's transfer, not the
-recorded night.
+database, one row per recording and account, because it describes this phone's transfer, not
+the recorded night.
 
 `session_id` is the local start time, `yyyyMMdd_HHmmss`, a dash and four random
 lowercase letters or digits (`20261023_223000-k3f9`). The server stores the

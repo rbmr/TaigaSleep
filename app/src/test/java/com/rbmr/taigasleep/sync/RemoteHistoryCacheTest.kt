@@ -187,17 +187,6 @@ class RemoteHistoryCacheTest {
     assertTrue("20261023_223000-k3f9" in runBlocking { cache.removed(account) })
   }
 
-  @Test
-  fun `a list saved under the address and the email moves to the account key`() {
-    val legacy = "$account-old"
-    runBlocking { cache.save(legacy, twoRecordings()) }
-
-    runBlocking { cache.adopt(legacy, "https://sleep.example|u1") }
-
-    assertNull(runBlocking { cache.load(legacy) })
-    assertEquals(2, runBlocking { cache.load("https://sleep.example|u1") }?.items?.size)
-  }
-
   private fun twoRecordings() =
       RecordingSummaryListDto(
           listOf(

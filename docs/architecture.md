@@ -140,11 +140,9 @@ Everything the app learns from a server lives in one Room database,
   them. Written by `sync.PendingDeleteStore`.
 
 `recording.store.RecordingStore` keeps the recordings on disk as before — `meta.json`, the frame
-logs, `events.jsonl` — and the database references them by recording id. A one-time migration reads
-the files an older version kept this state in: each recording's `sync.json`, the upload and delete
-preferences, `remote-recordings.json` and the JSON files under the app's `analysis` directory. It
-writes the rows, checks that they are there, and only then deletes those files. Nothing else in the
-app reads an old format.
+logs, `events.jsonl` — and the database references them by recording id. The database is the only
+copy of the sync state: no recording directory holds a second one, and nothing in the app reads a
+state file an older version wrote.
 
 An analysis summary has one owner: the `remote_recording` and `remote_analysis` rows, filled from
 the server's recording list and selected-run choices. `library` reads what a History row shows about

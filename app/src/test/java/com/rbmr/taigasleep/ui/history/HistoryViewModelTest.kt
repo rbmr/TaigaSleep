@@ -17,11 +17,6 @@ private class FakeLibrary(nights: List<RecordingView>) : LibrarySource {
   override val recordings: MutableStateFlow<List<RecordingView>> = MutableStateFlow(nights)
   override val remoteStatus: MutableStateFlow<RemoteStatus> =
       MutableStateFlow<RemoteStatus>(RemoteStatus.NotConfigured)
-  var reloads = 0
-
-  override fun reload() {
-    reloads++
-  }
 }
 
 private class FakeWork : HistoryWork {
@@ -161,19 +156,6 @@ class HistoryViewModelTest {
     model.onOpen()
 
     assertNull(model.state.value.error)
-  }
-
-  @Test
-  fun `the connection state asks for a reload when it changes`() {
-    val model = viewModel()
-    val before = library.reloads
-
-    library.remoteStatus.value = RemoteStatus.LoginNeeded(email = "user@test.com", checkedAtMs = null)
-
-    assertEquals(before + 1, library.reloads)
-    // The first emission is from the constructor, so the reload is asked for on every change.
-    assertEquals(1, before)
-    assertEquals(2, library.reloads)
   }
 
   @Test

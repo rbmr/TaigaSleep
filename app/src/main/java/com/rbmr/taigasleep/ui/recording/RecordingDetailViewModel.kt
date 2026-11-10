@@ -307,7 +307,6 @@ class RecordingDetailViewModel(
     loadJob =
         scope.launch {
           work.refreshRecordings()
-          library.reload()
           val current = library.recording(key) ?: _state.value.recording
           val cached =
               current?.let {

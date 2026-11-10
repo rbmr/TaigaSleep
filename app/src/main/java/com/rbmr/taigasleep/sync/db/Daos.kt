@@ -1,8 +1,6 @@
 package com.rbmr.taigasleep.sync.db
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
@@ -29,10 +27,6 @@ interface UploadStateDao {
           "AND account != :account AND (onServer = 1 OR confirmedOnServer = 1) ORDER BY account"
   )
   suspend fun otherAccounts(recordingId: String, account: String): List<String>
-
-  /** How many rows this account has, which is how the one-time import checks its work. */
-  @Query("SELECT COUNT(*) FROM upload_state WHERE account = :account")
-  suspend fun count(account: String): Int
 
   @Upsert suspend fun upsert(row: UploadStateRow)
 
@@ -87,18 +81,6 @@ interface RemoteRecordingDao {
   )
   suspend fun startedAt(account: String, recordingId: String): String?
 
-  /** How many recordings this account's saved list holds; zero means no list was ever saved. */
-  @Query("SELECT COUNT(*) FROM remote_recording WHERE account = :account")
-  suspend fun count(account: String): Int
-
-  /** How many runs this account's saved list holds. */
-  @Query("SELECT COUNT(*) FROM remote_analysis WHERE account = :account")
-  suspend fun analysisCount(account: String): Int
-
-  /** How many run choices this account holds. */
-  @Query("SELECT COUNT(*) FROM remote_selection WHERE account = :account")
-  suspend fun selectionCount(account: String): Int
-
   @Upsert suspend fun upsert(rows: List<RemoteRecordingRow>)
 
   @Upsert suspend fun upsertAnalyses(rows: List<RemoteAnalysisRow>)
@@ -124,15 +106,6 @@ interface RemoteRecordingDao {
 
   @Query("DELETE FROM remote_selection WHERE account = :account AND recordingKey = :recordingKey")
   suspend fun deleteSelection(account: String, recordingKey: String)
-
-  @Query("UPDATE OR IGNORE remote_recording SET account = :to WHERE account = :from")
-  suspend fun moveList(from: String, to: String)
-
-  @Query("UPDATE OR IGNORE remote_analysis SET account = :to WHERE account = :from")
-  suspend fun moveAnalyses(from: String, to: String)
-
-  @Query("UPDATE OR IGNORE remote_selection SET account = :to WHERE account = :from")
-  suspend fun moveSelections(from: String, to: String)
 
   /**
    * Replaces the saved list of one account with what the server sent, leaving the run each recording
@@ -174,17 +147,6 @@ interface RemoteRecordingDao {
     if (rows.isNotEmpty()) upsertAnalyses(rows)
   }
 
-  /**
-   * Writes one account's saved list, its runs and its choices under another key, for a list that
-   * changed naming. A row the new key already has stays as it is, so a marker for a recording the
-   * server no longer has is never overwritten.
-   */
-  @Transaction
-  suspend fun adopt(from: String, to: String) {
-    moveList(from, to)
-    moveAnalyses(from, to)
-    moveSelections(from, to)
-  }
 }
 
 /** The downloaded payloads of one account, one row per run and recording key. */
@@ -214,10 +176,6 @@ interface AnalysisResultDao {
   )
   suspend fun row(account: String, recordingKey: String, analysisId: String): AnalysisResultRow?
 
-  /** How many payloads this account has, without reading a payload. */
-  @Query("SELECT COUNT(*) FROM analysis_result WHERE account = :account")
-  suspend fun count(account: String): Int
-
   @Upsert suspend fun upsert(row: AnalysisResultRow)
 
   @Upsert suspend fun upsert(rows: List<AnalysisResultRow>)
@@ -244,24 +202,10 @@ interface PendingDeleteDao {
   @Query("SELECT * FROM pending_delete WHERE account = :account AND remoteId = :remoteId")
   suspend fun row(account: String, remoteId: String): PendingDeleteRow?
 
-  /** How many deletes this account still owes the server. */
-  @Query("SELECT COUNT(*) FROM pending_delete WHERE account = :account")
-  suspend fun count(account: String): Int
-
   @Upsert suspend fun upsert(rows: List<PendingDeleteRow>)
 
   @Upsert suspend fun upsert(row: PendingDeleteRow)
 
   @Query("DELETE FROM pending_delete WHERE account = :account AND remoteId = :remoteId")
   suspend fun delete(account: String, remoteId: String)
-}
-
-/** The markers of the migrations that rewrite what an older version stored. */
-@Dao
-interface MigrationDao {
-  @Query("SELECT COUNT(*) FROM migration WHERE id = :id")
-  suspend fun runs(id: String): Int
-
-  @Insert(onConflict = OnConflictStrategy.REPLACE)
-  suspend fun mark(row: MigrationRow)
 }

@@ -88,11 +88,6 @@ class HistoryViewModel(
           }
           .stateIn(scope, SharingStarted.Eagerly, HistoryUiState())
 
-  init {
-    // A fresh account or a reconnect can change the cached server list.
-    scope.launch { library.remoteStatus.collect { library.reload() } }
-  }
-
   /** The screen was shown: reconcile the queues and the retention policy, then read the recordings. */
   fun onOpen() {
     failure.value = null
@@ -142,12 +137,10 @@ class HistoryViewModel(
               RecordingRepository.refreshRecordings(context)
               sync.reconcileAll()
               sync.enforceRawRetention()
-              library.reload()
             }
 
             override suspend fun onResume() {
               RecordingRepository.refreshRecordings(context)
-              library.reload()
             }
 
             override fun delete(view: RecordingView) {

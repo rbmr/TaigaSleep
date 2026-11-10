@@ -36,10 +36,8 @@ There are two stores, and one owner per fact:
   to one account, so switching accounts switches what is shown without deleting anything.
 
 History and the night screen read the recordings from disk joined with those rows, in one
-query. The files older versions kept the same facts in — `sync.json` in each recording
-directory, `remote-recordings.json`, the cached payloads under `files/analysis/`, and the
-upload and delete preferences — are imported once and deleted afterwards; see
-[`architecture.md`](architecture.md#analyses-and-results).
+query. The database is the only copy of them: no recording directory and no preference holds a
+second one.
 
 ## Automatic upload
 
