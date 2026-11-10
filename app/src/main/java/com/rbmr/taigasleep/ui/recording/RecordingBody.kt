@@ -23,6 +23,7 @@ import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.insights.MetricSpec
 import com.rbmr.taigasleep.insights.sleepScoreCardState
+import com.rbmr.taigasleep.library.formatNightHeader
 import com.rbmr.taigasleep.library.formatRecordingDate
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SecondaryButton
@@ -49,10 +50,17 @@ internal fun RecordingBody(
     onMetric: (MetricSpec) -> Unit,
     onExpand: (String) -> Unit,
 ) {
-  val device = state.device
   val run = state.result
   val analysis = run?.result
   val processed = run?.isSucceeded == true
+  val headerLine =
+      formatNightHeader(
+          tracker = state.recordingTracker.ifBlank { stringResource(R.string.night_device_unknown) },
+          startUtcMs = state.recordingStartUtcMs,
+          endUtcMs = state.recordingEndUtcMs,
+          lineFormat = stringResource(R.string.night_header_line),
+          startOnlyFormat = stringResource(R.string.night_header_line_start_only),
+      )
 
   LazyColumn(
       modifier = Modifier.fillMaxSize().padding(padding),
@@ -63,7 +71,7 @@ internal fun RecordingBody(
       ScreenHeader(
           kicker = stringResource(R.string.night_kicker),
           title = formatRecordingDate(state.start),
-          subtitle = device.ifBlank { stringResource(R.string.night_device_unknown) },
+          subtitle = headerLine,
           modifier = Modifier.padding(horizontal = 4.dp),
       )
     }
