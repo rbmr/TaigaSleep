@@ -46,10 +46,13 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    # The analysis subprocess has its own address-space limit (TAIGA_JOB_MEMORY_MB).
-    # wav2sleep peaks around 0.75 GB of RSS on a 10 h night; 2 GB leaves room for
-    # the supervisor, the torch import and page cache. See backend/README.md.
-    mem_limit: "${TAIGA_WORKER_MEMORY:-2g}"
+    # The analysis subprocess has its own address-space limit (TAIGA_JOB_MEMORY_MB,
+    # 2048 MB here). The container limit stays at least 512 MB above it, so a job
+    # that outgrows its limit fails cleanly and is reported while the container
+    # keeps running. wav2sleep peaks around 0.75 GB of RSS on a 10 h night, which
+    # leaves room for the supervisor, the torch import and page cache. See
+    # backend/README.md.
+    mem_limit: "${TAIGA_WORKER_MEMORY:-2.5g}"
     environment:
       TAIGA_API_URL: "http://api:8090"
       TAIGA_WORKER_EMAIL: "${TAIGA_WORKER_EMAIL:-}"

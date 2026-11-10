@@ -52,7 +52,10 @@ machine or on a larger one without code changes.
   [`docs/sleepecg.md`](../docs/sleepecg.md).
 - Optional: Docker Compose for the container deployment. The default worker
   image needs about 4 GB of RAM and 3 GB of free disk; see
-  [Worker image](#worker-image).
+  [Worker image](#worker-image). Keep the container memory limit
+  (`TAIGA_WORKER_MEMORY`) at least 512 MB above `TAIGA_JOB_MEMORY_MB`, so a job
+  that outgrows its limit is reported as failed instead of the kernel killing
+  the container.
 
 ## Quick start (without Docker)
 
@@ -443,8 +446,9 @@ space. On a 10 h synthetic night in the default image, the job peaked at
 [`docs/wav2sleep.md`](../docs/wav2sleep.md) peaked at 859 MB.
 `TAIGA_JOB_MEMORY_MB=1536` is the smallest limit that worked, and 1280 failed
 while allocating the model input. The Compose defaults are 2048 MB for the job
-and 2 GB for the container, which leaves room for the supervisor, the torch
-import and page cache.
+and 2.5 GB for the container, which keeps the container limit at least 512 MB
+above the job limit and leaves room for the supervisor, the torch import and
+page cache.
 
 The host therefore needs:
 
@@ -495,8 +499,10 @@ builds the Go binary from `backend/api`; the worker image installs the locked
 Python dependencies plus wav2sleep and its checkpoint, so the first build needs
 network access and a few GB of disk. The API port is published on loopback by
 default, and the data directory is a named volume. The worker defaults to a
-2 GB container limit (`TAIGA_WORKER_MEMORY`) and a 2048 MB job subprocess limit
-(`TAIGA_JOB_MEMORY_MB`); both match the measured wav2sleep peak with headroom.
+2.5 GB container limit (`TAIGA_WORKER_MEMORY`) and a 2048 MB job subprocess
+limit (`TAIGA_JOB_MEMORY_MB`). The container limit stays above the job limit so
+a job that outgrows its limit is reported as failed while the container keeps
+running.
 On the first start, `TAIGA_ADMIN_EMAIL` and `TAIGA_ADMIN_PASSWORD` can bootstrap
 the admin account; remove them afterwards.
 
