@@ -249,7 +249,7 @@
         errorLine1="      rememberPagerState(initialPage = initialPage(repository.state.value).ordinal) {"
         errorLine2="                                                                    ~~~~~">
         <location
-            file="src/main/java/com/rbmr/taigasleep/ui/screens/RemoteScreen.kt"
+            file="src/main/java/com/rbmr/taigasleep/ui/settings/RemoteScreen.kt"
             line="112"
             column="69"/>
     </issue>

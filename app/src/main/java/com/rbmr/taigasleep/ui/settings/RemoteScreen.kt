@@ -1,4 +1,4 @@
-package com.rbmr.taigasleep.ui.screens
+package com.rbmr.taigasleep.ui.settings
 
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler

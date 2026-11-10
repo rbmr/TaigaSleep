@@ -1,4 +1,4 @@
-package com.rbmr.taigasleep.ui.screens
+package com.rbmr.taigasleep.ui.settings
 
 import android.content.Context
 import androidx.lifecycle.ViewModel

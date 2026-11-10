@@ -102,7 +102,7 @@ Two things sit outside the table:
   types of `tracker` (the simulated sensor) and `guard` (the guidance preview picker, a
   Compose dialog), and may use those two and nothing else.
 
-Four rules inside the packages:
+Five rules inside the packages:
 
 - **One type per fact.** `recording.store.Recording` is a recording on the phone,
   `backend.RecordingDto` is the server's copy, `library.Analysis` is one analysis, and
@@ -114,13 +114,19 @@ Four rules inside the packages:
   retention policy, the analysis requests and the result cache are its pieces. Nothing
   outside the package reaches them, and the sync-surface check in `ArchitectureTest` keeps
   it that way.
-- **A screen has a state holder.** The History, Home and recording detail screens take their
-  state from a view model: it reads the library, sync and the settings, owns what the screen is
-  waiting on, and the composable draws that state and forwards the user's actions. The import
-  ratchet (`app/src/test/resources/ui-import-baseline.txt`) records how many imports every file
-  under `ui/` except the view models still takes from the packages that own state, and fails
-  when one rises and when one falls. A screen that needs a new one moves the call into its
-  state holder instead.
+- **A screen has a state holder.** The History, Home and night screens take their state from a
+  view model: it reads the library, sync and the settings, owns what the screen is waiting on, and
+  the composable draws that state and forwards the user's actions. The import ratchet
+  (`app/src/test/resources/ui-import-baseline.txt`) records how many imports every file under
+  `ui/` except the view models still takes from the packages that own state, and fails when one
+  rises and when one falls. A screen that needs a new one moves the call into its state holder
+  instead.
+- **A screen keeps its package.** `ui/` has one package per feature: `history` holds the History
+  and Trends screens with their view models, `home` the Home screen, `recording` the night screen,
+  and `settings` the settings, the server, the access tokens, the personal data, the guidance flow
+  and about. `components`, `theme` and `alarm` hold what several screens share. A `*ViewModel.kt`
+  lives in the package of the screen that uses it, so a feature reads as one directory, and the
+  test fails when a screen names a view model of another package.
 
 ### Analyses and results
 
@@ -278,6 +284,7 @@ the analysis provides and hides what it does not; it does not announce what is m
 - The architecture test (package dependencies, above).
 - The sync-surface check in the same test: nothing outside `sync` reaches past `SyncService`.
 - The UI import ratchet (`ui-import-baseline.txt`), described under the rules above.
+- The view-model check in the same test: a `*ViewModel.kt` sits with the screen that uses it.
 - The API contract test on the backend: every registered route is in the OpenAPI
   document and the other way round.
 - The integration suite, which runs the real backend binary with the real worker.

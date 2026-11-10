@@ -39,13 +39,13 @@ import com.rbmr.taigasleep.ui.components.BottomBarItem
 import com.rbmr.taigasleep.ui.components.TaigaBottomBar
 import com.rbmr.taigasleep.ui.home.HomeScreen
 import com.rbmr.taigasleep.ui.recording.RecordingDetailScreen
-import com.rbmr.taigasleep.ui.screens.AboutScreen
-import com.rbmr.taigasleep.ui.screens.AccessTokensScreen
-import com.rbmr.taigasleep.ui.screens.FlowScreen
-import com.rbmr.taigasleep.ui.screens.HistoryScreen
-import com.rbmr.taigasleep.ui.screens.PersonalDataScreen
-import com.rbmr.taigasleep.ui.screens.RemoteScreen
-import com.rbmr.taigasleep.ui.screens.SettingsScreen
+import com.rbmr.taigasleep.ui.history.HistoryScreen
+import com.rbmr.taigasleep.ui.settings.AboutScreen
+import com.rbmr.taigasleep.ui.settings.AccessTokensScreen
+import com.rbmr.taigasleep.ui.settings.FlowScreen
+import com.rbmr.taigasleep.ui.settings.PersonalDataScreen
+import com.rbmr.taigasleep.ui.settings.RemoteScreen
+import com.rbmr.taigasleep.ui.settings.SettingsScreen
 import com.rbmr.taigasleep.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
 
