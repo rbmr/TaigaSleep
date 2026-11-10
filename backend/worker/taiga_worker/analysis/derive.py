@@ -54,6 +54,9 @@ MIN_RR_INTERVALS = 120
 RR_MIN_MS = 300.0
 RR_MAX_MS = 2000.0
 MOVEMENT_THRESHOLD_G = 0.08
+# Efficiency is a share of the time the algorithm could score. Below this share of
+# the recording, that share is not representative and efficiency is not reported.
+MIN_SCORED_SHARE_FOR_EFFICIENCY = 0.5
 # A wake period is only an awakening when it lasts longer than two minutes.
 AWAKENING_MIN_SECONDS = 120.0
 
@@ -231,7 +234,13 @@ def derive(
     unscored = float(counts["unknown"] * epoch_seconds)
 
     sleep_duration = float(sum(counts[s] for s in SLEEP_STAGES if s in supported) * epoch_seconds)
-    efficiency = None if total_duration <= 0 else round(sleep_duration / total_duration, 4)
+    scored_share = 0.0 if total_duration <= 0 else scored_duration / total_duration
+    if scored_share < MIN_SCORED_SHARE_FOR_EFFICIENCY:
+        efficiency = None
+        efficiency_support = _support("insufficient_data", "scored_time_below_half_of_recording")
+    else:
+        efficiency = round(sleep_duration / scored_duration, 4)
+        efficiency_support = _support("supported")
 
     sleep_mask = np.isin(stage_values, [s for s in SLEEP_STAGES if s in supported])
     sleep_indices = np.nonzero(sleep_mask)[0]
@@ -292,7 +301,6 @@ def derive(
         support[key] = _support("supported")
     for key in (
         "total_sleep_s",
-        "sleep_efficiency",
         "sleep_latency_s",
         "waso_s",
         "awakenings",
@@ -302,6 +310,7 @@ def derive(
             stage_support_status,
             None if stage_support_status == "supported" else "no_scored_epochs",
         )
+    support["sleep_efficiency"] = efficiency_support
     support.update(stage_support)
     support.update(hr_support)
     support.update(hrv_support)
@@ -516,6 +525,7 @@ __all__ = [
     "QUALITY_WEIGHTS",
     "QUALITY_WEIGHTS_VERSION",
     "AWAKENING_MIN_SECONDS",
+    "MIN_SCORED_SHARE_FOR_EFFICIENCY",
     "SLEEP_SCORE_WEIGHTS",
     "SLEEP_SCORE_VERSION",
 ]
