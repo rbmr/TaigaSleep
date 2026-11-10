@@ -2,11 +2,13 @@ package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.TestClock
 import com.rbmr.taigasleep.recording.store.FrameLog
+import com.rbmr.taigasleep.recording.store.LogPosition
 import com.rbmr.taigasleep.recording.store.Payloads
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.recording.store.StreamId
 import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.EcgBatch
 import com.rbmr.taigasleep.tracker.HrSample
@@ -248,6 +250,60 @@ class RecordingWriterTest {
     assertEquals(0, frames)
     assertNull(resumed.meta.importStarted)
     assertEquals(emptyMap<String, Int>(), resumed.importedOnDevice())
+  }
+
+  @Test
+  fun aHalfAppendedEntryThatCannotBeCutBackRefusesTheNextFetch() {
+    val root = tmp.newFolder("rec")
+    val w = RecordingWriter.create(root, meta().copy(mode = RecordingMode.ON_DEVICE), clock)
+    w.markFetchPending()
+    w.beginEntryImport("entry-1")
+    w.writeHr(stamp(), HrSample(60, true, true, true, intArrayOf(1000)))
+    w.close() // the process dies between writing the entry and marking it imported
+    // The mark names a position the log cannot be cut back to, as a damaged mark or a failing
+    // truncate would leave it.
+    val marked = RecordingMeta.read(w.dir)!!
+    assertTrue(
+        marked.copy(importStart = mapOf(StreamId.HR to LogPosition(-1, 0))).write(w.dir)
+    )
+
+    val retry = RecordingWriter.resumeFetch(w.dir, clock, "fetching again")
+
+    assertNull(retry)
+    // Nothing is imported on top of the half entry, so its samples are not stored twice.
+    var frames = 0
+    FrameLog.scan(File(w.dir, "hr.log")) { frames++ }
+    assertEquals(1, frames)
+    assertEquals(mapOf(StreamId.HR to LogPosition(-1, 0)), RecordingMeta.read(w.dir)!!.importStart)
+    val errors = events(w.dir).filter { it.getString("type") == "error" }
+    assertTrue(
+        errors.any { it.getString("message").contains("could not be removed, so the fetch") }
+    )
+  }
+
+  @Test
+  fun finishingBeforeTheRemovalLeavesTheRemovalToDo() {
+    val root = tmp.newFolder("rec")
+    val store = RecordingStore(root)
+    val w = RecordingWriter.create(root, meta().copy(mode = RecordingMode.ON_DEVICE), clock)
+    w.markFetchPending()
+
+    // The fetched samples are on the phone: the removal is remembered, then the recording ends.
+    assertTrue(w.markTrackerRemoval(listOf("entry-1", "entry-2")))
+    w.finish(RecordingPhase.STOPPED, "fetched")
+    w.close() // the process dies before the tracker's copy is removed
+
+    val done = RecordingMeta.read(w.dir)!!
+    assertEquals(RecordingPhase.STOPPED, done.state)
+    assertFalse(done.fetchPending)
+    assertEquals(listOf("entry-1", "entry-2"), done.trackerRemovalPending)
+    assertEquals(0, done.trackerRemovalFailures)
+    // Nothing waits for a fetch any more; the next connection finds the removal to retry.
+    assertNull(store.fetchPending())
+    assertEquals(
+        listOf("entry-1", "entry-2"),
+        store.pendingTrackerRemovals().single().trackerRemovalPending,
+    )
   }
 
   @Test

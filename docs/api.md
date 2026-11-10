@@ -43,7 +43,7 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
   | `too_many_attempts` | 429 | Too many failed logins; wait before trying again. |
   | `id_taken` | 409 | That recording id belongs to another account. |
   | `recording_incomplete` | 409 | An analysis was asked for before the recording was sealed. |
-  | `recording_in_progress` | 409 | The recording is still being recorded. |
+  | `recording_in_progress` | 409 | The recording is not finished: it is still being recorded, or the rest of it is still on the tracker (`fetch_pending`). |
   | `recording_complete` | 409 | A sealed recording can no longer change. |
   | `no_data` | 422 | The recording has no stream file, so it cannot be sealed. |
   | `offset_mismatch` | 409 | An upload chunk does not start where the stored file ends; `Upload-Offset` says where it does. |
@@ -119,7 +119,7 @@ recording is sealed.
 | `GET /v1/recordings` | user | List own recordings. Query: `state`, `complete`, `from`, `to`, `sort` (`started_at`, `-started_at`, `created`, `-created`, `duration_s`, `-duration_s`). |
 | `PUT /v1/recordings/{id}` | user | Body is the recording's `meta.json`, whose `session_id` must equal `{id}`. Creates (`201`) or replaces the metadata (`200`). `409 recording_complete` once sealed, `409 id_taken` if another user has the id. |
 | `GET /v1/recordings/{id}` | user, worker with a lease | The recording. |
-| `PATCH /v1/recordings/{id}` | user | Body `{ "complete": true }`: seals the recording. `409 recording_in_progress` if `meta.state` is still `recording`, `422 no_data` if it has no stream file. Nothing else can be patched, and a sealed recording cannot be unsealed. |
+| `PATCH /v1/recordings/{id}` | user | Body `{ "complete": true }`: seals the recording. `409 recording_in_progress` if `meta.state` is still `recording` or `fetch_pending`, `422 no_data` if it has no stream file. Nothing else can be patched, and a sealed recording cannot be unsealed. |
 | `DELETE /v1/recordings/{id}` | user | Deletes the recording, its files and its analyses. `204`. |
 
 ## Recording files

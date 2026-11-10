@@ -126,6 +126,18 @@ class UploadWorker(
         return Result.failure()
       }
 
+      if (meta.state == RecordingPhase.FETCH_PENDING) {
+        // The rest of the night is still on the tracker. Uploading now would seal a recording that
+        // is about to grow; the completed fetch queues it again as a new upload.
+        store.markQueued(
+            localId,
+            UploadFailure.RECORDING,
+            "the rest of the recording is still on the tracker",
+            account,
+        )
+        return Result.success()
+      }
+
       if (meta.state == RecordingPhase.RECORDING) {
         if (RecordingService.running) {
           // The service schedules a fresh worker when it finishes. Never upload an open file.

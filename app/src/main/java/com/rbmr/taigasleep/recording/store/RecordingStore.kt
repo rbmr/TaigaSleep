@@ -126,6 +126,13 @@ class RecordingStore(val root: File) {
           .filter { it.fetchPending }
           .maxByOrNull { it.startUtcMs }
 
+  /** The recordings whose copy is still on the tracker, newest first. */
+  fun pendingTrackerRemovals(): List<RecordingMeta> =
+      (root.listFiles { f -> f.isDirectory } ?: emptyArray())
+          .mapNotNull { RecordingMeta.read(it) }
+          .filter { it.trackerRemovalPending.isNotEmpty() }
+          .sortedByDescending { it.startUtcMs }
+
   fun delete(id: String): Boolean = File(root, id).takeIf { it.isDirectory }?.deleteRecursively() ?: false
 
   /** Zips the recording directory to [out]; the archive is never kept beyond the share. */

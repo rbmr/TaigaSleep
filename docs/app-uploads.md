@@ -199,9 +199,13 @@ The automatic flag and the ordered preference list live in Settings → Analysis
   marks as live is not closed that way: the service resumes it instead.
 - A recording that is still live is never uploaded. The `RecordingService`
   enqueues it when it finishes; uploading an open file would race the writer.
-- The backend's `meta.json` state must be non-`recording` before completion. The
-  worker closes a crashed session with the last frame time, the same rule the app
-  uses on startup.
+- A recording in `fetch_pending` state is not finished either: part of the night is
+  still on the tracker. It is not uploaded and its raw files are not cleaned up
+  until the fetch completes; the recording is then queued as a new upload with
+  every sample in the files.
+- The backend's `meta.json` state must be neither `recording` nor `fetch_pending`
+  before completion. The worker closes a crashed session with the last frame time,
+  the same rule the app uses on startup.
 
 ## Local retention
 

@@ -274,6 +274,28 @@ func TestPocketBaseRecordAPIIsClosed(t *testing.T) {
 	}
 }
 
+// A recording that still waits for part of its night from the tracker is uploaded
+// as metadata like any other, but it cannot be sealed: the missing samples may still
+// arrive and the server would then keep an incomplete recording forever.
+func TestFetchPendingRecordingCannotBeCompleted(t *testing.T) {
+	s := newServer(t)
+	alice := s.tokens["alice"]
+	id := "20261102_220000-cd34"
+
+	s.expect(201, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "fetch_pending"), nil)
+	if st, _, b := appendChunk(s, alice, id, "hr.log", 0, []byte("frames"), nil); st != 204 {
+		t.Fatalf("append: %d %s", st, b)
+	}
+	s.expectCode(409, "recording_in_progress", http.MethodPatch, "/v1/recordings/"+id, alice, map[string]bool{"complete": true}, nil)
+
+	// The tracker handed the rest over: the recording is finished and can be sealed.
+	s.expect(200, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "stopped"), nil)
+	done := decode[RecordingView](t, s.expect(200, http.MethodPatch, "/v1/recordings/"+id, alice, map[string]bool{"complete": true}, nil))
+	if !done.Complete || done.State != "stopped" {
+		t.Fatalf("complete = %+v", done)
+	}
+}
+
 func TestRecordingLifecycle(t *testing.T) {
 	s := newServer(t)
 	alice, bob := s.tokens["alice"], s.tokens["bob"]

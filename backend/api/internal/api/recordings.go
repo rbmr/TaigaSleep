@@ -296,8 +296,13 @@ func PatchRecording(e *core.RequestEvent) error {
 		if complete {
 			return nil
 		}
-		if record.GetString("state") == "recording" {
+		// A recording whose rest is still on the tracker is not finished either: its files may
+		// still grow once the fetch adds the missing samples.
+		switch record.GetString("state") {
+		case "recording":
 			return conflict("recording_in_progress", "the recording is still in progress")
+		case "fetch_pending":
+			return conflict("recording_in_progress", "the rest of the recording is still on the tracker")
 		}
 		if streamBytes(txApp, record) == 0 {
 			return unprocessable("no_data", "the recording has no stream data")

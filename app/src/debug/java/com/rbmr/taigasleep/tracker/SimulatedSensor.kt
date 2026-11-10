@@ -157,9 +157,9 @@ class SimulatedSensor(
   }
 
   @Synchronized
-  override fun removeFromDevice(entries: List<TrackerEntry>) {
-    val ids = entries.map { it.id }.toSet()
-    this.entries.removeAll { it.id in ids }
+  override fun removeFromDevice(ids: List<String>) {
+    val wanted = ids.toSet()
+    this.entries.removeAll { it.id in wanted }
     if (this.entries.isEmpty()) {
       onDevice = false
       currentEntry = null

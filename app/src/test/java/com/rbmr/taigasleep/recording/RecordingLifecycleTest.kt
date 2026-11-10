@@ -69,11 +69,12 @@ class RecordingLifecycleTest {
 
     assertEquals(listOf(LifecycleEffect.FetchFromTracker), lifecycle.stop())
     assertEquals(LifecycleState.STOPPING, lifecycle.state)
-    // Removing the tracker's copy is its own step, after the fetch has been verified.
+    // The recording is finished on the phone before the tracker's copy goes, so a process that dies
+    // in between leaves a finished recording with a removal still to do.
     assertEquals(
         listOf(
-            LifecycleEffect.RemoveFromTracker,
             LifecycleEffect.Finish(RecordingPhase.STOPPED),
+            LifecycleEffect.RemoveFromTracker,
         ),
         lifecycle.fetchSucceeded(),
     )
@@ -96,8 +97,8 @@ class RecordingLifecycleTest {
     assertEquals(LifecycleState.STOPPING, lifecycle.state)
     assertEquals(
         listOf(
-            LifecycleEffect.RemoveFromTracker,
             LifecycleEffect.Finish(RecordingPhase.STOPPED),
+            LifecycleEffect.RemoveFromTracker,
         ),
         lifecycle.fetchSucceeded(),
     )

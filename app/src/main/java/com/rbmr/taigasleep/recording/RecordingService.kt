@@ -18,6 +18,7 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.diagnostics.BluetoothPower
 import com.rbmr.taigasleep.diagnostics.Diagnostics
+import com.rbmr.taigasleep.recording.store.EventLog
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
@@ -29,6 +30,8 @@ import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.StreamConfig
 import com.rbmr.taigasleep.tracker.SystemClockSource
+import java.io.File
+import java.io.IOException
 import java.util.TimeZone
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
@@ -116,6 +119,7 @@ class RecordingService : Service() {
       ACTION_FORCE_STOP -> scope.launch { stop(forced = true) }
       ACTION_DISCARD -> scope.launch { discard() }
       ACTION_FETCH -> scope.launch { fetchPending(intent.getStringExtra(EXTRA_RECORDING_ID)) }
+      ACTION_CLEANUP -> scope.launch { retryTrackerRemovals() }
       ACTION_RESTART -> scope.launch { restart() }
       // ACTION_RESUME from the watchdog, or a null intent after the OS restarted the service.
       else -> scope.launch { resume() }
@@ -437,7 +441,11 @@ class RecordingService : Service() {
     }
     when (val result = OnDeviceImport(s.writer, tracker, SystemClockSource).fetch()) {
       is OnDeviceFetch.Imported -> {
-        removeFromTracker(s, tracker, result)
+        // The night is on the phone: finish the recording, then take the tracker's copy away. A
+        // process that dies in between leaves a removal still to do, not a fetch that repeats.
+        if (!s.writer.markTrackerRemoval(result.entries.map { it.id })) {
+          s.writer.event("error", "the tracker copy could not be remembered for removal")
+        }
         apply(s, s.lifecycle.fetchSucceeded())
         end(s)
       }
@@ -487,15 +495,20 @@ class RecordingService : Service() {
     }
     val writer = RecordingWriter.resumeFetch(dir, SystemClockSource, "fetching from the tracker")
     if (writer == null) {
-      leavePending(meta, getString(R.string.rec_error_fetch_missing))
+      // The recording is there but could not be reopened from a consistent state; the event log
+      // says what the half-written entry was. It stays fetch pending for another attempt.
+      leavePending(meta, getString(R.string.rec_error_fetch_recovery))
       return
     }
     when (val result = OnDeviceImport(writer, tracker, SystemClockSource).fetch()) {
       is OnDeviceFetch.Imported -> {
-        removeFromTracker(writer, tracker, result)
+        if (!writer.markTrackerRemoval(result.entries.map { it.id })) {
+          writer.event("error", "the tracker copy could not be remembered for removal")
+        }
         writer.finish(RecordingPhase.STOPPED, "recording fetched from the tracker")
+        report(TrackerCleanup(dir, tracker).retry(), writer::event)
         RecordingRepository.setIdle()
-        hooks.onRecordingFinished(this, meta.recordingId)
+        hooks.onFetchCompleted(this, meta.recordingId)
       }
       is OnDeviceFetch.Failed -> {
         writer.event("error", "fetching the tracker recording failed: ${result.reason}")
@@ -509,20 +522,58 @@ class RecordingService : Service() {
     finishFetchService()
   }
 
-  private fun removeFromTracker(
-      writer: RecordingWriter,
-      tracker: OnDeviceTracker,
-      result: OnDeviceFetch.Imported,
-  ) {
-    runCatching { tracker.removeFromDevice(result.entries) }
-        .onFailure { writer.event("error", "could not remove the tracker copy: ${it.message}") }
+  /**
+   * Removes the entries the recording still has to take off the tracker. The recording is finished
+   * already, so a failure is remembered in its meta.json and retried when the tracker is next
+   * connected; only a removal that keeps failing is worth telling the user about.
+   */
+  private fun removeFromTracker(writer: RecordingWriter, tracker: OnDeviceTracker) =
+      report(TrackerCleanup(writer.dir, tracker).retry(), writer::event)
+
+  /** A failed removal is silent until it has failed on [TrackerCleanup.SHOW_AFTER] connections. */
+  private fun report(result: TrackerRemoval, event: (String, String) -> Unit) {
+    if (result !is TrackerRemoval.Failed) return
+    if (result.attempts == TrackerCleanup.SHOW_AFTER) {
+      event("error", "the tracker copy could not be removed: ${result.reason}")
+    }
   }
 
-  private fun removeFromTracker(
-      s: Live,
-      tracker: OnDeviceTracker,
-      result: OnDeviceFetch.Imported,
-  ) = removeFromTracker(s.writer, tracker, result)
+  /**
+   * Retries the tracker copies that could not be removed when their recordings ended. The app opens
+   * by connecting the tracker again, which is the moment those removals get their next chance;
+   * nothing else asks for them, because their recordings are finished already.
+   */
+  private fun retryTrackerRemovals() {
+    if (live != null) return
+    for (meta in store.pendingTrackerRemovals()) {
+      if (live != null) break
+      val kind = SensorKind.fromWire(meta.sensorKind) ?: continue
+      val tracker =
+          runCatching { appContainer.sensorHub.obtain(this, kind, meta.sensorId, meta.sensorName) }
+              .getOrNull() as? OnDeviceTracker ?: continue
+      val dir = store.dir(meta.recordingId)
+      report(TrackerCleanup(dir, tracker).retry()) { type, message ->
+        recordEvent(dir, type, message)
+      }
+    }
+    finishCleanup()
+  }
+
+  /** An event for a recording no writer is open for: it ended before the removal was retried. */
+  private fun recordEvent(dir: File, type: String, message: String) {
+    try {
+      EventLog.append(dir, SystemClockSource.phoneNs(), SystemClockSource.elapsedNs(), type, message)
+    } catch (e: IOException) {
+      Log.w(TAG, "event write failed", e)
+    }
+  }
+
+  /** The cleanup action is done; it changes nothing the screen shows. */
+  private fun finishCleanup() {
+    lastNotificationText = null
+    stopForeground(STOP_FOREGROUND_REMOVE)
+    stopSelf()
+  }
 
   /** The retry could not even start: keep it on the screen, with the reason. */
   private fun leavePending(meta: RecordingMeta, error: String) {
@@ -567,7 +618,8 @@ class RecordingService : Service() {
             Thread { runCatching { s.sensor.stopStreams() } }.start()
         // On-device stop runs the fetch itself, because its outcome decides the next effects.
         LifecycleEffect.FetchFromTracker -> Unit
-        LifecycleEffect.RemoveFromTracker -> Unit
+        LifecycleEffect.RemoveFromTracker ->
+            (s.sensor as? OnDeviceTracker)?.let { removeFromTracker(s.writer, it) }
         LifecycleEffect.DiscardOnTracker ->
             (s.sensor as? OnDeviceTracker)?.discardOnDevice()
         is LifecycleEffect.Finish -> {
@@ -839,6 +891,7 @@ class RecordingService : Service() {
     const val ACTION_RESUME = "com.rbmr.taigasleep.recording.RESUME"
     const val ACTION_RESTART = "com.rbmr.taigasleep.recording.RESTART"
     const val ACTION_FETCH = "com.rbmr.taigasleep.recording.FETCH"
+    const val ACTION_CLEANUP = "com.rbmr.taigasleep.recording.CLEANUP"
 
     private const val EXTRA_SENSOR_KIND = "sensor_kind"
     private const val EXTRA_SENSOR_ID = "sensor_id"
@@ -882,6 +935,11 @@ class RecordingService : Service() {
       context.startForegroundService(
           intent(context, ACTION_FETCH).putExtra(EXTRA_RECORDING_ID, recordingId)
       )
+    }
+
+    /** Retries the tracker copies that earlier removals left behind. */
+    fun cleanup(context: Context) {
+      context.startForegroundService(intent(context, ACTION_CLEANUP))
     }
   }
 }

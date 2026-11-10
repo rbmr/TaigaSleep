@@ -144,7 +144,7 @@ class OnDeviceFetchTest {
     assertEquals(firstSamples + secondSamples, hrTimes(writer).size)
     assertEquals(firstEntry.id, sensor.storedEntries().first().id)
 
-    sensor.removeFromDevice(retry.entries)
+    sensor.removeFromDevice(retry.entries.map { it.id })
     assertEquals(0, sensor.storedEntryCount())
   }
 
@@ -236,7 +236,7 @@ class OnDeviceFetchTest {
 
   /** A tracker whose entries are fixed, for the gap rule that the simulator does not produce. */
   private class FixedTracker(private val entries: List<TrackerEntry>) : OnDeviceTracker {
-    var removed: List<TrackerEntry>? = null
+    var removed: List<String>? = null
 
     override fun startOnDevice(
         config: StreamConfig,
@@ -248,8 +248,8 @@ class OnDeviceFetchTest {
 
     override fun fetchOnDevice(): List<TrackerEntry> = entries
 
-    override fun removeFromDevice(entries: List<TrackerEntry>) {
-      removed = entries
+    override fun removeFromDevice(ids: List<String>) {
+      removed = ids
     }
 
     override fun discardOnDevice() {}

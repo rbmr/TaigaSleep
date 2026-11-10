@@ -79,13 +79,13 @@ class RecordingLifecycle(
     }
   }
 
-  /** The fetch is complete and verified: the tracker's copy may go and the recording is stopped. */
+  /** The fetch is complete and verified: the recording is finished, then the tracker's copy goes. */
   fun fetchSucceeded(): List<LifecycleEffect> {
     if (state != LifecycleState.STOPPING) return emptyList()
     state = LifecycleState.FINISHED
     return listOf(
-        LifecycleEffect.RemoveFromTracker,
         LifecycleEffect.Finish(RecordingPhase.STOPPED),
+        LifecycleEffect.RemoveFromTracker,
     )
   }
 

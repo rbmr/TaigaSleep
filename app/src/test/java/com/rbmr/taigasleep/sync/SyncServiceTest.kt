@@ -80,6 +80,38 @@ class SyncServiceTest {
   }
 
   @Test
+  fun `a recording that got the rest of its night from the tracker is uploaded as a new upload`() {
+    val environment = FakeEnvironment()
+    // An earlier attempt met a finished upload, or failed: neither says anything about the samples
+    // that just arrived, so the state starts again.
+    environment.state["r1"] =
+        UploadRecord(
+            id = "r1",
+            onServer = true,
+            phase = UploadPhase.DONE,
+            progress = 1f,
+            uploadedAtMs = 1_000,
+            confirmedOnServer = true,
+        )
+
+    service(environment).onFetchCompleted("r1")
+
+    assertEquals(listOf("cancelUploads r1", "markLocal r1", "enqueueAuto r1"), environment.calls)
+    assertEquals(UploadPhase.LOCAL, environment.state.getValue("r1").phase)
+    assertFalse(environment.state.getValue("r1").onServer)
+  }
+
+  @Test
+  fun `a completed fetch without automatic upload only starts the state over`() {
+    val environment = FakeEnvironment().apply { autoUpload = AutoUploadSettings(enabled = false) }
+    environment.state["r1"] = UploadRecord(id = "r1", onServer = true, phase = UploadPhase.DONE)
+
+    service(environment).onFetchCompleted("r1")
+
+    assertEquals(listOf("cancelUploads r1", "markLocal r1"), environment.calls)
+  }
+
+  @Test
   fun `deleting a night that is uploading stops the queue before the night goes`() {
     val environment = FakeEnvironment()
     environment.state["r1"] = UploadRecord(id = "r1", phase = UploadPhase.UPLOADING, progress = 0.4f)

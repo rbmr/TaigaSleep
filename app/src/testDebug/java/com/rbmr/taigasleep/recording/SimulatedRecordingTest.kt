@@ -253,7 +253,7 @@ class SimulatedRecordingTest {
 
     val fetched = OnDeviceImport(writer, sensor, clock).fetch()
     assertTrue(fetched is OnDeviceFetch.Imported)
-    sensor.removeFromDevice((fetched as OnDeviceFetch.Imported).entries)
+    sensor.removeFromDevice((fetched as OnDeviceFetch.Imported).entries.map { it.id })
     writer.finish(RecordingPhase.STOPPED, "test stop")
     assertTrue(samples(File(writer.dir, "hr.log"), 1) > 0)
   }
