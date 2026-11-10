@@ -139,6 +139,30 @@ def test_claim_returns_the_analysis_or_none(server) -> None:
     assert client.claim([], 90) is None
 
 
+def test_renew_extends_the_lease_and_the_document_says_whether_it_can(server) -> None:
+    client, recorder = server
+    client.token = "t1"
+    answer(recorder, "POST", "/v1/analyses/an1/lease", 200, {"id": "an1", "status": "running"})
+    answer(recorder, "GET", "/v1/openapi.json", 200, {"paths": {"/v1/analyses/claim": {"post": {}}}})
+
+    assert client.supports_lease_renewal() is False
+
+    answer(
+        recorder,
+        "GET",
+        "/v1/openapi.json",
+        200,
+        {"paths": {"/v1/analyses/{id}/lease": {"post": {}}}},
+    )
+    assert client.supports_lease_renewal() is True
+    assert client.renew("an1", 90)["status"] == "running"
+
+    document, _, renew = recorder.requests
+    assert "authorization" not in document["headers"]
+    assert renew["headers"]["authorization"] == "Bearer t1"
+    assert renew["body"] == {"lease_seconds": 90}
+
+
 def test_complete_and_fail_post_to_the_analysis(server) -> None:
     client, recorder = server
     client.token = "t1"

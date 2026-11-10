@@ -156,6 +156,23 @@ class ApiClient:
             raise ApiError("claim response was not an analysis")
         return payload
 
+    def renew(self, analysis_id: str, lease_seconds: int) -> dict[str, Any]:
+        """Extend the lease on the analysis this worker is running."""
+
+        payload = self._request(
+            "POST",
+            f"/v1/analyses/{quote(analysis_id, safe='')}/lease",
+            {"lease_seconds": lease_seconds},
+        )
+        return payload if isinstance(payload, dict) else {}
+
+    def supports_lease_renewal(self) -> bool:
+        """Whether this API has the lease renewal route; an older one does not."""
+
+        payload = self._request("GET", "/v1/openapi.json", auth=False)
+        paths = payload.get("paths") if isinstance(payload, dict) else None
+        return isinstance(paths, dict) and "/v1/analyses/{id}/lease" in paths
+
     def complete(self, analysis_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
         payload = self._request(
             "POST",
