@@ -81,10 +81,10 @@ class TrendsViewModel(
   ): TrendsUiState {
     val today = LocalDate.now(zone)
     val first = today.minusDays((days - 1).toLong())
-    // Only the recordings of the range are read from the database; the rest cannot be drawn.
+    // Only completed recordings of the range are read from the database; the rest cannot be drawn.
     val inRange =
         recordings.filter { view ->
-          view.localId != null && view.wakeDate(zone).inRange(first, today)
+          view.localId != null && !view.isRecording && view.wakeDate(zone).inRange(first, today)
         }
     val nights =
         inRange.map { view ->
