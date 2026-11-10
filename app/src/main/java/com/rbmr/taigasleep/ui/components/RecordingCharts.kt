@@ -368,7 +368,7 @@ private fun HideDialogSystemBars() {
 }
 
 @Composable
-private fun ChartTooltip(time: String, value: String, modifier: Modifier = Modifier) {
+internal fun ChartTooltip(time: String, value: String, modifier: Modifier = Modifier) {
   Surface(
       modifier = modifier,
       shape = RoundedCornerShape(10.dp),

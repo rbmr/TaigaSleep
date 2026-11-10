@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.core.content.edit
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.Period
 import java.time.ZoneId
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,16 +18,24 @@ enum class Sex(val wire: String) {
 }
 
 /**
- * What the user optionally enters about themselves. Everything is optional and stays on the phone:
- * only the age derived for a recording, the sex and the weight are sent with an analysis.
+ * What the user optionally enters about themselves. Everything is optional. The age derived for a
+ * recording, the sex and the weight are sent with an analysis; the usual bedtime and wake time stay
+ * on the phone and are only used to draw the History trends.
  */
 data class PersonalData(
     val dateOfBirth: LocalDate? = null,
     val sex: Sex? = null,
     val weightKg: Double? = null,
+    val usualBedtime: LocalTime? = null,
+    val usualWakeTime: LocalTime? = null,
 ) {
   val isEmpty: Boolean
-    get() = dateOfBirth == null && sex == null && weightKg == null
+    get() =
+        dateOfBirth == null &&
+            sex == null &&
+            weightKg == null &&
+            usualBedtime == null &&
+            usualWakeTime == null
 }
 
 /**
@@ -82,6 +91,21 @@ class PersonalDataStore internal constructor(context: Context) {
     _data.value = _data.value.copy(weightKg = value)
   }
 
+  fun setUsualBedtime(value: LocalTime?) {
+    prefs.edit {
+      if (value == null) remove(KEY_USUAL_BEDTIME) else putString(KEY_USUAL_BEDTIME, value.toString())
+    }
+    _data.value = _data.value.copy(usualBedtime = value)
+  }
+
+  fun setUsualWakeTime(value: LocalTime?) {
+    prefs.edit {
+      if (value == null) remove(KEY_USUAL_WAKE_TIME)
+      else putString(KEY_USUAL_WAKE_TIME, value.toString())
+    }
+    _data.value = _data.value.copy(usualWakeTime = value)
+  }
+
   private fun load(): PersonalData =
       PersonalData(
           dateOfBirth =
@@ -93,11 +117,21 @@ class PersonalDataStore internal constructor(context: Context) {
                 Sex.entries.firstOrNull { it.wire == raw }
               },
           weightKg = prefs.getString(KEY_WEIGHT, null)?.toDoubleOrNull(),
+          usualBedtime =
+              prefs.getString(KEY_USUAL_BEDTIME, null)?.let { raw ->
+                runCatching { LocalTime.parse(raw) }.getOrNull()
+              },
+          usualWakeTime =
+              prefs.getString(KEY_USUAL_WAKE_TIME, null)?.let { raw ->
+                runCatching { LocalTime.parse(raw) }.getOrNull()
+              },
       )
 
   private companion object {
     const val KEY_DATE_OF_BIRTH = "date_of_birth"
     const val KEY_SEX = "sex"
     const val KEY_WEIGHT = "weight_kg"
+    const val KEY_USUAL_BEDTIME = "usual_bedtime"
+    const val KEY_USUAL_WAKE_TIME = "usual_wake_time"
   }
 }

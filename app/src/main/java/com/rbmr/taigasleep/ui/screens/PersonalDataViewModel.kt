@@ -8,6 +8,7 @@ import com.rbmr.taigasleep.profile.PersonalData
 import com.rbmr.taigasleep.profile.PersonalDataStore
 import com.rbmr.taigasleep.profile.Sex
 import java.time.LocalDate
+import java.time.LocalTime
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -23,6 +24,10 @@ class PersonalDataViewModel(private val store: PersonalDataStore) : ViewModel() 
   fun setSex(value: Sex?) = store.setSex(value)
 
   fun setWeightKg(value: Double?) = store.setWeightKg(value)
+
+  fun setUsualBedtime(value: LocalTime?) = store.setUsualBedtime(value)
+
+  fun setUsualWakeTime(value: LocalTime?) = store.setUsualWakeTime(value)
 
   /** Builds the view model from the one store the app container holds. */
   class Factory(private val context: Context) : ViewModelProvider.Factory {

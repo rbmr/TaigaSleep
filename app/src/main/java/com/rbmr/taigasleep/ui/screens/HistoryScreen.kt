@@ -14,13 +14,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -80,6 +87,8 @@ fun HistoryScreen(
     onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
     onOpenServer: () -> Unit,
 ) {
+  // The switch is presentation state: it lives while the app runs and History opens on the nights.
+  var trends by rememberSaveable { mutableStateOf(false) }
   LazyColumn(
       modifier = Modifier.fillMaxSize().statusBarsPadding(),
       contentPadding = PaddingValues(horizontal = 20.dp, vertical = 32.dp),
@@ -94,41 +103,81 @@ fun HistoryScreen(
       )
     }
 
-    val warning = state.serverWarning
-    if (warning != null) {
-      item {
-        StatusBanner(
-            kind = StatusKind.Warn,
-            title = stringResource(warning.titleRes),
-            body = stringResource(R.string.history_server_warning_body),
-            onClick = onOpenServer,
-        )
-      }
+    item {
+      HistoryModeSwitch(
+          trends = trends,
+          onModeChange = { trends = it },
+          modifier = Modifier.padding(horizontal = 4.dp),
+      )
     }
 
-    if (state.items.isEmpty()) {
-      item {
-        TaigaCard {
-          Text(
-              text = stringResource(R.string.history_empty_title),
-              style = MaterialTheme.typography.titleLarge,
-          )
-          Spacer(Modifier.height(8.dp))
-          Text(
-              text = stringResource(R.string.history_empty_body),
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
+    if (trends) {
+      item { TrendsScreen(onOpenRecording = onOpenRecording) }
+    } else {
+      val warning = state.serverWarning
+      if (warning != null) {
+        item {
+          StatusBanner(
+              kind = StatusKind.Warn,
+              title = stringResource(warning.titleRes),
+              body = stringResource(R.string.history_server_warning_body),
+              onClick = onOpenServer,
           )
         }
       }
-    } else {
-      item { SectionLabel(stringResource(R.string.history_nights_label)) }
-      items(state.items, key = { it.key }) { item ->
-        RecordingRow(
-            item = item,
-            onOpen = { onOpenRecording(item.localId, item.remoteId, item.analysisId) },
-        )
+
+      if (state.items.isEmpty()) {
+        item {
+          TaigaCard {
+            Text(
+                text = stringResource(R.string.history_empty_title),
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.history_empty_body),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+        }
+      } else {
+        item { SectionLabel(stringResource(R.string.history_nights_label)) }
+        items(state.items, key = { it.key }) { item ->
+          RecordingRow(
+              item = item,
+              onOpen = { onOpenRecording(item.localId, item.remoteId, item.analysisId) },
+          )
+        }
       }
+    }
+  }
+}
+
+/** The two ways History shows the same recordings. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HistoryModeSwitch(
+    trends: Boolean,
+    onModeChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  SingleChoiceSegmentedButtonRow(modifier = modifier.fillMaxWidth()) {
+    SegmentedButton(
+        selected = !trends,
+        onClick = { onModeChange(false) },
+        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+        modifier = Modifier.weight(1f),
+    ) {
+      Text(stringResource(R.string.history_mode_nights))
+    }
+    SegmentedButton(
+        selected = trends,
+        onClick = { onModeChange(true) },
+        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+        modifier = Modifier.weight(1f),
+    ) {
+      Text(stringResource(R.string.history_mode_trends))
     }
   }
 }
