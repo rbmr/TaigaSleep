@@ -92,6 +92,19 @@ class TrendsTest {
   }
 
   @Test
+  fun `two equally long recordings on one date keep the one that ended later`() {
+    val result =
+        trends(
+            listOf(
+                recording("early", "2026-11-07T21:00", "2026-11-08T04:00"),
+                recording("late", "2026-11-07T23:00", "2026-11-08T06:00"),
+            )
+        )
+
+    assertEquals("late", result.nights.single { it != null }?.key)
+  }
+
+  @Test
   fun `a recording that ends after midnight belongs to the next date`() {
     val result = trends(listOf(recording("midnight", "2026-11-09T22:00", "2026-11-10T00:30")))
 

@@ -139,16 +139,16 @@ fun trendsFor(
 ): Trends {
   val size = rangeDays.coerceAtLeast(1)
   val days = List(size) { index -> today.minusDays((size - 1 - index).toLong()) }
-  val byDate = mutableMapOf<LocalDate, TrendNight>()
+  val chosen = mutableMapOf<LocalDate, TrendRecording>()
   for (recording in recordings) {
     if (recording.startUtcMs <= 0 || recording.endUtcMs <= recording.startUtcMs) continue
     val end = Instant.ofEpochMilli(recording.endUtcMs).atZone(zone)
     val date = end.toLocalDate()
     if (date !in days) continue
-    val night = trendNight(recording, date, zone)
-    val existing = byDate[date]
-    if (existing == null || longer(night, existing)) byDate[date] = night
+    val existing = chosen[date]
+    if (existing == null || isLonger(recording, existing)) chosen[date] = recording
   }
+  val byDate = chosen.mapValues { (date, recording) -> trendNight(recording, date, zone) }
 
   val qualifying = byDate.values.filter { night ->
     night.durationSeconds >= MIN_AVERAGE_NIGHT_SECONDS &&
@@ -219,13 +219,12 @@ private fun minuteOfDay(utcMs: Long, zone: ZoneId): Int =
     (Instant.ofEpochMilli(utcMs).atZone(zone).toLocalTime().toSecondOfDay() / 60)
 
 /** The longest recording of a date wins; a tie keeps the one that ended later. */
-private fun longer(candidate: TrendNight, existing: TrendNight): Boolean =
-    when {
-      candidate.durationSeconds != existing.durationSeconds ->
-          candidate.durationSeconds > existing.durationSeconds
-      candidate.key == existing.key -> false
-      else -> candidate.key > existing.key
-    }
+private fun isLonger(candidate: TrendRecording, existing: TrendRecording): Boolean {
+  val candidateSeconds = candidate.endUtcMs - candidate.startUtcMs
+  val existingSeconds = existing.endUtcMs - existing.startUtcMs
+  return if (candidateSeconds != existingSeconds) candidateSeconds > existingSeconds
+  else candidate.endUtcMs > existing.endUtcMs
+}
 
 /** Mean of the values that are present, or an empty average when no night has one. */
 private fun average(values: List<Double?>): TrendAverage {
