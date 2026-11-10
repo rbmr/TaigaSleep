@@ -10,6 +10,9 @@ fun interface SpaceProvider {
 
 /** The free space the phone reports for the storage [dir] lives on. */
 class PhoneSpace(private val dir: File) : SpaceProvider {
+  // Usable space, not allocatable space: the recorder must fit inside what is free right now. Had
+  // the system already agreed to clear caches for us, that is its decision and not a reservation.
+  @Suppress("UsableSpace")
   override fun availableBytes(): Long = dir.usableSpace
 }
 

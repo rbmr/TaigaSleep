@@ -372,9 +372,9 @@ class RecordingMonitor(
     storageDropped = health.droppedFrames
     sinceSyncMs = if (health.lastSyncNs > 0) (nowNs - health.lastSyncNs).coerceAtLeast(0) / NS_PER_MS else null
     val error = health.lastError
-    if (error != null && error != storageError) {
+    if (error != storageError) {
       storageError = error
-      events += "storage_error" to "writing to the phone failed: $error"
+      if (error != null) events += "storage_error" to "writing to the phone failed: $error"
     }
   }
 
@@ -394,7 +394,7 @@ class RecordingMonitor(
     val mb = free / (1024 * 1024)
     events +=
         if (low) "storage_low" to "phone storage low: $mb MB free"
-        else "storage" to "phone storage ok: $mb MB free"
+        else "storage_ok" to "phone storage ok: $mb MB free"
   }
 
   /** Only a streamed recording that is still running has live streams to recover. */

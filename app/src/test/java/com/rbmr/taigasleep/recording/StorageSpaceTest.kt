@@ -57,7 +57,7 @@ class StorageSpaceTest {
   private fun RecordingMonitor.tick() = tick(clock.elapsedNs())
 
   private fun storageEvents() =
-      events.filter { it.first == "storage" || it.first == "storage_low" }.map { it.first }
+      events.filter { it.first == "storage_ok" || it.first == "storage_low" }.map { it.first }
 
   @Test
   fun aNightWithEcgAndMovementNeedsMoreSpaceThanHeartRateAlone() {
@@ -111,7 +111,7 @@ class StorageSpaceTest {
     m.tick()
     assertFalse(m.state.value.storage.lowSpace)
     assertNull(m.state.value.overall.reason)
-    assertEquals(listOf("storage_low", "storage"), storageEvents())
+    assertEquals(listOf("storage_low", "storage_ok"), storageEvents())
   }
 
   @Test

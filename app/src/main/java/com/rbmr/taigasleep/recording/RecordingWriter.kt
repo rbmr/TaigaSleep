@@ -153,6 +153,7 @@ private constructor(
       log.append(payload)
       if (failing) {
         failing = false
+        failure = null
         errorEvent("writing to the phone works again (${droppedFrames()} frames dropped)")
       }
       true

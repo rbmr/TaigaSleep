@@ -340,6 +340,13 @@ class RecordingMonitorTest {
     clock.advanceMs(1_000)
     m.tick()
     assertEquals(1, events.size)
+
+    // Writing works again: the state clears and no second event is written.
+    health = StorageHealth(bytesWritten = 8192, lastSyncNs = clock.elapsedNs())
+    clock.advanceMs(1_000)
+    m.tick()
+    assertNull(m.state.value.storage.lastError)
+    assertEquals(1, events.size)
   }
 
   @Test

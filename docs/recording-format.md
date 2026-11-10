@@ -125,10 +125,12 @@ frame:             u32 payload_len | payload | u32 crc32(payload)
 All integers little-endian. `stream`: 1 = HR, 2 = ECG, 3 = ACC (further ids
 reserved for future sensors, e.g. PPG/PPI).
 
-**Recovery rule.** A reader (and the app, when it resumes appending) accepts
-frames until the first one that is truncated or fails its CRC and ignores
-everything after it. When the app resumes it truncates the file to the last
-valid frame before appending.
+**Recovery rule.** A write that fails is rolled back to the end of the last whole frame, so the
+next frame is appended after good data and the recording goes on. The lost frame is counted in the
+recording state and logged as an `error` event. A reader accepts every frame whose length and CRC
+check out and steps over a damaged region to the next frame that does, so one bad frame does not
+hide the rest of the file. When the app resumes it truncates the file to the end of the last whole
+frame before appending, which keeps every frame after a damaged region in the middle.
 
 Every payload starts with two clocks:
 
@@ -196,8 +198,10 @@ state applies 60 s/5 s hysteresis before it changes the notification), `ecg_sign
 stream stopped delivering without a disconnect), `stream_recovered` (a stalled stream came
 back), `recovery` (a stream that stopped delivering was restarted, or the link was made again,
 with the reason in the message), `battery` (the sensor battery crossed the low threshold), `storage_error` (a raw frame
-or fsync failed), `fetch` (an on-device fetch was retried), `readiness` (a snapshot of the
-battery/standby settings at start and on every state change). Keep messages short and free of personal data.
+or fsync failed), `storage_low` (free space fell below an hour of the selected streams),
+`storage_ok` (free space came back above it), `fetch` (an on-device fetch was retried),
+`readiness` (a snapshot of the battery/standby settings at start and on every state change). Keep
+messages short and free of personal data.
 
 The service owns the lifecycle lines (`start`, `stop`, `force_stop`, `readiness`,
 `service_restart`); the live monitor owns `connect`, `disconnect`, `reconnect`, `contact`,
