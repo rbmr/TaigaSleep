@@ -261,6 +261,23 @@ class TrendsTest {
   }
 
   @Test
+  fun `the usual times are only there for the dotted lines when they are set`() {
+    val planned = trendsFor(emptyList(), 7, today, zone, LocalTime.of(23, 0), LocalTime.of(7, 0))
+    assertEquals(23 * 60, planned.usualBedtimeMinutes)
+    assertEquals(7 * 60, planned.usualWakeMinutes)
+
+    val unplanned = trendsFor(emptyList(), 7, today, zone)
+    assertNull(unplanned.usualBedtimeMinutes)
+    assertNull(unplanned.usualWakeMinutes)
+    assertNull(unplanned.intendedSleepMinutes)
+
+    val onlyBedtime = trendsFor(emptyList(), 7, today, zone, LocalTime.of(23, 0), null)
+    assertEquals(23 * 60, onlyBedtime.usualBedtimeMinutes)
+    assertNull(onlyBedtime.usualWakeMinutes)
+    assertNull(onlyBedtime.intendedSleepMinutes)
+  }
+
+  @Test
   fun `one average night is too few to show a trend`() {
     val result = trends(listOf(goodNight("only", "2026-11-07", 8.0 * 3600)))
 
