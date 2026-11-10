@@ -112,7 +112,9 @@ class UploadWorker(
             // No marker: a crash left the state as recording. Close the local metadata the same way
             // app start does, using the last frame as the end time.
             val end = sessions.lastFrameMs(dir) ?: meta.startUtcMs
-            meta.copy(state = RecordingPhase.INTERRUPTED, endUtcMs = end).write(dir)
+            if (!meta.copy(state = RecordingPhase.INTERRUPTED, endUtcMs = end).write(dir)) {
+              throw IOException("could not close the local recording state")
+            }
           }
         }
       }

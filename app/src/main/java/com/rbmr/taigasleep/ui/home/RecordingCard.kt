@@ -131,6 +131,10 @@ private fun OverallBanner(state: RecordingState) {
       title = stringResource(R.string.rec_active_storage_error_title)
       body = state.storage.lastError?.let { stringResource(R.string.rec_active_storage_error_body, it) }
     }
+    RecordingState.Reason.STORAGE_LOW -> {
+      title = stringResource(R.string.rec_active_storage_low_title)
+      body = stringResource(R.string.rec_active_storage_low_body)
+    }
     RecordingState.Reason.LINK_LOST -> {
       title = stringResource(R.string.rec_active_link_lost_title)
       body = stringResource(R.string.rec_active_link_lost_body)

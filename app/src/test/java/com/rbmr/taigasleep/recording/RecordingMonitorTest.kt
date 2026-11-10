@@ -319,7 +319,13 @@ class RecordingMonitorTest {
 
   @Test
   fun storageHealthIsSurfacedAndReportedOnce() {
-    health = StorageHealth(bytesWritten = 4096, lastError = "disk full", lastSyncNs = clock.elapsedNs() - 2_000_000_000L)
+    health =
+        StorageHealth(
+            bytesWritten = 4096,
+            lastError = "disk full",
+            lastSyncNs = clock.elapsedNs() - 2_000_000_000L,
+            droppedFrames = 3,
+        )
     val m = monitor()
     clock.advanceMs(1_000)
     m.tick()
@@ -327,11 +333,19 @@ class RecordingMonitorTest {
     assertEquals(4096L, state.storage.bytesWritten)
     assertEquals("disk full", state.storage.lastError)
     assertEquals(3_000L, state.storage.sinceSyncMs)
+    assertEquals(3L, state.storage.droppedFrames)
     assertEquals(RecordingState.Reason.STORAGE_ERROR, state.overall.reason)
     assertEquals(listOf("storage_error" to "writing to the phone failed: disk full"), events)
 
     clock.advanceMs(1_000)
     m.tick()
+    assertEquals(1, events.size)
+
+    // Writing works again: the state clears and no second event is written.
+    health = StorageHealth(bytesWritten = 8192, lastSyncNs = clock.elapsedNs())
+    clock.advanceMs(1_000)
+    m.tick()
+    assertNull(m.state.value.storage.lastError)
     assertEquals(1, events.size)
   }
 
@@ -355,16 +369,21 @@ class RecordingMonitorTest {
     val streamStale = streamOk.copy(status = RecordingState.StreamStatus.STALE)
     fun overall(
         storage: String? = null,
+        lowSpace: Boolean = false,
         link: RecordingState.LinkState = RecordingState.LinkState.CONNECTED,
         contact: RecordingState.ContactState = RecordingState.ContactState.ON_BODY,
         streams: Collection<RecordingState.Stream> = listOf(streamOk),
         ecg: RecordingState.EcgQuality = RecordingState.EcgQuality.OK,
         power: RecordingState.PowerState = RecordingState.PowerState.OK,
-    ) = overallOf(storage, link, contact, streams, ecg, power)
+    ) = overallOf(storage, lowSpace, link, contact, streams, ecg, power)
 
     assertEquals(
         RecordingState.Overall(RecordingState.OverallState.ERROR, RecordingState.Reason.STORAGE_ERROR),
-        overall(storage = "disk full", link = RecordingState.LinkState.DISCONNECTED),
+        overall(storage = "disk full", lowSpace = true, link = RecordingState.LinkState.DISCONNECTED),
+    )
+    assertEquals(
+        RecordingState.Overall(RecordingState.OverallState.WARNING, RecordingState.Reason.STORAGE_LOW),
+        overall(lowSpace = true, link = RecordingState.LinkState.DISCONNECTED),
     )
     assertEquals(
         RecordingState.Overall(RecordingState.OverallState.ERROR, RecordingState.Reason.LINK_LOST),

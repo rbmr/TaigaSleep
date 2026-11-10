@@ -10,11 +10,13 @@
   <string name="rec_notification_ecg_poor">%1$s · poor ECG signal</string>
   <string name="rec_notification_battery_low">%1$s · sensor battery %2$d%%</string>
   <string name="rec_notification_storage_error">%1$s · writing to the phone failed</string>
+  <string name="rec_notification_storage_low">%1$s · phone storage almost full</string>
   <string name="rec_notification_rates">%1$s · %2$s</string>
 
   <string name="rec_error_not_ready">Recording was not started: the phone would stop Taiga in the background. Fix the background settings first.</string>
   <string name="rec_error_no_sensor">Recording was not started: no sensor selected.</string>
   <string name="rec_error_storage">Recording was not started: could not create the session on this phone.</string>
+  <string name="rec_error_space">Recording was not started: the phone does not have enough free space for a night with these streams.</string>
   <string name="rec_error_mode">Recording was not started: this tracker cannot record with the chosen streams.</string>
   <string name="rec_error_fetch_missing">Could not fetch the recording: it is no longer waiting on this phone.</string>
   <string name="rec_error_fetch_failed">Could not reach the tracker. Keep it nearby and try again.</string>
@@ -89,6 +91,8 @@
   <string name="rec_active_battery_low_body">%1$d%% left.</string>
   <string name="rec_active_storage_error_title">Writing to the phone failed</string>
   <string name="rec_active_storage_error_body">%1$s</string>
+  <string name="rec_active_storage_low_title">Phone storage almost full</string>
+  <string name="rec_active_storage_low_body">There is almost no free space left. Stop the recording, then upload or delete older recordings.</string>
   <string name="rec_active_ecg">ECG</string>
   <string name="rec_active_acc">Movement</string>
   <string name="rec_active_offline">This tracker is storing the night itself. Stop in the morning to fetch it.</string>

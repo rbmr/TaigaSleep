@@ -199,7 +199,10 @@ internal object RawRetention {
   private fun trim(dir: File, lastFrameMs: Long?) {
     val meta = RecordingMeta.read(dir)
     if (meta != null && meta.endUtcMs == null) {
-      meta.copy(endUtcMs = lastFrameMs ?: meta.startUtcMs).write(dir)
+      if (!meta.copy(endUtcMs = lastFrameMs ?: meta.startUtcMs).write(dir)) {
+        // Keep the streams until the end time is saved; they are where it comes from.
+        throw IOException("could not update ${RecordingMeta.FILE_NAME}")
+      }
     }
     for (name in RecordingStore.RAW_FILES) {
       val file = File(dir, name)

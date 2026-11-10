@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.recording.store
 import com.rbmr.taigasleep.tracker.RecordingMode
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import org.json.JSONObject
@@ -206,20 +207,28 @@ data class RecordingMeta(
         }
   }
 
-  /** Replaces meta.json atomically: write a temp file, fsync it, rename over the old one. */
-  fun write(dir: File) {
-    val tmp = File(dir, "$FILE_NAME.tmp")
-    FileOutputStream(tmp).use {
-      it.write(toJson().toString(2).toByteArray())
-      it.fd.sync()
-    }
-    Files.move(
-        tmp.toPath(),
-        File(dir, FILE_NAME).toPath(),
-        StandardCopyOption.ATOMIC_MOVE,
-        StandardCopyOption.REPLACE_EXISTING,
-    )
-  }
+  /**
+   * Replaces meta.json atomically: write a temp file, fsync it, rename over the old one. Returns
+   * false when the phone refused the write, so a caller at the end of a recording can record the
+   * failure instead of crashing on it.
+   */
+  fun write(dir: File): Boolean =
+      try {
+        val tmp = File(dir, "$FILE_NAME.tmp")
+        FileOutputStream(tmp).use {
+          it.write(toJson().toString(2).toByteArray())
+          it.fd.sync()
+        }
+        Files.move(
+            tmp.toPath(),
+            File(dir, FILE_NAME).toPath(),
+            StandardCopyOption.ATOMIC_MOVE,
+            StandardCopyOption.REPLACE_EXISTING,
+        )
+        true
+      } catch (_: IOException) {
+        false
+      }
 }
 
 /** Append-only events.jsonl. One `write()` per line, shared by the writer and the watchdog.
