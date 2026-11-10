@@ -6,6 +6,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import org.json.JSONArray
 import org.json.JSONObject
 
 enum class RecordingPhase(val wire: String) {
@@ -74,6 +75,10 @@ data class RecordingMeta(
     val importStarted: String? = null,
     /** The log positions from before [importStarted] began, keyed by stream id. */
     val importStart: Map<Int, LogPosition> = emptyMap(),
+    /** Tracker entries stored but not removed yet, retried when the tracker is next connected. */
+    val trackerRemovalPending: List<String> = emptyList(),
+    /** How many tracker connections in a row could not remove [trackerRemovalPending]. */
+    val trackerRemovalFailures: Int = 0,
 ) {
   fun toJson(): JSONObject =
       JSONObject()
@@ -136,7 +141,9 @@ data class RecordingMeta(
                               )
                             }
                           },
-                      ),
+                      )
+                      .put("tracker_removal_pending", JSONArray(trackerRemovalPending))
+                      .put("tracker_removal_failures", trackerRemovalFailures),
               )
             }
           }
@@ -165,6 +172,12 @@ data class RecordingMeta(
           val position = positions.optJSONObject(key) ?: continue
           importStart[stream] =
               LogPosition(position.optLong("bytes"), position.optLong("frames"))
+        }
+      }
+      val trackerRemovalPending = mutableListOf<String>()
+      onDevice?.optJSONArray("tracker_removal_pending")?.let { pending ->
+        for (index in 0 until pending.length()) {
+          pending.optString(index).takeIf { it.isNotEmpty() }?.let { trackerRemovalPending += it }
         }
       }
       return RecordingMeta(
@@ -202,6 +215,8 @@ data class RecordingMeta(
               if (onDevice == null || onDevice.isNull("import_started")) null
               else onDevice.optString("import_started").takeIf { it.isNotEmpty() },
           importStart = importStart,
+          trackerRemovalPending = trackerRemovalPending,
+          trackerRemovalFailures = onDevice?.optInt("tracker_removal_failures", 0) ?: 0,
       )
     }
 

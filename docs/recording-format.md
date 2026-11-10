@@ -96,7 +96,9 @@ An `on_device` recording has one extra metadata object:
   "fetch_pending": false,
   "imported_entries": { "exercise-id": 1234 },
   "import_started": "exercise-id",
-  "import_start": { "1": { "bytes": 8192, "frames": 128 } }
+  "import_start": { "1": { "bytes": 8192, "frames": 128 } },
+  "tracker_removal_pending": ["exercise-id"],
+  "tracker_removal_failures": 0
 }
 ```
 
@@ -106,10 +108,18 @@ to how many of its samples are already on the phone; a retry imports the rest an
 never duplicates an entry. Before an entry is appended, `import_started` names it and
 `import_start` holds the byte and frame position of each stream log; if the process
 dies mid-entry, the next fetch truncates back to that position and imports the entry
-once. Both fields are cleared when the entry is marked imported. The tracker's copy is
+once, and if it cannot, the fetch is refused rather than importing the entry twice.
+Both fields are cleared when the entry is marked imported. The tracker's copy is
 removed only after the imported frames are flushed and fsynced and the imported sample
 count equals the fetched one. A recording without this object has nothing on the
 tracker.
+
+`tracker_removal_pending` names the tracker entries the phone has stored but not
+removed yet. It is written before the recording is finished, so a process that dies
+between finishing and removing finds the removal again; the state is `stopped` by
+then, and the removal is retried the next time the tracker is connected.
+`tracker_removal_failures` counts the connections in a row on which it failed, and a
+removal is recorded as an error event only once it has kept failing.
 
 `end_utc_ms` is null while recording; for an `interrupted` session it is the time of
 the last valid HR frame. When the OS restarts the service and it resumes a session,

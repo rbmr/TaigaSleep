@@ -52,8 +52,11 @@ interface OnDeviceTracker {
    */
   fun fetchOnDevice(): List<TrackerEntry>
 
-  /** Removes entries the phone has stored, keyed by their tracker ids. */
-  fun removeFromDevice(entries: List<TrackerEntry>)
+  /**
+   * Removes the entries with these tracker ids. An entry the tracker no longer has counts as
+   * removed. Throws when the tracker refuses, so the caller can remember the removal and retry it.
+   */
+  fun removeFromDevice(ids: List<String>)
 
   /** Stops capturing and removes the data from the tracker without downloading it. */
   fun discardOnDevice()

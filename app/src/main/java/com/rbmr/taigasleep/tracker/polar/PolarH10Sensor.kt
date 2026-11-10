@@ -34,6 +34,7 @@ import com.rbmr.taigasleep.tracker.SystemClockSource
 import com.rbmr.taigasleep.tracker.TrackerEntry
 import io.reactivex.rxjava3.core.Flowable
 import io.reactivex.rxjava3.disposables.Disposable
+import java.io.IOException
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.util.UUID
@@ -237,29 +238,39 @@ class PolarH10Sensor(
         }
       }
 
-  override fun removeFromDevice(entries: List<TrackerEntry>) {
-    if (entries.isEmpty()) return
-    runCatching {
-      val removal =
-          control.submit {
-            for (entry in entries) {
-              val exercise = fetchedFromDevice[entry.id] ?: continue
-              runCatching {
-                api.removeExercise(id, exercise)
-                    .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
-                    .blockingAwait()
-              }
-              fetchedFromDevice.remove(entry.id)
+  override fun removeFromDevice(ids: List<String>) {
+    if (ids.isEmpty()) return
+    val removal =
+        control.submit {
+          // An entry fetched by an earlier process is not cached here, so the strap's own list names
+          // it. An entry the strap no longer has is already gone.
+          val stored = exerciseEntries().associateBy { it.identifier }
+          val failed = mutableListOf<String>()
+          for (entryId in ids) {
+            val exercise = fetchedFromDevice[entryId] ?: stored[entryId] ?: continue
+            try {
+              api.removeExercise(id, exercise)
+                  .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
+                  .blockingAwait()
+              fetchedFromDevice.remove(entryId)
+            } catch (e: Exception) {
+              failed += entryId
             }
           }
-      try {
-        removal.get(REMOVE_TIMEOUT_S, TimeUnit.SECONDS)
-      } catch (e: InterruptedException) {
-        removal.cancel(true)
-        throw e
-      } catch (_: java.util.concurrent.TimeoutException) {
-        removal.cancel(true)
-      }
+          if (failed.isNotEmpty()) {
+            throw IOException("the tracker still holds ${failed.joinToString()}")
+          }
+        }
+    try {
+      removal.get(REMOVE_TIMEOUT_S, TimeUnit.SECONDS)
+    } catch (e: InterruptedException) {
+      removal.cancel(true)
+      throw e
+    } catch (e: java.util.concurrent.ExecutionException) {
+      throw e.cause ?: e
+    } catch (_: java.util.concurrent.TimeoutException) {
+      removal.cancel(true)
+      throw IOException("removing the tracker copy timed out")
     }
   }
 

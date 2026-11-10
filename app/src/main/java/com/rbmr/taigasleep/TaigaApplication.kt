@@ -117,4 +117,7 @@ private object RecordingWiring : RecordingHooks {
 
   override fun onRecordingFinished(context: Context, recordingId: String) =
       context.appContainer.syncService.onRecordingFinished(recordingId)
+
+  override fun onFetchCompleted(context: Context, recordingId: String) =
+      context.appContainer.syncService.onFetchCompleted(recordingId)
 }

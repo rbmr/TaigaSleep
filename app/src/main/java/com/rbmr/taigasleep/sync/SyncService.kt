@@ -53,6 +53,22 @@ class SyncService internal constructor(
     }
   }
 
+  /**
+   * The last of a recording arrived from the tracker. Nothing queued for it before can be trusted:
+   * its files grew, so the sync state starts again and the whole recording is queued as a new
+   * upload, which the server takes the same way as the first one.
+   */
+  fun onFetchCompleted(id: String) {
+    scope.launch {
+      environment.cancelUploads(id)
+      environment.markLocal(id)
+      if (!environment.autoUpload.enabled) return@launch
+      if (!environment.hasSession) return@launch
+      if (!environment.hasRecording(id)) return@launch
+      environment.enqueueAuto(id)
+    }
+  }
+
   /** The user asked for this recording to go to the server now; the automatic policy does not apply. */
   fun uploadNow(id: String) {
     scope.launch { environment.enqueueManual(id) }

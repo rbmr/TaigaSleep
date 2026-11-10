@@ -74,9 +74,18 @@ class OnDeviceImport(
     return try {
       tracker.stopOnDevice()
       if (aborted()) return failed("fetch cancelled")
+      repairUnaccountedSamples()?.let { return failed(it) }
       val entries = tracker.fetchOnDevice()
       if (aborted()) return failed("fetch cancelled")
-      if (entries.isEmpty()) return OnDeviceFetch.Failed("the tracker has no recording")
+      if (entries.isEmpty()) {
+        // Nothing is left on the tracker. When the phone already holds imported entries, it has the
+        // whole copy: a process that died before removing it leaves this, not a fetch that can
+        // never finish.
+        if (writer.importedOnDevice().isEmpty()) {
+          return OnDeviceFetch.Failed("the tracker has no recording")
+        }
+        return OnDeviceFetch.Imported(emptyList(), 0)
+      }
       var imported = 0
       for (entry in entries) {
         if (aborted()) return failed("fetch cancelled")
@@ -103,6 +112,26 @@ class OnDeviceImport(
     data class Done(val written: Int) : EntryImport
 
     data class Failed(val reason: String) : EntryImport
+  }
+
+  /**
+   * The HR log has to hold exactly the samples the recording counts as imported. More than that is
+   * a half-written entry left by a process that died before it could take it back, which is cut
+   * off before this fetch adds to the log; fewer means samples were lost, and the fetch refuses
+   * rather than importing an entry that is partly stored already.
+   */
+  private fun repairUnaccountedSamples(): String? {
+    val imported = writer.importedOnDevice().values.sumOf { it }.toLong()
+    val frames = writer.hrFrames()
+    if (frames == imported) return null
+    if (frames < imported) {
+      return "the recording holds $frames samples but $imported were imported"
+    }
+    if (!writer.truncateHr(imported)) {
+      return "the recording holds $frames samples but only $imported were imported, " +
+          "and the rest could not be removed"
+    }
+    return null
   }
 
   private fun importEntry(entry: TrackerEntry): EntryImport {

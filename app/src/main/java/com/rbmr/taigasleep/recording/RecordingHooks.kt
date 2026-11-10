@@ -29,6 +29,13 @@ interface RecordingHooks {
    */
   fun onRecordingFinished(context: Context, recordingId: String)
 
+  /**
+   * A recording that was waiting for the rest of its night got it from the tracker. The samples
+   * arrived after anything that was queued before, so the recording starts over as an upload.
+   * [recordingId] is its id in the local store.
+   */
+  fun onFetchCompleted(context: Context, recordingId: String)
+
   companion object {
     @Volatile private var installed: RecordingHooks? = null
 

@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.recording
 
 import android.util.Log
 import com.rbmr.taigasleep.recording.store.EventLog
+import com.rbmr.taigasleep.recording.store.FrameLog
 import com.rbmr.taigasleep.recording.store.FrameLogWriter
 import com.rbmr.taigasleep.recording.store.LogPosition
 import com.rbmr.taigasleep.recording.store.Payloads
@@ -292,6 +293,59 @@ private constructor(
     return true
   }
 
+  /**
+   * Remembers the tracker entries whose removal is still to come, before the recording is finished,
+   * so a process that dies between finishing and removing finds the removal again instead of a
+   * fetch that can never succeed.
+   */
+  @Synchronized
+  fun markTrackerRemoval(entryIds: List<String>): Boolean {
+    if (closed) return false
+    if (entryIds.isEmpty()) return true
+    val updated =
+        meta.copy(trackerRemovalPending = (meta.trackerRemovalPending + entryIds).distinct())
+    if (!updated.write(dir)) {
+      failure = "metadata write failed"
+      Log.e(TAG, "tracker removal metadata write failed")
+      return false
+    }
+    meta = updated
+    return true
+  }
+
+  /** Frames in the HR log, which for an on-device recording are exactly the imported samples. */
+  @Synchronized fun hrFrames(): Long = logs[StreamId.HR]?.frames ?: 0
+
+  /**
+   * Cuts the HR log back to its first [frames] frames. It removes samples the recording does not
+   * count as imported, which are a half-written tracker entry from a process that died; importing
+   * them again would store their samples twice. Returns false when the log is already shorter or
+   * cannot be cut.
+   */
+  @Synchronized
+  fun truncateHr(frames: Long): Boolean {
+    val log = logs[StreamId.HR] ?: return frames == 0L
+    if (frames == log.frames) return true
+    if (frames > log.frames) return false
+    var count = 0L
+    var end = FrameLog.HEADER_SIZE
+    FrameLog.scan(File(dir, HR_LOG)) { payload ->
+      if (count < frames) {
+        count++
+        end += 8 + payload.size
+      }
+    }
+    if (count != frames) return false
+    return try {
+      log.truncate(LogPosition(end, frames))
+      true
+    } catch (e: IOException) {
+      failure = e.message ?: "truncate failed"
+      Log.e(TAG, "hr log truncate failed", e)
+      false
+    }
+  }
+
   /** Closes the logs without touching meta.json (the state stays whatever it was). */
   @Synchronized
   fun close() {
@@ -377,15 +431,26 @@ private constructor(
     /**
      * Reopens a fetch-pending recording without changing its state: a retry may still fail and the
      * state must survive that. The logs are truncated to their last valid frame first.
+     *
+     * Returns null when the recording cannot be read, or when a half-written tracker entry cannot
+     * be cut back: importing on top of it would store its samples twice, so the fetch is refused
+     * and the recording stays fetch pending for another attempt.
      */
     fun resumeFetch(dir: File, clock: Clock, message: String): RecordingWriter? {
       val meta = RecordingMeta.read(dir) ?: return null
-      return RecordingWriter(dir, meta, clock).also {
-        it.openLogs()
-        // An entry that was half appended before the process died is written again from scratch.
-        it.rollbackStartedImport()
-        it.event("fetch", message)
+      val writer = RecordingWriter(dir, meta, clock)
+      writer.openLogs()
+      // An entry that was half appended before the process died is written again from scratch.
+      if (!writer.rollbackStartedImport()) {
+        writer.event(
+            "error",
+            "the half-written tracker entry could not be removed, so the fetch was not started",
+        )
+        writer.close()
+        return null
       }
+      writer.event("fetch", message)
+      return writer
     }
   }
 }

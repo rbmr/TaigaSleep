@@ -113,6 +113,15 @@ object RecordingRepository {
                   )
           )
     }
+    // Opening the app connects the tracker again, which is when the copies that could not be
+    // removed when their recordings ended get their next chance.
+    if (store.pendingTrackerRemovals().isNotEmpty()) {
+      try {
+        RecordingService.cleanup(context)
+      } catch (e: Exception) {
+        Diagnostics.log("cleanup_refused", mapOf("error" to e.message))
+      }
+    }
     refreshRecordings(context)
   }
 }
