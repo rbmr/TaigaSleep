@@ -25,7 +25,7 @@
   <string name="upload_error_analysis">The analysis failed.</string>
   <string name="upload_error_recording">The recording is still in progress.</string>
   <string name="upload_error_generic">Upload failed.</string>
-  <string name="upload_error_version">The app and the server speak different API versions. Update whichever is older.</string>
+  <string name="upload_error_version">The app and the server do not work together. Update whichever is older.</string>
 
   <string name="history_nights_label">Nights</string>
   <string name="history_local_only">Only on this phone</string>
@@ -51,7 +51,7 @@
   <string name="night_export">Export recording</string>
   <string name="night_delete">Delete recording</string>
   <string name="night_delete_title">Delete this recording?</string>
-  <string name="night_delete_body">This removes the local recording and its analysis, and deletes the server copy. If the server is offline, the deletion on the server is retried later.</string>
+  <string name="night_delete_body">This removes the recording and its analysis from this phone, and deletes the server copy. If the server is offline, the deletion is retried later.</string>
   <string name="night_delete_confirm">Delete</string>
   <string name="night_discard_title">Discard this recording?</string>
   <string name="night_discard_body">This recording has not been uploaded. Discarding removes it and its local analysis from this phone.</string>
@@ -169,7 +169,7 @@
   <string name="night_device_unknown">Unknown device</string>
   <string name="night_sleep_score_experimental">Experimental</string>
   <string name="night_sleep_score_experimental_description">Experimental sleep score. Tap to read what that means.</string>
-  <string name="night_sleep_score_experimental_body">Sleep stages come from a model that has not been checked against sleep-lab measurements on this sensor. How the score changes from night to night is more meaningful than the absolute number.</string>
+  <string name="night_sleep_score_experimental_body">Sleep stages come from a model that has not been checked against sleep-lab measurements on this tracker. How the score changes from night to night is more meaningful than the absolute number.</string>
   <string name="night_sleep_score_not_enough_data">No sleep score: not enough good data</string>
 
 </resources>

@@ -713,7 +713,7 @@ class RecordingService : Service() {
   }
 
   private fun notificationText(s: RecordingState): String {
-    val name = s.capture.sensorName.ifBlank { getString(R.string.rec_notification_title) }
+    val name = s.capture.sensorName.ifBlank { getString(R.string.rec_notification_device) }
     return when (s.overall.reason) {
       RecordingState.Reason.STORAGE_ERROR ->
           getString(R.string.rec_notification_storage_error, name)
