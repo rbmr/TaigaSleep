@@ -100,15 +100,15 @@ func paramsHash(params map[string]any) (string, error) {
 }
 
 // analysisFor finds an analysis the caller may read: a user's own (through the
-// recording's owner) or, for a worker, one it holds the lease of. Anything else is
-// 404 so ids do not leak.
+// recording's owner, which an access token of theirs shares) or, for a worker, one it
+// holds the lease of. Anything else is 404 so ids do not leak.
 func analysisFor(e *core.RequestEvent, id string) (*core.Record, error) {
 	record, err := e.App.FindRecordById("analyses", id)
 	if err != nil {
 		return nil, notFound("analysis")
 	}
 	switch roleOf(e) {
-	case roleUser:
+	case roleUser, roleToken:
 		if _, err := ownRecording(e.App, e, record.GetString("recording")); err != nil {
 			return nil, notFound("analysis")
 		}
@@ -224,10 +224,10 @@ func listAnalyses(e *core.RequestEvent, recording string) error {
 		conditions = append(conditions, dbx.HashExp{"recording": recording})
 	}
 	switch roleOf(e) {
-	case roleUser:
+	case roleUser, roleToken:
 		conditions = append(conditions, dbx.NewExp(
 			"recording IN (SELECT id FROM recordings WHERE owner = {:owner})",
-			dbx.Params{"owner": e.Auth.Id},
+			dbx.Params{"owner": callerID(e)},
 		))
 	case roleWorker:
 		// A worker only sees the analyses it holds the lease of right now. The queue

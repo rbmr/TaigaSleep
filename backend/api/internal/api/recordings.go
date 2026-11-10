@@ -97,17 +97,17 @@ func applyMeta(record *core.Record, meta RecordingMeta, raw []byte) {
 	record.Set("meta", types.JSONRaw(raw))
 }
 
-// recordingFor finds a recording the caller may read: a user's own, or, for a
-// worker, one it holds the lease of a running analysis for. Anything else is 404 so
-// ids do not leak.
+// recordingFor finds a recording the caller may read: a user's own (or one an access
+// token of theirs belongs to), or, for a worker, one it holds the lease of a running
+// analysis for. Anything else is 404 so ids do not leak.
 func recordingFor(e *core.RequestEvent, id string) (*core.Record, error) {
 	record, err := e.App.FindRecordById("recordings", id)
 	if err != nil {
 		return nil, notFound("recording")
 	}
 	switch roleOf(e) {
-	case roleUser:
-		if record.GetString("owner") != e.Auth.Id {
+	case roleUser, roleToken:
+		if record.GetString("owner") != callerID(e) {
 			return nil, notFound("recording")
 		}
 	case roleWorker:
@@ -123,7 +123,7 @@ func recordingFor(e *core.RequestEvent, id string) (*core.Record, error) {
 // ownRecording is recordingFor for endpoints only a user may call.
 func ownRecording(app core.App, e *core.RequestEvent, id string) (*core.Record, error) {
 	record, err := app.FindRecordById("recordings", id)
-	if err != nil || record.GetString("owner") != e.Auth.Id {
+	if err != nil || record.GetString("owner") != callerID(e) {
 		return nil, notFound("recording")
 	}
 	return record, nil
@@ -144,7 +144,7 @@ func ListRecordings(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
-	conditions := []dbx.Expression{dbx.HashExp{"owner": e.Auth.Id}}
+	conditions := []dbx.Expression{dbx.HashExp{"owner": callerID(e)}}
 	if state := strings.TrimSpace(query.Get("state")); state != "" {
 		if !states[state] {
 			return badRequest("invalid_query", "state is not a recording state")
