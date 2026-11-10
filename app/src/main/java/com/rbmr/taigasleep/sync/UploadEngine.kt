@@ -33,6 +33,8 @@ class UploadEngine(
     private val dir: File,
     private val onProgress: (Float) -> Unit = {},
     private val onCreated: () -> Unit = {},
+    /** The server has the whole recording: it accepted the completion, or it already had it. */
+    private val onCompleted: () -> Unit = {},
     private val compress: Boolean = false,
     private val cacheDir: File? = null,
 ) {
@@ -76,6 +78,8 @@ class UploadEngine(
       }
     }
     cacheDir?.deleteRecursively()
+    // Only now may anything call this recording uploaded; the bytes alone never make it so.
+    onCompleted()
     onProgress(1f)
   }
 

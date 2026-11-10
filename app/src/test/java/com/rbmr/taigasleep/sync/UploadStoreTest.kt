@@ -45,6 +45,42 @@ class UploadStoreTest {
   }
 
   @Test
+  fun fullProgressIsNotAConfirmation() {
+    val store = UploadStore(MemoryStorage())
+
+    store.markUploading("r1", 1f)
+
+    val record = store.record("r1")!!
+    assertEquals(UploadPhase.UPLOADING, record.phase)
+    assertNull(record.uploadedAtMs)
+    assertNull(with(RawRetention) { record.uploadConfirmedAt() })
+  }
+
+  @Test
+  fun aConfirmationFromTheServerSurvivesARestart() {
+    val storage = MemoryStorage()
+    val store = UploadStore(storage)
+    store.markUploading("r1", 1f)
+    store.markUploadConfirmed("r1")
+
+    val restarted = UploadStore(storage).record("r1")!!
+
+    assertTrue(restarted.confirmedOnServer)
+    assertTrue(with(RawRetention) { restarted.uploadConfirmedAt() } != null)
+  }
+
+  @Test
+  fun aFailureAfterTheServerConfirmedTheUploadKeepsTheConfirmation() {
+    val store = UploadStore(MemoryStorage())
+    store.markUploading("r1", 1f)
+    store.markUploadConfirmed("r1")
+
+    store.markFailed("r1", UploadFailure.NETWORK, "offline")
+
+    assertTrue(with(RawRetention) { store.record("r1")!!.uploadConfirmedAt() } != null)
+  }
+
+  @Test
   fun `a recording the server no longer has becomes local only`() {
     val storage = MemoryStorage()
     val store = UploadStore(storage)

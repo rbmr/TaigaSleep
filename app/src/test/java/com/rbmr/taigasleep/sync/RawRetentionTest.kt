@@ -90,8 +90,10 @@ class RawRetentionTest {
                   id = "analysis-failed",
                   phase = UploadPhase.FAILED,
                   onServer = true,
+                  failure = UploadFailure.ANALYSIS,
                   uploadedAtMs = 5_000,
                   updatedAtMs = 9_000,
+                  confirmedOnServer = true,
               )
               .uploadConfirmedAt(),
       )

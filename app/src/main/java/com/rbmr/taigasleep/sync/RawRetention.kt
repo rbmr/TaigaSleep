@@ -178,16 +178,26 @@ internal object RawRetention {
         }
       }
 
-  /** When the server last confirmed the upload, or null while no server copy exists. */
+  /**
+   * When the server confirmed the upload, or null while it has not. Full progress is not enough:
+   * the phases the server's answers set are, and a record that never moved past the attempt is
+   * checked again before its raw files may go.
+   */
   internal fun UploadRecord.uploadConfirmedAt(): Long? {
-    uploadedAtMs?.let { return it }
-    // Records written before uploadedAtMs existed fall back to their last transition.
+    if (confirmedOnServer) return finishedAt()
+    // Records written before the confirmation was recorded on its own.
     return when (phase) {
       UploadPhase.PROCESSING,
-      UploadPhase.DONE -> updatedAtMs.takeIf { it > 0 }
-      else -> null
+      UploadPhase.DONE -> finishedAt()
+      // A failed analysis leaves the upload itself complete; the run says the rest.
+      UploadPhase.FAILED -> if (failure == UploadFailure.ANALYSIS) finishedAt() else null
+      UploadPhase.LOCAL,
+      UploadPhase.QUEUED,
+      UploadPhase.UPLOADING -> null
     }
   }
+
+  private fun UploadRecord.finishedAt(): Long? = uploadedAtMs ?: updatedAtMs.takeIf { it > 0 }
 
   private fun hasStreams(dir: File): Boolean =
       RecordingStore.RAW_FILES.any { name -> File(dir, name).let { it.isFile && it.length() > 0 } }

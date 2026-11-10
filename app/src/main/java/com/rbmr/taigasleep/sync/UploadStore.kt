@@ -45,7 +45,7 @@ data class UploadRecord(
     /** The server has a copy of this recording, which it keeps under [id]. */
     val onServer: Boolean = false,
     val phase: UploadPhase = UploadPhase.LOCAL,
-    /** 0..1 for [UploadPhase.UPLOADING]; 1 once the upload is complete. */
+    /** 0..1 for [UploadPhase.UPLOADING]; 1 when every byte is out, which says nothing yet. */
     val progress: Float = 0f,
     val failure: UploadFailure? = null,
     /** A server or exception message, shown as the detail under the friendly error. */
@@ -53,10 +53,16 @@ data class UploadRecord(
     val warning: String? = null,
     val updatedAtMs: Long = 0,
     /**
-     * When the server last confirmed that the upload is complete. Raw cleanup counts from here.
-     * Null for a recording that was never uploaded or whose state predates this field.
+     * When the upload finished, as the phone observed it. Raw cleanup counts from here, and only
+     * for a record the server confirmed; see [confirmedOnServer].
      */
     val uploadedAtMs: Long? = null,
+    /**
+     * The server reported this recording complete. Only [UploadStore.markUploadConfirmed] and the
+     * phases the server's answers set write it, never full progress, so cleanup cannot trust an
+     * upload the server did not accept.
+     */
+    val confirmedOnServer: Boolean = false,
     /**
      * The user downloaded this recording's raw files again, or chose to keep them. Automatic cleanup
      * leaves it alone until the user deletes the raw files explicitly.
@@ -182,7 +188,8 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
   fun markUploading(id: String, progress: Float) {
     val value = progress.coerceIn(0f, 1f)
     val observedAt = now()
-    val confirmedAt = if (value >= 1f) observedAt else null
+    // Bytes on the wire are not the server's word, not even the last ones: the recording counts as
+    // uploaded when completeRecording succeeded, which is what markUploadConfirmed records.
     update(id) {
       it.copy(
           phase = UploadPhase.UPLOADING,
@@ -191,7 +198,19 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
           errorDetail = null,
           warning = null,
           updatedAtMs = observedAt,
+      )
+    }
+  }
+
+  /** The server reported this recording complete: a finished upload, or a status check that found one. */
+  fun markUploadConfirmed(id: String) {
+    val confirmedAt = now()
+    update(id) {
+      it.copy(
+          onServer = true,
           uploadedAtMs = it.uploadedAtMs ?: confirmedAt,
+          confirmedOnServer = true,
+          updatedAtMs = confirmedAt,
       )
     }
   }
@@ -208,6 +227,7 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
           warning = null,
           updatedAtMs = confirmedAt,
           uploadedAtMs = it.uploadedAtMs ?: confirmedAt,
+          confirmedOnServer = true,
       )
     }
   }
@@ -224,6 +244,7 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
           warning = null,
           updatedAtMs = doneAt,
           uploadedAtMs = it.uploadedAtMs ?: doneAt,
+          confirmedOnServer = true,
       )
     }
   }
@@ -251,6 +272,7 @@ class UploadStore internal constructor(private val storage: UploadRecordsStorage
           warning = null,
           updatedAtMs = now(),
           uploadedAtMs = null,
+          confirmedOnServer = false,
       )
     }
   }
