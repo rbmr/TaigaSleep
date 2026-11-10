@@ -8,6 +8,7 @@ import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.remoteStore
 import com.rbmr.taigasleep.insights.AnalysisSettingsStore
 import com.rbmr.taigasleep.library.RecordingLibrary
+import com.rbmr.taigasleep.profile.PersonalDataStore
 import com.rbmr.taigasleep.recording.SensorHub
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.AppSyncEnvironment
@@ -130,6 +131,9 @@ class AppContainer(private val application: Application) {
   val analysisSettingsStore: AnalysisSettingsStore by lazy {
     AnalysisSettingsStore(application)
   }
+
+  /** The personal data the user entered, kept on the phone and read when SleepECG is requested. */
+  val personalDataStore: PersonalDataStore by lazy { PersonalDataStore(application) }
 
   val recordingLibrary: RecordingLibrary by lazy { RecordingLibrary(application) }
 

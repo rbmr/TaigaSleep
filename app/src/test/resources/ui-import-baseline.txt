@@ -36,6 +36,7 @@ recording/StatusCards.kt 1
 screens/AboutScreen.kt 0
 screens/FlowScreen.kt 11
 screens/HistoryScreen.kt 1
+screens/PersonalData.kt 0
 screens/RemoteScreen.kt 7
 screens/SettingsScreen.kt 4
 theme/Color.kt 0
