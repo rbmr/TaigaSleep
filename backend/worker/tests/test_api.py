@@ -63,14 +63,21 @@ def answer(recorder: Recorder, method: str, path: str, status: int, body: Any = 
 
 def test_login_keeps_a_worker_token_and_sends_it_as_a_bearer(server) -> None:
     client, recorder = server
-    answer(recorder, "POST", "/v1/auth/login", 200, {"token": "t1", "role": "worker"})
+    answer(
+        recorder,
+        "POST",
+        "/api/collections/workers/auth-with-password",
+        200,
+        {"token": "t1", "record": {"id": "w1", "email": "w@example.com"}},
+    )
     answer(recorder, "PUT", "/v1/workers/me", 204)
 
     assert client.login("w@example.com", "pw") == "t1"
     client.announce("worker-1", "0.1.0", [{"id": "baseline"}])
 
     login, announce = recorder.requests
-    assert login["body"] == {"email": "w@example.com", "password": "pw"}
+    assert login["path"] == "/api/collections/workers/auth-with-password"
+    assert login["body"] == {"identity": "w@example.com", "password": "pw"}
     assert "authorization" not in login["headers"]
     assert announce["headers"]["authorization"] == "Bearer t1"
     assert announce["body"] == {
@@ -80,12 +87,18 @@ def test_login_keeps_a_worker_token_and_sends_it_as_a_bearer(server) -> None:
     }
 
 
-def test_login_refuses_an_account_that_is_not_a_worker(server) -> None:
+def test_login_refuses_an_answer_without_the_worker_account(server) -> None:
     client, recorder = server
-    answer(recorder, "POST", "/v1/auth/login", 200, {"token": "t1", "role": "user"})
+    answer(
+        recorder,
+        "POST",
+        "/api/collections/workers/auth-with-password",
+        200,
+        {"token": "t1"},
+    )
 
-    with pytest.raises(ApiError, match="not a worker"):
-        client.login("u@example.com", "pw")
+    with pytest.raises(ApiError, match="worker account"):
+        client.login("w@example.com", "pw")
     assert client.token is None
 
 
@@ -94,17 +107,17 @@ def test_errors_carry_the_status_code_and_message(server) -> None:
     answer(
         recorder,
         "POST",
-        "/v1/auth/login",
-        401,
-        {"code": "unauthorized", "message": "the email or password is wrong"},
+        "/api/collections/workers/auth-with-password",
+        400,
+        {"code": 400, "message": "Failed to authenticate.", "data": {}},
     )
 
     with pytest.raises(ApiError) as caught:
         client.login("w@example.com", "wrong")
 
-    assert caught.value.status == 401
-    assert caught.value.code == "unauthorized"
-    assert str(caught.value) == "the email or password is wrong"
+    assert caught.value.status == 400
+    assert caught.value.code == "400"
+    assert str(caught.value) == "Failed to authenticate."
 
 
 def test_an_unreachable_api_is_an_error_without_a_status() -> None:

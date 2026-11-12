@@ -64,6 +64,17 @@ func rateLimitFor(settings *core.Settings, method, path string) (core.RateLimitR
 	return settings.RateLimits.FindRateLimitRule([]string{method + " " + path, path})
 }
 
+// rateLimitByLabel finds one of the API's own rules by its exact label; PocketBase's
+// collection routes look their limit up by a collection action label.
+func rateLimitByLabel(settings *core.Settings, label string) (core.RateLimitRule, bool) {
+	for _, rule := range settings.RateLimits.Rules {
+		if rule.Label == label {
+			return rule, true
+		}
+	}
+	return core.RateLimitRule{}, false
+}
+
 // TestBootstrapStoresDeploymentSettings starts the app on an empty data directory with
 // both deployment variables set and reads the stored settings back.
 func TestBootstrapStoresDeploymentSettings(t *testing.T) {
@@ -91,9 +102,9 @@ func TestBootstrapEnablesTheRateLimiter(t *testing.T) {
 	if !settings.RateLimits.Enabled {
 		t.Error("the rate limiter is disabled")
 	}
-	if rule, ok := rateLimitFor(settings, "POST", "/v1/auth/login"); !ok ||
+	if rule, ok := rateLimitByLabel(settings, "*:authWithPassword"); !ok ||
 		rule.MaxRequests != loginRateLimit || rule.Duration != loginRateLimitWindow {
-		t.Errorf("login rule = %+v (%v), want %d per %d s", rule, ok, loginRateLimit, loginRateLimitWindow)
+		t.Errorf("password login rule = %+v (%v), want %d per %d s", rule, ok, loginRateLimit, loginRateLimitWindow)
 	}
 	if rule, ok := rateLimitFor(settings, "PATCH", "/v1/recordings/x/files/hr.log"); !ok ||
 		rule.MaxRequests != uploadRateLimit || rule.Duration != uploadRateLimitWindow {

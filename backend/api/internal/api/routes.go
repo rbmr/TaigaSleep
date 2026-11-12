@@ -63,17 +63,13 @@ func RegisterRoutes(router *router.Router[*core.RequestEvent]) {
 		Priority: apis.DefaultRateLimitMiddlewarePriority - 1,
 		Func:     middlewareError,
 	})
-	// Bound after PocketBase's own auth loading, which the router registered first: a
-	// login token is read there, and only a request without one is tried as an access token.
-	router.BindFunc(loadAccessToken)
 	for _, route := range Routes() {
-		required, handler := route.Access, route.Handler
-		router.Route(route.Method, route.Path, handle(func(e *core.RequestEvent) error {
-			if err := authorize(e, required); err != nil {
-				return err
-			}
-			return handler(e)
-		}))
+		mounted := router.Route(route.Method, route.Path, handle(route.Handler))
+		// PocketBase loads the token and refuses a token from another collection; the
+		// handler then works on the role that is left.
+		if collections := route.Access.collections(); len(collections) > 0 {
+			mounted.Bind(apis.RequireAuth(collections...))
+		}
 	}
 }
 
@@ -168,39 +164,13 @@ func Routes() []openAPIRoute {
 			Handler: ServeDocsAsset,
 		},
 
-		// --- auth ---
-		{
-			Method: http.MethodPost, Path: apiPrefix + "/auth/login", OperationID: "login", Tag: tagAuth,
-			Summary:     "Log in with an email and password",
-			Description: "Works for app accounts (role `user`) and the worker account (role `worker`). Repeated attempts from one address are throttled.",
-			Body:        jsonBody(LoginRequest{}, "The account's email and password."),
-			Responses: withErrors([]routeResponse{jsonResponse(200, "The token and who it belongs to.", TokenResponse{})},
-				400, 401, 429),
-			Handler: Login,
-		},
-		{
-			Method: http.MethodPost, Path: apiPrefix + "/auth/refresh", OperationID: "refreshToken", Tag: tagAuth,
-			Summary:   "Exchange the current token for a fresh one",
-			Access:    accessAny,
-			Responses: withErrors([]routeResponse{jsonResponse(200, "A new token.", TokenResponse{})}, 401, 403),
-			Handler:   Refresh,
-		},
-		{
-			Method: http.MethodGet, Path: apiPrefix + "/me", OperationID: "getMe", Tag: tagAuth,
-			Summary:     "Return the account the token belongs to",
-			Description: "Also how a client checks that a stored token is still valid.",
-			Access:      accessAny,
-			Responses:   withErrors([]routeResponse{jsonResponse(200, "The authenticated account.", MeResponse{})}, 401, 403),
-			Handler:     Me,
-		},
-
 		// --- access tokens ---
 		{
 			Method: http.MethodPost, Path: apiPrefix + "/tokens", OperationID: "createToken", Tag: tagTokens,
 			Summary: "Create a read-only access token",
 			Description: "A token a user's own assistant or script can read with. It reads the account's recordings " +
 				"(metadata, not the raw files), analyses and results, and every write is refused. The token is shown " +
-				"once, in this answer; only its hash is stored.",
+				"once, in this answer.",
 			Access: accessUser,
 			Body:   jsonBody(TokenRequest{}, "A name for the token, so it can be told apart in the list."),
 			Responses: withErrors([]routeResponse{{

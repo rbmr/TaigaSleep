@@ -293,11 +293,10 @@ curl -s http://127.0.0.1:8090/v1/health
 curl -s http://127.0.0.1:8090/v1/version
 # {"service":"taiga-sleep","version":"0.3.0","api":2}
 
-TOKEN=$(curl -s -X POST http://127.0.0.1:8090/v1/auth/login \
+TOKEN=$(curl -s -X POST http://127.0.0.1:8090/api/collections/users/auth-with-password \
   -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com","password":"<password>"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
-curl -s http://127.0.0.1:8090/v1/me -H "Authorization: Bearer $TOKEN"
-# {"id":"...","email":"you@example.com","role":"user"}
+  -d '{"identity":"you@example.com","password":"<password>"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+curl -s http://127.0.0.1:8090/v1/recordings -H "Authorization: Bearer $TOKEN" | head -c 200
 ```
 
 To use the document elsewhere, point any of these at
@@ -843,9 +842,9 @@ BASE=http://127.0.0.1:8090
 RECORDING_ID=<recording id>
 ALGORITHM=baseline
 
-TOKEN=$(curl -fsS -X POST "$BASE/v1/auth/login" \
+TOKEN=$(curl -fsS -X POST "$BASE/api/collections/users/auth-with-password" \
   -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com","password":"<password>"}' | jq -r .token)
+  -d '{"identity":"you@example.com","password":"<password>"}' | jq -r .token)
 
 # 1. See the runs of this recording.
 curl -fsS "$BASE/v1/analyses?recording=$RECORDING_ID" \

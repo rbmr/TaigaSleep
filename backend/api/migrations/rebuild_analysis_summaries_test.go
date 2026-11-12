@@ -180,8 +180,8 @@ func TestRebuiltSummariesAreListedWithScores(t *testing.T) {
 		t.Fatalf("mux: %v", err)
 	}
 
-	login := httptest.NewRequest(http.MethodPost, "/v1/auth/login",
-		strings.NewReader(`{"email":"list@example.com","password":"password123"}`))
+	login := httptest.NewRequest(http.MethodPost, "/api/collections/users/auth-with-password",
+		strings.NewReader(`{"identity":"list@example.com","password":"password123"}`))
 	login.Header.Set("Content-Type", "application/json")
 	loginRecorder := httptest.NewRecorder()
 	mux.ServeHTTP(loginRecorder, login)

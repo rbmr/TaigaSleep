@@ -8,17 +8,18 @@ and it cannot change anything.
 ## Make a token
 
 In the app: **Settings → Server → Access tokens**. Give the token a name, tap **Create
-token**, and copy it when it appears. It is shown once; the server keeps only a hash of it.
-The list shows each token by its name, its last characters and when it was made, and a
-token you no longer want is revoked there and stops working at once.
+token**, and copy it when it appears. It is shown once; the server keeps the record it
+belongs to, not the secret. The list shows each token by its name, its last characters
+and when it was made, and a token you no longer want is revoked there and stops working
+at once.
 
 With `curl` and your account's login, from a terminal on your own machine:
 
 ```sh
 BASE=https://sleep.example.com
-LOGIN_TOKEN=$(curl -s -X POST "$BASE/v1/auth/login" \
+LOGIN_TOKEN=$(curl -s -X POST "$BASE/api/collections/users/auth-with-password" \
   -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com","password":"your password"}' \
+  -d '{"identity":"you@example.com","password":"your password"}' \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
 
 curl -s -X POST "$BASE/v1/tokens" \
@@ -31,7 +32,7 @@ The answer's `token` field is the access token. Keep it as `TOKEN` in your shell
 examples below use it); the login token was only needed to make one.
 
 ```sh
-TOKEN=ts_...
+TOKEN=eyJ...
 ```
 
 ## Point the assistant at the API

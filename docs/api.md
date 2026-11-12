@@ -18,9 +18,9 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
   `HEAD` are idempotent.
 - **JSON, snake_case, RFC 3339 UTC timestamps.** File bytes and the event stream are the
   only exceptions.
-- **Authentication** is `Authorization: Bearer <token>` from `POST /v1/auth/login`, or a
-  read-only access token from `POST /v1/tokens`. Endpoints say whether they take a `user`,
-  a `worker`, a `token` or are public.
+- **Authentication** is `Authorization: Bearer <token>` from PocketBase's auth route of
+  the account's collection, or a read-only access token from `POST /v1/tokens`. Endpoints
+  say whether they take a `user`, a `worker`, a `token` or are public.
 - **Ownership.** A user only ever sees their own recordings and analyses. Anything that
   belongs to someone else is `404`, never `403`, so ids do not leak.
 - **Status codes.** `200` with a body, `201` with a body and `Location` when something was
@@ -28,7 +28,7 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
   wrong role, `404` not found or not yours, `409` the resource is in a state that does not
   allow this, `413` too large, `422` well-formed but invalid, `429` too many requests from
   this address, `5xx` ours.
-- **One error shape**, for every error from every endpoint:
+- **One error shape**, for every error from every `/v1` endpoint:
 
   ```json
   { "code": "recording_complete", "message": "the recording is complete and can no longer change" }
@@ -64,6 +64,9 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
   `invalid_query`, `invalid_meta`, `invalid_id`, `invalid_algorithm`, `invalid_version`,
   `invalid_params`, `invalid_offset`, `invalid_gzip`, `unsupported_encoding`,
   `empty_chunk`, `unreadable_body`, `meta_too_large`, `too_many_algorithms`.
+
+  The PocketBase auth routes are PocketBase's own and answer its error shape
+  (`{ "code": <status>, "message", "data" }`); a client maps them by status.
 - **Lists** take `limit` (default 50, at most 200) and `offset`, and answer
   `{ "items": [...], "limit": 50, "offset": 0, "total": 123 }`. Sorting is a documented
   `sort` parameter per endpoint; there is no free-form filter language.
@@ -83,31 +86,39 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
 
 ## Authentication
 
+Users and workers log in through PocketBase's auth routes for their collection; the
+backend is PocketBase, so it serves them. The answer is PocketBase's
+`{ "token", "record": { "id", "email", ... } }`, and `record.id` is the account.
+
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
-| `POST /v1/auth/login` | public | Body `{ "email", "password" }`. Answers `{ "token", "role", "user": { "id", "email" } }`. `role` is `user` or `worker`. Repeated requests from one client address are answered `429`. |
-| `POST /v1/auth/refresh` | any | A fresh token for the current one, same shape. |
-| `GET /v1/me` | any | `{ "id", "email", "role" }`: also how a client checks a stored token. |
+| `POST /api/collections/users/auth-with-password` | public | Body `{ "identity": "<email>", "password" }`. A user token. Repeated requests from one client address are answered `429`. |
+| `POST /api/collections/users/auth-refresh` | user | A fresh token for the current one, same shape. Also how a client checks that a stored token is still valid. |
+| `POST /api/collections/workers/auth-with-password` | public | The same for the worker account. |
+| `POST /api/collections/workers/auth-refresh` | worker | A fresh worker token. |
 
-Accounts are created by the operator in the admin UI. There is no sign-up endpoint.
+Accounts are created by the operator in the admin UI. Sign-up is closed for both
+collections, and the auth routes are the only ones PocketBase serves for them: its record
+API is closed. The former `/v1/auth/*` routes no longer exist.
 
 ## Access tokens
 
 A user can make a **read-only access token** for their own assistant or script, so it can
-read their data without their password and without being able to change anything. It is
-shown once, when it is created; the backend stores only its SHA-256 hash. See
+read their data without their password and without being able to change anything. It is a
+PocketBase static auth token of the `access_tokens` collection: it is shown once, when it
+is created, and the server keeps the record, not the secret. See
 [`assistant-access.md`](assistant-access.md) for how to use one.
 
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
 | `POST /v1/tokens` | user | Body `{ "name" }`. Answers `201` with the token (`id`, `name`, `hint`, `created`, `token`), which is the only time `token` is in an answer. |
 | `GET /v1/tokens` | user | The account's tokens without the secret (`id`, `name`, `hint`, `created`). |
-| `DELETE /v1/tokens/{id}` | user | Revokes it; it stops working at once. `204`. |
+| `DELETE /v1/tokens/{id}` | user | Revokes it by deleting its record; it stops working at once. `204`. |
 
 A token may call the routes marked **token** below: it reads the owner's recordings
 (metadata only), analyses and results. Everything else is `403`, including the raw files,
-every write, `/v1/me`, `/v1/events` and the token routes themselves. A recording or
-analysis of another account is `404`, like any other caller's. A revoked token is `401`.
+every write, the event stream and the token routes themselves. A recording or analysis of
+another account is `404`, like any other caller's. A revoked token is `401`.
 
 ## Recordings
 

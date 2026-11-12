@@ -113,14 +113,15 @@ class ApiClient:
     def login(self, email: str, password: str) -> str:
         payload = self._request(
             "POST",
-            "/v1/auth/login",
-            {"email": email, "password": password},
+            "/api/collections/workers/auth-with-password",
+            {"identity": email, "password": password},
             auth=False,
         )
         if not isinstance(payload, dict) or not payload.get("token"):
             raise ApiError("login response did not contain a token")
-        if payload.get("role") != "worker":
-            raise ApiError("the account is not a worker account")
+        record = payload.get("record")
+        if not isinstance(record, dict) or not record.get("id"):
+            raise ApiError("login response did not contain the worker account")
         self.token = str(payload["token"])
         return self.token
 

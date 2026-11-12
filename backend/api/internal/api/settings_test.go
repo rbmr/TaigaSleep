@@ -88,16 +88,16 @@ func TestUnconfiguredProxyHeaderIsIgnored(t *testing.T) {
 	}
 }
 
-// TestLoginRateLimitCountsPerClientAddress drives the real login route past the limit
-// and checks that PocketBase's limiter answers 429 in the one error shape, and that
-// another client address still has its own budget.
+// TestLoginRateLimitCountsPerClientAddress drives the real password login route past
+// the limit and checks that PocketBase's limiter answers 429, and that another client
+// address still has its own budget.
 func TestLoginRateLimitCountsPerClientAddress(t *testing.T) {
 	s := newConfiguredServer(t)
 	s.createAccount("users", "bob@example.com", "")
 
 	login := func(password, address string) (int, []byte) {
-		status, _, body := s.call(http.MethodPost, "/v1/auth/login", "",
-			map[string]string{"email": "bob@example.com", "password": password},
+		status, _, body := s.call(http.MethodPost, "/api/collections/users/auth-with-password", "",
+			map[string]string{"identity": "bob@example.com", "password": password},
 			map[string]string{"X-Forwarded-For": address})
 		return status, body
 	}
@@ -109,15 +109,15 @@ func TestLoginRateLimitCountsPerClientAddress(t *testing.T) {
 	attempts := 0
 	for attempts <= 2*loginRateLimit {
 		status, body := login("wrong", guessing)
-		if status == http.StatusUnauthorized {
+		if status == http.StatusBadRequest {
 			attempts++
 			continue
 		}
 		if status != http.StatusTooManyRequests {
 			t.Fatalf("attempt %d = %d: %s", attempts+1, status, body)
 		}
-		var failure ErrorResponse
-		if err := json.Unmarshal(body, &failure); err != nil || failure.Code != "too_many_requests" {
+		var failure map[string]any
+		if err := json.Unmarshal(body, &failure); err != nil || failure["message"] == "" {
 			t.Fatalf("throttled answer = %s", body)
 		}
 		break

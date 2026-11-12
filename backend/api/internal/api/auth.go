@@ -1,81 +1,68 @@
 package api
 
-import (
-	"net/http"
+import "net/http"
 
-	"github.com/pocketbase/pocketbase/core"
-)
+// Users and workers log in through PocketBase's auth routes for their collections.
+// PocketBase serves them, so they are documented here but not mounted by Routes(); the
+// document would otherwise be missing what every client calls before anything else.
 
-type LoginRequest struct {
-	Email    string `json:"email"`
+// AuthPasswordRequest is the body of PocketBase's auth-with-password route.
+type AuthPasswordRequest struct {
+	Identity string `json:"identity"`
 	Password string `json:"password"`
 }
 
-type AccountView struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-}
-
-type TokenResponse struct {
+// AuthResponse is what PocketBase answers on login and on a token refresh.
+type AuthResponse struct {
 	Token string `json:"token"`
-	// Role is "user" for an app account and "worker" for an analysis worker.
-	Role string      `json:"role"`
-	User AccountView `json:"user"`
+	// Record is the account the token belongs to.
+	Record AuthAccount `json:"record"`
 }
 
-type MeResponse struct {
+type AuthAccount struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
-	Role  string `json:"role"`
 }
 
-func tokenFor(record *core.Record) (TokenResponse, error) {
-	token, err := record.NewAuthToken()
-	if err != nil {
-		return TokenResponse{}, err
+// AuthRoutes are the auth routes clients use, documented but served by PocketBase.
+func AuthRoutes() []openAPIRoute {
+	return []openAPIRoute{
+		{
+			Method: http.MethodPost, Path: "/api/collections/users/auth-with-password",
+			OperationID: "loginUser", Tag: tagAuth,
+			Summary: "Log in as a user",
+			Description: "PocketBase's password login for the `users` collection. Works for app accounts only; " +
+				"repeated attempts from one address are throttled.",
+			Access: accessPublic,
+			Body:   jsonBody(AuthPasswordRequest{}, "The account's email and password."),
+			Responses: withErrors([]routeResponse{jsonResponse(200, "The token and the account's record.", AuthResponse{})},
+				400, 429),
+		},
+		{
+			Method: http.MethodPost, Path: "/api/collections/users/auth-refresh",
+			OperationID: "refreshUserToken", Tag: tagAuth,
+			Summary:     "Exchange a user token for a fresh one",
+			Description: "Also how a client checks that a stored token is still valid: the answer names its account.",
+			Access:      accessUser,
+			Responses:   withErrors([]routeResponse{jsonResponse(200, "A new token and its account.", AuthResponse{})}, 401, 403),
+		},
+		{
+			Method: http.MethodPost, Path: "/api/collections/workers/auth-with-password",
+			OperationID: "loginWorker", Tag: tagAuth,
+			Summary:     "Log in as the worker account",
+			Description: "PocketBase's password login for the `workers` collection.",
+			Access:      accessPublic,
+			Body:        jsonBody(AuthPasswordRequest{}, "The worker account's email and password."),
+			Responses: withErrors([]routeResponse{jsonResponse(200, "The token and the worker's record.", AuthResponse{})},
+				400, 429),
+		},
+		{
+			Method: http.MethodPost, Path: "/api/collections/workers/auth-refresh",
+			OperationID: "refreshWorkerToken", Tag: tagAuth,
+			Summary:     "Exchange a worker token for a fresh one",
+			Description: "The worker's equivalent of the user token refresh.",
+			Access:      accessWorker,
+			Responses:   withErrors([]routeResponse{jsonResponse(200, "A new token and the worker's record.", AuthResponse{})}, 401, 403),
+		},
 	}
-	role := roleUser
-	if record.Collection().Name == "workers" {
-		role = roleWorker
-	}
-	return TokenResponse{Token: token, Role: role, User: AccountView{ID: record.Id, Email: record.Email()}}, nil
-}
-
-func Login(e *core.RequestEvent) error {
-	var body LoginRequest
-	const expected = "email and password are required"
-	if err := decodeBody(e, bodyLimitSmall, &body, expected, false); err != nil {
-		return err
-	}
-	if body.Email == "" || body.Password == "" {
-		return badRequest("invalid_body", expected)
-	}
-	var account *core.Record
-	for _, collection := range []string{"users", "workers"} {
-		record, err := e.App.FindAuthRecordByEmail(collection, body.Email)
-		if err == nil && record.ValidatePassword(body.Password) {
-			account = record
-			break
-		}
-	}
-	if account == nil {
-		return unauthorized("the email or password is wrong")
-	}
-	response, err := tokenFor(account)
-	if err != nil {
-		return err
-	}
-	return e.JSON(http.StatusOK, response)
-}
-
-func Refresh(e *core.RequestEvent) error {
-	response, err := tokenFor(e.Auth)
-	if err != nil {
-		return err
-	}
-	return e.JSON(http.StatusOK, response)
-}
-
-func Me(e *core.RequestEvent) error {
-	return e.JSON(http.StatusOK, MeResponse{ID: e.Auth.Id, Email: e.Auth.Email(), Role: roleOf(e)})
 }
