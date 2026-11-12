@@ -93,6 +93,11 @@ interface SleepSensor {
   val kind: SensorKind
   val id: String
   val name: String
+
+  /** The strap's Bluetooth address, learned from the transport; null until it is known. */
+  val address: String?
+    get() = null
+
   val capabilities: SensorCapabilities
 
   val connection: StateFlow<ConnectionState>

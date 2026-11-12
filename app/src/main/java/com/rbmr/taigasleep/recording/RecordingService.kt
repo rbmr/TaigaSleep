@@ -121,23 +121,39 @@ class RecordingService : Service(), RecordingHost {
 
   override fun readinessSummary(): String = hooks.readinessSummary(this)
 
-  override fun strapView(sensorId: String): String? {
-    val manager = getSystemService(BluetoothManager::class.java) ?: return null
-    val address = bluetoothAddress(sensorId) ?: return null
+  override fun strapView(sensorId: String, sensorName: String, address: String?): String {
+    val manager =
+        getSystemService(BluetoothManager::class.java)
+            ?: return "phone sees the strap: no Bluetooth service to ask"
     return try {
-      val device = manager.adapter?.getRemoteDevice(address) ?: return null
-      val gatt = manager.getConnectionState(device, BluetoothProfile.GATT)
-      val listed =
-          manager.getConnectedDevices(BluetoothProfile.GATT).any {
-            it.address.equals(device.address, ignoreCase = true)
-          }
-      "phone sees the strap: gatt ${gattName(gatt)}, " +
-          if (listed) "listed in the phone's connected devices"
-          else "not listed in the phone's connected devices"
+      val connected = manager.getConnectedDevices(BluetoothProfile.GATT)
+      val bonded = manager.adapter?.bondedDevices.orEmpty()
+      val resolved =
+          strapDeviceAddress(
+              knownAddress = address,
+              sensorId = sensorId,
+              connected = connected.map { ListedDevice(it.address, it.name) },
+              bonded = bonded.map { ListedDevice(it.address, it.name) },
+          )
+      if (resolved == null) {
+        "phone sees the strap: no device for $sensorName ($sensorId) among its connected or " +
+            "bonded devices"
+      } else {
+        val device = manager.adapter?.getRemoteDevice(resolved)
+        if (device == null) {
+          "phone sees the strap: no Bluetooth adapter"
+        } else {
+          val gatt = manager.getConnectionState(device, BluetoothProfile.GATT)
+          val listed = connected.any { it.address.equals(device.address, ignoreCase = true) }
+          "phone sees the strap at $resolved: gatt ${gattName(gatt)}, " +
+              if (listed) "listed in the phone's connected devices"
+              else "not listed in the phone's connected devices"
+        }
+      }
     } catch (_: SecurityException) {
       "phone sees the strap: not readable without the Bluetooth permission"
     } catch (_: IllegalArgumentException) {
-      null
+      "phone sees the strap: the resolved device address is not valid"
     }
   }
 
@@ -332,17 +348,6 @@ class RecordingService : Service(), RecordingHost {
     private const val TAG = "RecordingService"
     private const val CHANNEL_ID = "recording"
     private const val NOTIFICATION_ID = 1
-
-    /** A Polar device id is usually the strap's Bluetooth address without its colons. */
-    private fun bluetoothAddress(id: String): String? =
-        when {
-          id.length == 17 && id.count { it == ':' } == 5 -> id
-          id.length == 12 && id.all { it.isHexDigit() } -> id.chunked(2).joinToString(":")
-          else -> null
-        }
-
-    private fun Char.isHexDigit() =
-        this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
 
     private fun gattName(state: Int): String =
         when (state) {

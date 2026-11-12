@@ -91,11 +91,11 @@ private object PolarSdk {
   private val callback =
       object : PolarBleApiCallback() {
         override fun deviceConnecting(polarDeviceInfo: PolarDeviceInfo) {
-          sensors[polarDeviceInfo.deviceId]?.onConnecting()
+          sensors[polarDeviceInfo.deviceId]?.onConnecting(polarDeviceInfo.address)
         }
 
         override fun deviceConnected(polarDeviceInfo: PolarDeviceInfo) {
-          sensors[polarDeviceInfo.deviceId]?.onConnected()
+          sensors[polarDeviceInfo.deviceId]?.onConnected(polarDeviceInfo.address)
         }
 
         override fun deviceDisconnected(polarDeviceInfo: PolarDeviceInfo) {
@@ -141,6 +141,12 @@ class PolarH10Sensor(
 ) : SleepSensor, OnDeviceTracker {
   override val kind = SensorKind.POLAR_H10
   override val capabilities = SensorCapabilities(ecg = true, acc = true, rr = true)
+
+  // The SDK hands the address out with its connect callbacks; it is kept because the phone's own
+  // Bluetooth view is asked for while the link may be down.
+  @Volatile private var linkAddress: String? = null
+  override val address: String?
+    get() = linkAddress
 
   private val appContext = context.applicationContext
   private val api: PolarBleApi
@@ -360,11 +366,13 @@ class PolarH10Sensor(
 
   // Callbacks from the SDK.
 
-  internal fun onConnecting() {
+  internal fun onConnecting(deviceAddress: String?) {
+    noteAddress(deviceAddress)
     _connection.value = ConnectionState.CONNECTING
   }
 
-  internal fun onConnected() {
+  internal fun onConnected(deviceAddress: String?) {
+    noteAddress(deviceAddress)
     _connection.value = ConnectionState.CONNECTED
     control.execute {
       maybeBeginOnDevice()
@@ -373,6 +381,10 @@ class PolarH10Sensor(
     // If readiness is never reported, try anyway after a while.
     control.schedule({ maybeBeginStreams(force = true) }, FEATURE_WAIT_S, TimeUnit.SECONDS)
     control.schedule({ maybeBeginOnDevice(force = true) }, FEATURE_WAIT_S, TimeUnit.SECONDS)
+  }
+
+  private fun noteAddress(deviceAddress: String?) {
+    if (!deviceAddress.isNullOrBlank()) linkAddress = deviceAddress
   }
 
   internal fun onDisconnected() {
