@@ -94,9 +94,12 @@ internal fun RecordingSection(
                 } else {
                   null
                 },
+            // A raw copy may only leave the phone while the server has the recording, and only a
+            // recording kept on this phone can take it back. A recording on this phone alone has
+            // no raw-data action at all.
             trailing =
                 when {
-                  local?.hasRaw == true ->
+                  local?.hasRaw == true && uploaded ->
                       ListRowTrailing.Action(
                           label = stringResource(R.string.night_raw_delete_action),
                           onClick = onDeleteRaw,

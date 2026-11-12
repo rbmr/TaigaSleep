@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -25,7 +26,8 @@ import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
  * A label above one value. With [info] the tile is a button: tapping it opens the item's
- * [InfoSheet], so the explanation lives with the number it explains.
+ * [InfoSheet], so the explanation lives with the number it explains. The card fills the space its
+ * caller gives it, so the tiles of a two-per-row grid have one width and one height per row.
  */
 @Composable
 fun StatTile(
@@ -45,7 +47,7 @@ fun StatTile(
         role = Role.Button,
         onClickLabel = label,
     ) {
-      StatTileBody(label, value, valueColor, caption)
+      StatTileBody(label, value, valueColor, caption, Modifier.fillMaxSize())
     }
   } else {
     StatTileBody(label, value, valueColor, caption, modifier)

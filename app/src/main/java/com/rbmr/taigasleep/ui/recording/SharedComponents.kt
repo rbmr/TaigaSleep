@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -28,8 +29,10 @@ internal fun numberItems(items: List<ResultItemDto>, vararg groups: String): Lis
     items.filter { it.kind == "number" && it.group in groups }
 
 /**
- * The typed numbers of one group, two to a row. The label, the unit and the explanation all come
- * from the item, and every tile opens its own explanation.
+ * The typed numbers of one group, two to a row. Every tile takes exactly half of the row and the
+ * tiles of one row share its height, so the grid reads as one table however long the values are.
+ * The label, the unit and the explanation all come from the item, and every tile opens its own
+ * explanation.
  */
 @Composable
 internal fun MetricGrid(items: List<ResultItemDto>) {
@@ -38,7 +41,7 @@ internal fun MetricGrid(items: List<ResultItemDto>) {
   Column(verticalArrangement = Arrangement.spacedBy(space.s)) {
     specs.chunked(2).forEach { pair ->
       Row(
-          modifier = Modifier.height(IntrinsicSize.Min),
+          modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
           horizontalArrangement = Arrangement.spacedBy(space.s),
       ) {
         pair.forEach { spec ->

@@ -83,6 +83,7 @@ import kotlinx.serialization.json.JsonObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 enum class QualityBand {
@@ -212,6 +213,29 @@ fun StageBar(
       }
     }
   }
+}
+
+/** The smallest y span a series axis gets, in the unit of the series, so flat data has room. */
+internal const val SERIES_MIN_SPAN = 10.0
+
+/**
+ * The y-axis of a series chart: the data's range inside a span of at least [SERIES_MIN_SPAN],
+ * centred on the data. A nearly flat series therefore spreads over a readable axis instead of
+ * collapsing onto one value.
+ */
+internal fun seriesAxis(low: Double, high: Double): ClosedFloatingPointRange<Double> {
+  val centre = (low + high) / 2
+  val span = max(high - low, SERIES_MIN_SPAN)
+  return (centre - span / 2)..(centre + span / 2)
+}
+
+/**
+ * The five tick values of [axis] from its top to its bottom, rounded to whole numbers. The axis is
+ * at least [SERIES_MIN_SPAN] wide, so no two labels of one axis can round to the same value.
+ */
+internal fun seriesAxisTicks(axis: ClosedFloatingPointRange<Double>): List<Int> {
+  val span = axis.endInclusive - axis.start
+  return (0..4).map { index -> (axis.endInclusive - span * index / 4.0).roundToInt() }
 }
 
 private data class HourTick(val timeMs: Long, val fraction: Float)
@@ -620,12 +644,14 @@ fun HeartRateChart(
       )
   val line = MaterialTheme.taiga.chartHr
   val noValue = stringResource(R.string.night_chart_no_value)
-  // The unit sits on the top label, so every other label stays a plain number.
+  // A flat series still gets a readable axis: at least 10 bpm, centred on the samples, with whole
+  // tick values that never repeat. The unit sits on the top label, so the others stay plain numbers.
+  val axis = seriesAxis(low, high)
   val yLabels =
-      (0..4).map { index ->
-        val fraction = index / 4f
-        val value = (high - (high - low) * fraction).roundToInt().toString()
-        fraction to if (index == 0) stringResource(R.string.night_chart_bpm, value) else value
+      seriesAxisTicks(axis).mapIndexed { index, value ->
+        val label = value.toString()
+        (index / 4f) to
+            if (index == 0) stringResource(R.string.night_chart_bpm, label) else label
       }
   TimeChart(
       startUnixMs = series.start_unix_ms,
@@ -643,10 +669,9 @@ fun HeartRateChart(
           if (fullscreen) modifier.fillMaxSize()
           else modifier.fillMaxWidth().height(chartHeight.dp),
   ) { plot, selected ->
-    val span = high - low
+    val span = axis.endInclusive - axis.start
     fun y(value: Double): Float =
-        if (span < 0.001) plot.y(0.5f)
-        else plot.y(((high - value) / span).toFloat())
+        plot.y(((axis.endInclusive - value) / span).toFloat())
     fun x(index: Int): Float =
         if (series.count <= 1) plot.x(0.5f)
         else plot.x(index.toFloat() / (series.count - 1).toFloat())
