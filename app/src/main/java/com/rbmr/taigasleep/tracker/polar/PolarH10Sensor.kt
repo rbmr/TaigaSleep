@@ -392,6 +392,8 @@ class PolarH10Sensor(
 
   fun release() {
     PolarSdk.sensors.remove(id, this)
+    streamScope.cancel()
+    calls.cancel()
     control.shutdown()
     delivery.shutdown()
   }
