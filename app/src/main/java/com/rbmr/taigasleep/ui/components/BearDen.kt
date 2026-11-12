@@ -57,7 +57,7 @@ import kotlinx.coroutines.launch
 /** How tall a den header is, and how much of it the ground takes below the horizon. */
 enum class DenSize(val height: Dp, val ground: Dp) {
   /** The full header of Home before a recording. */
-  Header(height = 300.dp, ground = 14.dp),
+  Header(height = 264.dp, ground = 14.dp),
   /** The smaller header while a recording runs and while it is finished. */
   Compact(height = 180.dp, ground = 12.dp),
 }

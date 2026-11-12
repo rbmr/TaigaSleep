@@ -139,7 +139,7 @@ private fun ChecklistCard(
     ListRow(
         title = view.tracker?.name ?: stringResource(R.string.home_tracker_title),
         icon = Icons.Outlined.Sensors,
-        value =
+        subtitle =
             if (connected) {
               view.tracker?.battery?.let { stringResource(R.string.rec_battery, it) }
             } else {
@@ -161,7 +161,7 @@ private fun ChecklistCard(
       ListRow(
           title = stringResource(R.string.rec_data_settings),
           icon = Icons.AutoMirrored.Outlined.List,
-          value = streamsText(config),
+          subtitle = streamsText(config),
           onClick = onDataSettings,
       )
     }

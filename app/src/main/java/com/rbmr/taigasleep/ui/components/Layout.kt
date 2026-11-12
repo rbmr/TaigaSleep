@@ -176,15 +176,16 @@ sealed interface ListRowTrailing {
 }
 
 /**
- * One row of a list: an optional leading icon, the title, an optional value and the trailing slot.
- * The row is a button when [onClick] is given; the switch and radio are drawn from their state and
- * the row's click changes them.
+ * One row of a list: an optional leading icon, the title with an optional [subtitle] under it, an
+ * optional value and the trailing slot. The row is a button when [onClick] is given; the switch and
+ * radio are drawn from their state and the row's click changes them.
  */
 @Composable
 fun ListRow(
     title: String,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    subtitle: String? = null,
     value: String? = null,
     trailing: ListRowTrailing = ListRowTrailing.Chevron,
     enabled: Boolean = true,
@@ -210,14 +211,22 @@ fun ListRow(
         )
         Spacer(Modifier.width(space.m))
       }
-      Text(
-          text = title,
-          style = MaterialTheme.taiga.text.row,
-          color =
-              if (enabled) MaterialTheme.colorScheme.onSurface
-              else MaterialTheme.taiga.disabled,
-          modifier = Modifier.weight(1f),
-      )
+      Column(Modifier.weight(1f)) {
+        Text(
+            text = title,
+            style = MaterialTheme.taiga.text.row,
+            color =
+                if (enabled) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.taiga.disabled,
+        )
+        if (subtitle != null) {
+          Text(
+              text = subtitle,
+              style = MaterialTheme.taiga.text.meta,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
       if (value != null) {
         Spacer(Modifier.width(space.s))
         Text(
