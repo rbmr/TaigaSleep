@@ -290,6 +290,10 @@ func FailAnalysis(e *core.RequestEvent) error {
 		// claimed until the backoff has passed: tell the workers again when it can.
 		app, id := e.App, saved.Id
 		time.AfterFunc(time.Duration(retryIn)*time.Second, func() {
+			// The server may be shutting down by then; there is nobody to tell.
+			if !app.IsBootstrapped() {
+				return
+			}
 			if record, err := app.FindRecordById("analyses", id); err == nil && record.GetString("status") == statusQueued {
 				announceAnalysis(app, record, statusQueued)
 			}

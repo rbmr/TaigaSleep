@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -28,6 +29,15 @@ import (
 // These tests run the real routes against a real PocketBase app with the real
 // migrations, in a temporary directory. They exercise the HTTP contract of
 // docs/api.md; the integration suite in backend/tests adds the worker process.
+//
+// Recordings and analyses go through PocketBase's record API, so those tests also
+// cover the collection rules: what a user, an access token and a worker may see and
+// change.
+
+const (
+	recordingsAPI = "/api/collections/recordings/records"
+	analysesAPI   = "/api/collections/analyses/records"
+)
 
 type server struct {
 	t    *testing.T
@@ -141,13 +151,99 @@ func (s *server) expect(want int, method, path, token string, body any, headers 
 	return data
 }
 
+// expectCode checks the API's stable code under data.code of PocketBase's error
+// shape. PocketBase's own rule failures carry no code, so those tests check only the
+// status.
 func (s *server) expectCode(want int, code, method, path, token string, body any, headers map[string]string) {
 	s.t.Helper()
 	data := s.expect(want, method, path, token, body, headers)
 	var failure ErrorResponse
-	if err := json.Unmarshal(data, &failure); err != nil || failure.Code != code {
-		s.t.Fatalf("%s %s: error code = %q (%v), want %q: %s", method, path, failure.Code, err, code, data)
+	if err := json.Unmarshal(data, &failure); err != nil || failure.Data["code"] != code {
+		s.t.Fatalf("%s %s: error = %s, want data.code %q", method, path, data, code)
 	}
+}
+
+type recordingRecord struct {
+	ID          string          `json:"id"`
+	Owner       string          `json:"owner"`
+	State       string          `json:"state"`
+	Device      string          `json:"device"`
+	StartedAt   string          `json:"started_at"`
+	EndedAt     string          `json:"ended_at"`
+	DurationS   float64         `json:"duration_s"`
+	Complete    bool            `json:"complete"`
+	StoredBytes int64           `json:"stored_bytes"`
+	Meta        json.RawMessage `json:"meta"`
+	Created     string          `json:"created"`
+	Updated     string          `json:"updated"`
+}
+
+type recordPage[T any] struct {
+	Items      []T `json:"items"`
+	Page       int `json:"page"`
+	PerPage    int `json:"perPage"`
+	TotalItems int `json:"totalItems"`
+}
+
+// createRecording sends the recording through the record API, as a client does. The
+// answer is 200 for a new recording and for a repeated create of an open one.
+func createRecording(s *server, token, id string, meta map[string]any) recordingRecord {
+	s.t.Helper()
+	body := s.expect(http.StatusOK, http.MethodPost, recordingsAPI, token,
+		map[string]any{"id": id, "meta": meta}, nil)
+	return decode[recordingRecord](s.t, body)
+}
+
+// replaceMeta updates an open recording's metadata.
+func replaceMeta(s *server, token, id string, meta map[string]any) recordingRecord {
+	s.t.Helper()
+	body := s.expect(http.StatusOK, http.MethodPatch, recordingsAPI+"/"+id, token, map[string]any{"meta": meta}, nil)
+	return decode[recordingRecord](s.t, body)
+}
+
+// seal marks a recording complete.
+func seal(s *server, token, id string) recordingRecord {
+	s.t.Helper()
+	body := s.expect(http.StatusOK, http.MethodPatch, recordingsAPI+"/"+id, token, map[string]bool{"complete": true}, nil)
+	return decode[recordingRecord](s.t, body)
+}
+
+func listRecordings(s *server, token, query string) recordPage[recordingRecord] {
+	s.t.Helper()
+	return decode[recordPage[recordingRecord]](s.t, s.expect(http.StatusOK, http.MethodGet, recordingsAPI+query, token, nil, nil))
+}
+
+func requestAnalysis(s *server, token, id string, body map[string]any) (int, []byte) {
+	s.t.Helper()
+	payload := map[string]any{"recording": id}
+	for key, value := range body {
+		payload[key] = value
+	}
+	status, _, data := s.call(http.MethodPost, analysesAPI, token, payload, nil)
+	return status, data
+}
+
+func mustRequestAnalysis(s *server, token, id string, body map[string]any) AnalysisView {
+	s.t.Helper()
+	status, data := requestAnalysis(s, token, id, body)
+	if status != http.StatusOK {
+		s.t.Fatalf("request analysis = %d %s", status, data)
+	}
+	return decode[AnalysisView](s.t, data)
+}
+
+func getAnalysis(s *server, token, id string) (int, AnalysisView) {
+	s.t.Helper()
+	status, _, data := s.call(http.MethodGet, analysesAPI+"/"+id, token, nil, nil)
+	if status != http.StatusOK {
+		return status, AnalysisView{}
+	}
+	return status, decode[AnalysisView](s.t, data)
+}
+
+func listAnalyses(s *server, token, query string) recordPage[AnalysisView] {
+	s.t.Helper()
+	return decode[recordPage[AnalysisView]](s.t, s.expect(http.StatusOK, http.MethodGet, analysesAPI+query, token, nil, nil))
 }
 
 func testMeta(id, state string) map[string]any {
@@ -184,12 +280,12 @@ func appendChunk(s *server, token, id, name string, offset int, chunk []byte, ex
 
 func completeRecording(s *server, token, id string) {
 	s.t.Helper()
-	s.expect(200, http.MethodPut, "/v1/recordings/"+id, token, testMeta(id, "stopped"), nil)
+	createRecording(s, token, id, testMeta(id, "stopped"))
 	status, _, body := appendChunk(s, token, id, "hr.log", 0, []byte("frames"), nil)
 	if status != 204 {
 		s.t.Fatalf("append: %d %s", status, body)
 	}
-	s.expect(200, http.MethodPatch, "/v1/recordings/"+id, token, map[string]bool{"complete": true}, nil)
+	seal(s, token, id)
 }
 
 func announce(s *server, id, version string) {
@@ -197,6 +293,27 @@ func announce(s *server, id, version string) {
 	s.expect(204, http.MethodPut, "/v1/workers/me", s.tokens["worker"], WorkerAnnouncement{
 		Name: "worker-1", Version: "0.1.0",
 		Algorithms: []AlgorithmView{{ID: id, Version: version, Name: id, License: "MIT"}},
+	}, nil)
+}
+
+// announceWithSchema announces an algorithm whose parameters are typed, so a
+// request can be checked against it.
+func announceWithSchema(s *server, id, version string) {
+	s.t.Helper()
+	s.expect(204, http.MethodPut, "/v1/workers/me", s.tokens["worker"], WorkerAnnouncement{
+		Name: "worker-1", Version: "0.1.0",
+		Algorithms: []AlgorithmView{{
+			ID: id, Version: version, Name: id, License: "MIT",
+			ParamsSchema: map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"window": map[string]any{"type": "integer", "minimum": 1, "maximum": 21},
+					"label":  map[string]any{"type": "string", "enum": []any{"a", "b"}},
+					"weight": map[string]any{"type": []any{"number", "null"}, "minimum": 0.0},
+				},
+			},
+		}},
 	}, nil)
 }
 
@@ -239,11 +356,11 @@ func TestAuthentication(t *testing.T) {
 		map[string]string{"identity": "alice@example.com"}, nil); status != 400 {
 		t.Fatalf("missing password = %d %s", status, body)
 	}
-	s.expectCode(401, "unauthorized", http.MethodGet, "/v1/recordings", "", nil, nil)
-	s.expectCode(401, "unauthorized", http.MethodGet, "/v1/recordings", "not-a-token", nil, nil)
+	s.expect(401, http.MethodGet, "/v1/recordings/x/files", "", nil, nil)
+	s.expect(401, http.MethodGet, "/v1/recordings/x/files", "not-a-token", nil, nil)
 
-	// A user token reads the user's own data; a worker token is refused outside worker routes.
-	s.expect(200, http.MethodGet, "/v1/recordings", s.tokens["alice"], nil, nil)
+	// A user token reads the user's own data.
+	s.expect(200, http.MethodGet, recordingsAPI, s.tokens["alice"], nil, nil)
 
 	// Refreshing answers the token with the account it belongs to, and the new token works.
 	refreshed := decode[AuthResponse](t, s.expect(200, http.MethodPost,
@@ -251,7 +368,7 @@ func TestAuthentication(t *testing.T) {
 	if refreshed.Token == "" || refreshed.Record.Email != "alice@example.com" || refreshed.Record.ID == "" {
 		t.Fatalf("refreshed = %+v", refreshed)
 	}
-	s.expect(200, http.MethodGet, "/v1/recordings", refreshed.Token, nil, nil)
+	s.expect(200, http.MethodGet, recordingsAPI, refreshed.Token, nil, nil)
 
 	// A worker token is for the workers collection: the users route refuses it, its own
 	// route refreshes it, and the worker routes work with it.
@@ -268,16 +385,25 @@ func TestAuthentication(t *testing.T) {
 		Algorithms: []AlgorithmView{{ID: "baseline", Version: "1.0.0", Name: "baseline", License: "MIT"}},
 	}, nil)
 
-	// A user cannot use worker endpoints and a worker cannot use user ones.
-	s.expectCode(403, "forbidden", http.MethodPost, "/v1/analyses/claim", s.tokens["alice"], nil, nil)
-	s.expectCode(403, "forbidden", http.MethodGet, "/v1/recordings", s.tokens["worker"], nil, nil)
+	// A user cannot use worker endpoints, and a worker cannot use the user-only ones.
+	s.expect(403, http.MethodPost, "/v1/analyses/claim", s.tokens["alice"], nil, nil)
+	s.expect(403, http.MethodGet, "/v1/algorithms", s.tokens["worker"], nil, nil)
 }
 
-func TestPocketBaseRecordAPIIsClosed(t *testing.T) {
+// TestRecordAPIIsOpenAndTheRestIsClosed covers both halves of the change: recordings
+// and analyses are PocketBase's record API now, and every other collection's record
+// endpoints stay closed.
+func TestRecordAPIIsOpenAndTheRestIsClosed(t *testing.T) {
 	s := newServer(t)
+	createRecording(s, s.tokens["alice"], "rec1", testMeta("rec1", "recording"))
+
+	// The rules decide, not a closed collection: a user sees their own list and can
+	// fetch the record, which a closed collection answers with 403.
+	s.expect(200, http.MethodGet, recordingsAPI, s.tokens["alice"], nil, nil)
+	s.expect(200, http.MethodGet, recordingsAPI+"/rec1", s.tokens["alice"], nil, nil)
+	s.expect(200, http.MethodGet, analysesAPI, s.tokens["alice"], nil, nil)
+
 	for _, path := range []string{
-		"/api/collections/recordings/records",
-		"/api/collections/analyses/records",
 		"/api/collections/users/records",
 		"/api/collections/workers/records",
 		"/api/collections/access_tokens/records",
@@ -309,15 +435,15 @@ func TestFetchPendingRecordingCannotBeCompleted(t *testing.T) {
 	alice := s.tokens["alice"]
 	id := "20261102_220000-cd34"
 
-	s.expect(201, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "fetch_pending"), nil)
+	createRecording(s, alice, id, testMeta(id, "fetch_pending"))
 	if st, _, b := appendChunk(s, alice, id, "hr.log", 0, []byte("frames"), nil); st != 204 {
 		t.Fatalf("append: %d %s", st, b)
 	}
-	s.expectCode(409, "recording_in_progress", http.MethodPatch, "/v1/recordings/"+id, alice, map[string]bool{"complete": true}, nil)
+	s.expectCode(409, "recording_in_progress", http.MethodPatch, recordingsAPI+"/"+id, alice, map[string]bool{"complete": true}, nil)
 
 	// The tracker handed the rest over: the recording is finished and can be sealed.
-	s.expect(200, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "stopped"), nil)
-	done := decode[RecordingView](t, s.expect(200, http.MethodPatch, "/v1/recordings/"+id, alice, map[string]bool{"complete": true}, nil))
+	replaceMeta(s, alice, id, testMeta(id, "stopped"))
+	done := seal(s, alice, id)
 	if !done.Complete || done.State != "stopped" {
 		t.Fatalf("complete = %+v", done)
 	}
@@ -328,86 +454,93 @@ func TestRecordingLifecycle(t *testing.T) {
 	alice, bob := s.tokens["alice"], s.tokens["bob"]
 	id := "20261101_220000-ab12"
 
-	status, header, body := s.call(http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "recording"), nil)
-	if status != 201 || header.Get("Location") != "/v1/recordings/"+id {
-		t.Fatalf("create = %d %v %s", status, header, body)
-	}
-	created := decode[RecordingView](t, body)
-	if created.ID != id || created.State != "recording" || created.Complete || created.Device != "Polar H10 X" || created.EndedAt != nil {
+	created := createRecording(s, alice, id, testMeta(id, "recording"))
+	if created.ID != id || created.State != "recording" || created.Complete || created.Device != "Polar H10 X" || created.EndedAt != "" {
 		t.Fatalf("created = %+v", created)
+	}
+	if created.StartedAt == "" || created.DurationS != 0 {
+		t.Fatalf("derived fields = %+v", created)
 	}
 	// meta is returned as it was sent, including fields this version does not know.
 	extra := testMeta(id, "recording")
 	extra["future_field"] = map[string]any{"a": 1}
 	var echoed map[string]any
-	if err := json.Unmarshal(decode[RecordingView](t, s.expect(200, http.MethodPut, "/v1/recordings/"+id, alice, extra, nil)).Meta, &echoed); err != nil ||
+	if err := json.Unmarshal(replaceMeta(s, alice, id, extra).Meta, &echoed); err != nil ||
 		echoed["future_field"] == nil || echoed["sensor"].(map[string]any)["kind"] != "polar-h10" {
 		t.Fatalf("meta not returned verbatim: %v %v", echoed, err)
 	}
 
-	// Creating again replaces the metadata; another account gets no hint but id_taken.
-	s.expect(200, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "recording"), nil)
-	s.expectCode(409, "id_taken", http.MethodPut, "/v1/recordings/"+id, bob, testMeta(id, "recording"), nil)
-	s.expectCode(404, "not_found", http.MethodGet, "/v1/recordings/"+id, bob, nil, nil)
-	s.expectCode(404, "not_found", http.MethodDelete, "/v1/recordings/"+id, bob, nil, nil)
+	// Repeating a create replaces the metadata; another account gets no hint but id_taken.
+	createRecording(s, alice, id, testMeta(id, "recording"))
+	s.expectCode(409, "id_taken", http.MethodPost, recordingsAPI, bob, map[string]any{"id": id, "meta": testMeta(id, "recording")}, nil)
+	s.expect(404, http.MethodGet, recordingsAPI+"/"+id, bob, nil, nil)
+	s.expect(404, http.MethodDelete, recordingsAPI+"/"+id, bob, nil, nil)
+	s.expect(404, http.MethodPatch, recordingsAPI+"/"+id, bob, map[string]any{"meta": testMeta(id, "stopped")}, nil)
 
 	// Validation.
-	s.expectCode(422, "invalid_meta", http.MethodPut, "/v1/recordings/other-id", alice, testMeta(id, "recording"), nil)
-	s.expectCode(422, "invalid_meta", http.MethodPut, "/v1/recordings/x1", alice, map[string]string{"format": "nope"}, nil)
-	s.expectCode(400, "invalid_id", http.MethodPut, "/v1/recordings/bad.id", alice, testMeta("bad.id", "recording"), nil)
+	s.expectCode(422, "invalid_meta", http.MethodPost, recordingsAPI, alice, map[string]any{"id": "other-id", "meta": testMeta(id, "recording")}, nil)
+	s.expectCode(400, "invalid_meta", http.MethodPost, recordingsAPI, alice, map[string]any{"id": "x1", "meta": map[string]string{"format": "nope"}}, nil)
+	s.expect(400, http.MethodPost, recordingsAPI, alice, map[string]any{"id": "bad.id", "meta": testMeta("bad.id", "recording")}, nil)
+	s.expectCode(400, "invalid_body", http.MethodPost, recordingsAPI, alice, map[string]any{"id": "rec2", "meta": testMeta("rec2", "recording"), "state": "stopped"}, nil)
 
 	// Completing needs a finished recording with data.
-	s.expectCode(409, "recording_in_progress", http.MethodPatch, "/v1/recordings/"+id, alice, map[string]bool{"complete": true}, nil)
-	s.expect(200, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "stopped"), nil)
-	s.expectCode(422, "no_data", http.MethodPatch, "/v1/recordings/"+id, alice, map[string]bool{"complete": true}, nil)
-	s.expectCode(400, "invalid_body", http.MethodPatch, "/v1/recordings/"+id, alice, map[string]string{"x": "y"}, nil)
+	s.expectCode(409, "recording_in_progress", http.MethodPatch, recordingsAPI+"/"+id, alice, map[string]bool{"complete": true}, nil)
+	replaceMeta(s, alice, id, testMeta(id, "stopped"))
+	s.expectCode(422, "no_data", http.MethodPatch, recordingsAPI+"/"+id, alice, map[string]bool{"complete": true}, nil)
+	s.expectCode(400, "invalid_body", http.MethodPatch, recordingsAPI+"/"+id, alice, map[string]string{"x": "y"}, nil)
 	if st, _, b := appendChunk(s, alice, id, "hr.log", 0, []byte("frames"), nil); st != 204 {
 		t.Fatalf("append: %d %s", st, b)
 	}
-	done := decode[RecordingView](t, s.expect(200, http.MethodPatch, "/v1/recordings/"+id, alice, map[string]bool{"complete": true}, nil))
-	if !done.Complete || done.SizeBytes != 6 || done.State != "stopped" || done.EndedAt == nil || done.DurationS != 3600 {
+	done := seal(s, alice, id)
+	if !done.Complete || done.StoredBytes != 6 || done.State != "stopped" || done.EndedAt == "" || done.DurationS != 3600 {
 		t.Fatalf("complete = %+v", done)
 	}
-	s.expect(200, http.MethodPatch, "/v1/recordings/"+id, alice, map[string]bool{"complete": true}, nil) // idempotent
-	s.expectCode(409, "recording_complete", http.MethodPatch, "/v1/recordings/"+id, alice, map[string]bool{"complete": false}, nil)
-	s.expectCode(409, "recording_complete", http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "stopped"), nil)
+	seal(s, alice, id) // idempotent
+	s.expectCode(409, "recording_complete", http.MethodPatch, recordingsAPI+"/"+id, alice, map[string]bool{"complete": false}, nil)
+	s.expectCode(409, "recording_complete", http.MethodPatch, recordingsAPI+"/"+id, alice, map[string]any{"meta": testMeta(id, "stopped")}, nil)
+	s.expectCode(409, "recording_complete", http.MethodPost, recordingsAPI, alice, map[string]any{"id": id, "meta": testMeta(id, "stopped")}, nil)
 
-	// Lists are scoped to the owner and filterable.
-	list := decode[RecordingList](t, s.expect(200, http.MethodGet, "/v1/recordings", alice, nil, nil))
-	if list.Total != 1 || len(list.Items) != 1 || list.Limit != 50 {
+	// Lists are scoped to the owner and filtered by PocketBase.
+	list := listRecordings(s, alice, "")
+	if list.TotalItems != 1 || len(list.Items) != 1 || list.PerPage != 30 {
 		t.Fatalf("list = %+v", list)
 	}
-	if got := decode[RecordingList](t, s.expect(200, http.MethodGet, "/v1/recordings", bob, nil, nil)); got.Total != 0 {
-		t.Fatalf("bob sees %d recordings", got.Total)
+	if got := listRecordings(s, bob, ""); got.TotalItems != 0 {
+		t.Fatalf("bob sees %d recordings", got.TotalItems)
 	}
 	for query, want := range map[string]int{
-		"?complete=true": 1, "?complete=false": 0, "?state=stopped": 1, "?state=recording": 0,
-		"?from=2026-11-01": 1, "?from=2027-01-01": 0, "?to=2026-11-30": 1, "?sort=duration_s&limit=1": 1,
+		"?filter=" + url.QueryEscape("complete=true"):                     1,
+		"?filter=" + url.QueryEscape("complete=false"):                    0,
+		"?filter=" + url.QueryEscape(`state="stopped"`):                   1,
+		"?filter=" + url.QueryEscape(`state="recording"`):                 0,
+		"?filter=" + url.QueryEscape(`started_at>="2026-11-01 00:00:00"`): 1,
+		"?filter=" + url.QueryEscape(`started_at>="2027-01-01 00:00:00"`): 0,
+		"?sort=-duration_s&perPage=1":                                     1,
 	} {
-		if got := decode[RecordingList](t, s.expect(200, http.MethodGet, "/v1/recordings"+query, alice, nil, nil)); len(got.Items) != want {
+		if got := listRecordings(s, alice, query); len(got.Items) != want {
 			t.Errorf("%s: %d items, want %d", query, len(got.Items), want)
 		}
 	}
-	for _, query := range []string{"?sort=bad", "?state=bad", "?complete=maybe", "?limit=0", "?limit=500", "?offset=-1", "?from=yesterday"} {
-		s.expectCode(400, "invalid_query", http.MethodGet, "/v1/recordings"+query, alice, nil, nil)
+	for _, query := range []string{"?sort=bad.feld", "?filter=" + url.QueryEscape("(")} {
+		s.expect(400, http.MethodGet, recordingsAPI+query, alice, nil, nil)
 	}
 
-	s.expect(204, http.MethodDelete, "/v1/recordings/"+id, alice, nil, nil)
-	s.expectCode(404, "not_found", http.MethodGet, "/v1/recordings/"+id, alice, nil, nil)
+	s.expect(204, http.MethodDelete, recordingsAPI+"/"+id, alice, nil, nil)
+	s.expect(404, http.MethodGet, recordingsAPI+"/"+id, alice, nil, nil)
 }
 
 func TestFileUpload(t *testing.T) {
 	s := newServer(t)
 	alice, bob := s.tokens["alice"], s.tokens["bob"]
 	id := "rec1"
-	s.expect(201, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "recording"), nil)
+	createRecording(s, alice, id, testMeta(id, "recording"))
 
 	// Appending needs the right offset; a wrong one says where the file is.
 	if st, h, _ := appendChunk(s, alice, id, "hr.log", 0, []byte("hello "), nil); st != 204 || h.Get(headerUploadOffset) != "6" {
 		t.Fatalf("first chunk = %d %v", st, h)
 	}
 	st, h, body := appendChunk(s, alice, id, "hr.log", 0, []byte("again"), nil)
-	if st != 409 || h.Get(headerUploadOffset) != "6" || decode[ErrorResponse](t, body).Code != "offset_mismatch" {
+	if st != 409 || h.Get(headerUploadOffset) != "6" || decode[ErrorResponse](t, body).Data["code"] != "offset_mismatch" {
 		t.Fatalf("mismatch = %d %v %s", st, h, body)
 	}
 	if st, h, _ := appendChunk(s, alice, id, "hr.log", 6, []byte("world"), nil); st != 204 || h.Get(headerUploadOffset) != "11" {
@@ -443,10 +576,10 @@ func TestFileUpload(t *testing.T) {
 		t.Fatalf("second gzip chunk = %d", st)
 	}
 	st, _, b := appendChunk(s, alice, id, "ecg.log", len(first)+len(second), []byte("plain"), nil)
-	if st != 409 || decode[ErrorResponse](t, b).Code != "encoding_mismatch" {
+	if st != 409 || decode[ErrorResponse](t, b).Data["code"] != "encoding_mismatch" {
 		t.Fatalf("mixed encoding = %d %s", st, b)
 	}
-	if st, _, b := appendChunk(s, alice, id, "acc.log", 0, []byte("not gzip at all, really not"), gz); st != 400 || decode[ErrorResponse](t, b).Code != "invalid_gzip" {
+	if st, _, b := appendChunk(s, alice, id, "acc.log", 0, []byte("not gzip at all, really not"), gz); st != 400 || decode[ErrorResponse](t, b).Data["code"] != "invalid_gzip" {
 		t.Fatalf("bad gzip = %d %s", st, b)
 	}
 
@@ -475,9 +608,9 @@ func TestFileUpload(t *testing.T) {
 	// A file can be restarted, and nothing changes once the recording is complete.
 	s.expect(204, http.MethodDelete, "/v1/recordings/"+id+"/files/ecg.log", alice, nil, nil)
 	s.expect(404, http.MethodDelete, "/v1/recordings/"+id+"/files/ecg.log", alice, nil, nil)
-	s.expect(200, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "stopped"), nil)
-	s.expect(200, http.MethodPatch, "/v1/recordings/"+id, alice, map[string]bool{"complete": true}, nil)
-	if st, _, b := appendChunk(s, alice, id, "hr.log", 11, []byte("more"), nil); st != 409 || decode[ErrorResponse](t, b).Code != "recording_complete" {
+	replaceMeta(s, alice, id, testMeta(id, "stopped"))
+	seal(s, alice, id)
+	if st, _, b := appendChunk(s, alice, id, "hr.log", 11, []byte("more"), nil); st != 409 || decode[ErrorResponse](t, b).Data["code"] != "recording_complete" {
 		t.Fatalf("append after complete = %d %s", st, b)
 	}
 	s.expectCode(409, "recording_complete", http.MethodDelete, "/v1/recordings/"+id+"/files/hr.log", alice, nil, nil)
@@ -487,8 +620,8 @@ func TestChunkLimits(t *testing.T) {
 	t.Setenv("TAIGA_MAX_UPLOAD_CHUNK_MB", "1")
 	s := newServer(t)
 	alice := s.tokens["alice"]
-	s.expect(201, http.MethodPut, "/v1/recordings/big", alice, testMeta("big", "recording"), nil)
-	if st, _, b := appendChunk(s, alice, "big", "hr.log", 0, make([]byte, 1024*1024+1), nil); st != 413 || decode[ErrorResponse](t, b).Code != "chunk_too_large" {
+	createRecording(s, alice, "big", testMeta("big", "recording"))
+	if st, _, b := appendChunk(s, alice, "big", "hr.log", 0, make([]byte, 1024*1024+1), nil); st != 413 || decode[ErrorResponse](t, b).Data["code"] != "chunk_too_large" {
 		t.Fatalf("oversized chunk = %d %s", st, b)
 	}
 }
@@ -557,22 +690,26 @@ func TestStorageQuota(t *testing.T) {
 	quota := int64(1) * 1024 * 1024 * 1024
 
 	// One account whose recordings already fill the quota.
-	s.expect(201, http.MethodPut, "/v1/recordings/full", alice, testMeta("full", "recording"), nil)
+	createRecording(s, alice, "full", testMeta("full", "recording"))
 	seedStoredBytes(t, s, "full", quota)
-	s.expect(201, http.MethodPut, "/v1/recordings/more", alice, testMeta("more", "recording"), nil)
+	createRecording(s, alice, "more", testMeta("more", "recording"))
 	if st, _, body := appendChunk(s, alice, "more", "hr.log", 0, []byte("frames"), nil); st != 413 ||
-		decode[ErrorResponse](t, body).Code != "storage_quota_exceeded" {
+		decode[ErrorResponse](t, body).Data["code"] != "storage_quota_exceeded" {
 		t.Fatalf("upload beyond the quota = %d %s", st, body)
 	}
 
 	// The quota is per account: another account still uploads.
-	s.expect(201, http.MethodPut, "/v1/recordings/bobs", bob, testMeta("bobs", "recording"), nil)
+	createRecording(s, bob, "bobs", testMeta("bobs", "recording"))
 	if st, _, body := appendChunk(s, bob, "bobs", "hr.log", 0, []byte("frames"), nil); st != 204 {
 		t.Fatalf("another account = %d %s", st, body)
 	}
 
-	// Deleting the bytes makes room again.
-	s.expect(204, http.MethodDelete, "/v1/recordings/full", alice, nil, nil)
+	// Deleting the bytes makes room again. The record API's delete hook is what takes
+	// the recording's bytes off the account's total.
+	s.expect(204, http.MethodDelete, recordingsAPI+"/full", alice, nil, nil)
+	if got := accountStorage(t, s, "alice@example.com"); got != 0 {
+		t.Fatalf("alice still holds %d bytes after deleting her recording", got)
+	}
 	if st, _, body := appendChunk(s, alice, "more", "hr.log", 0, []byte("frames"), nil); st != 204 {
 		t.Fatalf("upload after freeing space = %d %s", st, body)
 	}
@@ -582,9 +719,9 @@ func TestZeroStorageQuotaIsUnlimited(t *testing.T) {
 	t.Setenv("TAIGA_USER_QUOTA_GB", "0")
 	s := newServer(t)
 	alice := s.tokens["alice"]
-	s.expect(201, http.MethodPut, "/v1/recordings/full", alice, testMeta("full", "recording"), nil)
+	createRecording(s, alice, "full", testMeta("full", "recording"))
 	seedStoredBytes(t, s, "full", int64(1024)*1024*1024*1024)
-	s.expect(201, http.MethodPut, "/v1/recordings/more", alice, testMeta("more", "recording"), nil)
+	createRecording(s, alice, "more", testMeta("more", "recording"))
 	if st, _, body := appendChunk(s, alice, "more", "hr.log", 0, []byte("frames"), nil); st != 204 {
 		t.Fatalf("quota 0 must not limit an upload: %d %s", st, body)
 	}
@@ -596,7 +733,7 @@ func TestStorageTotalsFollowWrites(t *testing.T) {
 	s := newServer(t)
 	alice, bob := s.tokens["alice"], s.tokens["bob"]
 	id := "totals"
-	s.expect(201, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "recording"), nil)
+	createRecording(s, alice, id, testMeta(id, "recording"))
 
 	check := func(wantRecording, wantAccount int64) {
 		t.Helper()
@@ -630,7 +767,7 @@ func TestStorageTotalsFollowWrites(t *testing.T) {
 	check(7, 7)
 
 	// Another account keeps its own total.
-	s.expect(201, http.MethodPut, "/v1/recordings/bobs", bob, testMeta("bobs", "recording"), nil)
+	createRecording(s, bob, "bobs", testMeta("bobs", "recording"))
 	if st, _, _ := appendChunk(s, bob, "bobs", "hr.log", 0, []byte("four"), nil); st != 204 {
 		t.Fatalf("another account's chunk = %d", st)
 	}
@@ -640,7 +777,7 @@ func TestStorageTotalsFollowWrites(t *testing.T) {
 	}
 
 	// Deleting the recording takes everything it held off the account.
-	s.expect(204, http.MethodDelete, "/v1/recordings/"+id, alice, nil, nil)
+	s.expect(204, http.MethodDelete, recordingsAPI+"/"+id, alice, nil, nil)
 	if got := accountStorage(t, s, "alice@example.com"); got != 0 {
 		t.Fatalf("alice still holds %d bytes after deleting her recording", got)
 	}
@@ -677,7 +814,7 @@ func TestQuotaIgnoresTheRecordingsOnDisk(t *testing.T) {
 	alice := s.tokens["alice"]
 	quota := int64(1) * 1024 * 1024 * 1024
 
-	s.expect(201, http.MethodPut, "/v1/recordings/uncounted", alice, testMeta("uncounted", "recording"), nil)
+	createRecording(s, alice, "uncounted", testMeta("uncounted", "recording"))
 	seedStoredBytes(t, s, "uncounted", quota)
 	record, err := s.app.FindRecordById("recordings", "uncounted")
 	if err != nil {
@@ -696,7 +833,7 @@ func TestQuotaIgnoresTheRecordingsOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s.expect(201, http.MethodPut, "/v1/recordings/next", alice, testMeta("next", "recording"), nil)
+	createRecording(s, alice, "next", testMeta("next", "recording"))
 	if st, _, body := appendChunk(s, alice, "next", "hr.log", 0, []byte("frames"), nil); st != 204 {
 		t.Fatalf("bytes the total does not count must not limit an upload: %d %s", st, body)
 	}
@@ -710,9 +847,9 @@ func TestConcurrentChunksCannotBothExceedTheQuota(t *testing.T) {
 	alice := s.tokens["alice"]
 	quota := int64(1) * 1024 * 1024 * 1024
 
-	s.expect(201, http.MethodPut, "/v1/recordings/full", alice, testMeta("full", "recording"), nil)
+	createRecording(s, alice, "full", testMeta("full", "recording"))
 	seedStoredBytes(t, s, "full", quota-1)
-	s.expect(201, http.MethodPut, "/v1/recordings/race", alice, testMeta("race", "recording"), nil)
+	createRecording(s, alice, "race", testMeta("race", "recording"))
 
 	names := []string{"hr.log", "ecg.log"}
 	statuses := make([]int, len(names))
@@ -747,17 +884,28 @@ func TestAnalysisFlow(t *testing.T) {
 	s := newServer(t)
 	alice, bob, worker := s.tokens["alice"], s.tokens["bob"], s.tokens["worker"]
 	id := "rec1"
-	s.expect(201, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "recording"), nil)
+	createRecording(s, alice, id, testMeta(id, "recording"))
 	request := map[string]any{"algorithm": "baseline"}
 
-	s.expectCode(409, "recording_incomplete", http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, request, nil)
+	s.expectCode(409, "recording_incomplete", http.MethodPost, analysesAPI, alice, map[string]any{"recording": id, "algorithm": "baseline"}, nil)
 	completeRecording(s, alice, id)
-	s.expectCode(422, "unknown_algorithm", http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, request, nil)
+	if status, body := requestAnalysis(s, alice, id, request); status != http.StatusUnprocessableEntity ||
+		decode[ErrorResponse](t, body).Data["code"] != "unknown_algorithm" {
+		t.Fatalf("unknown algorithm = %d %s", status, body)
+	}
 	announce(s, "baseline", "1.1.0")
 	announce(s, "baseline", "1.2.0")
-	s.expectCode(404, "not_found", http.MethodPost, "/v1/recordings/"+id+"/analyses", bob, request, nil)
-	s.expectCode(400, "invalid_algorithm", http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, map[string]string{"algorithm": "Bad Id"}, nil)
-	s.expectCode(422, "unknown_algorithm", http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, map[string]any{"algorithm": "baseline", "version": "9.9.9"}, nil)
+	if status, _ := requestAnalysis(s, bob, id, request); status != http.StatusBadRequest {
+		t.Fatalf("another user's recording = %d, want PocketBase's refused create", status)
+	}
+	if status, body := requestAnalysis(s, alice, id, map[string]any{"algorithm": "Bad Id"}); status != http.StatusBadRequest ||
+		decode[ErrorResponse](t, body).Data["code"] != "invalid_algorithm" {
+		t.Fatalf("invalid algorithm = %d %s", status, body)
+	}
+	if status, body := requestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline", "version": "9.9.9"}); status != http.StatusUnprocessableEntity ||
+		decode[ErrorResponse](t, body).Data["code"] != "unknown_algorithm" {
+		t.Fatalf("unknown version = %d %s", status, body)
+	}
 
 	// Announcing replaces; only the newest version of the last announcement is on offer.
 	algorithms := decode[AlgorithmList](t, s.expect(200, http.MethodGet, "/v1/algorithms", alice, nil, nil)).Items
@@ -765,77 +913,72 @@ func TestAnalysisFlow(t *testing.T) {
 		t.Fatalf("algorithms = %+v", algorithms)
 	}
 
-	status, header, body := s.call(http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, request, nil)
-	if status != 201 {
-		t.Fatalf("create analysis = %d %s", status, body)
+	analysis := mustRequestAnalysis(s, alice, id, request)
+	if analysis.Status != "queued" || analysis.Version != "1.2.0" || analysis.Recording != id ||
+		analysis.Result != nil || analysis.Summary != nil || analysis.Attempts != 0 || analysis.Params == nil {
+		t.Fatalf("analysis = %+v", analysis)
 	}
-	analysis := decode[AnalysisView](t, body)
-	if analysis.Status != "queued" || analysis.Version != "1.2.0" || analysis.Recording != id || analysis.Result != nil || analysis.Summary != nil ||
-		header.Get("Location") != "/v1/analyses/"+analysis.ID {
-		t.Fatalf("analysis = %+v %v", analysis, header)
-	}
-	if again := decode[AnalysisView](t, s.expect(200, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, request, nil)); again.ID != analysis.ID {
+	if again := mustRequestAnalysis(s, alice, id, request); again.ID != analysis.ID {
 		t.Fatalf("a repeated request created %s, want %s", again.ID, analysis.ID)
 	}
-	other := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, map[string]any{"algorithm": "baseline", "params": map[string]any{"k": 1}}, nil))
+	other := mustRequestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline", "params": map[string]any{"k": 1}})
 	if other.ID == analysis.ID {
 		t.Fatal("different params must be a different analysis")
 	}
 
 	// Another user sees nothing of it, and a worker only what it holds the lease of.
-	s.expectCode(404, "not_found", http.MethodGet, "/v1/analyses/"+analysis.ID, bob, nil, nil)
-	s.expectCode(404, "not_found", http.MethodDelete, "/v1/analyses/"+analysis.ID, bob, nil, nil)
-	s.expectCode(404, "not_found", http.MethodGet, "/v1/analyses/"+analysis.ID, worker, nil, nil)
-	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses?status=queued", worker, nil, nil)); got.Total != 0 {
-		t.Fatalf("a worker lists %d queued analyses it does not hold", got.Total)
+	s.expect(404, http.MethodGet, analysesAPI+"/"+analysis.ID, bob, nil, nil)
+	s.expect(404, http.MethodDelete, analysesAPI+"/"+analysis.ID, bob, nil, nil)
+	s.expect(404, http.MethodGet, analysesAPI+"/"+analysis.ID, worker, nil, nil)
+	if got := listAnalyses(s, worker, "?filter="+url.QueryEscape(`status="queued"`)); got.TotalItems != 0 {
+		t.Fatalf("a worker lists %d queued analyses it does not hold", got.TotalItems)
 	}
-	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses", alice, nil, nil)); got.Total != 2 {
-		t.Fatalf("alice sees %d analyses", got.Total)
+	if got := listAnalyses(s, alice, ""); got.TotalItems != 2 {
+		t.Fatalf("alice sees %d analyses", got.TotalItems)
 	}
-	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses", bob, nil, nil)); got.Total != 0 {
-		t.Fatalf("bob sees %d analyses", got.Total)
+	if got := listAnalyses(s, bob, ""); got.TotalItems != 0 {
+		t.Fatalf("bob sees %d analyses", got.TotalItems)
 	}
 
 	// A worker reads the recording only while it holds a lease.
-	s.expect(404, http.MethodGet, "/v1/recordings/"+id, worker, nil, nil)
+	s.expect(404, http.MethodGet, recordingsAPI+"/"+id, worker, nil, nil)
 	s.expect(404, http.MethodGet, "/v1/recordings/"+id+"/files", worker, nil, nil)
 	s.expect(404, http.MethodGet, "/v1/recordings/"+id+"/files/hr.log", worker, nil, nil)
 	claimed := decode[AnalysisView](t, s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, ClaimRequest{Algorithms: []ClaimAlgorithm{{ID: "baseline", Version: "1.2.0"}}}, nil))
 	if claimed.Status != "running" || claimed.Attempts != 1 || claimed.ID != analysis.ID {
 		t.Fatalf("claimed = %+v", claimed)
 	}
-	s.expect(200, http.MethodGet, "/v1/recordings/"+id, worker, nil, nil)
-	if held := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses", worker, nil, nil)); held.Total != 1 || held.Items[0].ID != claimed.ID {
+	s.expect(200, http.MethodGet, recordingsAPI+"/"+id, worker, nil, nil)
+	if held := listAnalyses(s, worker, ""); held.TotalItems != 1 || held.Items[0].ID != claimed.ID {
 		t.Fatalf("a worker holds %+v, want only %s", held, claimed.ID)
 	}
-	if read := decode[AnalysisView](t, s.expect(200, http.MethodGet, "/v1/analyses/"+claimed.ID, worker, nil, nil)); read.ID != claimed.ID {
-		t.Fatalf("worker read %+v", read)
+	if status, read := getAnalysis(s, worker, claimed.ID); status != 200 || read.ID != claimed.ID {
+		t.Fatalf("worker read %d %+v", status, read)
 	}
 	s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/files", worker, nil, nil)
 	if got := s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/files/hr.log", worker, nil, nil); string(got) != "frames" {
 		t.Fatalf("worker read %q", got)
 	}
-	s.expectCode(403, "forbidden", http.MethodDelete, "/v1/recordings/"+id, worker, nil, nil)
+	s.expect(404, http.MethodDelete, recordingsAPI+"/"+id, worker, nil, nil)
 	s.expect(204, http.MethodPost, "/v1/analyses/claim", worker, ClaimRequest{Algorithms: []ClaimAlgorithm{{ID: "other"}}}, nil)
 
 	// A result must match what was asked.
 	bad := validResult("baseline", "1.2.0")
 	bad["model"] = "someone-else"
 	s.expectCode(422, "invalid_result", http.MethodPost, "/v1/analyses/"+analysis.ID+"/complete", worker, CompleteRequest{Result: mustJSON(t, bad)}, nil)
-	failed := decode[AnalysisView](t, s.expect(200, http.MethodGet, "/v1/analyses/"+analysis.ID, alice, nil, nil))
-	if failed.Status != "failed" || failed.Error == "" || failed.FinishedAt == nil {
-		t.Fatalf("a rejected result must fail the analysis: %+v", failed)
+	if status, failed := getAnalysis(s, alice, analysis.ID); status != 200 || failed.Status != "failed" || failed.Error == "" || failed.FinishedAt == nil {
+		t.Fatalf("a rejected result must fail the analysis: %d %+v", status, failed)
 	}
 	s.expectCode(409, "not_leased", http.MethodPost, "/v1/analyses/"+analysis.ID+"/complete", worker, CompleteRequest{Result: mustJSON(t, validResult("baseline", "1.2.0"))}, nil)
 	// The lease is gone, so the worker can no longer read the analysis either.
-	s.expect(404, http.MethodGet, "/v1/analyses/"+analysis.ID, worker, nil, nil)
+	s.expect(404, http.MethodGet, analysesAPI+"/"+analysis.ID, worker, nil, nil)
 
 	// Asking again for a failed analysis replaces it with a fresh queued one.
-	retry := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, request, nil))
+	retry := mustRequestAnalysis(s, alice, id, request)
 	if retry.Status != "queued" || retry.ID == analysis.ID || retry.Attempts != 0 {
 		t.Fatalf("retry = %+v", retry)
 	}
-	s.expect(404, http.MethodGet, "/v1/analyses/"+analysis.ID, alice, nil, nil)
+	s.expect(404, http.MethodGet, analysesAPI+"/"+analysis.ID, alice, nil, nil)
 
 	// Complete the retry through the queue.
 	next := decode[AnalysisView](t, s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil))
@@ -851,35 +994,33 @@ func TestAnalysisFlow(t *testing.T) {
 	if done.Status != "succeeded" || done.FinishedAt == nil {
 		t.Fatalf("done = %+v", done)
 	}
-	full := decode[AnalysisView](t, s.expect(200, http.MethodGet, "/v1/analyses/"+next.ID, alice, nil, nil))
-	if full.Result == nil || full.Summary == nil {
-		t.Fatalf("full = %+v", full)
-	}
-	summary := full.Summary.(map[string]any)
-	if _, ok := summary["stages"]; !ok {
+	if status, full := getAnalysis(s, alice, next.ID); status != 200 || full.Result == nil || full.Summary == nil {
+		t.Fatalf("full = %d %+v", status, full)
+	} else if summary, ok := full.Summary.(map[string]any); !ok {
+		t.Fatalf("summary = %v", full.Summary)
+	} else if _, ok := summary["stages"]; !ok {
 		t.Fatalf("summary = %v", summary)
 	}
-	s.expect(404, http.MethodGet, "/v1/recordings/"+id, worker, nil, nil) // lease is over
-	s.expect(404, http.MethodGet, "/v1/analyses/"+next.ID, worker, nil, nil)
-	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses", worker, nil, nil)); got.Total != 0 {
-		t.Fatalf("a worker still lists %d analyses after the lease", got.Total)
+	s.expect(404, http.MethodGet, recordingsAPI+"/"+id, worker, nil, nil) // lease is over
+	s.expect(404, http.MethodGet, analysesAPI+"/"+next.ID, worker, nil, nil)
+	if got := listAnalyses(s, worker, ""); got.TotalItems != 0 {
+		t.Fatalf("a worker still lists %d analyses after the lease", got.TotalItems)
 	}
 
-	// Lists leave the result out unless asked.
-	list := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/analyses?status=succeeded", alice, nil, nil))
-	if list.Total != 1 || list.Items[0].Result != nil || list.Items[0].Summary == nil {
+	// A list carries the same record, result included.
+	list := listAnalyses(s, alice, "?filter="+url.QueryEscape(`status="succeeded"`))
+	if list.TotalItems != 1 || list.Items[0].Result == nil || list.Items[0].Summary == nil {
 		t.Fatalf("list = %+v", list)
 	}
-	expanded := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses?recording="+id+"&status=succeeded&expand=result", alice, nil, nil))
-	if expanded.Total != 1 || expanded.Items[0].Result == nil {
-		t.Fatalf("expanded = %+v", expanded)
+	ofRecording := listAnalyses(s, alice, "?filter="+url.QueryEscape(`recording="`+id+`" && status="succeeded"`))
+	if ofRecording.TotalItems != 1 {
+		t.Fatalf("analyses of the recording = %+v", ofRecording)
 	}
-	s.expectCode(400, "invalid_query", http.MethodGet, "/v1/analyses?expand=everything", alice, nil, nil)
 
 	// Deleting the recording takes its analyses along.
-	s.expect(204, http.MethodDelete, "/v1/recordings/"+id, alice, nil, nil)
-	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses", alice, nil, nil)); got.Total != 0 {
-		t.Fatalf("%d analyses survived their recording", got.Total)
+	s.expect(204, http.MethodDelete, recordingsAPI+"/"+id, alice, nil, nil)
+	if got := listAnalyses(s, alice, ""); got.TotalItems != 0 {
+		t.Fatalf("%d analyses survived their recording", got.TotalItems)
 	}
 }
 
@@ -892,15 +1033,54 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 	return raw
 }
 
+func TestAnalysisParamsAreCheckedAgainstTheAnnouncedSchema(t *testing.T) {
+	s := newServer(t)
+	alice := s.tokens["alice"]
+	completeRecording(s, alice, "rec1")
+	announceWithSchema(s, "typed", "1.0.0")
+
+	if analysis := mustRequestAnalysis(s, alice, "rec1", map[string]any{
+		"algorithm": "typed",
+		"params":    map[string]any{"window": 5, "label": "a", "weight": nil},
+	}); analysis.Status != "queued" {
+		t.Fatalf("valid params = %+v", analysis)
+	}
+	for name, params := range map[string]map[string]any{
+		"unknown parameter":  {"nope": 1},
+		"wrong type":         {"window": "five"},
+		"below the minimum":  {"window": 0},
+		"above the maximum":  {"window": 22},
+		"not an enum value":  {"label": "c"},
+		"negative weight":    {"weight": -1},
+		"fractional integer": {"window": 1.5},
+	} {
+		status, body := requestAnalysis(s, alice, "rec1", map[string]any{"algorithm": "typed", "params": params})
+		var failure ErrorResponse
+		if status != http.StatusUnprocessableEntity || json.Unmarshal(body, &failure) != nil || failure.Data["code"] != "invalid_params" {
+			t.Errorf("%s = %d %s, want 422 invalid_params", name, status, body)
+		}
+	}
+	for name, params := range map[string]any{
+		"not an object": []any{1, 2},
+	} {
+		status, body := requestAnalysis(s, alice, "rec1", map[string]any{"algorithm": "typed", "params": params})
+		if status != http.StatusBadRequest {
+			t.Errorf("%s = %d %s, want 400", name, status, body)
+		}
+	}
+	if analysis := mustRequestAnalysis(s, alice, "rec1", map[string]any{"algorithm": "typed", "params": nil}); analysis.Status != "queued" {
+		t.Fatalf("omitted params = %+v", analysis)
+	}
+}
+
 func TestLeasesAndRetries(t *testing.T) {
 	t.Setenv("TAIGA_JOB_MAX_ATTEMPTS", "2")
 	s := newServer(t)
 	alice, worker := s.tokens["alice"], s.tokens["worker"]
 	id := "rec1"
-	s.expect(201, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "recording"), nil)
 	completeRecording(s, alice, id)
 	announce(s, "baseline", "1.0.0")
-	analysis := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, map[string]string{"algorithm": "baseline"}, nil))
+	analysis := mustRequestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline"})
 
 	expire := func() {
 		t.Helper()
@@ -911,7 +1091,11 @@ func TestLeasesAndRetries(t *testing.T) {
 	}
 	state := func() AnalysisView {
 		t.Helper()
-		return decode[AnalysisView](t, s.expect(200, http.MethodGet, "/v1/analyses/"+analysis.ID, alice, nil, nil))
+		status, got := getAnalysis(s, alice, analysis.ID)
+		if status != 200 {
+			t.Fatalf("analysis %s = %d", analysis.ID, status)
+		}
+		return got
 	}
 
 	// A retryable failure waits for its backoff, a lease that ran out is requeued.
@@ -937,9 +1121,9 @@ func TestLeasesAndRetries(t *testing.T) {
 	}
 
 	// A user deleting a running analysis cancels it: the worker's report is 404.
-	again := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, map[string]string{"algorithm": "baseline"}, nil))
+	again := mustRequestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline"})
 	s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil)
-	s.expect(204, http.MethodDelete, "/v1/analyses/"+again.ID, alice, nil, nil)
+	s.expect(204, http.MethodDelete, analysesAPI+"/"+again.ID, alice, nil, nil)
 	s.expectCode(404, "not_found", http.MethodPost, "/v1/analyses/"+again.ID+"/fail", worker, FailRequest{Error: "x"}, nil)
 }
 
@@ -948,10 +1132,9 @@ func TestLeaseRenewal(t *testing.T) {
 	s.account("workers", "worker2@example.com", "worker-2")
 	alice, worker, other := s.tokens["alice"], s.tokens["worker"], s.tokens["worker2"]
 	id := "rec1"
-	s.expect(201, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "recording"), nil)
 	completeRecording(s, alice, id)
 	announce(s, "baseline", "1.0.0")
-	analysis := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, map[string]string{"algorithm": "baseline"}, nil))
+	analysis := mustRequestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline"})
 	lease := func() string {
 		t.Helper()
 		record, err := s.app.FindRecordById("analyses", analysis.ID)
@@ -962,7 +1145,7 @@ func TestLeaseRenewal(t *testing.T) {
 	}
 
 	// A user never renews, and nobody can renew work that is not leased to them.
-	s.expectCode(403, "forbidden", http.MethodPost, "/v1/analyses/"+analysis.ID+"/lease", alice, LeaseRequest{LeaseSeconds: 60}, nil)
+	s.expect(403, http.MethodPost, "/v1/analyses/"+analysis.ID+"/lease", alice, LeaseRequest{LeaseSeconds: 60}, nil)
 	s.expectCode(409, "not_leased", http.MethodPost, "/v1/analyses/"+analysis.ID+"/lease", worker, LeaseRequest{LeaseSeconds: 60}, nil)
 	s.expectCode(404, "not_found", http.MethodPost, "/v1/analyses/missing/lease", worker, nil, nil)
 
@@ -1014,10 +1197,13 @@ func TestAccessTokensAreReadOnly(t *testing.T) {
 	s := newServer(t)
 	alice, bob, worker := s.tokens["alice"], s.tokens["bob"], s.tokens["worker"]
 	id := "rec1"
-	s.expect(201, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "stopped"), nil)
-	completeRecording(s, alice, id)
+	createRecording(s, alice, id, testMeta(id, "stopped"))
+	if st, _, b := appendChunk(s, alice, id, "hr.log", 0, []byte("frames"), nil); st != 204 {
+		t.Fatalf("append: %d %s", st, b)
+	}
+	seal(s, alice, id)
 	announce(s, "baseline", "1.0.0")
-	analysis := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, map[string]string{"algorithm": "baseline"}, nil))
+	analysis := mustRequestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline"})
 	s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil)
 	s.expect(200, http.MethodPost, "/v1/analyses/"+analysis.ID+"/complete", worker,
 		CompleteRequest{Result: mustJSON(t, validResult("baseline", "1.0.0"))}, nil)
@@ -1055,59 +1241,63 @@ func TestAccessTokensAreReadOnly(t *testing.T) {
 		t.Fatalf("bob lists %+v", got)
 	}
 
-	// The token reads the owner's data.
-	recordings := decode[RecordingList](t, s.expect(200, http.MethodGet, "/v1/recordings", created.Token, nil, nil))
-	if recordings.Total != 1 || recordings.Items[0].ID != id {
+	// The token reads the owner's data through the record API.
+	recordings := listRecordings(s, created.Token, "")
+	if recordings.TotalItems != 1 || recordings.Items[0].ID != id {
 		t.Fatalf("recordings through the token = %+v", recordings)
 	}
-	if got := decode[RecordingView](t, s.expect(200, http.MethodGet, "/v1/recordings/"+id, created.Token, nil, nil)); got.Complete != true {
+	if got := decode[recordingRecord](t, s.expect(200, http.MethodGet, recordingsAPI+"/"+id, created.Token, nil, nil)); !got.Complete {
 		t.Fatalf("recording through the token = %+v", got)
 	}
-	analyses := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/analyses?expand=result", created.Token, nil, nil))
-	if analyses.Total != 1 || analyses.Items[0].ID != analysis.ID || analyses.Items[0].Result == nil {
+	analyses := listAnalyses(s, created.Token, "")
+	if analyses.TotalItems != 1 || analyses.Items[0].ID != analysis.ID || analyses.Items[0].Result == nil {
 		t.Fatalf("analyses through the token = %+v", analyses)
 	}
-	if got := decode[AnalysisView](t, s.expect(200, http.MethodGet, "/v1/analyses/"+analysis.ID, created.Token, nil, nil)); got.Summary == nil || got.Result == nil {
-		t.Fatalf("analysis through the token = %+v", got)
+	if status, got := getAnalysis(s, created.Token, analysis.ID); status != 200 || got.Summary == nil || got.Result == nil {
+		t.Fatalf("analysis through the token = %d %+v", status, got)
 	}
-	if got := decode[AnalysisList](t, s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/analyses", created.Token, nil, nil)); got.Total != 1 {
+	if got := listAnalyses(s, created.Token, "?filter="+url.QueryEscape(`recording="`+id+`"`)); got.TotalItems != 1 {
 		t.Fatalf("recording analyses through the token = %+v", got)
 	}
 
 	// Another account's recording and analysis stay not found, and its own token sees nothing.
 	bobToken := createToken(s, "bob", "bob's script")
-	s.expectCode(404, "not_found", http.MethodGet, "/v1/recordings/"+id, bobToken.Token, nil, nil)
-	s.expectCode(404, "not_found", http.MethodGet, "/v1/analyses/"+analysis.ID, bobToken.Token, nil, nil)
-	s.expectCode(404, "not_found", http.MethodGet, "/v1/recordings/"+id+"/analyses", bobToken.Token, nil, nil)
-	if got := decode[RecordingList](t, s.expect(200, http.MethodGet, "/v1/recordings", bobToken.Token, nil, nil)); got.Total != 0 {
-		t.Fatalf("bob's token sees %d recordings", got.Total)
+	s.expect(404, http.MethodGet, recordingsAPI+"/"+id, bobToken.Token, nil, nil)
+	s.expect(404, http.MethodGet, analysesAPI+"/"+analysis.ID, bobToken.Token, nil, nil)
+	if got := listRecordings(s, bobToken.Token, ""); got.TotalItems != 0 {
+		t.Fatalf("bob's token sees %d recordings", got.TotalItems)
 	}
 
-	// Every write route refuses it, and so do the raw files and the other roles' routes.
+	// Every write route refuses it: a record create rule refuses the collection, an
+	// update or delete rule hides the record, and the custom routes refuse the role.
 	for _, call := range []struct {
 		method, path string
 		body         any
+		want         int
 	}{
-		{http.MethodPut, "/v1/recordings/new-recording", testMeta("new-recording", "recording")},
-		{http.MethodPatch, "/v1/recordings/" + id, map[string]bool{"complete": true}},
-		{http.MethodDelete, "/v1/recordings/" + id, nil},
-		{http.MethodPatch, "/v1/recordings/" + id + "/files/hr.log", []byte("more")},
-		{http.MethodDelete, "/v1/recordings/" + id + "/files/hr.log", nil},
-		{http.MethodPost, "/v1/recordings/" + id + "/analyses", map[string]string{"algorithm": "baseline"}},
-		{http.MethodDelete, "/v1/analyses/" + analysis.ID, nil},
-		{http.MethodPost, "/v1/tokens", TokenRequest{Name: "another"}},
-		{http.MethodDelete, "/v1/tokens/" + created.ID, nil},
-		{http.MethodPut, "/v1/workers/me", map[string]string{"name": "x"}},
-		{http.MethodPost, "/v1/analyses/claim", nil},
-		{http.MethodPost, "/v1/analyses/" + analysis.ID + "/lease", nil},
-		{http.MethodPost, "/v1/analyses/" + analysis.ID + "/complete", map[string]any{"result": map[string]any{}}},
-		{http.MethodPost, "/v1/analyses/" + analysis.ID + "/fail", map[string]string{"error": "x"}},
-		{http.MethodGet, "/v1/recordings/" + id + "/files", nil},
-		{http.MethodGet, "/v1/recordings/" + id + "/files/hr.log", nil},
-		{http.MethodGet, "/v1/algorithms", nil},
-		{http.MethodGet, "/v1/events", nil},
+		{http.MethodPost, recordingsAPI, map[string]any{"id": "new-recording", "meta": testMeta("new-recording", "recording")}, http.StatusBadRequest},
+		{http.MethodPatch, recordingsAPI + "/" + id, map[string]bool{"complete": true}, http.StatusNotFound},
+		{http.MethodDelete, recordingsAPI + "/" + id, nil, http.StatusNotFound},
+		{http.MethodPost, analysesAPI, map[string]any{"recording": id, "algorithm": "baseline"}, http.StatusBadRequest},
+		{http.MethodDelete, analysesAPI + "/" + analysis.ID, nil, http.StatusNotFound},
+		{http.MethodPatch, "/v1/recordings/" + id + "/files/hr.log", []byte("more"), http.StatusForbidden},
+		{http.MethodDelete, "/v1/recordings/" + id + "/files/hr.log", nil, http.StatusForbidden},
+		{http.MethodPost, "/v1/tokens", TokenRequest{Name: "another"}, http.StatusForbidden},
+		{http.MethodDelete, "/v1/tokens/" + created.ID, nil, http.StatusForbidden},
+		{http.MethodPut, "/v1/workers/me", map[string]string{"name": "x"}, http.StatusForbidden},
+		{http.MethodPost, "/v1/analyses/claim", nil, http.StatusForbidden},
+		{http.MethodPost, "/v1/analyses/" + analysis.ID + "/lease", nil, http.StatusForbidden},
+		{http.MethodPost, "/v1/analyses/" + analysis.ID + "/complete", map[string]any{"result": map[string]any{}}, http.StatusForbidden},
+		{http.MethodPost, "/v1/analyses/" + analysis.ID + "/fail", map[string]string{"error": "x"}, http.StatusForbidden},
+		{http.MethodGet, "/v1/recordings/" + id + "/files", nil, http.StatusForbidden},
+		{http.MethodGet, "/v1/recordings/" + id + "/files/hr.log", nil, http.StatusForbidden},
+		{http.MethodGet, "/v1/algorithms", nil, http.StatusForbidden},
+		{http.MethodGet, "/v1/events", nil, http.StatusForbidden},
 	} {
-		s.expectCode(403, "forbidden", call.method, call.path, created.Token, call.body, nil)
+		status, _, body := s.call(call.method, call.path, created.Token, call.body, nil)
+		if status != call.want {
+			t.Errorf("%s %s through the token = %d, want %d: %s", call.method, call.path, status, call.want, body)
+		}
 	}
 	// PocketBase's auth routes do not turn a read-only token into a login: its collection
 	// has no auth rule, and the users route refuses a token of another collection.
@@ -1127,28 +1317,32 @@ func TestAccessTokensAreReadOnly(t *testing.T) {
 	if got := decode[TokenList](t, s.expect(200, http.MethodGet, "/v1/tokens", alice, nil, nil)); len(got.Items) != 1 {
 		t.Fatalf("the refused writes changed the token list: %+v", got)
 	}
-	s.expect(200, http.MethodGet, "/v1/recordings/"+id, alice, nil, nil)
+	s.expect(200, http.MethodGet, recordingsAPI+"/"+id, alice, nil, nil)
 
 	// A token belongs to one account: another account cannot revoke it.
 	s.expectCode(404, "not_found", http.MethodDelete, "/v1/tokens/"+created.ID, bob, nil, nil)
 	s.expect(204, http.MethodDelete, "/v1/tokens/"+created.ID, alice, nil, nil)
-	s.expectCode(401, "unauthorized", http.MethodGet, "/v1/recordings", created.Token, nil, nil)
-	s.expectCode(401, "unauthorized", http.MethodGet, "/v1/analyses/"+analysis.ID, created.Token, nil, nil)
+	s.expect(401, http.MethodGet, "/v1/recordings/x/files", created.Token, nil, nil)
+	s.expect(404, http.MethodGet, analysesAPI+"/"+analysis.ID, created.Token, nil, nil)
 	s.expect(404, http.MethodDelete, "/v1/tokens/"+created.ID, alice, nil, nil)
 }
 
 func TestAllErrorsUseOneShape(t *testing.T) {
 	s := newServer(t)
 	for _, call := range []struct{ method, path, token string }{
-		{http.MethodGet, "/v1/recordings", ""},
-		{http.MethodGet, "/v1/recordings", s.tokens["worker"]},
-		{http.MethodGet, "/v1/recordings/missing", s.tokens["alice"]},
-		{http.MethodGet, "/v1/analyses/missing", s.tokens["alice"]},
-		{http.MethodGet, "/v1/recordings?limit=x", s.tokens["alice"]},
+		{http.MethodGet, "/v1/recordings/x/files", ""},
+		{http.MethodGet, "/v1/docs/not-an-asset", ""},
+		{http.MethodGet, "/v1/recordings/x/files", s.tokens["worker"]},
+		{http.MethodGet, recordingsAPI + "/missing", s.tokens["alice"]},
+		{http.MethodGet, analysesAPI + "/missing", s.tokens["alice"]},
+		{http.MethodPatch, "/v1/recordings/x/files/hr.log", s.tokens["alice"]},
+		{http.MethodGet, recordingsAPI + "?filter=" + url.QueryEscape("("), s.tokens["alice"]},
+		{http.MethodPost, "/v1/analyses/claim", s.tokens["alice"]},
 	} {
 		status, header, body := s.call(call.method, call.path, call.token, nil, nil)
 		var failure ErrorResponse
-		if status < 400 || json.Unmarshal(body, &failure) != nil || failure.Code == "" || failure.Message == "" ||
+		if status < 400 || json.Unmarshal(body, &failure) != nil || failure.Status != status ||
+			failure.Message == "" || failure.Data == nil ||
 			!strings.HasPrefix(header.Get("Content-Type"), "application/json") {
 			t.Errorf("%s %s = %d %s", call.method, call.path, status, body)
 		}
@@ -1171,7 +1365,6 @@ func TestVersionComparison(t *testing.T) {
 func TestDefaultVersionIgnoresWorkersThatWentAway(t *testing.T) {
 	s := newServer(t)
 	alice := s.tokens["alice"]
-	s.expect(201, http.MethodPut, "/v1/recordings/rec1", alice, testMeta("rec1", "recording"), nil)
 	completeRecording(s, alice, "rec1")
 
 	// An old announcement offers a newer version than the live worker does.
@@ -1186,12 +1379,12 @@ func TestDefaultVersionIgnoresWorkersThatWentAway(t *testing.T) {
 		Algorithms: []AlgorithmView{{ID: "baseline", Version: "1.0.0", Name: "baseline", License: "MIT"}},
 	}, nil)
 
-	got := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/rec1/analyses", alice, map[string]string{"algorithm": "baseline"}, nil))
+	got := mustRequestAnalysis(s, alice, "rec1", map[string]any{"algorithm": "baseline"})
 	if got.Version != "1.0.0" {
 		t.Fatalf("default version = %s, want the live worker's 1.0.0", got.Version)
 	}
 	// Asking for the old one by name still queues it: its worker may come back.
-	s.expect(201, http.MethodPost, "/v1/recordings/rec1/analyses", alice, map[string]string{"algorithm": "baseline", "version": "2.0.0"}, nil)
+	mustRequestAnalysis(s, alice, "rec1", map[string]any{"algorithm": "baseline", "version": "2.0.0"})
 }
 
 // stream is an open GET /v1/events connection, read by a goroutine so a test can wait for
@@ -1272,7 +1465,7 @@ func (st *stream) nothing() {
 func TestEventStream(t *testing.T) {
 	s := newServer(t)
 	alice, bob, worker := s.tokens["alice"], s.tokens["bob"], s.tokens["worker"]
-	s.expectCode(401, "unauthorized", http.MethodGet, "/v1/events", "", nil, nil)
+	s.expect(401, http.MethodGet, "/v1/events", "", nil, nil)
 
 	aliceEvents, bobEvents, workerEvents := openStream(t, s, alice), openStream(t, s, bob), openStream(t, s, worker)
 	if events.count() != 3 {
@@ -1280,11 +1473,11 @@ func TestEventStream(t *testing.T) {
 	}
 
 	id := "rec1"
-	s.expect(201, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "recording"), nil)
+	createRecording(s, alice, id, testMeta(id, "recording"))
 	if got := aliceEvents.next(); got != `recording {"id":"rec1","change":"created"}` {
 		t.Fatalf("created event = %q", got)
 	}
-	s.expect(200, http.MethodPut, "/v1/recordings/"+id, alice, testMeta(id, "stopped"), nil)
+	replaceMeta(s, alice, id, testMeta(id, "stopped"))
 	if got := aliceEvents.next(); got != `recording {"id":"rec1","change":"updated"}` {
 		t.Fatalf("meta change event = %q", got)
 	}
@@ -1292,7 +1485,7 @@ func TestEventStream(t *testing.T) {
 		t.Fatalf("append: %d %s", st, b)
 	}
 	aliceEvents.nothing() // a chunk is not a change to what clients show
-	s.expect(200, http.MethodPatch, "/v1/recordings/"+id, alice, map[string]bool{"complete": true}, nil)
+	seal(s, alice, id)
 	if got := aliceEvents.next(); got != `recording {"id":"rec1","change":"updated"}` {
 		t.Fatalf("sealed event = %q", got)
 	}
@@ -1309,7 +1502,7 @@ func TestEventStream(t *testing.T) {
 
 	// A user only hears about their own things; a worker only about queued work.
 	announce(s, "baseline", "1.0.0")
-	analysis := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, map[string]string{"algorithm": "baseline"}, nil))
+	analysis := mustRequestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline"})
 	queued := `analysis {"id":"` + analysis.ID + `","recording":"rec1","status":"queued"}`
 	if got := aliceEvents.next(); got != queued {
 		t.Fatalf("alice = %q, want %q", got, queued)
@@ -1330,7 +1523,7 @@ func TestEventStream(t *testing.T) {
 	}
 
 	// A retryable failure is queued again, which is work for a worker.
-	again := decode[AnalysisView](t, s.expect(201, http.MethodPost, "/v1/recordings/"+id+"/analyses", alice, map[string]any{"algorithm": "baseline", "params": map[string]int{"k": 1}}, nil))
+	again := mustRequestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline", "params": map[string]int{"k": 1}})
 	workerEvents.next()
 	s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil)
 	s.expect(200, http.MethodPost, "/v1/analyses/"+again.ID+"/fail", worker, FailRequest{Error: "flaky", Retryable: true}, nil)
@@ -1340,11 +1533,11 @@ func TestEventStream(t *testing.T) {
 
 	// Deleting an analysis and then the recording.
 	drain(aliceEvents)
-	s.expect(204, http.MethodDelete, "/v1/analyses/"+analysis.ID, alice, nil, nil)
+	s.expect(204, http.MethodDelete, analysesAPI+"/"+analysis.ID, alice, nil, nil)
 	if got := aliceEvents.next(); got != `analysis {"id":"`+analysis.ID+`","recording":"rec1","status":"deleted"}` {
 		t.Fatalf("delete event = %q", got)
 	}
-	s.expect(204, http.MethodDelete, "/v1/recordings/"+id, alice, nil, nil)
+	s.expect(204, http.MethodDelete, recordingsAPI+"/"+id, alice, nil, nil)
 	for aliceEvents.next() != `recording {"id":"rec1","change":"deleted"}` {
 	}
 	bobEvents.nothing()

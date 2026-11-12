@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"io/fs"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -154,6 +155,93 @@ func TestOpenAPIDocumentIsDeterministic(t *testing.T) {
 	if encode() != encode() {
 		t.Fatalf("the generated document is not deterministic")
 	}
+}
+
+// TestOpenAPIDocumentDescribesTheRecordAPI checks the half of the document that is
+// generated from the collection schema: the record routes exist, and the fields they
+// describe are the fields the server validates.
+func TestOpenAPIDocumentDescribesTheRecordAPI(t *testing.T) {
+	s := newServer(t)
+	document := decode[map[string]any](t, s.expect(200, http.MethodGet, "/v1/openapi.json", "", nil, nil))
+
+	paths, ok := document["paths"].(map[string]any)
+	if !ok {
+		t.Fatalf("document has no paths")
+	}
+	for _, collection := range []string{"recordings", "analyses"} {
+		base := "/api/collections/" + collection + "/records"
+		operations, _ := paths[base].(map[string]any)
+		for _, method := range []string{"get", "post"} {
+			operation, _ := operations[method].(map[string]any)
+			if operation["operationId"] == "" || operation["responses"] == nil {
+				t.Errorf("%s %s is not documented", method, base)
+			}
+		}
+		item, _ := paths[base+"/{id}"].(map[string]any)
+		for _, method := range []string{"get", "patch", "delete"} {
+			operation, _ := item[method].(map[string]any)
+			if operation["operationId"] == "" || operation["responses"] == nil {
+				t.Errorf("%s %s/{id} is not documented", method, base)
+			}
+			if operation["security"] == nil {
+				// The rules decide, but a token is what they look at.
+				t.Errorf("%s %s/{id} has no security requirement", method, base)
+			}
+		}
+	}
+
+	components, _ := document["components"].(map[string]any)
+	schemas, _ := components["schemas"].(map[string]any)
+	recording, _ := schemas["Recording"].(map[string]any)
+	properties, _ := recording["properties"].(map[string]any)
+	for _, field := range []string{"id", "owner", "state", "started_at", "duration_s", "complete", "meta", "files", "stored_bytes"} {
+		if _, ok := properties[field]; !ok {
+			t.Errorf("Recording does not document field %q", field)
+		}
+	}
+	if state, _ := properties["state"].(map[string]any); state["enum"] == nil {
+		t.Errorf("Recording.state has no enum: %v", properties["state"])
+	} else {
+		values, _ := state["enum"].([]any)
+		found := false
+		for _, value := range values {
+			if value == "fetch_pending" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Recording.state enum = %v, want fetch_pending", values)
+		}
+	}
+	if required, _ := recording["required"].([]any); !containsString(required, "meta") || !containsString(required, "owner") {
+		t.Errorf("Recording.required = %v, want meta and owner", required)
+	}
+
+	analysis, _ := schemas["Analysis"].(map[string]any)
+	analysisProperties, _ := analysis["properties"].(map[string]any)
+	for _, field := range []string{"recording", "algorithm", "version", "params", "status", "attempts", "lease_until", "result"} {
+		if _, ok := analysisProperties[field]; !ok {
+			t.Errorf("Analysis does not document field %q", field)
+		}
+	}
+	if status, _ := analysisProperties["status"].(map[string]any); status["enum"] == nil {
+		t.Errorf("Analysis.status has no enum: %v", analysisProperties["status"])
+	}
+	if algorithm, _ := analysisProperties["algorithm"].(map[string]any); algorithm["pattern"] == nil {
+		t.Errorf("Analysis.algorithm has no pattern: %v", analysisProperties["algorithm"])
+	}
+	if hash, _ := analysisProperties["params_hash"].(map[string]any); hash["maxLength"] != float64(16) {
+		t.Errorf("Analysis.params_hash = %v, want the schema's 16 characters", analysisProperties["params_hash"])
+	}
+}
+
+func containsString(values []any, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestDocsPageServesVendoredSwaggerUI(t *testing.T) {

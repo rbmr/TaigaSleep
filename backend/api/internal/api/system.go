@@ -30,7 +30,9 @@ func GetVersion(e *core.RequestEvent) error {
 	return e.JSON(http.StatusOK, VersionResponse{Service: "taiga-sleep", Version: version.Number, API: version.API})
 }
 
-// ServeOpenAPI serves the generated document at GET /v1/openapi.json.
+// ServeOpenAPI serves the generated document at GET /v1/openapi.json. The record
+// API's entries are generated from the collection schema, so the document describes
+// the collections this database actually has.
 func ServeOpenAPI(e *core.RequestEvent) error {
-	return e.JSON(http.StatusOK, OpenAPIDocument())
+	return e.JSON(http.StatusOK, openAPIDocument(e.App))
 }

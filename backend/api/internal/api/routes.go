@@ -6,14 +6,19 @@ import (
 
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/router"
 )
 
-// Register wires the API into a PocketBase app: the routes, the clean-up of a deleted
-// recording's files, the deployment settings and the lease sweeper.
+// Register wires the API into a PocketBase app: the routes, the record API hooks, the
+// clean-up of a deleted recording's files, the deployment settings and the lease
+// sweeper.
 func Register(app core.App) {
+	registerRecordHooks(app)
+
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
+		// The record API's documentation is generated from the collection schema, which
+		// only exists once the migrations have run.
+		prepareOpenAPIDocument(se.App)
 		RegisterRoutes(se.Router)
 		return se.Next()
 	})
@@ -55,14 +60,6 @@ func Register(app core.App) {
 // RegisterRoutes mounts every declared route. Each handler runs behind the route's
 // access check and the error shape, so no endpoint can skip either.
 func RegisterRoutes(router *router.Router[*core.RequestEvent]) {
-	// PocketBase's rate limiter answers before the route handlers run, so its error
-	// never reaches handle(). Bound just outside the limiter, this turns it into the
-	// one error shape of this API; the limiter has a Priority of -1000.
-	router.Bind(&hook.Handler[*core.RequestEvent]{
-		Id:       "taigaMiddlewareError",
-		Priority: apis.DefaultRateLimitMiddlewarePriority - 1,
-		Func:     middlewareError,
-	})
 	for _, route := range Routes() {
 		mounted := router.Route(route.Method, route.Path, handle(route.Handler))
 		// PocketBase loads the token and refuses a token from another collection; the
@@ -72,11 +69,6 @@ func RegisterRoutes(router *router.Router[*core.RequestEvent]) {
 		}
 	}
 }
-
-var (
-	recordingStates    = []string{"recording", "stopped", "forced_stop", "interrupted", "fetch_pending"}
-	analysisStatusEnum = []string{statusQueued, statusRunning, statusSucceeded, statusFailed}
-)
 
 func idParam() routeParam {
 	return pathParam("id", "The id of the recording.")
@@ -197,69 +189,6 @@ func Routes() []openAPIRoute {
 			Handler:     DeleteToken,
 		},
 
-		// --- recordings ---
-		{
-			Method: http.MethodGet, Path: apiPrefix + "/recordings", OperationID: "listRecordings", Tag: tagRecordings,
-			Summary: "List the caller's recordings",
-			Access:  accessRead,
-			Params: append([]routeParam{
-				queryEnum("state", "Only recordings in this state.", recordingStates),
-				queryBool("complete", "Only complete (or only incomplete) recordings."),
-				queryString("from", "Only recordings that started at or after this time (RFC 3339 or a date)."),
-				queryString("to", "Only recordings that started at or before this time."),
-				queryEnum("sort", "Order of the list; default `-started_at`.",
-					[]string{"started_at", "-started_at", "created", "-created", "duration_s", "-duration_s"}),
-			}, limitOffsetParams()...),
-			Responses: withErrors([]routeResponse{jsonResponse(200, "A page of recordings.", RecordingList{})}, 400, 401, 403),
-			Handler:   ListRecordings,
-		},
-		{
-			Method: http.MethodPut, Path: apiPrefix + "/recordings/{id}", OperationID: "putRecording", Tag: tagRecordings,
-			Summary: "Create a recording, or replace its metadata",
-			Description: "The body is the recording's `meta.json`, whose `session_id` must equal the id in the path. " +
-				"The client chooses the id (1 to 40 letters, digits, `_` or `-`), so repeating the request after a lost " +
-				"response is safe. A complete recording can no longer change.",
-			Access: accessUser,
-			Params: []routeParam{idParam()},
-			Body:   jsonBody(RecordingMeta{}, "The recording's meta.json."),
-			Responses: withErrors([]routeResponse{
-				{Status: 201, Description: "The recording was created.", Headers: map[string]string{"Location": "The recording's URL."},
-					Schema: func(r *schemaReflector) map[string]any { return r.schemaOf(reflect.TypeOf(RecordingView{})) }},
-				jsonResponse(200, "The recording existed and its metadata was replaced.", RecordingView{}),
-			}, 400, 401, 403, 409, 413, 422),
-			Handler: PutRecording,
-		},
-		{
-			Method: http.MethodGet, Path: apiPrefix + "/recordings/{id}", OperationID: "getRecording", Tag: tagRecordings,
-			Summary:     "Get a recording",
-			Description: "A worker may read a recording while it holds the lease of a running analysis of it.",
-			Access:      accessReadAny,
-			Params:      []routeParam{idParam()},
-			Responses:   withErrors([]routeResponse{jsonResponse(200, "The recording.", RecordingView{})}, 401, 403, 404),
-			Handler:     GetRecording,
-		},
-		{
-			Method: http.MethodPatch, Path: apiPrefix + "/recordings/{id}", OperationID: "patchRecording", Tag: tagRecordings,
-			Summary: "Mark a recording complete",
-			Description: "The only change a recording accepts: `{\"complete\": true}` seals it once every file has been " +
-				"uploaded. It is refused while the recording is still in progress or when it has no stream data. A complete " +
-				"recording cannot be reopened.",
-			Access:    accessUser,
-			Params:    []routeParam{idParam()},
-			Body:      jsonBody(RecordingPatch{}, "The change."),
-			Responses: withErrors([]routeResponse{jsonResponse(200, "The recording.", RecordingView{})}, 400, 401, 403, 404, 409, 422),
-			Handler:   PatchRecording,
-		},
-		{
-			Method: http.MethodDelete, Path: apiPrefix + "/recordings/{id}", OperationID: "deleteRecording", Tag: tagRecordings,
-			Summary:     "Delete a recording",
-			Description: "Removes the recording, its files and its analyses.",
-			Access:      accessUser,
-			Params:      []routeParam{idParam()},
-			Responses:   withErrors([]routeResponse{emptyResponse(204, "Deleted.")}, 401, 403, 404),
-			Handler:     DeleteRecording,
-		},
-
 		// --- recording files ---
 		{
 			Method: http.MethodGet, Path: apiPrefix + "/recordings/{id}/files", OperationID: "listFiles", Tag: tagFiles,
@@ -320,69 +249,6 @@ func Routes() []openAPIRoute {
 			Params:      fileParams(),
 			Responses:   withErrors([]routeResponse{emptyResponse(204, "Deleted.")}, 401, 403, 404, 409),
 			Handler:     DeleteFile,
-		},
-
-		// --- analyses ---
-		{
-			Method: http.MethodPost, Path: apiPrefix + "/recordings/{id}/analyses", OperationID: "createAnalysis", Tag: tagAnalyses,
-			Summary: "Request an analysis",
-			Description: "Creates a queued analysis, or returns the existing one for the same recording, algorithm, version and " +
-				"params. A failed existing analysis is replaced by a fresh queued one, which is how a retry is made. The version " +
-				"defaults to the newest a worker offers; a worker that stopped announcing itself (TAIGA_WORKER_TTL_S, 900 s) is ignored unless none is left.",
-			Access: accessUser,
-			Params: []routeParam{idParam()},
-			Body:   jsonBody(AnalysisRequest{}, "The algorithm to run."),
-			Responses: withErrors([]routeResponse{
-				{Status: 201, Description: "A new analysis was queued.", Headers: map[string]string{"Location": "The analysis' URL."},
-					Schema: func(r *schemaReflector) map[string]any { return r.schemaOf(reflect.TypeOf(AnalysisView{})) }},
-				jsonResponse(200, "The analysis already existed.", AnalysisView{}),
-			}, 400, 401, 403, 404, 409, 422),
-			Handler: CreateAnalysis,
-		},
-		{
-			Method: http.MethodGet, Path: apiPrefix + "/recordings/{id}/analyses", OperationID: "listRecordingAnalyses", Tag: tagAnalyses,
-			Summary: "List the analyses of a recording",
-			Access:  accessRead,
-			Params: append([]routeParam{
-				idParam(),
-				queryEnum("status", "Only analyses in this status.", analysisStatusEnum),
-				queryEnum("expand", "`result` includes the full result of each analysis.", []string{"result"}),
-				queryEnum("sort", "Order of the list; default `-created`.", []string{"created", "-created"}),
-			}, limitOffsetParams()...),
-			Responses: withErrors([]routeResponse{jsonResponse(200, "A page of analyses.", AnalysisList{})}, 400, 401, 403, 404),
-			Handler:   ListRecordingAnalyses,
-		},
-		{
-			Method: http.MethodGet, Path: apiPrefix + "/analyses", OperationID: "listAnalyses", Tag: tagAnalyses,
-			Summary:     "List analyses across recordings",
-			Description: "A user sees their own; a worker sees only the analyses it holds the lease of.",
-			Access:      accessReadAny,
-			Params: append([]routeParam{
-				queryString("recording", "Only analyses of this recording."),
-				queryEnum("status", "Only analyses in this status.", analysisStatusEnum),
-				queryEnum("expand", "`result` includes the full result of each analysis.", []string{"result"}),
-				queryEnum("sort", "Order of the list; default `-created`.", []string{"created", "-created"}),
-			}, limitOffsetParams()...),
-			Responses: withErrors([]routeResponse{jsonResponse(200, "A page of analyses.", AnalysisList{})}, 400, 401, 403),
-			Handler:   ListAnalyses,
-		},
-		{
-			Method: http.MethodGet, Path: apiPrefix + "/analyses/{id}", OperationID: "getAnalysis", Tag: tagAnalyses,
-			Summary:     "Get an analysis with its result",
-			Description: "A worker may read an analysis while it holds the lease of it.",
-			Access:      accessReadAny,
-			Params:      []routeParam{pathParam("id", "The id of the analysis.")},
-			Responses:   withErrors([]routeResponse{jsonResponse(200, "The analysis.", AnalysisView{})}, 401, 403, 404),
-			Handler:     GetAnalysis,
-		},
-		{
-			Method: http.MethodDelete, Path: apiPrefix + "/analyses/{id}", OperationID: "deleteAnalysis", Tag: tagAnalyses,
-			Summary:     "Delete an analysis",
-			Description: "A running analysis is cancelled: the worker's next call about it gets 404.",
-			Access:      accessUser,
-			Params:      []routeParam{pathParam("id", "The id of the analysis.")},
-			Responses:   withErrors([]routeResponse{emptyResponse(204, "Deleted.")}, 401, 403, 404),
-			Handler:     DeleteAnalysis,
 		},
 
 		// --- events ---

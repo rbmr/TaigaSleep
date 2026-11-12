@@ -42,6 +42,7 @@ func TestStorageTotalsAreFilledFromDisk(t *testing.T) {
 		record.Set("state", "stopped")
 		record.Set("started_at", "2026-01-01 00:00:00.000Z")
 		record.Set("complete", true)
+		record.Set("meta", map[string]any{"format": "taiga-recording"})
 		record.Set("files", map[string]any{"hr.log": map[string]any{"encoding": "identity"}})
 		if err := app.Save(record); err != nil {
 			t.Fatalf("save recording %s: %v", id, err)
