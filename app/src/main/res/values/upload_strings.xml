@@ -20,21 +20,19 @@
 
   <string name="upload_error_login">Log in to the server to upload.</string>
 
-  <string name="history_nights_label">Recordings</string>
+  <string name="history_times">%1$s – %2$s · %3$s</string>
+  <string name="history_started">%1$s · %2$s</string>
   <string name="history_local_only">Only on this phone</string>
   <string name="history_recording">Recording</string>
   <string name="history_queued">Waiting to upload</string>
   <string name="history_uploading">Uploading %1$d%%</string>
   <string name="history_processing">Analyzing</string>
-  <string name="history_status_ready">Ready</string>
   <string name="history_status_upload_failed">Upload failed</string>
   <string name="history_status_analysis_failed">Analysis failed</string>
   <string name="history_status_login">Login needed</string>
   <string name="history_status_update">Update needed</string>
   <string name="history_action_login">Log in</string>
-  <string name="history_score_badge">%1$s %2$d</string>
   <string name="history_sleep_score_label">Score</string>
-  <string name="history_no_sleep_score">No score</string>
   <string name="history_stage_bar_description">Sleep stage distribution</string>
 
   <string name="night_title">Recording</string>

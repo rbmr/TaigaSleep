@@ -6,9 +6,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -170,6 +173,61 @@ fun TertiaryButton(
   }
 }
 
+/**
+ * A compact switch between a few views, such as Recordings | Trends. The chosen segment is filled;
+ * every segment is a [Pressable], so its touch target is 48 dp while the visible control stays
+ * smaller.
+ */
+@Composable
+fun SegmentedControl(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  Box(modifier.height(48.dp), contentAlignment = Alignment.Center) {
+    Box(
+        modifier =
+            Modifier.matchParentSize()
+                .padding(vertical = MaterialTheme.taiga.space.xs)
+                .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+    )
+    Row(Modifier.fillMaxHeight()) {
+      options.forEachIndexed { index, option ->
+        val selected = index == selectedIndex
+        Pressable(
+            onClick = { onSelect(index) },
+            modifier = Modifier.fillMaxHeight(),
+            shape = CircleShape,
+            role = Role.Tab,
+            onClickLabel = option,
+        ) {
+          Box(
+              modifier =
+                  Modifier.height(34.dp)
+                      .background(
+                          color =
+                              if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                          shape = CircleShape,
+                      )
+                      .padding(horizontal = MaterialTheme.taiga.space.m),
+              contentAlignment = Alignment.Center,
+          ) {
+            Text(
+                text = option,
+                style = MaterialTheme.taiga.text.meta,
+                color =
+                    if (selected) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
 @Preview(name = "Light")
 @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
@@ -201,5 +259,10 @@ private fun ButtonsPreview() {
           borderColor = MaterialTheme.taiga.warnBorder,
       )
     }
+    SegmentedControl(
+        options = listOf("Recordings", "Trends"),
+        selectedIndex = 1,
+        onSelect = {},
+    )
   }
 }

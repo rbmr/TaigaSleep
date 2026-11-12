@@ -28,7 +28,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -56,10 +55,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -113,16 +112,6 @@ fun qualityColor(band: QualityBand): Color =
     }
 
 @Composable
-private fun qualityContainer(band: QualityBand): Color =
-    when (band) {
-      QualityBand.EXCELLENT,
-      QualityBand.GOOD -> MaterialTheme.taiga.okContainer
-      QualityBand.FAIR -> MaterialTheme.taiga.warnContainer
-      QualityBand.POOR -> MaterialTheme.taiga.badContainer
-      QualityBand.NONE -> MaterialTheme.colorScheme.surfaceVariant
-    }
-
-@Composable
 fun stageColor(stage: String): Color =
     when (stage) {
       "wake" -> MaterialTheme.taiga.stageWake
@@ -133,32 +122,6 @@ fun stageColor(stage: String): Color =
       "unknown" -> MaterialTheme.colorScheme.outlineVariant
       else -> MaterialTheme.taiga.stageLight
     }
-
-@Composable
-fun ScoreBadge(
-    score: Double?,
-    label: String,
-    emptyLabel: String,
-    modifier: Modifier = Modifier,
-) {
-  val band = qualityBand(score)
-  Surface(
-      modifier = modifier,
-      shape = RoundedCornerShape(50),
-      color = qualityContainer(band),
-      contentColor = qualityColor(band),
-  ) {
-    Text(
-        text =
-            if (score == null) emptyLabel
-            else stringResource(R.string.history_score_badge, label, score.roundToInt()),
-        style = MaterialTheme.typography.labelLarge,
-        modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
-  }
-}
 
 @Composable
 fun ScoreRing(
@@ -223,6 +186,7 @@ fun ScoreRing(
 fun StageBar(
     segments: List<StageSegmentDto>,
     modifier: Modifier = Modifier,
+    height: Dp = 10.dp,
     description: String = stringResource(R.string.history_stage_bar_description),
 ) {
   val visible = segments.filter { it.count > 0 }
@@ -230,7 +194,7 @@ fun StageBar(
       modifier =
           modifier
               .fillMaxWidth()
-              .height(10.dp)
+              .height(height)
               .clip(RoundedCornerShape(50))
               .background(MaterialTheme.colorScheme.surfaceVariant)
               .semantics { contentDescription = description },
@@ -291,11 +255,13 @@ private fun epochTimeMs(startUnixMs: Long, totalSeconds: Long, pointCount: Int, 
 
 @Composable
 fun ChartExpandButton(onClick: () -> Unit) {
-  IconButton(onClick = onClick) {
-    Icon(
-        imageVector = Icons.Outlined.Fullscreen,
-        contentDescription = stringResource(R.string.night_chart_fullscreen),
-    )
+  Pressable(onClick = onClick, shape = CircleShape, role = Role.Button) {
+    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+      Icon(
+          imageVector = Icons.Outlined.Fullscreen,
+          contentDescription = stringResource(R.string.night_chart_fullscreen),
+      )
+    }
   }
 }
 
@@ -338,11 +304,13 @@ fun ChartFullscreenDialog(
               style = MaterialTheme.typography.titleLarge,
               modifier = Modifier.weight(1f),
           )
-          IconButton(onClick = onDismiss) {
-            Icon(
-                imageVector = Icons.Outlined.Close,
-                contentDescription = stringResource(R.string.night_chart_close_fullscreen),
-            )
+          Pressable(onClick = onDismiss, shape = CircleShape, role = Role.Button) {
+            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+              Icon(
+                  imageVector = Icons.Outlined.Close,
+                  contentDescription = stringResource(R.string.night_chart_close_fullscreen),
+              )
+            }
           }
         }
         content(Modifier.weight(1f).fillMaxWidth())
@@ -766,7 +734,6 @@ private fun RecordingChartsPreview() {
       )
   PreviewTheme {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-      ScoreBadge(82.0, "Sleep score", "No sleep score")
       ScoreRing(82.0, "Sleep score", size = 72)
     }
     StageBar(segments)

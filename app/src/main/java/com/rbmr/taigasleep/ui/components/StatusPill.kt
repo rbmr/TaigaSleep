@@ -1,9 +1,11 @@
 package com.rbmr.taigasleep.ui.components
 
 import android.content.res.Configuration
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -109,6 +111,48 @@ fun StatusPill(
   }
 }
 
+/**
+ * A chip that chooses one of a few values, such as a trend range. The chosen chip is filled; the
+ * others sit on the quiet track colour. It is a [Pressable], so its touch target is 48 dp.
+ */
+@Composable
+fun ChoiceChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  Pressable(
+      onClick = onClick,
+      modifier = modifier,
+      shape = CircleShape,
+      role = Role.RadioButton,
+      onClickLabel = label,
+  ) {
+    Box(
+        modifier =
+            Modifier.height(32.dp)
+                .background(
+                    color =
+                        if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                    shape = CircleShape,
+                )
+                .padding(horizontal = MaterialTheme.taiga.space.m),
+        contentAlignment = Alignment.Center,
+    ) {
+      Text(
+          text = label,
+          style = MaterialTheme.taiga.text.meta,
+          color =
+              if (selected) MaterialTheme.colorScheme.onPrimary
+              else MaterialTheme.colorScheme.onSurfaceVariant,
+          maxLines = 1,
+      )
+    }
+  }
+}
+
 @Preview(name = "Light")
 @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
@@ -124,5 +168,10 @@ private fun StatusPillPreview() {
       StatusPill(StatusPillState.Neutral, "Not set")
     }
     StatusPill(StatusPillState.Neutral, "Open", onClick = {})
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      ChoiceChip(label = "7 days", selected = true, onClick = {})
+      ChoiceChip(label = "14 days", selected = false, onClick = {})
+      ChoiceChip(label = "30 days", selected = false, onClick = {})
+    }
   }
 }

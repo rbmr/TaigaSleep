@@ -394,6 +394,10 @@ fun formatRecordingDateAndTime(ms: Long): String =
     if (ms <= 0) "—"
     else SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault()).format(Date(ms))
 
+/** The clock time of a recording, e.g. `23:12`. */
+fun formatRecordingTime(ms: Long): String =
+    if (ms <= 0) "—" else SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
+
 fun formatDuration(ms: Long): String {
   if (ms <= 0) return "—"
   val totalSeconds = ms / 1000
