@@ -32,8 +32,6 @@ import com.rbmr.taigasleep.tracker.Stamp
 import com.rbmr.taigasleep.tracker.StreamConfig
 import com.rbmr.taigasleep.tracker.SystemClockSource
 import com.rbmr.taigasleep.tracker.TrackerEntry
-import io.reactivex.rxjava3.core.Flowable
-import io.reactivex.rxjava3.disposables.Disposable
 import java.io.IOException
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -42,9 +40,22 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 /**
  * One process-wide Polar SDK instance. Its single callback is fanned out to the sensor objects by
@@ -167,7 +178,12 @@ class PolarH10Sensor(
   private val control = Executors.newSingleThreadScheduledExecutor { Thread(it, "polar-control-$id") }
 
   private val ready = HashSet<PolarBleSdkFeature>()
-  private val streams = HashMap<String, Disposable>()
+  private val streams = HashMap<String, Job>()
+  // Collects the running streams. Every teardown replaces it, so nothing from the old link keeps
+  // collecting after the streams were disposed.
+  private var streamScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+  // Calls that outlive one stream, like the clock sync a stream start waits for.
+  private val calls = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   // Pending "first sample" checks, one per stream; cancelled when the streams are torn down.
   private val watchdogs = HashMap<String, ScheduledFuture<*>>()
   private var wanted: StreamConfig? = null
@@ -264,10 +280,7 @@ class PolarH10Sensor(
         awaitConnected()
         val entries = exerciseEntries()
         entries.map { entry ->
-          val data =
-              api.fetchExercise(id, entry)
-                  .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
-                  .blockingGet()
+          val data = blockingCall(OFFLINE_TIMEOUT_S) { api.fetchExercise(id, entry) }
           fetchedFromDevice[entry.identifier] = entry
           TrackerEntry(
               id = entry.identifier,
@@ -281,23 +294,10 @@ class PolarH10Sensor(
     if (ids.isEmpty()) return
     val removal =
         control.submit {
-          // An entry fetched by an earlier process is not cached here, so the strap's own list names
-          // it. An entry the strap no longer has is already gone.
-          val stored = exerciseEntries().associateBy { it.identifier }
-          val failed = mutableListOf<String>()
-          for (entryId in ids) {
-            val exercise = fetchedFromDevice[entryId] ?: stored[entryId] ?: continue
-            try {
-              api.removeExercise(id, exercise)
-                  .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
-                  .blockingAwait()
-              fetchedFromDevice.remove(entryId)
-            } catch (e: Exception) {
-              failed += entryId
-            }
-          }
-          if (failed.isNotEmpty()) {
-            throw IOException("the tracker still holds ${failed.joinToString()}")
+          try {
+            blockingCall(REMOVE_TIMEOUT_S) { removeExercises(ids) }
+          } catch (_: TimeoutCancellationException) {
+            throw IOException("removing the tracker copy timed out")
           }
         }
     try {
@@ -310,6 +310,31 @@ class PolarH10Sensor(
     } catch (_: java.util.concurrent.TimeoutException) {
       removal.cancel(true)
       throw IOException("removing the tracker copy timed out")
+    }
+  }
+
+  /**
+   * Removes [ids] from the strap. An entry fetched by an earlier process is not cached here, so the
+   * strap's own list names it. An entry the strap no longer has is already gone.
+   */
+  private suspend fun removeExercises(ids: List<String>) {
+    val stored = exerciseEntries().associateBy { it.identifier }
+    val failed = mutableListOf<String>()
+    for (entryId in ids) {
+      val exercise = fetchedFromDevice[entryId] ?: stored[entryId] ?: continue
+      try {
+        withTimeout(TimeUnit.SECONDS.toMillis(OFFLINE_TIMEOUT_S)) {
+          api.removeExercise(id, exercise)
+        }
+        fetchedFromDevice.remove(entryId)
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        failed += entryId
+      }
+    }
+    if (failed.isNotEmpty()) {
+      throw IOException("the tracker still holds ${failed.joinToString()}")
     }
   }
 
@@ -326,13 +351,20 @@ class PolarH10Sensor(
     }
   }
 
+  /**
+   * Runs one suspending SDK call to completion on the calling (control) thread, giving up after
+   * [timeoutS]. The sensor's SDK calls stay on its control thread, in order, as before.
+   */
+  private fun <T> blockingCall(timeoutS: Long, call: suspend () -> T): T =
+      runBlocking { withTimeout(TimeUnit.SECONDS.toMillis(timeoutS)) { call() } }
+
   override fun discardOnDevice() {
     control.execute {
       awaitConnected()
       stopTrackerRecording()
       runCatching {
         for (entry in exerciseEntries()) {
-          api.removeExercise(id, entry).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingAwait()
+          blockingCall(OFFLINE_TIMEOUT_S) { api.removeExercise(id, entry) }
         }
       }
       onDeviceWanted = null
@@ -360,6 +392,8 @@ class PolarH10Sensor(
 
   fun release() {
     PolarSdk.sensors.remove(id, this)
+    streamScope.cancel()
+    calls.cancel()
     control.shutdown()
     delivery.shutdown()
   }
@@ -431,9 +465,8 @@ class PolarH10Sensor(
     try {
       // A service restart can find the strap already recording from the previous instance. Do not
       // start a second file; the fetch at the end drains whatever is there.
-      val status =
-          api.requestRecordingStatus(id).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingGet()
-      if (status.first == true) {
+      val status = blockingCall(OFFLINE_TIMEOUT_S) { api.requestRecordingStatus(id) }
+      if (status.ongoing) {
         onDeviceActive = true
         l.onNote("on_device_resume", "the tracker was already storing HR and RR")
         finishOnDeviceStart(null)
@@ -443,14 +476,14 @@ class PolarH10Sensor(
       // path does the same). Recording matters more than the clock: carry on if it fails.
       setOnDeviceClock(l)
       // The H10 keeps one kind of sample per recording; beat intervals carry both HR and RR.
-      api.startRecording(
-              id,
-              EXERCISE_ID,
-              PolarH10OfflineExerciseApi.RecordingInterval.INTERVAL_1S,
-              PolarH10OfflineExerciseApi.SampleType.RR,
-          )
-          .timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS)
-          .blockingAwait()
+      blockingCall(OFFLINE_TIMEOUT_S) {
+        api.startRecording(
+            id,
+            EXERCISE_ID,
+            PolarH10OfflineExerciseApi.RecordingInterval.INTERVAL_1S,
+            sampleType = PolarH10OfflineExerciseApi.SampleType.RR,
+        )
+      }
       onDeviceActive = true
       l.onNote("on_device_start", "the tracker is storing HR and RR on the device")
       finishOnDeviceStart(null)
@@ -472,9 +505,7 @@ class PolarH10Sensor(
   /** Sets the strap's clock before an on-device recording starts, so its exercise start is real. */
   private fun setOnDeviceClock(l: SampleListener) {
     try {
-      api.setLocalTime(id, LocalDateTime.now(ZoneOffset.UTC))
-          .timeout(CLOCK_SYNC_S, TimeUnit.SECONDS)
-          .blockingAwait()
+      blockingCall(CLOCK_SYNC_S) { api.setLocalTime(id, LocalDateTime.now(ZoneOffset.UTC)) }
       l.onNote("clock_sync", "strap clock set to the phone time (UTC)")
     } catch (e: Exception) {
       l.onError("could not set the strap clock: ${e.message ?: e.javaClass.simpleName}")
@@ -482,7 +513,7 @@ class PolarH10Sensor(
   }
 
   private fun exerciseEntries(): List<PolarExerciseEntry> =
-      api.listExercises(id).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingIterable().toList()
+      blockingCall(OFFLINE_TIMEOUT_S) { api.listExercises(id).toList() }
 
   /** The phone may have been off all night: the link comes back by itself, so wait for it. */
   private fun awaitConnected() {
@@ -495,9 +526,7 @@ class PolarH10Sensor(
   /** Always asks the strap: after an app restart this instance does not know it was recording. */
   private fun stopTrackerRecording() {
     onDeviceActive = false
-    runCatching {
-      api.stopRecording(id).timeout(OFFLINE_TIMEOUT_S, TimeUnit.SECONDS).blockingAwait()
-    }
+    runCatching { blockingCall(OFFLINE_TIMEOUT_S) { api.stopRecording(id) } }
     onDeviceWanted = null
     onDeviceListener = null
     onDeviceResult = null
@@ -544,31 +573,27 @@ class PolarH10Sensor(
   private fun syncClock(l: SampleListener) {
     if (clockSyncing) return
     clockSyncing = true
-    val done = {
-      control.execute {
-        clockSyncing = false
-        clockSynced = true
-        maybeBeginStreams(force = true)
+    calls.launch {
+      try {
+        // UTC, so the strap's timestamps are UTC like the rest of the recording.
+        withTimeout(TimeUnit.SECONDS.toMillis(CLOCK_SYNC_S)) {
+          api.setLocalTime(id, LocalDateTime.now(ZoneOffset.UTC))
+        }
+        l.onNote("clock_sync", "strap clock set to the phone time (UTC)")
+      } catch (e: CancellationException) {
+        // Giving up on a slow strap is reported like any other failure; a teardown is not.
+        if (e !is TimeoutCancellationException) throw e
+        l.onError("could not set the strap clock: ${e.message}")
+      } catch (e: Exception) {
+        // Recording matters more than the clock: carry on, the phone time is in every batch.
+        l.onError("could not set the strap clock: ${e.message}")
+      } finally {
+        control.execute {
+          clockSyncing = false
+          clockSynced = true
+          maybeBeginStreams(force = true)
+        }
       }
-    }
-    try {
-      // UTC, so the strap's timestamps are UTC like the rest of the recording.
-      api.setLocalTime(id, LocalDateTime.now(ZoneOffset.UTC))
-          .timeout(CLOCK_SYNC_S, TimeUnit.SECONDS)
-          .subscribe(
-              {
-                l.onNote("clock_sync", "strap clock set to the phone time (UTC)")
-                done()
-              },
-              {
-                // Recording matters more than the clock: carry on, the phone time is in every batch.
-                l.onError("could not set the strap clock: ${it.message}")
-                done()
-              },
-          )
-    } catch (e: Exception) {
-      l.onError("could not set the strap clock: ${e.message}")
-      done()
     }
   }
 
@@ -576,7 +601,8 @@ class PolarH10Sensor(
     streamGeneration++
     watchdogs.values.forEach { it.cancel(false) }
     watchdogs.clear()
-    streams.values.forEach { it.dispose() }
+    streamScope.cancel()
+    streamScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     streams.clear()
     gotData.clear()
   }
@@ -609,95 +635,81 @@ class PolarH10Sensor(
   }
 
   private fun startHr(l: SampleListener) {
-    track(
-        "hr",
-        api.startHrStreaming(id).subscribe(
-            { data ->
-              val stamp = Stamp.now(clock)
-              gotSample("hr", l)
-              delivery.execute {
-                for (s in data.samples) {
-                  l.onHr(
-                      stamp,
-                      HrSample(
-                          s.hr,
-                          s.contactStatusSupported,
-                          s.contactStatus,
-                          s.rrAvailable,
-                          s.rrsMs.toIntArray(),
-                      ),
-                  )
-                }
-              }
-            },
-            { retryLater("hr", l, it) },
-        ),
-    )
+    stream("hr", l) {
+      api.startHrStreaming(id).collect { data ->
+        val stamp = Stamp.now(clock)
+        gotSample("hr", l)
+        delivery.execute {
+          for (s in data.samples) {
+            l.onHr(
+                stamp,
+                HrSample(
+                    s.hr,
+                    s.contactStatusSupported,
+                    s.contactStatus,
+                    s.rrAvailable,
+                    s.rrsMs.toIntArray(),
+                ),
+            )
+          }
+        }
+      }
+    }
     watch("hr", l) { startHr(l) }
   }
 
   private fun startEcg(l: SampleListener) {
     val wantedSettings = mapOf(SettingType.SAMPLE_RATE to 130, SettingType.RESOLUTION to 14)
-    track(
-        "ecg",
-        settingsFor(PolarDeviceDataType.ECG, wantedSettings, l)
-            .flatMapPublisher { api.startEcgStreaming(id, it) }
-            .subscribe(
-                { data ->
-                  val stamp = Stamp.now(clock)
-                  gotSample("ecg", l)
-                  delivery.execute {
-                    val samples = data.samples.filterIsInstance<EcgSample>()
-                    if (samples.isNotEmpty()) {
-                      l.onEcg(
-                          stamp,
-                          EcgBatch(
-                              LongArray(samples.size) { samples[it].timeStamp },
-                              IntArray(samples.size) { samples[it].voltage },
-                          ),
-                      )
-                    }
-                  }
-                },
-                { retryLater("ecg", l, it) },
-            ),
-    )
+    stream("ecg", l) {
+      api.startEcgStreaming(id, settingsFor(PolarDeviceDataType.ECG, wantedSettings, l))
+          .collect { data ->
+            val stamp = Stamp.now(clock)
+            gotSample("ecg", l)
+            delivery.execute {
+              val samples = data.samples.filterIsInstance<EcgSample>()
+              if (samples.isNotEmpty()) {
+                l.onEcg(
+                    stamp,
+                    EcgBatch(
+                        LongArray(samples.size) { samples[it].timeStamp },
+                        IntArray(samples.size) { samples[it].voltage },
+                    ),
+                )
+              }
+            }
+          }
+    }
     watch("ecg", l) { startEcg(l) }
   }
 
   private fun startAcc(l: SampleListener) {
     val wantedSettings =
         mapOf(SettingType.SAMPLE_RATE to 50, SettingType.RESOLUTION to 16, SettingType.RANGE to 8)
-    track(
-        "acc",
-        settingsFor(PolarDeviceDataType.ACC, wantedSettings, l)
-            .flatMapPublisher { api.startAccStreaming(id, it) }
-            .subscribe(
-                { data ->
-                  val stamp = Stamp.now(clock)
-                  gotSample("acc", l)
-                  delivery.execute {
-                    val s = data.samples
-                    if (s.isNotEmpty()) {
-                      l.onAcc(
-                          stamp,
-                          AccBatch(
-                              LongArray(s.size) { s[it].timeStamp },
-                              IntArray(s.size * 3) {
-                                when (it % 3) {
-                                  0 -> s[it / 3].x
-                                  1 -> s[it / 3].y
-                                  else -> s[it / 3].z
-                                }
-                              },
-                          ),
-                      )
-                    }
-                  }
-                },
-                { retryLater("acc", l, it) },
-            ),
-    )
+    stream("acc", l) {
+      api.startAccStreaming(id, settingsFor(PolarDeviceDataType.ACC, wantedSettings, l))
+          .collect { data ->
+            val stamp = Stamp.now(clock)
+            gotSample("acc", l)
+            delivery.execute {
+              val s = data.samples
+              if (s.isNotEmpty()) {
+                l.onAcc(
+                    stamp,
+                    AccBatch(
+                        LongArray(s.size) { s[it].timeStamp },
+                        IntArray(s.size * 3) {
+                          when (it % 3) {
+                            0 -> s[it / 3].x
+                            1 -> s[it / 3].y
+                            else -> s[it / 3].z
+                          }
+                        },
+                    ),
+                )
+              }
+            }
+          }
+    }
     watch("acc", l) { startAcc(l) }
   }
 
@@ -705,24 +717,43 @@ class PolarH10Sensor(
    * Picks the wanted setting value where the sensor offers it, else the highest it offers, and
    * reports a mismatch, because the format doc promises ECG 130 Hz and ACC 50 Hz ±8 G.
    */
-  private fun settingsFor(
+  private suspend fun settingsFor(
       type: PolarDeviceDataType,
       wanted: Map<SettingType, Int>,
       l: SampleListener,
-  ) =
-      api.requestStreamSettings(id, type).map { available ->
-        val chosen =
-            available.settings.mapValues { (t, values) ->
-              wanted[t]?.takeIf { it in values } ?: values.max()
-            }
-        if (chosen.any { (t, v) -> wanted[t] != null && wanted[t] != v }) {
-          l.onError("$type settings differ from the wanted ones: $chosen")
+  ): PolarSensorSetting {
+    val available = api.requestStreamSettings(id, type)
+    val chosen =
+        available.settings.mapValues { (t, values) ->
+          wanted[t]?.takeIf { it in values } ?: values.max()
         }
-        PolarSensorSetting(chosen)
-      }
+    if (chosen.any { (t, v) -> wanted[t] != null && wanted[t] != v }) {
+      l.onError("$type settings differ from the wanted ones: $chosen")
+    }
+    return PolarSensorSetting(chosen)
+  }
 
-  private fun track(name: String, d: Disposable) {
-    streams.put(name, d)?.dispose()
+  /**
+   * Collects one stream on a coroutine of the stream scope: the teardown that ends the streams ends
+   * it too, and one that fails while the link stays up is restarted as before.
+   */
+  private fun stream(name: String, l: SampleListener, collect: suspend () -> Unit) {
+    track(
+        name,
+        streamScope.launch {
+          try {
+            collect()
+          } catch (e: Exception) {
+            // One of our own cancellations, not a stream that stopped on its own.
+            if (!isActive) throw e
+            retryLater(name, l, e)
+          }
+        },
+    )
+  }
+
+  private fun track(name: String, job: Job) {
+    streams.put(name, job)?.cancel()
   }
 
   private fun retryLater(name: String, l: SampleListener, e: Throwable) {
@@ -759,7 +790,6 @@ class PolarH10Sensor(
     private const val EXERCISE_ID = "TAIGA"
 
     /** Devices in range, as the SDK finds them. */
-    fun scan(context: Context): Flowable<PolarDeviceInfo> =
-        PolarSdk.get(context).searchForDevice()
+    fun scan(context: Context): Flow<PolarDeviceInfo> = PolarSdk.get(context).searchForDevice()
   }
 }

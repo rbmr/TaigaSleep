@@ -161,8 +161,6 @@ dependencies {
   implementation(libs.androidx.compose.material.icons.extended)
 
   implementation(libs.polar.ble.sdk)
-  implementation(libs.rxjava)
-  implementation(libs.rxandroid)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.okhttp)
