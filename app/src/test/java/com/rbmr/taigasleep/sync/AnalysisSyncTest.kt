@@ -347,8 +347,8 @@ class AnalysisSyncTest {
       return recording
     }
 
-    override suspend fun listAnalyses(recording: String?, limit: Int, offset: Int) =
-        AnalysisListDto(items = listing, total = listing.size.toLong())
+    override suspend fun listAnalyses(recording: String?, page: Int, perPage: Int) =
+        AnalysisListDto(items = listing, totalItems = listing.size.toLong(), totalPages = 1)
 
     override suspend fun getAnalysis(analysisId: String): AnalysisDto {
       fetched += analysisId

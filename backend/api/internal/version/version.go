@@ -9,9 +9,9 @@ package version
 const (
 	// Number is the backend release version. It is reported by the health route
 	// and used for the image and release tags.
-	Number = "0.6.20"
+	Number = "0.6.21"
 
 	// API is the app/backend contract revision. Bump it whenever a change makes
 	// a released app fail against this API.
-	API = 5
+	API = 6
 )

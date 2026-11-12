@@ -678,8 +678,14 @@ class RecordingMergeTest {
   @Test
   fun anUnreadableApiDateIsZero() {
     assertEquals(0L, parseApiDate(""))
-    assertEquals(0L, parseApiDate("2026-10-25 14:00:00.000Z"))
     assertEquals(0L, parseApiDate("not a date"))
+  }
+
+  @Test
+  fun aRecordApiDateIsRead() {
+    // PocketBase writes its record times with a space instead of `T`.
+    assertEquals(1792936800000L, parseApiDate("2026-10-25 14:00:00.000Z"))
+    assertEquals(1792936800000L, parseApiDate("2026-10-25T14:00:00Z"))
   }
 
   @Test

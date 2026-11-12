@@ -23,7 +23,13 @@ class ApiError(RuntimeError):
 
 
 class ApiClient:
-    """Small stdlib-only client for the worker's side of API v1 (docs/api.md)."""
+    """Small stdlib-only client for the worker's side of the API (docs/api.md).
+
+    Recordings come from PocketBase's record API, whose rules let a worker read one
+    while it holds the lease of an analysis of it; the queue, the recording files and
+    the event stream are the API's own routes under /v1. Every error has PocketBase's
+    shape: {"status", "message", "data"}.
+    """
 
     def __init__(self, base_url: str, timeout_s: float = 30.0) -> None:
         self.base_url = base_url.rstrip("/") + "/"
@@ -73,7 +79,9 @@ class ApiClient:
                 payload = json.loads(exc.read())
                 if isinstance(payload, dict):
                     message = str(payload.get("message") or message)
-                    code = str(payload["code"]) if payload.get("code") else None
+                    data = payload.get("data")
+                    if isinstance(data, dict) and data.get("code"):
+                        code = str(data["code"])
             except (ValueError, TypeError, OSError):
                 pass
             raise ApiError(message, status=exc.code, code=code) from exc
@@ -193,7 +201,9 @@ class ApiClient:
     def recording(self, recording_id: str) -> dict[str, Any]:
         """The recording, including its meta; readable while the lease is held."""
 
-        payload = self._request("GET", f"/v1/recordings/{quote(recording_id, safe='')}")
+        payload = self._request(
+            "GET", f"/api/collections/recordings/records/{quote(recording_id, safe='')}"
+        )
         if not isinstance(payload, dict):
             raise ApiError("recording response was not an object")
         return payload

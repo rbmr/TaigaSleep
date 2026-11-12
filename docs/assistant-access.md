@@ -43,28 +43,31 @@ Give the assistant these three things:
 - **Header on every request**: `Authorization: Bearer <access token>`.
 - **The contract**: `GET /v1/openapi.json`, browsable at `GET /v1/docs`. The OpenAPI
   document lists every endpoint, its parameters and its schemas, so the assistant does not
-  have to guess. Only the endpoints marked for a `token` may be called; everything else is
-  refused.
+  have to guess. The token reads its owner's recordings and analyses through PocketBase's
+  record API, which the document describes from the collection schema; every write and
+  every `/v1` route outside the read-only ones is refused.
 
 ## Example requests
 
 The recordings, newest first, without their raw files:
 
 ```sh
-curl -s "$BASE/v1/recordings?limit=20" -H "Authorization: Bearer $TOKEN"
+curl -s "$BASE/api/collections/recordings/records?perPage=20&sort=-started_at" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 What a recording is: its metadata (`meta` is the phone's `meta.json`), its state, when it
-started and ended, and its size:
+started and ended, and its size in `stored_bytes`:
 
 ```sh
-curl -s "$BASE/v1/recordings/20261023_223000-k3f9" -H "Authorization: Bearer $TOKEN"
+curl -s "$BASE/api/collections/recordings/records/20261023_223000-k3f9" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 The analyses of that recording, each with its summary and its full result:
 
 ```sh
-curl -s "$BASE/v1/recordings/20261023_223000-k3f9/analyses?expand=result" \
+curl -s "$BASE/api/collections/analyses/records?filter=recording%3D%2220261023_223000-k3f9%22" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -72,13 +75,15 @@ Every analysis of the account, newest first, with its result. This is the one re
 first look usually needs:
 
 ```sh
-curl -s "$BASE/v1/analyses?limit=200&expand=result" -H "Authorization: Bearer $TOKEN"
+curl -s "$BASE/api/collections/analyses/records?perPage=200&sort=-created" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 One analysis by its id:
 
 ```sh
-curl -s "$BASE/v1/analyses/a1b2c3d4e5f6g7h" -H "Authorization: Bearer $TOKEN"
+curl -s "$BASE/api/collections/analyses/records/a1b2c3d4e5f6g7h" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 What a token cannot do: write anything, download the raw recording files, see another

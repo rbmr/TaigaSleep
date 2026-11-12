@@ -6,6 +6,7 @@ import com.rbmr.taigasleep.backend.CheckResult
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
+import com.rbmr.taigasleep.backend.allAnalyses
 import com.rbmr.taigasleep.backend.label
 import com.rbmr.taigasleep.insights.AnalysisSettings
 import com.rbmr.taigasleep.profile.PersonalData
@@ -83,7 +84,7 @@ internal object UploadCoordinator {
     val recordingId = recordingIdOf(key)
 
     try {
-      val analyses = api.listAnalyses(recordingId).items
+      val analyses = api.allAnalyses(recordingId)
       val target =
           analyses.firstOrNull { it.id == analysisId }
               ?: analyses.firstOrNull { it.isFailed }

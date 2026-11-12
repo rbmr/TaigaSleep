@@ -171,3 +171,13 @@ data class RemoteSession(val account: String, val api: TaigaClient)
 data class ServerVersion(val version: String, val api: Int)
 
 data class AuthUser(val id: String, val email: String, val role: String)
+
+/**
+ * A time the server sends. PocketBase writes `2026-10-24 05:50:01.000Z` (a space, not `T`); custom
+ * routes write RFC 3339. Both are read here; null when the value is not a time.
+ */
+fun parseServerTime(value: String?): java.time.Instant? {
+  val text = value?.trim().orEmpty()
+  if (text.isEmpty()) return null
+  return runCatching { java.time.OffsetDateTime.parse(text.replaceFirst(' ', 'T')).toInstant() }.getOrNull()
+}

@@ -23,11 +23,9 @@ const (
 	accessWorker access = "worker"
 	// accessAny is a user or a worker: an access token is refused.
 	accessAny access = "any"
-	// accessRead is a user or an access token of that user.
-	accessRead access = "read"
-	// accessReadAny adds a worker with a lease, which is what reading one recording or
-	// analysis takes.
-	accessReadAny access = "read-any"
+	// accessRules is PocketBase's record API: the collection's rules decide, not an
+	// allow-list of collections. It is documented but never mounted by Routes().
+	accessRules access = "rules"
 )
 
 // collections is the allow-list of apis.RequireAuth: the auth collections whose tokens
@@ -40,10 +38,6 @@ func (a access) collections() []string {
 		return []string{"workers"}
 	case accessAny:
 		return []string{"users", "workers"}
-	case accessRead:
-		return []string{"users", "access_tokens"}
-	case accessReadAny:
-		return []string{"users", "access_tokens", "workers"}
 	}
 	return nil
 }

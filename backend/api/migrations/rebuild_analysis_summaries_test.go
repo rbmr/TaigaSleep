@@ -1,6 +1,8 @@
 package migrations
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -195,7 +197,7 @@ func TestRebuiltSummariesAreListedWithScores(t *testing.T) {
 		t.Fatalf("login token: %v %s", err, loginRecorder.Body.String())
 	}
 
-	request := httptest.NewRequest(http.MethodGet, "/v1/analyses", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/collections/analyses/records", nil)
 	request.Header.Set("Authorization", "Bearer "+token.Token)
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, request)
@@ -260,10 +262,16 @@ func saveMigrationRecording(t *testing.T, app core.App, email string) string {
 	recording.Set("state", "stopped")
 	recording.Set("started_at", "2026-01-01 00:00:00.000Z")
 	recording.Set("complete", true)
+	recording.Set("meta", map[string]any{"format": "taiga-recording"})
 	if err := app.Save(recording); err != nil {
 		t.Fatalf("save recording: %v", err)
 	}
 	return recording.Id
+}
+
+func migrationParamsHash(seed string) string {
+	sum := sha256.Sum256([]byte(seed))
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 func saveMigrationAnalysis(t *testing.T, app core.App, recording, algorithm string, result, summary any) string {
@@ -277,7 +285,7 @@ func saveMigrationAnalysis(t *testing.T, app core.App, recording, algorithm stri
 	analysis.Set("algorithm", algorithm)
 	analysis.Set("version", "1.0.0")
 	analysis.Set("params", map[string]any{})
-	analysis.Set("params_hash", algorithm)
+	analysis.Set("params_hash", migrationParamsHash(algorithm))
 	analysis.Set("status", "succeeded")
 	if result != nil {
 		analysis.Set("result", result)

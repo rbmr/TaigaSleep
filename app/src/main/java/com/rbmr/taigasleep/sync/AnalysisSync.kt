@@ -4,6 +4,7 @@ import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.TaigaClient
 import com.rbmr.taigasleep.backend.TaigaHttpException
+import com.rbmr.taigasleep.backend.allAnalyses
 
 /** One recording as the server has it right now, and the analysis its recording shows. */
 class RecordingSnapshot(
@@ -45,7 +46,7 @@ class AnalysisSync(
       preferred: List<String?> = emptyList(),
   ): RecordingSnapshot {
     val recording = client.getRecording(recordingId)
-    var analyses = client.listAnalyses(recordingId).items
+    var analyses = client.allAnalyses(recordingId)
 
     var cached = false
     var shown: AnalysisDto?

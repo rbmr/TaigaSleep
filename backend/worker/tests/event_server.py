@@ -97,7 +97,7 @@ class EventServer:
 
             def _authorized(self) -> bool:
                 if self._token() in stub.revoked or not self._token():
-                    self._answer(401, {"code": "unauthorized", "message": "the token is not valid"})
+                    self._answer(401, {"status": 401, "message": "the token is not valid", "data": {}})
                     return False
                 return True
 
@@ -118,18 +118,18 @@ class EventServer:
                         stub.claims.append(self._token())
                     self._answer(204)
                 else:
-                    self._answer(404, {"code": "not_found", "message": "no such route"})
+                    self._answer(404, {"status": 404, "message": "no such route", "data": {}})
 
             def do_PUT(self) -> None:
                 self._drain()
                 if self.path == "/v1/workers/me" and self._authorized():
                     self._answer(204)
                 elif self.path != "/v1/workers/me":
-                    self._answer(404, {"code": "not_found", "message": "no such route"})
+                    self._answer(404, {"status": 404, "message": "no such route", "data": {}})
 
             def do_GET(self) -> None:
                 if self.path != "/v1/events":
-                    self._answer(404, {"code": "not_found", "message": "no such route"})
+                    self._answer(404, {"status": 404, "message": "no such route", "data": {}})
                     return
                 with stub.lock:
                     plan = stub.plans.pop(0) if stub.plans else Plan()

@@ -54,14 +54,14 @@ Content-Encoding: gzip
   length, exactly like the identity mode. A wrong offset answers
   `409 offset_mismatch` with the stored length in the `Upload-Offset` header.
 - `meta.json` is never compressed and is not a file of the recording: it is the
-  body of `PUT /v1/recordings/{id}`.
+  `meta` of the record created with `POST /api/collections/recordings/records`.
 - The app writes a deterministic member: mtime 0, XFL 0, OS unknown, zlib level
   6, and a hand-written header so no timestamp or filename leaks into the
   stream and re-running the same input produces the same member.
 - The response is `204` with `Upload-Offset` set to the new stored size.
 
-`PATCH /v1/recordings/{id}` with `{"complete": true}` seals the recording without
-inflating anything. Frame validation is the worker's job in this mode; the API
+`PATCH /api/collections/recordings/records/{id}` with `{"complete": true}` seals the
+recording without inflating anything. Frame validation is the worker's job in this mode; the API
 only checks gzip framing.
 
 ### What the API validates, and what it does not

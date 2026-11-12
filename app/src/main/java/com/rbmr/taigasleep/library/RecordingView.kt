@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.library
 
+import com.rbmr.taigasleep.backend.parseServerTime
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
@@ -12,7 +13,6 @@ import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.recordingIdOf
 import java.text.SimpleDateFormat
-import java.time.OffsetDateTime
 import java.util.Date
 import java.util.Locale
 
@@ -383,11 +383,8 @@ private fun String.toAnalysisStatus(): AnalysisStatus =
       else -> AnalysisStatus.QUEUED
     }
 
-/** The API speaks RFC 3339 in UTC, for example `2026-10-24T05:50:01Z`. Unparseable is 0. */
-fun parseApiDate(value: String): Long {
-  if (value.isBlank()) return 0
-  return runCatching { OffsetDateTime.parse(value).toInstant().toEpochMilli() }.getOrDefault(0)
-}
+/** A server time in epoch milliseconds (see [parseServerTime]); unparseable is 0. */
+fun parseApiDate(value: String): Long = parseServerTime(value)?.toEpochMilli() ?: 0
 
 fun formatRecordingDate(ms: Long): String =
     if (ms <= 0) "—"

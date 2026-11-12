@@ -46,11 +46,15 @@ Log in through PocketBase's auth route of the account's collection
 Each operation says which role may call it: a **user** (an app account) or a **worker**
 (the analysis service). A user can make a read-only access token for their own assistant
 with ` + "`POST /v1/tokens`" + `; it reads their recordings, analyses and results and is
-refused on every write. Every error from ` + "`/v1`" + ` has the same body,
-` + "`{\"code\", \"message\"}`" + `; the PocketBase auth routes answer PocketBase's own error shape.
+refused on every write.
 
-PocketBase's own record API is closed; everything the backend offers is described
-here. Browse this document in Swagger UI at /v1/docs, or fetch it as JSON.`
+Recordings and analyses are read and written through PocketBase's record API at
+` + "`/api/collections/{collection}/records`" + `, whose rules decide what the caller sees; this
+document describes those routes from the collection schema. Everything else is under
+` + "`/v1`" + `. Every error has PocketBase's shape,
+` + "`{\"status\", \"message\", \"data\"}`" + `; the API's stable code is in ` + "`data.code`" + `.
+
+Browse this document in Swagger UI at /v1/docs, or fetch it as JSON.`
 
 type routeParam struct {
 	Name        string
@@ -95,16 +99,43 @@ type openAPIRoute struct {
 }
 
 var (
-	documentOnce sync.Once
-	document     map[string]any
+	documentMu     sync.Mutex
+	routesDocument map[string]any
+	recordDocument map[string]any
 )
 
-// OpenAPIDocument returns the generated document. It is built once per process.
+// OpenAPIDocument returns the generated document of the custom routes. It is built
+// once per process; the record API entries need the collection schema, so a running
+// server uses openAPIDocument instead.
 func OpenAPIDocument() map[string]any {
-	documentOnce.Do(func() {
-		document = buildOpenAPIDocument()
-	})
-	return document
+	documentMu.Lock()
+	defer documentMu.Unlock()
+	if routesDocument == nil {
+		routesDocument = buildOpenAPIDocument(nil)
+	}
+	return routesDocument
+}
+
+// prepareOpenAPIDocument builds the document with the record API entries at startup,
+// once the migrations have created the collections.
+func prepareOpenAPIDocument(app core.App) {
+	documentMu.Lock()
+	defer documentMu.Unlock()
+	recordDocument = buildOpenAPIDocument(app)
+}
+
+// openAPIDocument returns the document of the running server, with the record API's
+// routes generated from the collection schema.
+func openAPIDocument(app core.App) map[string]any {
+	if app == nil {
+		return OpenAPIDocument()
+	}
+	documentMu.Lock()
+	defer documentMu.Unlock()
+	if recordDocument == nil {
+		recordDocument = buildOpenAPIDocument(app)
+	}
+	return recordDocument
 }
 
 func accessDescription(required access) string {
@@ -115,15 +146,13 @@ func accessDescription(required access) string {
 		return "Requires a worker token."
 	case accessAny:
 		return "Requires a user or a worker token."
-	case accessRead:
-		return "Requires a user token or a read-only access token of that user."
-	case accessReadAny:
-		return "Requires a user token, a read-only access token of that user, or a worker token with a lease."
+	case accessRules:
+		return "Requires a token the collection's rules accept: a user or an access token of the recording's owner for their own data, or a worker token while it holds a live lease of an analysis."
 	}
 	return "Public."
 }
 
-func buildOpenAPIDocument() map[string]any {
+func buildOpenAPIDocument(app core.App) map[string]any {
 	reflector := newSchemaReflector()
 	// Keep the shared error shape in components even though operations only
 	// reference it through responses.
@@ -131,15 +160,22 @@ func buildOpenAPIDocument() map[string]any {
 	// The event payloads are only referenced from prose, so list them here.
 	reflector.schemaOf(reflect.TypeOf(AnalysisEvent{}))
 	reflector.schemaOf(reflect.TypeOf(RecordingEvent{}))
+	// A recording's meta.json keeps the type it is stored as.
+	reflector.schemaOf(reflect.TypeOf(RecordingMeta{}))
+
+	recordRoutes, recordSchemas := recordAPIRoutes(app)
 
 	paths := map[string]any{}
-	for _, route := range append(Routes(), AuthRoutes()...) {
+	for _, route := range append(append(Routes(), AuthRoutes()...), recordRoutes...) {
 		path, _ := paths[route.Path].(map[string]any)
 		if path == nil {
 			path = map[string]any{}
 			paths[route.Path] = path
 		}
 		path[strings.ToLower(route.Method)] = buildOperation(reflector, route)
+	}
+	for name, schema := range recordSchemas {
+		reflector.defs[name] = schema
 	}
 
 	return map[string]any{
@@ -157,9 +193,9 @@ func buildOpenAPIDocument() map[string]any {
 			map[string]any{"name": tagSystem, "description": "Health, version and this document."},
 			map[string]any{"name": tagAuth, "description": "Logging in and checking a token."},
 			map[string]any{"name": tagTokens, "description": "Read-only access tokens for your own assistant or script."},
-			map[string]any{"name": tagRecordings, "description": "Recordings and their metadata."},
+			map[string]any{"name": tagRecordings, "description": "Recordings and their metadata, through PocketBase's record API."},
 			map[string]any{"name": tagFiles, "description": "The raw data files of a recording."},
-			map[string]any{"name": tagAnalyses, "description": "Analyses of recordings: request, read, delete."},
+			map[string]any{"name": tagAnalyses, "description": "Analyses of recordings: request, read and delete through the record API, filled in by the queue."},
 			map[string]any{"name": tagEvents, "description": "Live changes."},
 			map[string]any{"name": tagAlgorithms, "description": "What can analyse a recording."},
 			map[string]any{"name": tagWorkers, "description": "Used by the analysis worker."},
@@ -302,25 +338,6 @@ func pathParam(name, description string) routeParam {
 	return routeParam{Name: name, In: "path", Required: true, Description: description, Schema: map[string]any{"type": "string"}}
 }
 
-func queryString(name, description string) routeParam {
-	return routeParam{Name: name, In: "query", Description: description, Schema: map[string]any{"type": "string"}}
-}
-
-func queryEnum(name, description string, values []string) routeParam {
-	return routeParam{Name: name, In: "query", Description: description, Schema: map[string]any{"type": "string", "enum": values}}
-}
-
-func queryBool(name, description string) routeParam {
-	return routeParam{Name: name, In: "query", Description: description, Schema: map[string]any{"type": "boolean"}}
-}
-
 func headerParam(name, description string, required bool) routeParam {
 	return routeParam{Name: name, In: "header", Required: required, Description: description, Schema: map[string]any{"type": "string"}}
-}
-
-func limitOffsetParams() []routeParam {
-	return []routeParam{
-		{Name: "limit", In: "query", Description: "Page size.", Schema: map[string]any{"type": "integer", "default": 50, "minimum": 1, "maximum": 200}},
-		{Name: "offset", In: "query", Description: "Items to skip.", Schema: map[string]any{"type": "integer", "default": 0, "minimum": 0}},
-	}
 }

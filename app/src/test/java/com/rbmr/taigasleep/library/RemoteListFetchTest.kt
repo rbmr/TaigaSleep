@@ -18,7 +18,7 @@ private class ListingClient : StubTaigaClient() {
   override suspend fun listRecordings(limit: Int): RecordingListDto =
       RecordingListDto(items = listOf(RecordingDto(id = "r1", complete = true)))
 
-  override suspend fun listAnalyses(recording: String?, limit: Int, offset: Int): AnalysisListDto =
+  override suspend fun listAnalyses(recording: String?, page: Int, perPage: Int): AnalysisListDto =
       AnalysisListDto()
 }
 
