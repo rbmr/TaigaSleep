@@ -36,6 +36,11 @@ ADMIN_EMAIL = "admin@example.com"
 ADMIN_PASSWORD = "admin-password-123"
 PASSWORD = "account-password-123"
 
+# Recordings and analyses are PocketBase records; the collection rules decide who sees
+# and changes them. The one-record paths are built from these.
+RECORDINGS_API = "/api/collections/recordings/records"
+ANALYSES_API = "/api/collections/analyses/records"
+
 # Kept small so the tests can cross the limit without sending megabytes.
 CHUNK_LIMIT_MB = 1
 
@@ -327,11 +332,22 @@ class Backend:
         recording_id: str,
         meta: Mapping[str, Any] | None = None,
         *,
-        expect: int | tuple[int, ...] = (200, 201),
+        expect: int | tuple[int, ...] = 200,
         **meta_options: Any,
     ) -> Response:
+        """Create a recording, or replace the metadata of an open one.
+
+        PocketBase's record API creates with POST and the body carries the id and the
+        meta.json; every other field is derived from the metadata by the server.
+        """
+
         meta = meta if meta is not None else fx.meta(recording_id, **meta_options)
-        return self.put(f"/v1/recordings/{recording_id}", token=token, json=dict(meta), expect=expect)
+        return self.post(
+            RECORDINGS_API,
+            token=token,
+            json={"id": recording_id, "meta": dict(meta)},
+            expect=expect,
+        )
 
     def upload(
         self,
@@ -363,7 +379,18 @@ class Backend:
         return offset
 
     def complete_recording(self, token: str | Account, recording_id: str, expect: int = 200) -> Response:
-        return self.patch(f"/v1/recordings/{recording_id}", token=token, json={"complete": True}, expect=expect)
+        return self.patch(
+            f"{RECORDINGS_API}/{recording_id}", token=token, json={"complete": True}, expect=expect
+        )
+
+    def recording(self, token: str | Account, recording_id: str, expect: int = 200) -> Response:
+        return self.get(f"{RECORDINGS_API}/{recording_id}", token=token, expect=expect)
+
+    def recordings(self, token: str | Account, query: str = "", expect: int = 200) -> Response:
+        return self.get(f"{RECORDINGS_API}{query}", token=token, expect=expect)
+
+    def delete_recording(self, token: str | Account, recording_id: str, expect: int = 204) -> Response:
+        return self.delete(f"{RECORDINGS_API}/{recording_id}", token=token, expect=expect)
 
     def make_recording(
         self,
@@ -381,7 +408,7 @@ class Backend:
 
         recording_id = recording_id or unique("rec")
         files = dict(files) if files is not None else fx.recording(recording_id, hr_frames=hr_frames, state=state)
-        self.put_recording(token, recording_id, files["meta"], expect=(200, 201))
+        self.put_recording(token, recording_id, files["meta"])
         for name in ("hr.log", "ecg.log", "acc.log", "events.jsonl"):
             data = files.get(name)
             if isinstance(data, bytes) and data:
@@ -430,17 +457,25 @@ class Backend:
         *,
         version: str | None = None,
         params: Mapping[str, Any] | None = None,
-        expect: int | tuple[int, ...] = (200, 201),
+        expect: int | tuple[int, ...] = 200,
     ) -> Response:
-        body: dict[str, Any] = {"algorithm": algorithm}
+        """Ask for an analysis through the analyses record API."""
+
+        body: dict[str, Any] = {"recording": recording_id, "algorithm": algorithm}
         if version is not None:
             body["version"] = version
         if params is not None:
             body["params"] = dict(params)
-        return self.post(f"/v1/recordings/{recording_id}/analyses", token=token, json=body, expect=expect)
+        return self.post(ANALYSES_API, token=token, json=body, expect=expect)
 
     def analysis(self, token: str | Account, analysis_id: str) -> dict[str, Any]:
-        return self.get(f"/v1/analyses/{analysis_id}", token=token, expect=200).json()
+        return self.get(f"{ANALYSES_API}/{analysis_id}", token=token, expect=200).json()
+
+    def analyses(self, token: str | Account, query: str = "", expect: int = 200) -> Response:
+        return self.get(f"{ANALYSES_API}{query}", token=token, expect=expect)
+
+    def delete_analysis(self, token: str | Account, analysis_id: str, expect: int = 204) -> Response:
+        return self.delete(f"{ANALYSES_API}/{analysis_id}", token=token, expect=expect)
 
     def drain_queue(self) -> None:
         """Remove every analysis that could still be claimed or leased."""
