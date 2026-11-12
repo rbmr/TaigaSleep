@@ -111,16 +111,16 @@ its chunks and continue.
 
 The upload worker ends as soon as the analysis has been requested, with the night in
 the processing state. Nothing polls and nothing runs in the background for a result.
-While the app is on screen it keeps the event stream (`GET /v1/events`, see
-[`api.md`](api.md#events)) open:
+While the app is on screen it keeps PocketBase's realtime stream (`GET /api/realtime`, see
+[`api.md`](api.md#realtime)) open:
 
 - Every time the stream connects, and once at open if it does not, the app refreshes
   everything pending: the History list, every night whose analysis is not settled
   (queued, running, or stored as processing) and any finished result that is not on
-  the phone yet. Events are not replayed, so this is how a night that finished,
+  the phone yet. Changes are not replayed, so this is how a night that finished,
   failed or was replaced while the app was closed gets settled.
-- An `analysis` or `recording` event refreshes only that recording, so History and
-  the night screen update at once. Events for one recording that arrive close
+- An analysis or recording change refreshes only that recording, so History and
+  the night screen update at once. Changes for one recording that arrive close
   together are one refresh.
 - The stream is closed when the app leaves the screen. Without a stream (a proxy
   that blocks it) the refresh at open is all there is, and **Check again** on the
@@ -321,7 +321,7 @@ still pending. Pending remote deletes are shown in History and survive a restart
 - **Analysis** — the worker failed, the analysis was lost, or the backend refused
   to queue it because no worker offers the algorithm yet (`422`; the upload itself
   is complete). Retry asks for the analysis again, which makes the backend replace
-  a failed one with a fresh queued one. The new run is reported by the event stream.
+  a failed one with a fresh queued one. The new run is reported by the realtime stream.
 
 ## Privacy
 

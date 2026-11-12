@@ -43,10 +43,11 @@ no state of either.
   record API is closed. This keeps the backend usable by other clients and independent
   of PocketBase's internals.
 
-Realtime is Server-Sent Events on `GET /v1/events`. A client that is connected learns at
+Realtime is PocketBase's realtime stream on `GET /api/realtime`, with the collection rules
+as its access check. A client that is connected learns at
 once that an analysis became available; a client that is not connected asks when it next
-opens. Events carry ids and statuses only, never data, so a missed event costs a refetch,
-not correctness.
+opens. Changes name the record and the fields a screen needs, never the result, so a missed
+change costs a refetch, not correctness.
 
 ## What the app does with the backend
 
@@ -74,7 +75,7 @@ One Gradle module, one package per concern under `com.rbmr.taigasleep`:
 | `tracker` | What a tracker is: its capabilities, its recording mode, its configuration. Implementations per device (`polar`), a simulated one in debug builds. | `diagnostics` |
 | `recording` | Capturing: the selected tracker, the recording state machine, the foreground service, the on-disk format, the local store, export, the wake-up window and its alarm. | `tracker`, `diagnostics` |
 | `guard` | The preventing-shutdown flow: per-device steps, checks, the final readiness list. | `tracker`, `diagnostics` |
-| `backend` | A client for API v1: DTOs, requests, authentication state, the event stream. No business logic. | `diagnostics` |
+| `backend` | A client for API v1: DTOs, requests, authentication state, the realtime stream. No business logic. | `diagnostics` |
 | `profile` | The personal data the user enters about themselves: date of birth, sex and weight, plus the usual bedtime and wake time. Kept on the phone, optional; the first three go to an analysis, the times only draw the History trends. | nothing |
 | `sync` | Moving recordings to and from the backend: upload queue, retention, deletion, analysis requests, result cache. `SyncService` is its entry point, and the only thing outside the package calls. | `recording`, `backend`, `insights`, `profile`, `diagnostics` |
 | `insights` | Turning analysis results into what is displayed: statistics, series, scores, the algorithm catalogue and the user's algorithm preference. | `backend`, `diagnostics` |
@@ -265,7 +266,7 @@ screen:
 - Nothing starts an analysis on the backend by itself. The app may request one on the
   user's behalf; that is an app setting, on by default, and the backend never decides it.
 - Results are small. They are fetched when they are wanted: live while the app is open
-  (events), otherwise on the next open.
+  (the realtime stream), otherwise on the next open.
 
 ## Showing results
 

@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.backend
 import com.rbmr.taigasleep.BuildConfig
 import java.io.EOFException
 import java.io.IOException
+import java.net.URLEncoder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.awaitClose
@@ -14,21 +15,27 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okio.BufferedSource
 
 /**
- * What the server's event stream (`GET /v1/events`, docs/api.md) tells the app. An event carries ids
- * and a status, never data, and is never replayed: whoever shows something refetches it.
+ * What PocketBase's realtime stream tells the app (docs/api.md, `x-realtime`). A change carries the
+ * record's id and status, never the payload: whoever shows something refetches it.
  */
 sealed interface RemoteEvent {
   /**
-   * The stream is open. Events from before this point are lost, so everything shown has to be
-   * refetched now. It is sent on every (re)connect.
+   * The stream is subscribed. Changes from before this point are lost, so everything shown has to
+   * be refetched now. It is sent on every (re)connect.
    */
   data object Connected : RemoteEvent
 
@@ -44,8 +51,8 @@ sealed interface RemoteEvent {
 data class StreamTarget(val baseUrl: String, val token: String)
 
 /**
- * One connection to the event stream. It emits [RemoteEvent.Connected] once the server has accepted
- * the stream and then the events, completes when the server ends the stream, and throws when the
+ * One connection to the realtime stream. It emits [RemoteEvent.Connected] once the subscription is
+ * made and then the changes, completes when the server ends the stream, and throws when the
  * connection fails: [TaigaUnauthorizedException] for a refused token, [TaigaNetworkException] when
  * the transport fails and [TaigaHttpException] for any other status.
  */
@@ -65,11 +72,11 @@ class OkHttpEventTransport(
   override fun open(baseUrl: String, token: String): Flow<RemoteEvent> = callbackFlow {
     val request =
         Request.Builder()
-            .url(baseUrl.trimEnd('/') + EVENTS)
+            .url(baseUrl.trimEnd('/') + REALTIME)
             .get()
             .header("Accept", "text/event-stream")
             .header("Cache-Control", "no-cache")
-            // A compressing proxy would hold events back until its buffer fills.
+            // A compressing proxy would hold changes back until its buffer fills.
             .header("Accept-Encoding", "identity")
             .header("Authorization", bearer(token))
             .header("User-Agent", userAgent)
@@ -84,11 +91,13 @@ class OkHttpEventTransport(
           override fun onResponse(call: Call, response: Response) {
             val failure: Throwable? =
                 try {
-                  response.use { this@callbackFlow.stream(it) }
+                  response.use { this@callbackFlow.read(it, baseUrl, token) }
                 } catch (e: IOException) {
                   TaigaNetworkException(e)
                 } catch (e: CancellationException) {
                   // The collector went away: the stream ends for that reason, not as a bad answer.
+                  e
+                } catch (e: TaigaException) {
                   e
                 } catch (e: Exception) {
                   TaigaMalformedException(e)
@@ -101,42 +110,100 @@ class OkHttpEventTransport(
   }
 
   /** Reads one response to its end. Returns why it failed, or null when it ended cleanly. */
-  private fun ProducerScope<RemoteEvent>.stream(response: Response): TaigaException? {
-    if (!response.isSuccessful) {
-      val status = response.code
-      return if (status == 401 || status == 403) {
-        TaigaUnauthorizedException(status, "HTTP $status")
-      } else {
-        TaigaHttpException(status, "HTTP $status")
-      }
-    }
+  private fun ProducerScope<RemoteEvent>.read(
+      response: Response,
+      baseUrl: String,
+      token: String,
+  ): TaigaException? {
+    if (!response.isSuccessful) return failureFor(response.code)
     // A captive portal or a proxy answers 200 with a page; that is not the stream.
     val type = response.header("Content-Type").orEmpty()
     val source = response.body?.source()
     if (source == null || !type.startsWith("text/event-stream", ignoreCase = true)) {
-      return TaigaMalformedException(IllegalStateException("not an event stream"))
+      return TaigaMalformedException(IllegalStateException("not a realtime stream"))
     }
-    if (trySendBlocking(RemoteEvent.Connected).isFailure) return null
+    var subscribed = false
     for (message in readMessages(source)) {
+      val clientId = message.clientId()
+      if (clientId != null) {
+        // PocketBase names the connection first; the changes start only after this subscription.
+        subscribe(baseUrl, token, clientId)?.let {
+          return it
+        }
+        if (!subscribed) {
+          subscribed = true
+          if (trySendBlocking(RemoteEvent.Connected).isFailure) return null
+        }
+        continue
+      }
       val event = message.toEvent() ?: continue
       if (trySendBlocking(event).isFailure) return null
     }
     return null
   }
 
+  /**
+   * Subscribes the named connection to the topics the app shows. It is a synchronous call: the
+   * stream has nothing to deliver until it is made. Returns why it failed, or null.
+   */
+  private fun subscribe(baseUrl: String, token: String, clientId: String): TaigaException? =
+      try {
+        val payload =
+            buildJsonObject {
+                  put("clientId", clientId)
+                  put("subscriptions", buildJsonArray { TOPICS.forEach { add(it) } })
+                }
+                .toString()
+        val request =
+            Request.Builder()
+                .url(baseUrl.trimEnd('/') + REALTIME)
+                .post(payload.toRequestBody(JSON_MEDIA_TYPE))
+                .header("Authorization", bearer(token))
+                .header("User-Agent", userAgent)
+                .build()
+        client.newCall(request).execute().use { response ->
+          if (response.isSuccessful) null else failureFor(response.code)
+        }
+      } catch (e: IOException) {
+        TaigaNetworkException(e)
+      }
+
+  private fun failureFor(status: Int): TaigaException =
+      if (status == 401 || status == 403) {
+        TaigaUnauthorizedException(status, "HTTP $status")
+      } else {
+        TaigaHttpException(status, "HTTP $status")
+      }
+
   private companion object {
-    const val EVENTS = "/v1/events"
+    const val REALTIME = "/api/realtime"
+    val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+    /**
+     * The changes the app shows: its recordings, and its analyses with just enough of the record to
+     * refresh the recording it belongs to. Only these fields are delivered, so a result never
+     * travels twice.
+     */
+    val TOPICS: List<String> =
+        listOf(topic("recordings", "id"), topic("analyses", "id,recording,status"))
+
+    fun topic(collection: String, fields: String): String {
+      val options =
+          buildJsonObject { put("query", buildJsonObject { put("fields", fields) }) }.toString()
+      return "$collection/*?options=" + URLEncoder.encode(options, "UTF-8")
+    }
   }
 }
 
 /**
- * The server sends a comment every 20 seconds, so a stream that is silent for three times that is
- * dead, and the read gives up to let the connection be replaced.
+ * PocketBase closes an idle connection after five minutes and every connection after thirty, so a
+ * stream that is silent for longer than that is dead, and the read gives up to let the connection be
+ * replaced.
  */
-internal const val EVENT_READ_TIMEOUT_SECONDS = 60L
+internal const val REALTIME_READ_TIMEOUT_SECONDS = 35L * 60
 
 /**
- * An event stream that keeps itself connected. It reconnects with a growing pause (1 second,
+ * A realtime stream that keeps itself connected. It reconnects with a growing pause (1 second,
  * doubling to 30) that starts over after a connection succeeded, and it stops when the collector
  * does. A refused token goes through [onUnauthorized], which refreshes or drops the session the way
  * the rest of the remote layer does; the stream carries on only while that says the session is
@@ -188,7 +255,7 @@ class EventStream(
 }
 
 /**
- * Whether the event stream may run in this state: a session that works, or one whose server could
+ * Whether the realtime stream may run in this state: a session that works, or one whose server could
  * not be reached for a reason that can pass. A server that is not Taiga, speaks another API
  * revision or has a bad address is not something a reconnect fixes.
  */
@@ -208,8 +275,8 @@ internal data class SseMessage(val event: String, val data: String)
 
 /**
  * The line protocol of Server-Sent Events. Lines end in LF or CRLF, which is what the server sends.
- * A comment (a line that starts with a colon, such as the keepalive) and the `retry` and `id`
- * fields change nothing: reconnecting is [EventStream]'s own policy, and nothing is replayed.
+ * A comment (a line that starts with a colon) and the `id` and `retry` fields change nothing:
+ * reconnecting is [EventStream]'s own policy, and nothing is replayed.
  */
 internal class SseParser {
   private var event = ""
@@ -249,7 +316,11 @@ internal class SseParser {
   }
 }
 
-/** The messages of [source] until it ends. A read that fails throws; an overlong line ends it. */
+/**
+ * The messages of [source] until it ends. A read that fails throws; an overlong line ends it. The
+ * limit is far above the small field selection the app asks for, and only bounds what a broken
+ * server can make the app buffer.
+ */
 internal fun readMessages(source: BufferedSource): Sequence<SseMessage> = sequence {
   val parser = SseParser()
   while (true) {
@@ -263,32 +334,67 @@ internal fun readMessages(source: BufferedSource): Sequence<SseMessage> = sequen
   }
 }
 
-private const val MAX_LINE_BYTES = 64L * 1024
+private const val MAX_LINE_BYTES = 6L * 1024 * 1024
 
 private val eventJson = Json { ignoreUnknownKeys = true }
 
+@Serializable private data class RealtimeConnectDto(val clientId: String = "")
+
+/**
+ * One change of a record: `action` is `create`, `update` or `delete`, and `record` carries the
+ * fields the subscription asked for.
+ */
 @Serializable
-private data class AnalysisEventDto(
+private data class RealtimeChangeDto(
+    val action: String = "",
+    val record: RealtimeRecordDto? = null,
+)
+
+@Serializable
+private data class RealtimeRecordDto(
     val id: String = "",
     val recording: String = "",
     val status: String = "",
 )
 
-@Serializable private data class RecordingEventDto(val id: String = "", val change: String = "")
+/** The id a `PB_CONNECT` message names, or null for any other message. */
+internal fun SseMessage.clientId(): String? {
+  if (event != "PB_CONNECT") return null
+  return try {
+    eventJson.decodeFromString<RealtimeConnectDto>(data).clientId.ifBlank { null }
+  } catch (_: IllegalArgumentException) {
+    // Includes SerializationException. Without a client id nothing can be subscribed.
+    null
+  }
+}
 
-/** The event a message stands for. Unknown names and data that cannot be read are ignored. */
+/**
+ * The change a message stands for. The topic is the subscription the app made, so the collection
+ * prefix is what names it; messages from another collection and unreadable data are ignored.
+ */
 internal fun SseMessage.toEvent(): RemoteEvent? =
     try {
-      when (event) {
-        "analysis" ->
-            eventJson.decodeFromString<AnalysisEventDto>(data).let {
-              if (it.id.isBlank() || it.recording.isBlank()) null
-              else RemoteEvent.AnalysisChanged(it.id, it.recording, it.status)
-            }
-        "recording" ->
-            eventJson.decodeFromString<RecordingEventDto>(data).let {
-              if (it.id.isBlank()) null else RemoteEvent.RecordingChanged(it.id, it.change)
-            }
+      when {
+        event.startsWith("analyses/") -> {
+          val change = eventJson.decodeFromString<RealtimeChangeDto>(data)
+          val record = change.record
+          when {
+            record == null || record.id.isBlank() || record.recording.isBlank() -> null
+            change.action == "delete" ->
+                RemoteEvent.AnalysisChanged(record.id, record.recording, "deleted")
+            else -> RemoteEvent.AnalysisChanged(record.id, record.recording, record.status)
+          }
+        }
+        event.startsWith("recordings/") -> {
+          val change = eventJson.decodeFromString<RealtimeChangeDto>(data)
+          val id = change.record?.id.orEmpty()
+          when {
+            id.isBlank() -> null
+            change.action == "delete" -> RemoteEvent.RecordingChanged(id, "deleted")
+            change.action == "create" -> RemoteEvent.RecordingChanged(id, "created")
+            else -> RemoteEvent.RecordingChanged(id, "updated")
+          }
+        }
         else -> null
       }
     } catch (_: IllegalArgumentException) {

@@ -20,7 +20,7 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
   changes part of a resource, `DELETE` removes it. The file append route is the one
   `PATCH` that adds bytes.
 - **JSON, snake_case, timestamps as PocketBase stores them for records** (`YYYY-MM-DD
-  HH:MM:SS.sssZ`) and RFC 3339 in `/v1` answers. File bytes and the event stream are the
+  HH:MM:SS.sssZ`) and RFC 3339 in `/v1` answers. File bytes and the realtime stream are the
   only non-JSON responses.
 - **Authentication** is `Authorization: Bearer <token>` from PocketBase's auth route of
   the account's collection, or a read-only access token from `POST /v1/tokens`.
@@ -81,7 +81,7 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
 | `GET /v1/health` | public | Liveness: `{ "status": "ok", "time": ... }` |
-| `GET /v1/version` | public | `{ "service": "taiga-sleep", "version": "0.6.21", "api": 6 }`. A client compares `api` with the one it was built for before it does anything else. |
+| `GET /v1/version` | public | `{ "service": "taiga-sleep", "version": "0.6.22", "api": 7 }`. A client compares `api` with the one it was built for before it does anything else. |
 | `GET /v1/openapi.json` | public | The OpenAPI 3.1 document of this build, including the record API generated from the collection schema. |
 | `GET /v1/docs` | public | Browsable documentation of the same. |
 
@@ -220,8 +220,8 @@ present depends on the data and the algorithm.
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
 | `POST /api/collections/analyses/records` | user | Body `{ "recording", "algorithm", "version"?, "params"? }`. The version defaults to the newest a worker offers, ignoring workers that stopped announcing themselves (`TAIGA_WORKER_TTL_S`, 900 s) unless none is left. Answers `200` with a queued analysis, or with the existing one for the same recording, algorithm, version and parameters. A failed existing one is replaced, which is how a retry is made. `409 recording_incomplete` before the recording is sealed, `422 unknown_algorithm` when no worker offers it, `422 invalid_params` when the parameters do not match its announced schema. |
-| `GET /api/collections/analyses/records` | user, token, worker with a lease | List the analyses the caller may see. PocketBase `filter`, `sort`, `page`, `perPage`. |
-| `GET /api/collections/analyses/records/{id}` | user, token, worker with a lease | One analysis, with `summary` and `result`. A worker only while it holds the lease. |
+| `GET /api/collections/analyses/records` | user, token, worker | List the analyses the caller may see: a user or a token the owner's, a worker the queued analyses and the one it holds a lease of. PocketBase `filter`, `sort`, `page`, `perPage`. |
+| `GET /api/collections/analyses/records/{id}` | user, token, worker | One analysis, with `summary` and `result`. A worker only for a queued analysis or while it holds the lease. |
 | `DELETE /api/collections/analyses/records/{id}` | user | Removes it; a running one is cancelled, and the worker's next call about it gets `404`. `204`. |
 
 An analysis cannot be changed through the record API: its update rule allows no client.
@@ -238,10 +238,10 @@ The worker queue's own routes are what fill it in.
 The worker is a client with the `worker` role. It reads recordings and analyses through
 the record API plus these routes.
 
-There are no worker-only copies of recording or file routes, and a worker sees nothing
-outside the lease: while it holds a `running` analysis it may read that analysis, its
-recording and the recording's files, and nothing else. Everything else is `404`, so ids
-do not leak.
+There are no worker-only copies of recording or file routes. A worker sees the queued
+analyses, which is how a new request wakes it, and a recording, its files and its analyses
+only while it holds a live lease of one of them. Everything else is `404`, so ids do not
+leak.
 
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
@@ -256,26 +256,32 @@ A lease that expires puts the analysis back in the queue; the backend does this 
 longer than one lease extends it while it works, so an analysis is not requeued under a
 worker that is still busy with it.
 
-## Events
+## Realtime
 
-`GET /v1/events` is a Server-Sent Events stream for the caller. A comment line (`:`) is
-sent every 20 seconds so intermediaries keep the connection open.
+Changes to recordings and analyses arrive through PocketBase's realtime API, so a client
+that is connected learns at once that something it shows changed. It is the same
+`/api/realtime` stream PocketBase serves for any collection, with the collection rules as
+the access check, and it is documented under `x-realtime` in the OpenAPI document.
 
-```text
-event: analysis
-data: {"id": "a1b2c3d4e5f6g7h", "recording": "20261023_223000-k3f9", "status": "succeeded"}
+1. Open `GET /api/realtime` with `Accept: text/event-stream` and the account's token. The
+   first message is `PB_CONNECT`, whose data is `{"clientId": "..."}`.
+2. Subscribe from the same client address with `POST /api/realtime` and the same token:
+   `{"clientId": "...", "subscriptions": ["recordings/*", "analyses/*"]}`. The answer is
+   `204`; a new connection has to subscribe again.
+3. Each change to a matching record the caller may read is one message named after the
+   subscription, with `{"action": "create|update|delete", "record": {...}}` as its data.
+   A topic may name one record (`recordings/{id}`) instead of the wildcard, and its
+   `?options` query narrows the delivered fields:
+   `analyses/*?options={"query":{"fields":"id,recording,status"}}` (URL-encoded), so a
+   client that only refreshes what it shows does not receive whole results.
 
-event: recording
-data: {"id": "20261023_223000-k3f9", "change": "deleted"}
-```
-
-- `analysis` events carry the analysis status (`queued`, `running`, `succeeded`, `failed`)
-  or `deleted`; `recording` events carry `change` (`created`, `updated`, `deleted`); `updated` means the metadata changed or the recording was sealed, not that a chunk arrived.
-- A **user** receives events for their own recordings and analyses.
-- A **worker** receives `analysis` events with `status: "queued"`, which is its signal to
-  claim; it also claims once on connecting, because events are not replayed.
-- Events carry ids and a status, never data. A client that missed one fetches the
-  resource. Clients reconnect on their own and treat a reconnect as "refetch what I show".
+- A **user** receives their own recordings and analyses. A **worker** receives the queued
+  analyses, which is its signal to claim, and the analysis it holds a lease of.
+- Nothing is replayed. A client treats every (re)connect as "refetch what I show" and
+  fetches the resource the change names. A missed change costs a refetch, not correctness.
+- A connection is closed after 30 minutes at the latest, and after 5 minutes without a
+  message; clients reconnect with their own backoff and subscribe again. An update also
+  arrives for each uploaded chunk of a recording, which a client folds into one refresh.
 
 ## Open on purpose, closed on purpose
 

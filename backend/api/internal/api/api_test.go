@@ -926,12 +926,15 @@ func TestAnalysisFlow(t *testing.T) {
 		t.Fatal("different params must be a different analysis")
 	}
 
-	// Another user sees nothing of it, and a worker only what it holds the lease of.
+	// Another user sees nothing of it. A worker sees the queued analyses, so the queue
+	// can wake it, but it reads the recording only while it holds a lease.
 	s.expect(404, http.MethodGet, analysesAPI+"/"+analysis.ID, bob, nil, nil)
 	s.expect(404, http.MethodDelete, analysesAPI+"/"+analysis.ID, bob, nil, nil)
-	s.expect(404, http.MethodGet, analysesAPI+"/"+analysis.ID, worker, nil, nil)
-	if got := listAnalyses(s, worker, "?filter="+url.QueryEscape(`status="queued"`)); got.TotalItems != 0 {
-		t.Fatalf("a worker lists %d queued analyses it does not hold", got.TotalItems)
+	if status, queued := getAnalysis(s, worker, analysis.ID); status != 200 || queued.Status != "queued" {
+		t.Fatalf("worker read of a queued analysis = %d %+v", status, queued)
+	}
+	if got := listAnalyses(s, worker, "?filter="+url.QueryEscape(`status="queued"`)); got.TotalItems != 2 {
+		t.Fatalf("a worker lists %d queued analyses, want the 2 in the queue", got.TotalItems)
 	}
 	if got := listAnalyses(s, alice, ""); got.TotalItems != 2 {
 		t.Fatalf("alice sees %d analyses", got.TotalItems)
@@ -949,8 +952,13 @@ func TestAnalysisFlow(t *testing.T) {
 		t.Fatalf("claimed = %+v", claimed)
 	}
 	s.expect(200, http.MethodGet, recordingsAPI+"/"+id, worker, nil, nil)
-	if held := listAnalyses(s, worker, ""); held.TotalItems != 1 || held.Items[0].ID != claimed.ID {
-		t.Fatalf("a worker holds %+v, want only %s", held, claimed.ID)
+	held := listAnalyses(s, worker, "")
+	heldIDs := map[string]bool{}
+	for _, item := range held.Items {
+		heldIDs[item.ID] = true
+	}
+	if held.TotalItems != 2 || !heldIDs[claimed.ID] || !heldIDs[other.ID] {
+		t.Fatalf("a worker sees %+v, want the held analysis and the queued one", held)
 	}
 	if status, read := getAnalysis(s, worker, claimed.ID); status != 200 || read.ID != claimed.ID {
 		t.Fatalf("worker read %d %+v", status, read)
@@ -1339,7 +1347,6 @@ func TestAccessTokensAreReadOnly(t *testing.T) {
 		{http.MethodGet, "/v1/recordings/" + id + "/files", nil, http.StatusForbidden},
 		{http.MethodGet, "/v1/recordings/" + id + "/files/hr.log", nil, http.StatusForbidden},
 		{http.MethodGet, "/v1/algorithms", nil, http.StatusForbidden},
-		{http.MethodGet, "/v1/events", nil, http.StatusForbidden},
 	} {
 		status, _, body := s.call(call.method, call.path, created.Token, call.body, nil)
 		if status != call.want {
@@ -1434,194 +1441,206 @@ func TestDefaultVersionIgnoresWorkersThatWentAway(t *testing.T) {
 	mustRequestAnalysis(s, alice, "rec1", map[string]any{"algorithm": "baseline", "version": "2.0.0"})
 }
 
-// stream is an open GET /v1/events connection, read by a goroutine so a test can wait for
-// events with a timeout.
-type stream struct {
-	t      *testing.T
-	events chan string
-	cancel func()
-	done   chan struct{}
+// realtimeClient is one subscription through PocketBase's realtime API, read by a
+// goroutine so a test can wait for a change with a timeout.
+type realtimeClient struct {
+	t        *testing.T
+	messages chan realtimeMessage
+	cancel   context.CancelFunc
+	done     chan struct{}
 }
 
-func openStream(t *testing.T, s *server, token string) *stream {
+type realtimeMessage struct {
+	topic  string
+	action string
+	record map[string]any
+}
+
+// readSSE reads one message of a Server-Sent Events stream: its event name and its
+// data line. It returns an error when the stream ends.
+func readSSE(reader *bufio.Reader) (string, string, error) {
+	name, data := "", ""
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return "", "", err
+		}
+		line = strings.TrimRight(line, "\r\n")
+		switch {
+		case line == "":
+			if data != "" {
+				return name, data, nil
+			}
+			name, data = "", ""
+		case strings.HasPrefix(line, "event:"):
+			name = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		case strings.HasPrefix(line, "data:"):
+			data = strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")
+		}
+	}
+}
+
+// openRealtime connects to /api/realtime, subscribes to topics and starts reading the
+// changes. It is the protocol docs/api.md describes: connect, PB_CONNECT carries the
+// client id, and a POST of that id with the topics subscribes.
+func openRealtime(t *testing.T, s *server, token string, topics ...string) *realtimeClient {
 	t.Helper()
 	httpServer := httptest.NewServer(s.mux)
 	t.Cleanup(httpServer.Close)
 	ctx, cancel := context.WithCancel(context.Background())
-	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, httpServer.URL+"/v1/events", nil)
+
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, httpServer.URL+"/api/realtime", nil)
 	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Accept", "text/event-stream")
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		cancel()
-		t.Fatal(err)
+		t.Fatalf("connect realtime: %v", err)
 	}
-	if response.StatusCode != 200 || !strings.HasPrefix(response.Header.Get("Content-Type"), "text/event-stream") {
+	if response.StatusCode != http.StatusOK ||
+		!strings.HasPrefix(response.Header.Get("Content-Type"), "text/event-stream") {
 		cancel()
-		t.Fatalf("events = %d %s", response.StatusCode, response.Header.Get("Content-Type"))
+		t.Fatalf("realtime = %d %s", response.StatusCode, response.Header.Get("Content-Type"))
 	}
-	st := &stream{t: t, events: make(chan string, 32), cancel: cancel, done: make(chan struct{})}
+	reader := bufio.NewReader(response.Body)
+	name, data, err := readSSE(reader)
+	if err != nil || name != "PB_CONNECT" {
+		cancel()
+		t.Fatalf("first realtime message = %q %q (%v), want PB_CONNECT", name, data, err)
+	}
+	var connect struct {
+		ClientID string `json:"clientId"`
+	}
+	if err := json.Unmarshal([]byte(data), &connect); err != nil || connect.ClientID == "" {
+		cancel()
+		t.Fatalf("PB_CONNECT = %s", data)
+	}
+
+	body, _ := json.Marshal(map[string]any{"clientId": connect.ClientID, "subscriptions": topics})
+	subscribe, _ := http.NewRequestWithContext(ctx, http.MethodPost, httpServer.URL+"/api/realtime", bytes.NewReader(body))
+	subscribe.Header.Set("Content-Type", "application/json")
+	subscribe.Header.Set("Authorization", "Bearer "+token)
+	subscribed, err := http.DefaultClient.Do(subscribe)
+	if err != nil {
+		cancel()
+		t.Fatalf("subscribe: %v", err)
+	}
+	subscribed.Body.Close()
+	if subscribed.StatusCode != http.StatusNoContent {
+		cancel()
+		t.Fatalf("subscribe = %d, want 204", subscribed.StatusCode)
+	}
+
+	client := &realtimeClient{t: t, messages: make(chan realtimeMessage, 32), cancel: cancel, done: make(chan struct{})}
 	go func() {
-		defer close(st.done)
+		defer close(client.done)
 		defer response.Body.Close()
-		reader := bufio.NewReader(response.Body)
-		name := ""
 		for {
-			line, err := reader.ReadString('\n')
+			topic, raw, err := readSSE(reader)
 			if err != nil {
 				return
 			}
-			line = strings.TrimRight(line, "\r\n")
-			switch {
-			case strings.HasPrefix(line, "event: "):
-				name = strings.TrimPrefix(line, "event: ")
-			case strings.HasPrefix(line, "data: "):
-				st.events <- name + " " + strings.TrimPrefix(line, "data: ")
-			case strings.HasPrefix(line, ":"):
-				st.events <- line
+			var change struct {
+				Action string         `json:"action"`
+				Record map[string]any `json:"record"`
 			}
+			if err := json.Unmarshal([]byte(raw), &change); err != nil {
+				continue
+			}
+			client.messages <- realtimeMessage{topic: topic, action: change.Action, record: change.Record}
 		}
 	}()
 	t.Cleanup(cancel)
-	if first := st.next(); first != ": connected" {
-		t.Fatalf("first line = %q", first)
-	}
-	return st
+	return client
 }
 
-func (st *stream) next() string {
-	st.t.Helper()
+func (c *realtimeClient) next() realtimeMessage {
+	c.t.Helper()
 	select {
-	case line := <-st.events:
-		return line
+	case message := <-c.messages:
+		return message
 	case <-time.After(5 * time.Second):
-		st.t.Fatal("no event within 5 seconds")
-		return ""
+		c.t.Fatal("no realtime change within 5 seconds")
+		return realtimeMessage{}
 	}
 }
 
-// nothing asserts that no event arrives for a moment.
-func (st *stream) nothing() {
-	st.t.Helper()
+// nothing asserts that no change arrives for a moment.
+func (c *realtimeClient) nothing() {
+	c.t.Helper()
 	select {
-	case line := <-st.events:
-		st.t.Fatalf("unexpected event %q", line)
+	case message := <-c.messages:
+		c.t.Fatalf("unexpected realtime change %+v", message)
 	case <-time.After(300 * time.Millisecond):
 	}
 }
 
-func TestEventStream(t *testing.T) {
+// expectChange waits for the next change on topic and checks its action and the fields
+// of the record a client relies on.
+func (c *realtimeClient) expectChange(topic, action string, fields map[string]any) {
+	c.t.Helper()
+	message := c.next()
+	if message.topic != topic || message.action != action {
+		c.t.Fatalf("realtime change = %s %s, want %s %s (%+v)", message.topic, message.action, topic, action, message.record)
+	}
+	for name, want := range fields {
+		if got := message.record[name]; got != want {
+			c.t.Fatalf("%s %s: %s = %v, want %v", topic, action, name, got, want)
+		}
+	}
+}
+
+// TestRealtimeDeliversOwnChangesOnly subscribes two users and a worker the way the app
+// and the worker do, and checks that each is told about its own records and nothing of
+// another account's. The collections' rules are the access check of the stream.
+func TestRealtimeDeliversOwnChangesOnly(t *testing.T) {
 	s := newServer(t)
 	alice, bob, worker := s.tokens["alice"], s.tokens["bob"], s.tokens["worker"]
-	s.expect(401, http.MethodGet, "/v1/events", "", nil, nil)
-
-	aliceEvents, bobEvents, workerEvents := openStream(t, s, alice), openStream(t, s, bob), openStream(t, s, worker)
-	if events.count() != 3 {
-		t.Fatalf("%d subscribers", events.count())
-	}
+	aliceEvents := openRealtime(t, s, alice, "recordings/*", "analyses/*")
+	bobEvents := openRealtime(t, s, bob, "recordings/*", "analyses/*")
+	workerEvents := openRealtime(t, s, worker, "analyses/*")
 
 	id := "rec1"
 	createRecording(s, alice, id, testMeta(id, "recording"))
-	if got := aliceEvents.next(); got != `recording {"id":"rec1","change":"created"}` {
-		t.Fatalf("created event = %q", got)
-	}
-	replaceMeta(s, alice, id, testMeta(id, "stopped"))
-	if got := aliceEvents.next(); got != `recording {"id":"rec1","change":"updated"}` {
-		t.Fatalf("meta change event = %q", got)
-	}
-	if st, _, b := appendChunk(s, alice, id, "hr.log", 0, []byte("frames"), nil); st != 204 {
-		t.Fatalf("append: %d %s", st, b)
-	}
-	aliceEvents.nothing() // a chunk is not a change to what clients show
-	seal(s, alice, id)
-	if got := aliceEvents.next(); got != `recording {"id":"rec1","change":"updated"}` {
-		t.Fatalf("sealed event = %q", got)
-	}
-	drain := func(st *stream) {
-		for {
-			select {
-			case <-st.events:
-			case <-time.After(300 * time.Millisecond):
-				return
-			}
-		}
-	}
-	drain(aliceEvents)
-
-	// A user only hears about their own things; a worker only about queued work.
-	announce(s, "baseline", "1.0.0")
-	analysis := mustRequestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline"})
-	queued := `analysis {"id":"` + analysis.ID + `","recording":"rec1","status":"queued"}`
-	if got := aliceEvents.next(); got != queued {
-		t.Fatalf("alice = %q, want %q", got, queued)
-	}
-	if got := workerEvents.next(); got != queued {
-		t.Fatalf("worker = %q, want %q", got, queued)
-	}
+	aliceEvents.expectChange("recordings/*", "create", map[string]any{"id": id})
 	bobEvents.nothing()
 
-	s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil)
-	if got := aliceEvents.next(); got != `analysis {"id":"`+analysis.ID+`","recording":"rec1","status":"running"}` {
-		t.Fatalf("running event = %q", got)
+	replaceMeta(s, alice, id, testMeta(id, "stopped"))
+	aliceEvents.expectChange("recordings/*", "update", map[string]any{"id": id})
+	// Every save of a recording is a change; the app folds the ones of an upload into
+	// one refresh by waiting for the recording to settle.
+	if status, _, body := appendChunk(s, alice, id, "hr.log", 0, []byte("frames"), nil); status != 204 {
+		t.Fatalf("append: %d %s", status, body)
 	}
-	workerEvents.nothing() // running is not work to claim
-	s.expect(200, http.MethodPost, "/v1/analyses/"+analysis.ID+"/complete", worker, CompleteRequest{Result: mustJSON(t, validResult("baseline", "1.0.0"))}, nil)
-	if got := aliceEvents.next(); got != `analysis {"id":"`+analysis.ID+`","recording":"rec1","status":"succeeded"}` {
-		t.Fatalf("succeeded event = %q", got)
-	}
+	aliceEvents.expectChange("recordings/*", "update", map[string]any{"id": id})
+	seal(s, alice, id)
+	aliceEvents.expectChange("recordings/*", "update", map[string]any{"id": id})
+	bobEvents.nothing()
 
-	// A retryable failure is queued again, which is work for a worker.
-	again := mustRequestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline", "params": map[string]int{"k": 1}})
-	workerEvents.next()
-	s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil)
-	s.expect(200, http.MethodPost, "/v1/analyses/"+again.ID+"/fail", worker, FailRequest{Error: "flaky", Retryable: true}, nil)
-	if got := workerEvents.next(); !strings.Contains(got, again.ID) || !strings.Contains(got, `"queued"`) {
-		t.Fatalf("requeue event = %q", got)
-	}
+	announce(s, "baseline", "1.0.0")
+	analysis := mustRequestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline"})
+	topic := "analyses/*"
+	aliceEvents.expectChange(topic, "create", map[string]any{"id": analysis.ID, "recording": id, "status": "queued"})
+	// A queued analysis is work for a worker, and is visible to none but its owner.
+	workerEvents.expectChange(topic, "create", map[string]any{"id": analysis.ID, "status": "queued"})
+	bobEvents.nothing()
 
-	// Deleting an analysis and then the recording.
-	drain(aliceEvents)
-	s.expect(204, http.MethodDelete, analysesAPI+"/"+analysis.ID, alice, nil, nil)
-	if got := aliceEvents.next(); got != `analysis {"id":"`+analysis.ID+`","recording":"rec1","status":"deleted"}` {
-		t.Fatalf("delete event = %q", got)
-	}
-	s.expect(204, http.MethodDelete, recordingsAPI+"/"+id, alice, nil, nil)
-	for aliceEvents.next() != `recording {"id":"rec1","change":"deleted"}` {
-	}
+	// The claim is the change that matters most to the app: the analysis started.
+	s.expect(http.StatusOK, http.MethodPost, "/v1/analyses/claim", worker, nil, nil)
+	aliceEvents.expectChange(topic, "update", map[string]any{"id": analysis.ID, "status": "running"})
+
+	s.expect(http.StatusOK, http.MethodPost, "/v1/analyses/"+analysis.ID+"/complete", worker,
+		CompleteRequest{Result: mustJSON(t, validResult("baseline", "1.0.0"))}, nil)
+	aliceEvents.expectChange(topic, "update", map[string]any{"id": analysis.ID, "status": "succeeded"})
+	bobEvents.nothing()
+
+	s.expect(http.StatusNoContent, http.MethodDelete, analysesAPI+"/"+analysis.ID, alice, nil, nil)
+	aliceEvents.expectChange(topic, "delete", map[string]any{"id": analysis.ID})
+	s.expect(http.StatusNoContent, http.MethodDelete, recordingsAPI+"/"+id, alice, nil, nil)
+	aliceEvents.expectChange("recordings/*", "delete", map[string]any{"id": id})
 	bobEvents.nothing()
 
 	// Disconnecting releases the subscription.
 	aliceEvents.cancel()
 	<-aliceEvents.done
-	deadline := time.Now().Add(2 * time.Second)
-	for events.count() != 2 && time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
-	}
-	if events.count() != 2 {
-		t.Fatalf("%d subscribers after a disconnect, want 2", events.count())
-	}
-}
-
-func TestEventStreamKeepalive(t *testing.T) {
-	old := eventKeepalive
-	eventKeepalive = 50 * time.Millisecond
-	t.Cleanup(func() { eventKeepalive = old })
-	s := newServer(t)
-	st := openStream(t, s, s.tokens["alice"])
-	if got := st.next(); got != ": keepalive" {
-		t.Fatalf("got %q", got)
-	}
-}
-
-func TestSlowSubscriberIsDropped(t *testing.T) {
-	hub := &eventHub{subs: map[*subscriber]struct{}{}}
-	sub := hub.subscribe(roleUser, "u1")
-	for i := 0; i <= subscriberBuffer; i++ {
-		hub.toUser("u1", eventRecording, RecordingEvent{ID: "x", Change: "updated"})
-	}
-	if hub.count() != 0 {
-		t.Fatal("a subscriber that cannot keep up must be dropped so it reconnects")
-	}
-	for range sub.ch { // the channel is closed after what it held
-	}
-	hub.unsubscribe(sub) // and unsubscribing again is harmless
 }

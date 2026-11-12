@@ -1279,23 +1279,21 @@ def test_a_worker_sees_only_what_it_holds_and_a_user_only_their_own(api: Backend
     mine = api.request_analysis(api.user_a, api.make_recording(api.user_a), algorithm).json()
     theirs = api.request_analysis(api.user_b, api.make_recording(api.user_b), algorithm).json()
 
-    # Queued work is not a worker's to read: it arrives as an event and a claim.
-    assert_error(api.get(f"{ANALYSES_API}/{mine['id']}", token=api.worker), 404)
-    assert (
-        api.analyses(api.worker, record_filter(f'recording="{mine["recording"]}"')).json()["items"]
-        == []
-    )
+    # The queue is a worker's to see, so a realtime change can wake it; a recording is not
+    # until the worker holds the lease of one of its analyses.
+    assert api.analysis(api.worker, mine["id"])["status"] == "queued"
+    assert api.analysis(api.worker, theirs["id"])["status"] == "queued"
+    assert_error(api.get(f"{RECORDINGS_API}/{mine['recording']}", token=api.worker), 404)
+    assert_error(api.get(f"{RECORDINGS_API}/{theirs['recording']}", token=api.worker), 404)
 
     claimed = api.claim(api.worker, algorithm, expect=200).json()
     other = theirs if claimed["id"] == mine["id"] else mine
     held = api.analyses(api.worker, record_filter(f'recording="{claimed["recording"]}"')).json()
     assert claimed["id"] in {item["id"] for item in held["items"]}
-    assert (
-        api.analyses(api.worker, record_filter(f'recording="{other["recording"]}"')).json()["items"]
-        == []
-    )
     assert api.analysis(api.worker, claimed["id"])["recording"] == claimed["recording"]
-    assert_error(api.get(f"{ANALYSES_API}/{other['id']}", token=api.worker), 404)
+    # The other account's analysis is still queued, and that is all the worker sees of it.
+    assert api.analysis(api.worker, other["id"])["status"] == "queued"
+    assert_error(api.get(f"{RECORDINGS_API}/{other['recording']}", token=api.worker), 404)
 
     for account, own, foreign in ((api.user_a, mine, theirs), (api.user_b, theirs, mine)):
         ids = {item["id"] for item in api.analyses(account, "?perPage=200").json()["items"]}
@@ -1511,16 +1509,19 @@ def test_a_worker_reads_a_recording_only_while_it_holds_the_lease(api: Backend) 
     algorithm, _, analysis = queued_analysis(api, recording=recording)
     files_base = f"/v1/recordings/{recording}/files"
 
-    def denied(worker: Account) -> None:
+    def no_recording(worker: Account) -> None:
         assert_error(api.recording(worker, recording, expect=404), 404)
         for path in (files_base, f"{files_base}/hr.log"):
             assert_error(api.get(path, token=worker), 404, "not_found")
         assert api.head(f"{files_base}/hr.log", token=worker).status == 404
-        assert_error(api.get(f"{ANALYSES_API}/{analysis['id']}", token=worker), 404)
 
-    denied(api.worker)  # queued: no lease yet
+    # A queued analysis is readable, so the queue can wake a worker; its recording is not.
+    assert api.analysis(api.worker, analysis['id'])["status"] == "queued"
+    no_recording(api.worker)
     api.claim(api.worker, algorithm, lease_seconds=60, expect=200)
-    denied(api.other_worker)  # somebody else holds it
+    # A worker that does not hold the lease sees neither the work nor the recording.
+    assert_error(api.get(f"{ANALYSES_API}/{analysis['id']}", token=api.other_worker), 404)
+    no_recording(api.other_worker)
     assert api.analysis(api.worker, analysis['id'])["status"] == "running"
 
     read = api.recording(api.worker, recording).json()
@@ -1546,7 +1547,8 @@ def test_a_worker_reads_a_recording_only_while_it_holds_the_lease(api: Backend) 
         json={"result": result(algorithm)},
         expect=200,
     )
-    denied(api.worker)  # finished: the lease is gone
+    no_recording(api.worker)  # finished: the lease is gone
+    assert_error(api.get(f"{ANALYSES_API}/{analysis['id']}", token=api.worker), 404)
 
 
 def test_a_worker_downloads_compressed_files_inflated(api: Backend) -> None:
@@ -2013,7 +2015,7 @@ def test_the_running_worker_polls_works_and_stops_on_sigterm(api: Backend, basel
 
 
 # ---------------------------------------------------------------------------
-# A worker that is woken by events instead of polling
+# A worker that is woken by realtime changes instead of polling
 # ---------------------------------------------------------------------------
 
 # An hour: whatever the worker does within the test, it does not do it because it polled.
@@ -2030,7 +2032,7 @@ def test_a_worker_with_a_long_poll_interval_claims_new_work_within_seconds(api: 
     api.drain_queue()
     with api.running_worker(TAIGA_POLL_INTERVAL_S=LONG_POLL) as worker:
         # Idle and listening: its first claim found nothing and the stream is open.
-        worker.wait_for_log("event stream connected")
+        worker.wait_for_log("realtime connected")
         worker.wait_for_log("waiting for an event")
 
         recording = api.make_recording(api.user_a, hr_frames=120)
@@ -2060,7 +2062,7 @@ def test_a_worker_started_with_work_queued_claims_it_without_waiting_for_the_pol
         worker.wait_for_log(f"claimed analysis {created['id']}", timeout_s=30)
         analysis = api.wait_for_status(api.user_a, created["id"], ("succeeded", "failed"), timeout_s=90)
         assert analysis["status"] == "succeeded", analysis["error"]
-        worker.wait_for_log("event stream connected")
+        worker.wait_for_log("realtime connected")
     assert_stopped_cleanly(worker)
 
 
@@ -2071,7 +2073,7 @@ def test_a_worker_whose_stream_dropped_claims_what_it_missed_once_it_is_connecte
     proxy = CuttableProxy(int(api.base_url.rsplit(":", 1)[1]))
     try:
         with api.running_worker(TAIGA_POLL_INTERVAL_S=LONG_POLL, TAIGA_API_URL=proxy.url) as worker:
-            worker.wait_for_log("event stream connected")
+            worker.wait_for_log("realtime connected")
             worker.wait_for_log("waiting for an event")
 
             proxy.cut()
