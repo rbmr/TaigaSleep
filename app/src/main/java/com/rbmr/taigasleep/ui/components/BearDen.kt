@@ -365,15 +365,18 @@ private fun eyeHole(centerX: Float, pop: Float): Path =
       addOval(Rect(center = Offset(centerX, EYE_Y), radius = EYE_RADIUS * pop))
     }
 
-/** Six small stars, in the logo's coordinates, above the bear. */
+/**
+ * Six small stars, in the logo's coordinates, in the sky outside the arch: beside its shoulders
+ * and past its feet, never inside the den.
+ */
 private val stars =
     listOf(
-        Star(95f, 27f, 0.85f),
-        Star(118f, 33f, 0.55f),
-        Star(73f, 40f, 0.65f),
-        Star(139f, 42f, 0.75f),
-        Star(88f, 44f, 0.5f),
-        Star(110f, 40f, 0.6f),
+        Star(-6f, 22f, 0.7f),
+        Star(12f, 54f, 0.5f),
+        Star(30f, 8f, 0.8f),
+        Star(178f, 6f, 0.6f),
+        Star(198f, 34f, 0.8f),
+        Star(212f, 72f, 0.5f),
     )
 
 private class Star(val x: Float, val y: Float, val alpha: Float)
