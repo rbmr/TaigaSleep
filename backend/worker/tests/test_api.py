@@ -102,22 +102,34 @@ def test_login_refuses_an_answer_without_the_worker_account(server) -> None:
     assert client.token is None
 
 
-def test_errors_carry_the_status_code_and_message(server) -> None:
+def test_errors_carry_the_status_message_and_code(server) -> None:
     client, recorder = server
+    # PocketBase's auth routes report no code of ours; a custom /v1 route does.
     answer(
         recorder,
         "POST",
         "/api/collections/workers/auth-with-password",
         400,
-        {"code": 400, "message": "Failed to authenticate.", "data": {}},
+        {"status": 400, "message": "Failed to authenticate.", "data": {}},
     )
-
     with pytest.raises(ApiError) as caught:
         client.login("w@example.com", "wrong")
-
     assert caught.value.status == 400
-    assert caught.value.code == "400"
+    assert caught.value.code is None
     assert str(caught.value) == "Failed to authenticate."
+
+    client.token = "t1"
+    answer(
+        recorder,
+        "POST",
+        "/v1/analyses/claim",
+        409,
+        {"status": 409, "message": "the lease expired", "data": {"code": "not_leased"}},
+    )
+    with pytest.raises(ApiError) as caught:
+        client.claim([], 60)
+    assert (caught.value.status, caught.value.code) == (409, "not_leased")
+    assert str(caught.value) == "the lease expired"
 
 
 def test_an_unreachable_api_is_an_error_without_a_status() -> None:
@@ -186,7 +198,7 @@ def test_complete_and_fail_post_to_the_analysis(server) -> None:
         "POST",
         "/v1/analyses/an3/complete",
         409,
-        {"code": "not_leased", "message": "lost"},
+        {"status": 409, "message": "lost", "data": {"code": "not_leased"}},
     )
 
     client.complete("an1", {"model": "baseline"})
@@ -203,7 +215,7 @@ def test_complete_and_fail_post_to_the_analysis(server) -> None:
 def test_recording_and_files(server) -> None:
     client, recorder = server
     client.token = "t1"
-    answer(recorder, "GET", "/v1/recordings/rec%201", 200, {"id": "rec 1", "meta": {"format": "x"}})
+    answer(recorder, "GET", "/api/collections/recordings/records/rec%201", 200, {"id": "rec 1", "meta": {"format": "x"}})
     answer(
         recorder,
         "GET",
@@ -226,7 +238,7 @@ def test_download_writes_the_bytes_and_asks_for_no_compression(server, tmp_path:
         "GET",
         "/v1/recordings/rec1/files/ecg.log",
         404,
-        {"code": "not_found", "message": "file not found"},
+        {"status": 404, "message": "file not found", "data": {}},
     )
 
     client.download_file("rec1", "hr.log", tmp_path / "hr.log")
