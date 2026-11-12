@@ -1033,6 +1033,53 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 	return raw
 }
 
+// TestConcurrentIdenticalAnalysisRequestsShareOneAnalysis sends the same request
+// several times at once. Asking again for an analysis is meant to be one analysis, so
+// every answer must name the same row even when the requests pass the existence check
+// together and the unique index is what keeps the duplicate out.
+func TestConcurrentIdenticalAnalysisRequestsShareOneAnalysis(t *testing.T) {
+	s := newServer(t)
+	alice := s.tokens["alice"]
+	completeRecording(s, alice, "concurrent")
+	announce(s, "baseline", "1.0.0")
+
+	const requests = 8
+	type answer struct {
+		status int
+		body   []byte
+	}
+	answers := make([]answer, requests)
+	var wait sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < requests; i++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			status, _, body := s.call(http.MethodPost, analysesAPI, alice, map[string]any{
+				"recording": "concurrent", "algorithm": "baseline",
+			}, nil)
+			answers[i] = answer{status: status, body: body}
+		}()
+	}
+	close(start)
+	wait.Wait()
+
+	ids := map[string]bool{}
+	for i, got := range answers {
+		if got.status != http.StatusOK {
+			t.Fatalf("request %d = %d %s", i, got.status, got.body)
+		}
+		ids[decode[AnalysisView](t, got.body).ID] = true
+	}
+	if len(ids) != 1 {
+		t.Fatalf("the concurrent requests named %d analyses, want 1: %v", len(ids), ids)
+	}
+	if listed := listAnalyses(s, alice, ""); listed.TotalItems != 1 {
+		t.Fatalf("%d analyses were stored, want 1", listed.TotalItems)
+	}
+}
+
 func TestAnalysisParamsAreCheckedAgainstTheAnnouncedSchema(t *testing.T) {
 	s := newServer(t)
 	alice := s.tokens["alice"]

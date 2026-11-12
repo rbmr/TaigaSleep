@@ -261,7 +261,20 @@ func createAnalysisHook(e *core.RecordRequestEvent) error {
 	e.Record.Set("finished_at", "")
 	e.Record.Set("result", nil)
 	e.Record.Set("summary", nil)
-	return e.Next()
+	if err := e.Next(); err != nil {
+		// Two identical requests can pass the lookup above before either has saved;
+		// the unique index keeps one row, and the request that lost the race answers
+		// with that row instead of an error. Asking twice is meant to be one analysis.
+		if raced, findErr := e.App.FindFirstRecordByFilter(
+			"analyses",
+			"recording = {:recording} && algorithm = {:algorithm} && version = {:version} && params_hash = {:hash}",
+			dbx.Params{"recording": recording.Id, "algorithm": algorithm, "version": offered.Version, "hash": hash},
+		); findErr == nil && raced.GetString("status") != statusFailed {
+			return e.JSON(http.StatusOK, raced)
+		}
+		return err
+	}
+	return nil
 }
 
 // recordingMeta validates the meta.json a request carries and returns it with its

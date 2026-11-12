@@ -38,12 +38,6 @@ func newError(status int, code, message string) *apiError {
 func badRequest(code, message string) *apiError {
 	return newError(http.StatusBadRequest, code, message)
 }
-func unauthorized(message string) *apiError {
-	return newError(http.StatusUnauthorized, "unauthorized", message)
-}
-func forbidden(message string) *apiError {
-	return newError(http.StatusForbidden, "forbidden", message)
-}
 func notFound(what string) *apiError {
 	return newError(http.StatusNotFound, "not_found", what+" not found")
 }
