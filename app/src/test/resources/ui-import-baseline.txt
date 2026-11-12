@@ -5,6 +5,7 @@
 TaigaApp.kt 4
 alarm/AlarmActivity.kt 1
 alarm/AlarmScreen.kt 0
+components/BearDen.kt 0
 components/Buttons.kt 0
 components/ChartTooltip.kt 0
 components/Components.kt 0
@@ -24,15 +25,15 @@ components/TaigaLogo.kt 0
 components/TrendsCharts.kt 0
 history/HistoryScreen.kt 1
 history/TrendsScreen.kt 0
-home/ActiveHome.kt 0
+home/ActiveHome.kt 3
 home/DataSheet.kt 1
 home/FinishingHome.kt 1
-home/GuardCard.kt 1
 home/HomeFactory.kt 12
 home/HomeScreen.kt 3
 home/HomeUiState.kt 7
-home/RecordingCard.kt 4
-home/SensorPickerSheet.kt 3
+home/IdleHome.kt 2
+home/RecordingCard.kt 3
+home/SensorPickerSheet.kt 2
 recording/AnalysisSheet.kt 1
 recording/DataQualitySection.kt 2
 recording/DetailScreen.kt 0

@@ -26,12 +26,9 @@
 
   <string name="rec_battery">Battery %1$d%%</string>
   <string name="rec_connection_connected">Connected</string>
-  <string name="rec_connection_connecting">Connecting…</string>
   <string name="rec_connection_disconnected">Not connected</string>
   <string name="rec_disconnect">Disconnect</string>
-  <string name="rec_select_sensor">Select tracker</string>
   <string name="rec_sensor_none_title">No tracker connected</string>
-  <string name="rec_sensor_none_body">Connect a tracker to start recording.</string>
   <string name="rec_data_settings">Data to record</string>
   <string name="rec_data_title">Data to record</string>
   <string name="rec_mode_title">Recording mode</string>
@@ -41,13 +38,18 @@
   <string name="rec_mode_on_device_unavailable_note">The tracker can only store heart rate. Turn off ECG and movement to record on the tracker.</string>
   <string name="rec_mode_on_device_note">The tracker stores the recording itself. Taiga fetches it when you stop in the morning.</string>
   <string name="rec_done">Done</string>
-  <string name="rec_home_title_idle">Tonight</string>
-  <string name="rec_home_subtitle_idle">Get ready and start recording.</string>
-  <string name="rec_home_title_active">Sleep well.</string>
-  <string name="rec_home_subtitle_active">Recording data from the tracker.</string>
+  <string name="home_headline_ready">Ready for tonight</string>
+  <string name="home_headline_connect">Connect your tracker</string>
+  <string name="home_headline_one_step">One step left</string>
+  <string name="home_action_connect">Connect tracker</string>
+  <string name="home_action_guard">Set up preventing shutdown</string>
+  <string name="home_pill_done">Done</string>
+  <string name="home_pill_needed">Needed</string>
+  <string name="home_pill_not_needed">Not needed</string>
   <string name="rec_scan_debug">debug</string>
 
   <string name="rec_scan_title">Select your tracker</string>
+  <string name="rec_sheet_connected">%1$s is connected</string>
   <string name="rec_scan_searching">Searching for trackers…</string>
   <string name="rec_scan_none">No tracker found yet. Put it on so it wakes up, then scan again.</string>
   <string name="rec_scan_again">Scan again</string>
@@ -58,27 +60,11 @@
   <string name="rec_config_ecg">ECG (130 Hz)</string>
   <string name="rec_config_acc">Movement (50 Hz)</string>
 
-  <string name="rec_ready_title">Ready for tonight</string>
-  <string name="rec_ready_body">Preventing shutdown is set up. Tap to review the steps.</string>
-  <string name="rec_not_ready_title">Not ready for tonight</string>
-  <string name="rec_not_ready_body">The phone can stop the recording overnight. Tap to follow the Preventing shutdown steps.</string>
-  <string name="rec_guard_not_needed_title">Nothing to set up tonight</string>
-  <string name="rec_guard_not_needed_body">This recording is stored on the tracker, so the phone may sleep. Stop in the morning to fetch it.</string>
-
-  <string name="rec_start_need_sensor">Connect a tracker to start.</string>
-  <string name="rec_start_need_ready">Set up preventing shutdown to start</string>
-
   <string name="rec_active_title">Recording</string>
   <string name="rec_active_stopping">Stopping…</string>
   <string name="rec_active_hr">Heart rate</string>
   <string name="rec_active_hr_value">%1$d bpm</string>
   <string name="rec_active_none">–</string>
-  <string name="rec_active_stream">%1$s · %2$.0f Hz</string>
-  <string name="rec_active_no_contact_for">No skin contact for %1$s</string>
-  <string name="rec_active_stream_poor">%1$s · poor signal</string>
-  <string name="rec_active_stream_stalled">%1$s · no data for %2$s</string>
-  <string name="rec_active_stream_waiting">%1$s · waiting for data</string>
-  <string name="rec_active_stream_measuring">%1$s · measuring</string>
   <string name="rec_active_stream_stalled_title">%1$s not receiving data</string>
   <string name="rec_active_stream_stalled_body">Last sample %1$s ago.</string>
   <string name="rec_active_link_lost_title">Tracker link lost</string>
@@ -95,12 +81,19 @@
   <string name="rec_active_storage_low_body">There is almost no free space left. Stop the recording, then upload or delete older recordings.</string>
   <string name="rec_active_ecg">ECG</string>
   <string name="rec_active_acc">Movement</string>
-  <string name="rec_active_offline">This tracker is storing the recording itself. Stop in the morning to fetch it.</string>
-  <string name="rec_active_failure">Writing to the phone failed: %1$s</string>
+  <string name="rec_active_since">Since %1$s · %2$s</string>
+  <string name="rec_active_on_device">Stored on the tracker · Fetched when you stop</string>
+  <string name="rec_active_no_contact">No contact</string>
+  <string name="rec_status_ok">%1$s ok</string>
+  <string name="rec_status_poor">%1$s poor</string>
+  <string name="rec_status_stalled">%1$s stalled</string>
+  <string name="rec_status_waiting">%1$s waiting</string>
+  <string name="rec_status_reconnecting">Reconnecting</string>
+  <string name="rec_status_on_tracker">Recording on tracker</string>
   <string name="rec_stop">Stop</string>
+  <string name="rec_stop_and_save">Stop and save</string>
   <string name="rec_force_stop">Force stop</string>
   <string name="rec_discard">Discard</string>
-  <string name="rec_more_actions">More actions</string>
   <string name="rec_stop_title">Stop recording?</string>
   <string name="rec_stop_body">The recording is saved on this phone. If automatic upload is on, it is uploaded in the background.</string>
   <string name="rec_stop_body_on_device">The recording is fetched from the tracker and saved on this phone. If automatic upload is on, it is uploaded in the background.</string>
@@ -115,7 +108,6 @@
   <string name="rec_finishing_title">Finishing up</string>
   <string name="rec_finishing_subtitle">Keep the tracker nearby until this is done.</string>
   <string name="rec_finishing_done_title">Recording saved</string>
-  <string name="rec_finishing_done_subtitle">Everything is on this phone now.</string>
   <string name="rec_finishing_step_tracker">Stopping the tracker</string>
   <string name="rec_finishing_step_fetch">Fetching from the tracker</string>
   <string name="rec_finishing_step_save">Saving on this phone</string>
@@ -126,7 +118,7 @@
     <item quantity="one">%1$d sample stored</item>
     <item quantity="other">%1$d samples stored</item>
   </plurals>
-  <string name="rec_finishing_done">Saved. You can take off the tracker.</string>
+  <string name="rec_finishing_done">You can take off the tracker.</string>
   <string name="rec_finishing_open">Open recording</string>
   <string name="rec_finishing_close">Done</string>
   <string name="rec_fetch_pending_title">Recording waiting on the tracker</string>
