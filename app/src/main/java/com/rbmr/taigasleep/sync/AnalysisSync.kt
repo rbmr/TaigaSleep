@@ -19,7 +19,7 @@ class RecordingSnapshot(
 
 /**
  * Brings the app's stored view of one recording in line with the server, once. This is what runs
- * when the event stream says a recording changed, when it (re)connects, and when a recording is opened.
+ * when the realtime stream says a recording changed, when it (re)connects, and when a recording is opened.
  * It is a plain read-and-store, never a loop: nothing waits for an analysis to finish.
  *
  * The analysis a recording shows is [chooseAnalysis]. A succeeded one has its full result saved in the

@@ -204,7 +204,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
       }
 
   /**
-   * One refresh of everything that may be out of date, for when the event stream (re)connects and
+   * One refresh of everything that may be out of date, for when the realtime stream (re)connects and
    * the app opens: the History list, then every recording whose analysis is not settled (see
    * [pendingRecordings]), one at a time. A recording that finished, failed or vanished while the app
    * was closed is settled here, and a finished result that is not on this phone yet is downloaded.

@@ -24,7 +24,7 @@ class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
-    // Results arrive live while the app is on screen: the event stream is open exactly while the
+    // Results arrive live while the app is on screen: the realtime stream is open exactly while the
     // activity is started, and is closed when it is not. Nothing is kept running in the background.
     lifecycleScope.launch {
       repeatOnLifecycle(Lifecycle.State.STARTED) { appContainer.liveSync.run() }

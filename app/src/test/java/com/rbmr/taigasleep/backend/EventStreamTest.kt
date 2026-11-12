@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
@@ -25,29 +26,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+internal fun pbConnect(clientId: String): String =
+    "id:$clientId\nevent:PB_CONNECT\ndata:{\"clientId\":\"$clientId\"}\n\n"
+
+internal fun analysisChange(
+    id: String = "a1",
+    recording: String = "r1",
+    status: String = "queued",
+    action: String = "update",
+): String =
+    "id:2\nevent:analyses/*\ndata:{\"action\":\"$action\",\"record\":{\"id\":\"$id\",\"recording\":\"$recording\",\"status\":\"$status\"}}\n\n"
+
+internal fun recordingChange(
+    id: String = "r1",
+    action: String = "update",
+    extra: String = "",
+): String =
+    "id:3\nevent:recordings/*\ndata:{\"action\":\"$action\",\"record\":{\"id\":\"$id\"$extra}}\n\n"
+
 class SseParserTest {
   private fun parse(text: String): List<SseMessage> =
       readMessages(Buffer().writeUtf8(text)).toList()
 
   @Test
-  fun `the stream the server opens with is not a message`() {
-    // The comment and the retry hint belong to no event.
-    assertEquals(emptyList<SseMessage>(), parse(": connected\nretry: 3000\n\n"))
-  }
-
-  @Test
-  fun `a keepalive comment between events changes nothing`() {
+  fun `comments and the fields that carry no change are ignored`() {
     val messages =
         parse(
-            "event: recording\ndata: {\"id\":\"r1\"}\n\n" +
-                ": keepalive\n\n" +
-                "event: analysis\ndata: {\"id\":\"a1\"}\n\n"
+            ": a comment\nid: 7\nretry: 100\n\n" +
+                "event: analyses/*\ndata: {\"action\":\"update\"}\n\n"
         )
 
-    assertEquals(
-        listOf(SseMessage("recording", "{\"id\":\"r1\"}"), SseMessage("analysis", "{\"id\":\"a1\"}")),
-        messages,
-    )
+    assertEquals(listOf(SseMessage("analyses/*", "{\"action\":\"update\"}")), messages)
   }
 
   @Test
@@ -77,14 +86,6 @@ class SseParserTest {
   }
 
   @Test
-  fun `id and unknown fields are ignored`() {
-    assertEquals(
-        listOf(SseMessage("x", "1")),
-        parse("id: 7\nretry: 100\nwhatever: yes\nevent: x\ndata: 1\n\n"),
-    )
-  }
-
-  @Test
   fun `a message cut off before its blank line is not delivered`() {
     assertEquals(emptyList<SseMessage>(), parse("event: x\ndata: 1\n"))
   }
@@ -95,16 +96,37 @@ class SseParserTest {
   }
 
   @Test
-  fun `an analysis message becomes an analysis event`() {
-    val event =
-        SseMessage("analysis", """{"id":"a1","recording":"r1","status":"succeeded"}""").toEvent()
+  fun `a connect message names the client the subscription is made with`() {
+    assertEquals("abc", SseMessage("PB_CONNECT", """{"clientId":"abc"}""").clientId())
+    assertNull(SseMessage("PB_CONNECT", """{}""").clientId())
+    assertNull(SseMessage("PB_CONNECT", "not json").clientId())
+    assertNull(SseMessage("analyses/*", """{"clientId":"abc"}""").clientId())
+  }
+
+  @Test
+  fun `an analysis change becomes an analysis event`() {
+    val event = SseMessage("analyses/*", """{"action":"update","record":{"id":"a1","recording":"r1","status":"succeeded"}}""").toEvent()
 
     assertEquals(RemoteEvent.AnalysisChanged("a1", "r1", "succeeded"), event)
   }
 
   @Test
-  fun `a recording message becomes a recording event`() {
-    val event = SseMessage("recording", """{"id":"r1","change":"deleted"}""").toEvent()
+  fun `a deleted analysis is reported as deleted`() {
+    val event = SseMessage("analyses/*", """{"action":"delete","record":{"id":"a1","recording":"r1","status":"running"}}""").toEvent()
+
+    assertEquals(RemoteEvent.AnalysisChanged("a1", "r1", "deleted"), event)
+  }
+
+  @Test
+  fun `a recording change becomes a recording event`() {
+    val event = SseMessage("recordings/*", """{"action":"create","record":{"id":"r1"}}""").toEvent()
+
+    assertEquals(RemoteEvent.RecordingChanged("r1", "created"), event)
+  }
+
+  @Test
+  fun `a deleted recording is reported as deleted`() {
+    val event = SseMessage("recordings/*", """{"action":"delete","record":{"id":"r1"}}""").toEvent()
 
     assertEquals(RemoteEvent.RecordingChanged("r1", "deleted"), event)
   }
@@ -112,17 +134,21 @@ class SseParserTest {
   @Test
   fun `fields the app does not know are ignored`() {
     val event =
-        SseMessage("recording", """{"id":"r1","change":"created","extra":[1,2]}""").toEvent()
+        SseMessage(
+                "recordings/*",
+                """{"action":"update","record":{"id":"r1","state":"stopped","extra":[1,2]}}"""
+            )
+            .toEvent()
 
-    assertEquals(RemoteEvent.RecordingChanged("r1", "created"), event)
+    assertEquals(RemoteEvent.RecordingChanged("r1", "updated"), event)
   }
 
   @Test
-  fun `unknown event names and unreadable data are skipped`() {
+  fun `unknown topics and unreadable data are skipped`() {
     assertNull(SseMessage("message", "hello").toEvent())
-    assertNull(SseMessage("analysis", "not json").toEvent())
-    assertNull(SseMessage("analysis", """{"status":"queued"}""").toEvent())
-    assertNull(SseMessage("recording", """{"change":"created"}""").toEvent())
+    assertNull(SseMessage("analyses/*", "not json").toEvent())
+    assertNull(SseMessage("analyses/*", """{"action":"update","record":{"status":"queued"}}""").toEvent())
+    assertNull(SseMessage("recordings/*", """{"action":"create","record":{}}""").toEvent())
   }
 }
 
@@ -149,16 +175,14 @@ class OkHttpEventTransportTest {
           .setHeader("Content-Type", "text/event-stream")
           .setBody(body)
 
+  private fun subscribed() = MockResponse().setResponseCode(204)
+
   @Test
-  fun `a stream is connected and then carries the events`() = runBlocking {
+  fun `a stream is subscribed and then carries the changes`() = runBlocking {
     server.enqueue(
-        stream(
-            ": connected\nretry: 3000\n\n" +
-                "event: analysis\ndata: {\"id\":\"a1\",\"recording\":\"r1\",\"status\":\"queued\"}\n\n" +
-                ": keepalive\n\n" +
-                "event: recording\ndata: {\"id\":\"r1\",\"change\":\"updated\"}\n\n"
-        )
+        stream(pbConnect("c1") + analysisChange(status = "queued") + recordingChange(action = "create"))
     )
+    server.enqueue(subscribed())
 
     val events = OkHttpEventTransport(clients.events).open(baseUrl, "tok").toList()
 
@@ -166,29 +190,41 @@ class OkHttpEventTransportTest {
         listOf(
             RemoteEvent.Connected,
             RemoteEvent.AnalysisChanged("a1", "r1", "queued"),
-            RemoteEvent.RecordingChanged("r1", "updated"),
+            RemoteEvent.RecordingChanged("r1", "created"),
         ),
         events,
     )
   }
 
   @Test
-  fun `the request is an authenticated stream request`() = runBlocking {
-    server.enqueue(stream(": connected\n\n"))
+  fun `the request is an authenticated stream and the subscription names the topics`() = runBlocking {
+    server.enqueue(stream(pbConnect("secret-client")))
+    server.enqueue(subscribed())
 
     OkHttpEventTransport(clients.events).open(baseUrl, "secret-token").toList()
 
-    val request = server.takeRequest()
-    assertEquals("GET", request.method)
-    assertEquals("/v1/events", request.path)
-    assertEquals("Bearer secret-token", request.getHeader("Authorization"))
-    assertEquals("text/event-stream", request.getHeader("Accept"))
-    // A compressing proxy would hold events back.
-    assertEquals("identity", request.getHeader("Accept-Encoding"))
+    val open = server.takeRequest()
+    assertEquals("GET", open.method)
+    assertEquals("/api/realtime", open.path)
+    assertEquals("Bearer secret-token", open.getHeader("Authorization"))
+    assertEquals("text/event-stream", open.getHeader("Accept"))
+    // A compressing proxy would hold changes back.
+    assertEquals("identity", open.getHeader("Accept-Encoding"))
+
+    val subscribe = server.takeRequest()
+    assertEquals("POST", subscribe.method)
+    assertEquals("/api/realtime", subscribe.path)
+    assertEquals("Bearer secret-token", subscribe.getHeader("Authorization"))
+    val body = subscribe.body.readUtf8()
+    assertTrue(body, body.contains("\"clientId\":\"secret-client\""))
+    // The subscription asks only for the fields the screens need and names the client.
+    assertTrue(body, body.contains("recordings/*?options="))
+    assertTrue(body, body.contains("analyses/*?options="))
+    assertTrue(body, body.contains("id%2Crecording%2Cstatus"))
   }
 
   @Test
-  fun `a refused token is reported as unauthorized without any event`() {
+  fun `a refused stream token is reported as unauthorized without any event`() {
     for (code in listOf(401, 403)) {
       server.enqueue(MockResponse().setResponseCode(code).setBody("""{"code":"unauthorized"}"""))
 
@@ -201,6 +237,21 @@ class OkHttpEventTransportTest {
       assertEquals(code, failure.status)
       assertTrue(seen.isEmpty())
     }
+  }
+
+  @Test
+  fun `a refused subscription is unauthorized and is not mistaken for a connection`() {
+    server.enqueue(stream(pbConnect("c1")))
+    server.enqueue(MockResponse().setResponseCode(401).setBody("""{"code":"unauthorized"}"""))
+
+    val seen = mutableListOf<RemoteEvent>()
+    val failure =
+        assertThrows(TaigaUnauthorizedException::class.java) {
+          runBlocking { OkHttpEventTransport(clients.events).open(baseUrl, "old").collect { seen += it } }
+        }
+
+    assertEquals(401, failure.status)
+    assertTrue(seen.isEmpty())
   }
 
   @Test
@@ -217,7 +268,7 @@ class OkHttpEventTransportTest {
   }
 
   @Test
-  fun `an answer that is not an event stream is refused`() {
+  fun `an answer that is not a stream is refused`() {
     server.enqueue(
         MockResponse().setHeader("Content-Type", "text/html").setBody("<html>sign in</html>")
     )
@@ -244,7 +295,11 @@ class OkHttpEventTransportTest {
 
   @Test
   fun `a stream that goes silent fails after the read timeout`() {
-    server.enqueue(stream(": connected\n\n").setBodyDelay(3, TimeUnit.SECONDS))
+    val connect = pbConnect("c1")
+    server.enqueue(
+        stream(connect + analysisChange()).throttleBody(connect.length.toLong(), 1, TimeUnit.SECONDS)
+    )
+    server.enqueue(subscribed())
     val client = OkHttpClient.Builder().readTimeout(300, TimeUnit.MILLISECONDS).build()
 
     val seen = mutableListOf<RemoteEvent>()
@@ -257,25 +312,22 @@ class OkHttpEventTransportTest {
   }
 
   @Test
-  fun `the read timeout is longer than the server's keepalive`() {
-    val keepaliveSeconds = 20
+  fun `the read timeout is longer than the server keeps a connection`() {
     val client = clients.events
-    assertTrue(client.readTimeoutMillis > keepaliveSeconds * 1000)
-    assertEquals(60_000, client.readTimeoutMillis)
+    // PocketBase closes every connection after thirty minutes.
+    assertTrue(client.readTimeoutMillis > 30 * 60 * 1000)
+    assertEquals(2_100_000, client.readTimeoutMillis)
     // The stream has no deadline of its own.
     assertEquals(0, client.callTimeoutMillis)
   }
 
   @Test
   fun `cancelling the collector closes the connection`() = runBlocking {
-    // The first 25 bytes are the opening comment; the rest trickles in a second later.
+    val connect = pbConnect("c1")
     server.enqueue(
-        stream(
-                ": connected\nretry: 3000\n\n" +
-                    "event: recording\ndata: {\"id\":\"r1\",\"change\":\"created\"}\n\n"
-            )
-            .throttleBody(25, 1, TimeUnit.SECONDS)
+        stream(connect + analysisChange()).throttleBody(connect.length.toLong(), 1, TimeUnit.SECONDS)
     )
+    server.enqueue(subscribed())
     val client = OkHttpClient()
 
     val first = withTimeout(5_000) { OkHttpEventTransport(client).open(baseUrl, "tok").first() }
@@ -488,7 +540,7 @@ class EventStreamTest {
     val job = launch(Dispatchers.Default, start = CoroutineStart.DEFAULT) {
       stream(transport).events().collect { seen += it }
     }
-    withTimeout(3_000) { while (seen.isEmpty()) kotlinx.coroutines.delay(10) }
+    withTimeout(3_000) { while (seen.isEmpty()) delay(10) }
 
     job.cancel()
     withTimeout(3_000) { job.join() }
@@ -512,7 +564,7 @@ class EventStreamTest {
           .events()
           .collect {}
     }
-    withTimeout(3_000) { while (transport.tokens.isEmpty()) kotlinx.coroutines.delay(10) }
+    withTimeout(3_000) { while (transport.tokens.isEmpty()) delay(10) }
 
     job.cancel()
     withTimeout(3_000) { job.join() }
@@ -531,5 +583,50 @@ class EventStreamTest {
 
     assertEquals("boom", failure.message)
     assertEquals(1, transport.tokens.size)
+  }
+
+  @Test
+  fun `a dropped connection is opened and subscribed again`() = runBlocking {
+    val server = MockWebServer()
+    server.start()
+    try {
+      val baseUrl = server.url("/").toString().trimEnd('/')
+      // Each connection names a client of its own and ends; the second is subscribed again.
+      server.enqueue(
+          MockResponse()
+              .setHeader("Content-Type", "text/event-stream")
+              .setBody(pbConnect("c1"))
+      )
+      server.enqueue(MockResponse().setResponseCode(204))
+      server.enqueue(
+          MockResponse()
+              .setHeader("Content-Type", "text/event-stream")
+              .setBody(pbConnect("c2"))
+      )
+      server.enqueue(MockResponse().setResponseCode(204))
+
+      val events =
+          EventStream(
+                  target = { StreamTarget(baseUrl, "tok") },
+                  transport = OkHttpEventTransport(OkHttpClient()),
+                  onUnauthorized = { false },
+                  sleep = {},
+              )
+              .events()
+              .take(2)
+              .toList()
+
+      assertEquals(listOf(RemoteEvent.Connected, RemoteEvent.Connected), events)
+      val requests = (1..4).map { server.takeRequest() }
+      assertEquals(listOf("GET", "POST", "GET", "POST"), requests.map { it.method })
+      assertTrue(requests[1].body.readUtf8().contains("\"clientId\":\"c1\""))
+      assertTrue(requests[3].body.readUtf8().contains("\"clientId\":\"c2\""))
+      // The topics are the same on every connection.
+      for (subscribe in listOf(requests[1], requests[3])) {
+        assertTrue(subscribe.path, subscribe.path == "/api/realtime")
+      }
+    } finally {
+      server.shutdown()
+    }
   }
 }

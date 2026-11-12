@@ -6,7 +6,7 @@ import okhttp3.OkHttpClient
 /**
  * The HTTP clients of the app. All three are derived from one [base] client with
  * [OkHttpClient.newBuilder], so they keep its connection pool and its dispatcher: the different
- * timeouts the remote checks, the API and the event stream need do not cost three pools. The app
+ * timeouts the remote checks, the API and the realtime stream need do not cost three pools. The app
  * container owns the one instance.
  */
 class HttpClients(base: OkHttpClient) {
@@ -29,14 +29,14 @@ class HttpClients(base: OkHttpClient) {
           .build()
 
   /**
-   * The event stream, which is meant to stay open: the call has no deadline of its own, and the
-   * read gives up after [EVENT_READ_TIMEOUT_SECONDS] of silence, three times the server's
-   * keepalive.
+   * The realtime stream, which is meant to stay open: the call has no deadline of its own, and the
+   * read gives up after [REALTIME_READ_TIMEOUT_SECONDS] of silence, which is longer than the
+   * server keeps an idle connection.
    */
   val events: OkHttpClient =
       base.newBuilder()
           .connectTimeout(15, TimeUnit.SECONDS)
-          .readTimeout(EVENT_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+          .readTimeout(REALTIME_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
           .callTimeout(0, TimeUnit.SECONDS)
           .build()
 }

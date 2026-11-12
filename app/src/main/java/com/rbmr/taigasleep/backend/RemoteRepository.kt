@@ -94,7 +94,7 @@ class RemoteRepository internal constructor(
     get() = store.token != null
 
   /**
-   * The account the live event stream may run for: [accountKey] while there is a session and the
+   * The account the live realtime stream may run for: [accountKey] while there is a session and the
    * server can be spoken to, null otherwise. It changes when the user logs in, out or into another
    * account, and when the server turns out to speak another API revision, so a collector restarts or
    * stops the stream exactly then. A refresh of the same session does not change it.
@@ -110,7 +110,7 @@ class RemoteRepository internal constructor(
       EventStream(target = ::streamTarget, transport = transport, onUnauthorized = ::sessionUsable)
 
   /**
-   * The server's event stream for the saved session, kept connected until the collector goes away.
+   * The realtime stream of the saved session, kept connected until the collector goes away.
    * It does not connect without a session or against a server that is not usable (see
    * [canStream]). A refused token is handled like any other: the session is refreshed by [verify],
    * and dropped when the server no longer accepts it. See [EventStream].

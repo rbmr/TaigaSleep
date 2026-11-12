@@ -25,7 +25,7 @@ class HttpClientsTest {
     assertEquals(20_000, clients.remote.readTimeoutMillis)
     assertEquals(90_000, clients.api.readTimeoutMillis)
     assertEquals(300_000, clients.api.callTimeoutMillis)
-    assertEquals(60_000, clients.events.readTimeoutMillis)
+    assertEquals(2_100_000, clients.events.readTimeoutMillis)
     assertEquals(0, clients.events.callTimeoutMillis)
   }
 }
