@@ -1,17 +1,6 @@
 package com.rbmr.taigasleep.ui.recording
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -19,17 +8,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.library.formatNightHeader
+import com.rbmr.taigasleep.library.formatRecordingDate
+import com.rbmr.taigasleep.ui.components.TaigaScreen
 
 /**
- * The recording screen: one scaffold that draws [RecordingDetailUiState] and forwards the user's
- * actions to [RecordingDetailViewModel]. The drawing lives in the files around this one.
+ * The recording screen: one scrolling screen that draws [RecordingDetailUiState] and forwards the
+ * user's actions to [RecordingDetailViewModel]. The drawing lives in the files around this one.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordingDetailScreen(
     localId: String?,
@@ -49,11 +41,11 @@ fun RecordingDetailScreen(
   val viewModel: RecordingDetailViewModel = viewModel(key = recordingKey, factory = factory)
   val state by viewModel.state.collectAsStateWithLifecycle()
 
-  var showQuality by rememberSaveable { mutableStateOf(false) }
   var showSleepScore by rememberSaveable { mutableStateOf(false) }
   var showScoreExplanation by rememberSaveable { mutableStateOf(false) }
   var fullscreenChart by rememberSaveable { mutableStateOf<String?>(null) }
   var showAnalysis by rememberSaveable { mutableStateOf(false) }
+  var showExport by rememberSaveable { mutableStateOf(false) }
   var showDelete by remember { mutableStateOf(false) }
   var showRawDelete by remember { mutableStateOf(false) }
 
@@ -68,37 +60,23 @@ fun RecordingDetailScreen(
     }
   }
 
-  Scaffold(
-      containerColor = MaterialTheme.colorScheme.background,
-      topBar = {
-        TopAppBar(
-            title = { Text(stringResource(R.string.night_title)) },
-            colors =
-                TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                ),
-            navigationIcon = {
-              IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = stringResource(R.string.night_back),
-                )
-              }
-            },
-            actions = {
-              IconButton(onClick = viewModel::openDetails) {
-                Icon(
-                    imageVector = Icons.Outlined.MoreVert,
-                    contentDescription = stringResource(R.string.night_details),
-                )
-              }
-            },
-        )
-      },
-  ) { padding ->
+  val headerLine =
+      formatNightHeader(
+          tracker = state.recordingTracker.ifBlank { stringResource(R.string.night_device_unknown) },
+          startUtcMs = state.recordingStartUtcMs,
+          endUtcMs = state.recordingEndUtcMs,
+          lineFormat = stringResource(R.string.night_recording_meta),
+          startOnlyFormat = stringResource(R.string.night_recording_meta_start_only),
+      )
+
+  TaigaScreen(
+      title = formatRecordingDate(state.start),
+      subtitle = headerLine,
+      onBack = onBack,
+      scrollable = false,
+  ) {
     RecordingBody(
         state = state,
-        padding = padding,
         onUpload = viewModel::upload,
         onRefresh = viewModel::refresh,
         onRetryAnalysis = viewModel::retryAnalysis,
@@ -107,51 +85,51 @@ fun RecordingDetailScreen(
           showAnalysis = true
           viewModel.loadAlgorithms()
         },
-        onOpenQuality = { showQuality = true },
-        onOpenSleepScore = { showSleepScore = true },
+        onOpenScore = { showSleepScore = true },
         onExplainScore = { showScoreExplanation = true },
         onExpand = { fullscreenChart = it },
-    )
-
-    RecordingOverlays(
-        state = state,
-        showQuality = showQuality,
-        showSleepScore = showSleepScore,
-        showScoreExplanation = showScoreExplanation,
-        fullscreenChart = fullscreenChart,
-        showAnalysis = showAnalysis,
-        showDelete = showDelete,
-        showRawDelete = showRawDelete,
-        onDismissQuality = { showQuality = false },
-        onDismissSleepScore = { showSleepScore = false },
-        onDismissScoreExplanation = { showScoreExplanation = false },
-        onDismissChart = { fullscreenChart = null },
-        onDismissAnalysis = { showAnalysis = false },
-        onSelectAnalysis = { id ->
-          viewModel.selectAnalysis(id)
-          showAnalysis = false
-        },
-        onRunAnalysis = viewModel::requestAnalysis,
-        onCloseDetails = viewModel::closeDetails,
-        onExportRaw = viewModel::setExportRaw,
-        onExportMetadata = viewModel::setExportMetadata,
-        onExportResults = viewModel::setExportResults,
-        onExport = viewModel::export,
+        onExport = { showExport = true },
         onDownloadRaw = viewModel::downloadRaw,
-        onRequestDeleteRaw = { showRawDelete = true },
-        onDismissDeleteRaw = { showRawDelete = false },
-        onConfirmDeleteRaw = {
-          showRawDelete = false
-          viewModel.deleteRaw()
-        },
-        onRequestDelete = { showDelete = true },
-        onDismissDelete = { showDelete = false },
-        onConfirmDelete = {
-          showDelete = false
-          viewModel.delete()
-        },
-        onConfirmUploadElsewhere = viewModel::confirmUploadElsewhere,
-        onDismissUploadElsewhere = viewModel::dismissUploadConfirmation,
+        onDeleteRaw = { showRawDelete = true },
+        onDelete = { showDelete = true },
+        modifier = Modifier.weight(1f),
     )
   }
+
+  RecordingOverlays(
+      state = state,
+      showSleepScore = showSleepScore,
+      showScoreExplanation = showScoreExplanation,
+      fullscreenChart = fullscreenChart,
+      showAnalysis = showAnalysis,
+      showExport = showExport,
+      showDelete = showDelete,
+      showRawDelete = showRawDelete,
+      onDismissSleepScore = { showSleepScore = false },
+      onDismissScoreExplanation = { showScoreExplanation = false },
+      onDismissChart = { fullscreenChart = null },
+      onDismissAnalysis = { showAnalysis = false },
+      onSelectAnalysis = { id ->
+        viewModel.selectAnalysis(id)
+        showAnalysis = false
+      },
+      onRunAnalysis = viewModel::requestAnalysis,
+      onDismissExport = { showExport = false },
+      onExportRaw = viewModel::setExportRaw,
+      onExportMetadata = viewModel::setExportMetadata,
+      onExportResults = viewModel::setExportResults,
+      onExport = viewModel::export,
+      onDismissDeleteRaw = { showRawDelete = false },
+      onConfirmDeleteRaw = {
+        showRawDelete = false
+        viewModel.deleteRaw()
+      },
+      onDismissDelete = { showDelete = false },
+      onConfirmDelete = {
+        showDelete = false
+        viewModel.delete()
+      },
+      onConfirmUploadElsewhere = viewModel::confirmUploadElsewhere,
+      onDismissUploadElsewhere = viewModel::dismissUploadConfirmation,
+  )
 }

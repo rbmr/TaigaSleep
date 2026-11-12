@@ -2,22 +2,21 @@ package com.rbmr.taigasleep.ui.recording
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,14 +24,53 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AlgorithmDto
+import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.insights.AlgorithmNames
 import com.rbmr.taigasleep.insights.stageLabelRes
 import com.rbmr.taigasleep.library.Analysis
 import com.rbmr.taigasleep.library.AnalysisOrigin
 import com.rbmr.taigasleep.library.AnalysisStatus
+import com.rbmr.taigasleep.ui.components.ChoiceButton
+import com.rbmr.taigasleep.ui.components.InfoContent
+import com.rbmr.taigasleep.ui.components.ListRow
+import com.rbmr.taigasleep.ui.components.ListRowTrailing
+import com.rbmr.taigasleep.ui.components.Section
+import com.rbmr.taigasleep.ui.components.SettingsDivider
+import com.rbmr.taigasleep.ui.components.StatusPillState
+import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.components.TertiaryButton
 import com.rbmr.taigasleep.ui.theme.taiga
+import kotlin.math.roundToInt
 
-/** Which result of this recording is shown, and which other algorithm can be asked for. */
+/** The one button that says which analysis is shown and opens the choice. */
+@Composable
+internal fun AnalysisChoiceButton(run: AnalysisDto?, onOpenAnalysis: () -> Unit) {
+  val name =
+      run?.algorithm?.takeIf { it.isNotBlank() }?.let { algorithm ->
+        val display = AlgorithmNames.display(algorithm)
+        if (run.version.isNotBlank()) {
+          stringResource(R.string.night_analysis_name_version, display, run.version)
+        } else {
+          display
+        }
+      }
+  ChoiceButton(
+      label =
+          if (name != null) {
+            stringResource(R.string.night_analyzed_with_algorithm, name)
+          } else {
+            stringResource(R.string.night_analysis_choose)
+          },
+      action = if (name != null) stringResource(R.string.night_analysis_change) else null,
+      emphasis = name,
+      onClick = onOpenAnalysis,
+  )
+}
+
+/**
+ * The analyses of this recording and the methods that can run on it next. The link that explains
+ * how the methods differ is only there when the server describes at least one of them.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AnalysisSheet(
@@ -46,85 +84,119 @@ internal fun AnalysisSheet(
     onRun: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+  val space = MaterialTheme.taiga.space
+  val described = algorithms.filter { it.description.isNotBlank() }
+  val differ = stringResource(R.string.night_analysis_differ)
   ModalBottomSheet(onDismissRequest = onDismiss) {
     Column(
         modifier =
             Modifier.fillMaxWidth()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = space.l)
+                .padding(bottom = space.l),
+        verticalArrangement = Arrangement.spacedBy(space.l),
     ) {
       Text(
           text = stringResource(R.string.night_analysis),
-          style = MaterialTheme.typography.headlineSmall,
+          style = MaterialTheme.taiga.text.screenTitle,
       )
       if (runs.isNotEmpty()) {
-        Text(
-            text = stringResource(R.string.night_analysis_this_night),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        runs.forEach { run ->
-          AnalysisRow(run = run, selectedId = selectedId, busy = busy, onSelect = onSelect)
-        }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-      }
-      Text(
-          text = stringResource(R.string.night_analysis_add),
-          style = MaterialTheme.typography.titleMedium,
-      )
-      when {
-        loading -> {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            CircularProgressIndicator(modifier = Modifier.height(20.dp))
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = stringResource(R.string.night_analysis_loading),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-          }
-        }
-        error != null -> {
-          Text(
-              text = error,
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.error,
-          )
-        }
-        else -> {
-          val existing = runs.map { it.algorithm to it.version }.toSet()
-          val available = algorithms.filter { (it.id to it.version) !in existing }
-          if (available.isEmpty()) {
-            Text(
-                text = stringResource(R.string.night_analysis_empty),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-          } else {
-            available.forEach { algorithm ->
-              AlgorithmRow(algorithm = algorithm, busy = busy, onRun = onRun)
+        Section(title = stringResource(R.string.night_analysis_done_heading)) {
+          TaigaCard(contentPadding = PaddingValues(0.dp)) {
+            runs.forEachIndexed { index, run ->
+              if (index > 0) SettingsDivider()
+              AnalysisRunRow(run = run, selectedId = selectedId, busy = busy, onSelect = onSelect)
             }
           }
         }
       }
-      TextButton(onClick = onDismiss) {
-        Text(stringResource(R.string.night_sheet_close))
+      Section(
+          title = stringResource(R.string.night_analysis_run_heading),
+          info =
+              if (described.isEmpty()) {
+                null
+              } else {
+                InfoContent(differ, methodDescriptions(described))
+              },
+      ) {
+        when {
+          loading -> {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              CircularProgressIndicator(modifier = Modifier.size(20.dp))
+              Spacer(Modifier.width(space.s))
+              Text(
+                  text = stringResource(R.string.night_analysis_loading),
+                  style = MaterialTheme.taiga.text.meta,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+          }
+          error != null -> {
+            Text(
+                text = error,
+                style = MaterialTheme.taiga.text.body,
+                color = MaterialTheme.colorScheme.error,
+            )
+          }
+          else -> {
+            val existing = runs.map { it.algorithm to it.version }.toSet()
+            val available = algorithms.filter { (it.id to it.version) !in existing }
+            if (available.isEmpty()) {
+              Text(
+                  text = stringResource(R.string.night_analysis_empty),
+                  style = MaterialTheme.taiga.text.body,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            } else {
+              TaigaCard(contentPadding = PaddingValues(0.dp)) {
+                available.forEachIndexed { index, algorithm ->
+                  if (index > 0) SettingsDivider()
+                  AlgorithmRow(algorithm = algorithm, busy = busy, onRun = onRun)
+                }
+              }
+            }
+          }
+        }
       }
+      TertiaryButton(text = stringResource(R.string.night_sheet_close), onClick = onDismiss)
     }
   }
 }
 
+/** One line per installed method: its name and version, then the description from the server. */
 @Composable
-private fun AnalysisRow(
+private fun methodDescriptions(algorithms: List<AlgorithmDto>): String {
+  val lines =
+      algorithms.map { algorithm ->
+        stringResource(
+            R.string.night_analysis_method_description,
+            algorithmName(algorithm),
+            algorithm.description,
+        )
+      }
+  return lines.joinToString("\n\n")
+}
+
+@Composable
+private fun algorithmName(algorithm: AlgorithmDto): String {
+  val display = algorithm.name.ifBlank { AlgorithmNames.display(algorithm.id) }
+  return if (algorithm.version.isNotBlank()) {
+    stringResource(R.string.night_analysis_name_version, display, algorithm.version)
+  } else {
+    display
+  }
+}
+
+/** One analysis of this recording: how it went, and the score it gives when it is done. */
+@Composable
+private fun AnalysisRunRow(
     run: Analysis,
     selectedId: String?,
     busy: Boolean,
     onSelect: (String) -> Unit,
 ) {
-  val manual = stringResource(R.string.night_analysis_manual)
-  val name =
+  val title =
       AlgorithmNames.display(run.algorithm.ifBlank { run.id }).let { displayName ->
         if (run.version.isNotBlank()) {
           stringResource(R.string.night_analysis_name_version, displayName, run.version)
@@ -132,93 +204,60 @@ private fun AnalysisRow(
           displayName
         }
       }
-  val label =
-      if (run.origin == AnalysisOrigin.MANUAL) {
-        stringResource(R.string.night_analysis_name_manual, name, manual)
-      } else {
-        name
+  val manual = run.origin == AnalysisOrigin.MANUAL
+  val trailing: ListRowTrailing =
+      when (run.status) {
+        AnalysisStatus.DONE ->
+            ListRowTrailing.Radio(selected = run.id == selectedId)
+        AnalysisStatus.FAILED ->
+            ListRowTrailing.Pill(
+                label = stringResource(R.string.night_analysis_status_failed),
+                state = StatusPillState.Bad,
+            )
+        else ->
+            ListRowTrailing.Pill(
+                label = stringResource(R.string.night_analysis_analyzing),
+                state = StatusPillState.Busy,
+            )
       }
-  Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-    Column(Modifier.weight(1f)) {
-      Text(
-          text = label,
-          style = MaterialTheme.typography.titleSmall,
-      )
-      Text(
-          text = analysisStatus(run.status),
-          style = MaterialTheme.typography.bodySmall,
-          color =
-              when (run.status) {
-                AnalysisStatus.DONE -> MaterialTheme.taiga.ok
-                AnalysisStatus.FAILED -> MaterialTheme.colorScheme.error
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-              },
-      )
-    }
-    if (run.status == AnalysisStatus.DONE) {
-      if (run.id == selectedId) {
-        Text(
-            text = stringResource(R.string.night_analysis_shown),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.taiga.ok,
-        )
+  val done = run.status == AnalysisStatus.DONE
+  ListRow(
+      title = title,
+      subtitle = if (manual) stringResource(R.string.night_analysis_manual) else null,
+      value =
+          run.sleepScore?.takeIf { done }?.let {
+            stringResource(R.string.night_analysis_score, it.roundToInt())
+          },
+      trailing = trailing,
+      enabled = !busy,
+      onClick = if (done) {
+        { if (run.id != selectedId) onSelect(run.id) }
       } else {
-        TextButton(onClick = { onSelect(run.id) }, enabled = !busy) {
-          Text(stringResource(R.string.night_analysis_show))
-        }
-      }
-    }
-  }
+        null
+      },
+  )
 }
 
+/** One method that can run on this recording next. */
 @Composable
 private fun AlgorithmRow(algorithm: AlgorithmDto, busy: Boolean, onRun: (String) -> Unit) {
-  Column(modifier = Modifier.fillMaxWidth()) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Column(Modifier.weight(1f)) {
-        Text(
-            text = algorithm.name.ifBlank { AlgorithmNames.display(algorithm.id) },
-            style = MaterialTheme.typography.titleSmall,
-        )
-        Text(
-            text = stringResource(R.string.night_analysis_version, algorithm.version),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-      TextButton(onClick = { onRun(algorithm.id) }, enabled = !busy) {
-        Text(stringResource(R.string.night_analysis_run))
-      }
-    }
-    if (algorithm.description.isNotBlank()) {
-      Text(
-          text = algorithm.description,
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-    }
-    if (algorithm.supported_stages.isNotEmpty()) {
-      val stages = algorithm.supported_stages.map { stringResource(stageLabelRes(it)) }
-      Text(
-          text =
-              stringResource(
-                  R.string.night_analysis_stages,
-                  stages.joinToString(stringResource(R.string.night_analysis_list_separator)),
-              ),
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-    }
-  }
+  ListRow(
+      title = algorithmName(algorithm),
+      subtitle =
+          if (algorithm.supported_stages.isEmpty()) {
+            null
+          } else {
+            val stages = algorithm.supported_stages.map { stringResource(stageLabelRes(it)) }
+            stringResource(
+                R.string.night_analysis_stages,
+                stages.joinToString(stringResource(R.string.night_analysis_list_separator)),
+            )
+          },
+      trailing =
+          ListRowTrailing.Action(
+              label = stringResource(R.string.night_analysis_run),
+              onClick = { onRun(algorithm.id) },
+              enabled = !busy,
+          ),
+  )
 }
-
-@Composable
-private fun analysisStatus(status: AnalysisStatus): String =
-    stringResource(
-        when (status) {
-          AnalysisStatus.QUEUED -> R.string.night_analysis_status_queued
-          AnalysisStatus.RUNNING -> R.string.night_analysis_status_running
-          AnalysisStatus.DONE -> R.string.night_analysis_status_done
-          AnalysisStatus.FAILED -> R.string.night_analysis_status_failed
-        }
-    )

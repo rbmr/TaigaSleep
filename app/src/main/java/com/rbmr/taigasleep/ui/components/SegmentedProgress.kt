@@ -4,14 +4,19 @@ import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.StrokeCap
@@ -98,6 +103,42 @@ fun ProgressTrack(
   }
 }
 
+/**
+ * One part of a score: its label and percentage, an optional note under them, and the bar that
+ * shows the share.
+ */
+@Composable
+fun ShareBar(
+    label: String,
+    value: String,
+    fraction: Float,
+    modifier: Modifier = Modifier,
+    caption: String? = null,
+    description: String? = null,
+) {
+  val space = MaterialTheme.taiga.space
+  Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(space.xs)) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f)) {
+        Text(text = label, style = MaterialTheme.taiga.text.body)
+        if (caption != null) {
+          Text(
+              text = caption,
+              style = MaterialTheme.taiga.text.meta,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+      Spacer(Modifier.width(space.s))
+      Text(text = value, style = MaterialTheme.taiga.text.row)
+    }
+    ProgressTrack(
+        state = ProgressTrackState.Determinate(fraction.coerceIn(0f, 1f)),
+        description = description,
+    )
+  }
+}
+
 @Preview(name = "Light")
 @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
@@ -107,5 +148,11 @@ private fun SegmentedProgressPreview() {
     ProgressTrack(ProgressTrackState.Determinate(0.42f), description = "Uploading 42%")
     ProgressTrack(ProgressTrackState.Indeterminate, description = "Analyzing")
     ProgressTrack(ProgressTrackState.Empty)
+    ShareBar(
+        label = "Usable epoch coverage",
+        value = "86%",
+        fraction = 0.86f,
+        caption = "weight 50%",
+    )
   }
 }

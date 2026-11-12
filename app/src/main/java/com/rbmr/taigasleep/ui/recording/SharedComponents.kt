@@ -7,26 +7,39 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.insights.formatItemValue
 import com.rbmr.taigasleep.insights.metricSpec as itemSpec
 import com.rbmr.taigasleep.ui.components.InfoContent
 import com.rbmr.taigasleep.ui.components.StatTile
+import com.rbmr.taigasleep.ui.theme.taiga
 
-/** The typed numbers of one group, two to a row; each tile opens its own explanation. */
+/**
+ * The number items of the given groups, in the order the result carries them. A section draws its
+ * own groups: the heart section takes `heart` and `heart_support` together, because the supporting
+ * figures explain the heart-rate numbers beside them.
+ */
+internal fun numberItems(items: List<ResultItemDto>, vararg groups: String): List<ResultItemDto> =
+    items.filter { it.kind == "number" && it.group in groups }
+
+/**
+ * The typed numbers of one group, two to a row. The label, the unit and the explanation all come
+ * from the item, and every tile opens its own explanation.
+ */
 @Composable
 internal fun MetricGrid(items: List<ResultItemDto>) {
+  val space = MaterialTheme.taiga.space
   val specs = items.mapNotNull { it.itemSpec() }
-  Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+  Column(verticalArrangement = Arrangement.spacedBy(space.s)) {
     specs.chunked(2).forEach { pair ->
       Row(
           modifier = Modifier.height(IntrinsicSize.Min),
-          horizontalArrangement = Arrangement.spacedBy(10.dp),
+          horizontalArrangement = Arrangement.spacedBy(space.s),
       ) {
         pair.forEach { spec ->
           val value = formatItemValue(spec.kind, spec.itemValue)

@@ -10,6 +10,7 @@ import com.rbmr.taigasleep.recording.ExportProgress
 import com.rbmr.taigasleep.recording.ExportResult
 import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.RecordingRepository
+import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.RawActionResult
 import java.io.File
@@ -52,6 +53,9 @@ interface RecordingWork {
 
   /** Bytes of the raw streams that are on this phone. */
   fun rawSize(localId: String): Long
+
+  /** The streams the recording holds on this phone, as [StreamId] values; empty when it has none. */
+  fun rawStreams(localId: String): List<Int>
 }
 
 /**
@@ -121,6 +125,9 @@ class RecordingDetailFactory(
 
           override fun rawSize(localId: String): Long =
               RecordingStore.RAW_FILES.sumOf { File(store.dir(localId), it).length() }
+
+          override fun rawStreams(localId: String): List<Int> =
+              RecordingMeta.read(store.dir(localId))?.config?.streams().orEmpty()
         }
     return RecordingDetailViewModel(
         key = localId ?: remoteId?.let { "remote-$it" } ?: analysisId ?: "recording",

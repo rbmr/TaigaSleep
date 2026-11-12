@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -172,7 +173,16 @@ sealed interface ListRowTrailing {
 
   data class Radio(val selected: Boolean) : ListRowTrailing
 
+  data class Checkbox(val checked: Boolean) : ListRowTrailing
+
   data class Pill(val label: String, val state: StatusPillState) : ListRowTrailing
+
+  /** A short action that belongs to the row alone, such as Run. */
+  data class Action(
+      val label: String,
+      val onClick: () -> Unit,
+      val enabled: Boolean = true,
+  ) : ListRowTrailing
 }
 
 /**
@@ -248,7 +258,15 @@ fun ListRow(
               Switch(checked = trailing.checked, onCheckedChange = null, enabled = enabled)
           is ListRowTrailing.Radio ->
               RadioButton(selected = trailing.selected, onClick = null, enabled = enabled)
+          is ListRowTrailing.Checkbox ->
+              Checkbox(checked = trailing.checked, onCheckedChange = null, enabled = enabled)
           is ListRowTrailing.Pill -> StatusPill(state = trailing.state, label = trailing.label)
+          is ListRowTrailing.Action ->
+              TertiaryButton(
+                  text = trailing.label,
+                  onClick = trailing.onClick,
+                  enabled = enabled && trailing.enabled,
+              )
           ListRowTrailing.None -> Unit
         }
       }
@@ -301,11 +319,17 @@ private fun ListRowPreview() {
         onClick = {},
     )
     ListRow(title = "Raw data", trailing = ListRowTrailing.Radio(selected = true), onClick = {})
+    ListRow(title = "Raw data", trailing = ListRowTrailing.Checkbox(checked = true), onClick = {})
     ListRow(
         title = "Uploads",
         value = "Automatic",
         trailing = ListRowTrailing.Pill("On", StatusPillState.Ok),
         onClick = {},
+    )
+    ListRow(
+        title = "wav2sleep 1.2",
+        subtitle = "Stages: Awake, REM, Light, Deep",
+        trailing = ListRowTrailing.Action("Run", onClick = {}),
     )
     ListRow(title = "Access tokens", value = "2", enabled = false)
   }

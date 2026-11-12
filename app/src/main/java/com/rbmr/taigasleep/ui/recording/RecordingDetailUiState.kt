@@ -43,9 +43,10 @@ data class RecordingDetailUiState(
     val loginExpired: Boolean = false,
     val connected: Boolean = false,
     val actionError: String? = null,
-    /** Bytes of the raw streams on this phone, read while the details sheet is open. */
+    /** Bytes of the raw streams on this phone. */
     val rawSizeBytes: Long = 0,
-    val showDetails: Boolean = false,
+    /** The streams the recording holds on this phone, as the ids of the store's stream files. */
+    val rawStreams: List<Int> = emptyList(),
     val exportBusy: Boolean = false,
     val exportPhase: ExportPhase? = null,
     /** 0..1 while a large export is written, null while it is short or has not measured itself. */
@@ -164,14 +165,14 @@ data class RecordingDetailUiState(
   val recordingEndUtcMs: Long?
     get() = local?.endUtcMs ?: endUtcMs
 
-  /** The device the details sheet lists, where a blank name falls through to the other copy. */
+  /** The device the recording section lists, where a blank name falls through to the other copy. */
   val detailsDevice: String
     get() =
         recording?.local?.sensorName?.takeIf { it.isNotBlank() }
             ?: recording?.remote?.device?.takeIf { it.isNotBlank() }
             ?: ""
 
-  /** When the server's copy was created, for the details sheet. */
+  /** When the server's copy was made, which the recording section shows beside its pill. */
   val remoteCreatedAtMs: Long?
     get() =
         parseApiDate(recording?.remote?.created.orEmpty()).takeIf { it > 0 }

@@ -30,7 +30,7 @@ fun formatNightHeader(
         tracker,
         start,
         clockTime(end, locale, zone),
-        nightLength(end - startUtcMs),
+        formatLength(end - startUtcMs),
     )
   }
 }
@@ -39,8 +39,11 @@ private fun clockTime(ms: Long, locale: Locale, zone: TimeZone): String =
     if (ms <= 0) "—"
     else SimpleDateFormat("HH:mm", locale).apply { timeZone = zone }.format(Date(ms))
 
-private fun nightLength(ms: Long): String {
-  val totalMinutes = (ms / 60_000).coerceAtLeast(0)
+/** A length as the app writes it: `1 h 35 min`, `45 min` or `30 s` for a short stage. */
+fun formatLength(ms: Long): String {
+  val seconds = (ms / 1000).coerceAtLeast(0)
+  if (seconds < 60) return "$seconds s"
+  val totalMinutes = seconds / 60
   val hours = totalMinutes / 60
   val minutes = totalMinutes % 60
   return when {

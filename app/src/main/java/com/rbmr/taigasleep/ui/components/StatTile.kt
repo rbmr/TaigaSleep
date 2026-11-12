@@ -98,6 +98,29 @@ private fun StatTileBody(
   }
 }
 
+/**
+ * A label above a value with no card of its own, for the figures that sit beside a larger one
+ * instead of forming a grid, such as the summary at the head of a recording.
+ */
+@Composable
+fun LabeledValue(label: String, value: String, modifier: Modifier = Modifier) {
+  Column(modifier, verticalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.xs)) {
+    Text(
+        text = label,
+        style = MaterialTheme.taiga.text.meta,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+    )
+    Text(
+        text = value,
+        style = MaterialTheme.taiga.text.row,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+  }
+}
+
 @Preview(name = "Light")
 @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
@@ -113,5 +136,9 @@ private fun StatTilePreview() {
       StatTile(label = "Data quality", value = "86 / 100", modifier = Modifier.weight(1f))
     }
     StatTile(label = "Time asleep", value = "7 h 52 min", caption = "of 8 h 12 min")
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      LabeledValue("Total asleep", "7 h 52 min")
+      LabeledValue("Data quality", "86 / 100")
+    }
   }
 }

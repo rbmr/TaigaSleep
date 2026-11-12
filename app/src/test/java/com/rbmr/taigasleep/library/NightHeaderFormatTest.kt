@@ -48,4 +48,12 @@ class NightHeaderFormatTest {
 
     assertEquals("Polar H10 · 23:12", line)
   }
+
+  @Test
+  fun aLengthDropsTheEmptyPartAndKeepsTheSecondsOfAShortStage() {
+    assertEquals("7 h 52 min", formatLength(7 * 3_600_000L + 52 * 60_000L))
+    assertEquals("2 h", formatLength(2 * 3_600_000L))
+    assertEquals("45 min", formatLength(45 * 60_000L))
+    assertEquals("30 s", formatLength(30_000L))
+  }
 }

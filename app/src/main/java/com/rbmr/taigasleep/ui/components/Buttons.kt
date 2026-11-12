@@ -6,11 +6,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -19,8 +21,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.ui.theme.taiga
@@ -228,6 +234,78 @@ fun SegmentedControl(
   }
 }
 
+/**
+ * A full-width outlined control that names what is chosen on the left, with [emphasis] drawn in the
+ * row weight, and the word that changes it on the right, such as "Analyzed with wav2sleep 1.2" and
+ * "Change". Without an [action] the label is the whole control, as "Choose an analysis" is.
+ */
+@Composable
+fun ChoiceButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    action: String? = null,
+    emphasis: String? = null,
+    enabled: Boolean = true,
+) {
+  val space = MaterialTheme.taiga.space
+  val style = MaterialTheme.taiga.text.body
+  val text =
+      buildAnnotatedString {
+        val start = emphasis?.let { label.indexOf(it) } ?: -1
+        if (emphasis == null || start < 0) {
+          append(label)
+        } else {
+          append(label.substring(0, start))
+          withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(emphasis) }
+          append(label.substring(start + emphasis.length))
+        }
+      }
+  Pressable(
+      onClick = onClick,
+      modifier = modifier.fillMaxWidth(),
+      shape = MaterialTheme.taiga.shape.control,
+      enabled = enabled,
+      role = Role.Button,
+      onClickLabel = label,
+  ) {
+    Box(
+        modifier =
+            Modifier.fillMaxWidth()
+                .heightIn(min = 56.dp)
+                .border(
+                    width = 1.dp,
+                    color =
+                        if (enabled) MaterialTheme.colorScheme.outline
+                        else MaterialTheme.colorScheme.outlineVariant,
+                    shape = MaterialTheme.taiga.shape.control,
+                )
+                .padding(horizontal = space.m, vertical = space.s),
+        contentAlignment = Alignment.Center,
+    ) {
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = text,
+            style = style,
+            color =
+                if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.taiga.disabled,
+            modifier = Modifier.weight(1f),
+        )
+        if (action != null) {
+          Spacer(Modifier.width(space.s))
+          Text(
+              text = action,
+              style = style,
+              color =
+                  if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.taiga.disabled,
+              maxLines = 1,
+          )
+        }
+      }
+    }
+  }
+}
+
 @Preview(name = "Light")
 @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
@@ -236,6 +314,13 @@ private fun ButtonsPreview() {
     PrimaryButton("Start recording", onClick = {}, size = ButtonSize.Large)
     PrimaryButton("Start recording", onClick = {}, size = ButtonSize.Large, enabled = false)
     PrimaryButton("Next", onClick = {})
+    ChoiceButton(
+        label = "Analyzed with wav2sleep 1.2",
+        action = "Change",
+        emphasis = "wav2sleep 1.2",
+        onClick = {},
+    )
+    ChoiceButton(label = "Choose an analysis", onClick = {})
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       SecondaryButton("Force stop", onClick = {}, modifier = Modifier.weight(1f))
       DestructiveButton("Discard", onClick = {}, modifier = Modifier.weight(1f))

@@ -44,6 +44,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -74,9 +75,9 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.HrSeriesDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.insights.applicableStages
-import com.rbmr.taigasleep.insights.formatSeconds
 import com.rbmr.taigasleep.insights.stageLabelRes
 import com.rbmr.taigasleep.insights.stageSeconds
+import com.rbmr.taigasleep.library.formatLength
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.serialization.json.JsonObject
 import java.text.SimpleDateFormat
@@ -353,7 +354,7 @@ private fun TimeChart(
   val leftPx = with(density) { leftLabelWidth.toPx() }
   val topPx = with(density) { (if (large) 2.dp else 8.dp).toPx() }
   val bottomPx = with(density) { (if (large) 26.dp else 22.dp).toPx() }
-  val labelSp = if (large) 13.sp else 8.sp
+  val labelSp = if (large) 13.sp else 12.sp
   val gridColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f)
   val axisColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
   val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -399,10 +400,18 @@ private fun TimeChart(
             color = labelColor.toArgb()
             textSize = with(density) { labelSp.toPx() }
           }
+      // The lane lines and the grid are dashed, so they never read as data.
+      val dash = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx()))
 
       for (line in horizontalLines) {
         val y = plot.y(line)
-        drawLine(gridColor, Offset(plot.left, y), Offset(plot.left + plot.width, y), 1.dp.toPx())
+        drawLine(
+            color = gridColor,
+            start = Offset(plot.left, y),
+            end = Offset(plot.left + plot.width, y),
+            strokeWidth = 1.dp.toPx(),
+            pathEffect = dash,
+        )
       }
       if (ticks.isEmpty() && startUnixMs > 0) {
         labelPaint.textAlign = Paint.Align.LEFT
@@ -530,7 +539,7 @@ fun SleepStagesChart(
       pointCount = total,
       yLabels = yLabels,
       horizontalLines = horizontalLines,
-      leftLabelWidth = if (fullscreen) 88.dp else 48.dp,
+      leftLabelWidth = if (fullscreen) 96.dp else 68.dp,
       description = description,
       valueAt = { index -> labels[stageAtEpoch(segments, index)] ?: unknownLabel },
       large = fullscreen,
@@ -611,10 +620,12 @@ fun HeartRateChart(
       )
   val line = MaterialTheme.taiga.chartHr
   val noValue = stringResource(R.string.night_chart_no_value)
+  // The unit sits on the top label, so every other label stays a plain number.
   val yLabels =
       (0..4).map { index ->
         val fraction = index / 4f
-        fraction to (high - (high - low) * fraction).roundToInt().toString()
+        val value = (high - (high - low) * fraction).roundToInt().toString()
+        fraction to if (index == 0) stringResource(R.string.night_chart_bpm, value) else value
       }
   TimeChart(
       startUnixMs = series.start_unix_ms,
@@ -622,7 +633,7 @@ fun HeartRateChart(
       pointCount = series.count,
       yLabels = yLabels,
       horizontalLines = (0..4).map { it / 4f },
-      leftLabelWidth = if (fullscreen) 64.dp else 46.dp,
+      leftLabelWidth = if (fullscreen) 84.dp else 60.dp,
       description = description,
       valueAt = { index ->
         points.getOrNull(index)?.let { "${it.roundToInt()} bpm" } ?: noValue
@@ -666,6 +677,10 @@ fun HeartRateChart(
   }
 }
 
+/**
+ * One row per stage of the timeline: its swatch, its name, how long it lasted and its share of the
+ * recording. The stacked bar above it shows the same timeline in order.
+ */
 @Composable
 fun StageBreakdown(
     segments: List<StageSegmentDto>,
@@ -673,42 +688,28 @@ fun StageBreakdown(
     modifier: Modifier = Modifier,
     capabilities: JsonObject? = null,
 ) {
+  val space = MaterialTheme.taiga.space
   val durations = stageSeconds(segments, epochSeconds)
   val total = durations.values.sum().coerceAtLeast(1)
   val stages = applicableStages(segments, capabilities)
-  Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+  Column(modifier, verticalArrangement = Arrangement.spacedBy(space.s)) {
     for (stage in stages) {
       val seconds = durations[stage] ?: 0L
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier.size(10.dp).background(stageColor(stage), CircleShape)
-        )
-        Spacer(Modifier.width(9.dp))
+      val share = (seconds.toDouble() / total.toDouble() * 100).roundToInt()
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).background(stageColor(stage), CircleShape))
+        Spacer(Modifier.width(space.s))
         Text(
             text = stringResource(stageLabelRes(stage)),
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.taiga.text.body,
             modifier = Modifier.weight(1f),
         )
+        Text(text = formatLength(seconds * 1000L), style = MaterialTheme.taiga.text.body)
+        Spacer(Modifier.width(space.m))
         Text(
-            text = formatSeconds(seconds.toDouble()),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Spacer(Modifier.width(10.dp))
-        Text(
-            text = "${(seconds.toDouble() / total.toDouble() * 100).roundToInt()}%",
-            style = MaterialTheme.typography.bodySmall,
+            text = "${share}%",
+            style = MaterialTheme.taiga.text.meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(38.dp),
-        )
-      }
-      Box(
-          Modifier.fillMaxWidth().padding(start = 19.dp).height(4.dp)
-              .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
-      ) {
-        Box(
-            Modifier.fillMaxWidth((seconds.toFloat() / total.toFloat()).coerceIn(0f, 1f))
-                .fillMaxHeight()
-                .background(stageColor(stage), RoundedCornerShape(50))
         )
       }
     }

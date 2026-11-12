@@ -16,30 +16,26 @@ import com.rbmr.taigasleep.ui.components.SleepStagesChart
 @Composable
 internal fun RecordingOverlays(
     state: RecordingDetailUiState,
-    showQuality: Boolean,
     showSleepScore: Boolean,
     showScoreExplanation: Boolean,
     fullscreenChart: String?,
     showAnalysis: Boolean,
+    showExport: Boolean,
     showDelete: Boolean,
     showRawDelete: Boolean,
-    onDismissQuality: () -> Unit,
     onDismissSleepScore: () -> Unit,
     onDismissScoreExplanation: () -> Unit,
     onDismissChart: () -> Unit,
     onDismissAnalysis: () -> Unit,
     onSelectAnalysis: (String) -> Unit,
     onRunAnalysis: (String) -> Unit,
-    onCloseDetails: () -> Unit,
+    onDismissExport: () -> Unit,
     onExportRaw: (Boolean) -> Unit,
     onExportMetadata: (Boolean) -> Unit,
     onExportResults: (Boolean) -> Unit,
     onExport: () -> Unit,
-    onDownloadRaw: () -> Unit,
-    onRequestDeleteRaw: () -> Unit,
     onDismissDeleteRaw: () -> Unit,
     onConfirmDeleteRaw: () -> Unit,
-    onRequestDelete: () -> Unit,
     onDismissDelete: () -> Unit,
     onConfirmDelete: () -> Unit,
     onConfirmUploadElsewhere: () -> Unit,
@@ -62,12 +58,6 @@ internal fun RecordingOverlays(
     )
   }
 
-  if (showQuality) {
-    DataQualitySheet(
-        item = result?.items?.firstOrNull { it.id == "data_quality" },
-        onDismiss = onDismissQuality,
-    )
-  }
   if (showSleepScore) {
     SleepScoreSheet(
         item = result?.items?.firstOrNull { it.id == "sleep_quality" },
@@ -125,17 +115,14 @@ internal fun RecordingOverlays(
         onDismiss = onDismissAnalysis,
     )
   }
-  if (state.showDetails) {
-    RecordingDetailsSheet(
+  if (showExport) {
+    ExportSheet(
         state = state,
-        onDismiss = onCloseDetails,
         onExportRaw = onExportRaw,
         onExportMetadata = onExportMetadata,
         onExportResults = onExportResults,
         onExport = onExport,
-        onDownloadRaw = onDownloadRaw,
-        onDeleteRaw = onRequestDeleteRaw,
-        onDelete = onRequestDelete,
+        onDismiss = onDismissExport,
     )
   }
   if (showRawDelete) {

@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -153,6 +154,47 @@ fun ChoiceChip(
   }
 }
 
+/**
+ * A warn pill that says something qualifies a figure and carries the ⓘ that explains it. The pill
+ * stays small while the touch target is the 48 dp a button needs.
+ */
+@Composable
+fun InfoPill(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+  Pressable(
+      onClick = onClick,
+      modifier = modifier,
+      shape = CircleShape,
+      role = Role.Button,
+      onClickLabel = label,
+  ) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.taiga.warnContainer,
+        contentColor = MaterialTheme.taiga.warnInk,
+    ) {
+      Row(
+          modifier =
+              Modifier.heightIn(min = 24.dp)
+                  .padding(
+                      start = 10.dp,
+                      end = MaterialTheme.taiga.space.s,
+                      top = MaterialTheme.taiga.space.xs,
+                      bottom = MaterialTheme.taiga.space.xs,
+                  ),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.xs),
+      ) {
+        Text(text = label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        Icon(
+            imageVector = Icons.Outlined.Info,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+        )
+      }
+    }
+  }
+}
+
 @Preview(name = "Light")
 @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
@@ -168,6 +210,7 @@ private fun StatusPillPreview() {
       StatusPill(StatusPillState.Neutral, "Not set")
     }
     StatusPill(StatusPillState.Neutral, "Open", onClick = {})
+    InfoPill(label = "Experimental", onClick = {})
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       ChoiceChip(label = "7 days", selected = true, onClick = {})
       ChoiceChip(label = "14 days", selected = false, onClick = {})
