@@ -93,6 +93,11 @@ interface SleepSensor {
   val kind: SensorKind
   val id: String
   val name: String
+
+  /** The strap's Bluetooth address, learned from the transport; null until it is known. */
+  val address: String?
+    get() = null
+
   val capabilities: SensorCapabilities
 
   val connection: StateFlow<ConnectionState>
@@ -114,6 +119,13 @@ interface SleepSensor {
   fun connect()
 
   fun disconnect()
+
+  /**
+   * Starts the sensor's transport over, so the next [connect] cannot be answered from a stale
+   * session. Only a sensor whose Bluetooth stack can park a dropped link needs this; the default
+   * does nothing.
+   */
+  fun resetTransport() {}
 
   /**
    * Starts the configured streams, now if connected and otherwise as soon as the sensor connects.

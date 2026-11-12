@@ -57,6 +57,13 @@ interface RecordingHost {
   /** One line naming the phone settings that decide whether a recording survives. */
   fun readinessSummary(): String
 
+  /**
+   * The phone's own view of the strap's GATT link, for the recording events: whether Android still
+   * holds the device, independent of what the sensor reports. [address] is the strap's Bluetooth
+   * address when the sensor learned it. Null when it cannot be read, as on a JVM test.
+   */
+  fun strapView(sensorId: String, sensorName: String, address: String?): String? = null
+
   /** A fresh partial wake lock, or null when the phone refuses to give one. */
   fun newWakeLock(): RecordingWakeLock?
 

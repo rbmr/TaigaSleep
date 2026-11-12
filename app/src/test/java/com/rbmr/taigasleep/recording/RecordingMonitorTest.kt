@@ -259,6 +259,82 @@ class RecordingMonitorTest {
   }
 
   @Test
+  fun aLinkDownForAMinuteRecordsThePhoneViewOnceAndThenRecovers() {
+    var views = 0
+    val m =
+        RecordingMonitor(
+            meta(),
+            clock,
+            { type, message -> events += type to message },
+            strapView = {
+              views++
+              "phone sees the strap: gatt connected, listed in the phone's connected devices"
+            },
+        ) { health }
+    m.onPhase(RecordingState.Phase.RECORDING)
+    m.onLink(ConnectionState.CONNECTED)
+    m.hr()
+    m.tick()
+    m.onLink(ConnectionState.CONNECTING)
+
+    // The first 30 s of a lost link are left alone; then the phone's view is written once.
+    clock.advanceMs(29_999)
+    assertTrue(m.tick().isEmpty())
+    assertTrue(events.none { it.first == "strap" })
+    clock.advanceMs(1)
+    m.tick()
+    assertEquals(
+        listOf(
+            "strap" to
+                "phone sees the strap: gatt connected, listed in the phone's connected devices"
+        ),
+        events.filter { it.first == "strap" },
+    )
+    assertEquals(1, views)
+
+    // Still the same outage: no second view. The link-down ladder starts at 60 s.
+    clock.advanceMs(30_000)
+    val steps = m.tick()
+    assertEquals(RecoveryStepKind.RECONNECT, steps.single().kind)
+    // The step carries a fresh view, written just before its reason.
+    assertEquals(2, views)
+    assertEquals("strap", events[events.size - 2].first)
+    assertEquals("recovery" to steps.single().reason, events.last())
+  }
+
+  @Test
+  fun everyRecoveryStepCarriesThePhoneViewOfTheStrap() {
+    val m =
+        RecordingMonitor(
+            meta(),
+            clock,
+            { type, message -> events += type to message },
+            strapView = {
+              "phone sees the strap: gatt disconnected, " +
+                  "not listed in the phone's connected devices"
+            },
+        ) { health }
+    m.onPhase(RecordingState.Phase.RECORDING)
+    m.onLink(ConnectionState.CONNECTED)
+    m.hr()
+    m.tick()
+
+    clock.advanceMs(30_000)
+    val restart = m.tick().single()
+    assertEquals(RecoveryStepKind.RESTART_STREAMS, restart.kind)
+    assertEquals("strap", events[events.size - 2].first)
+    assertEquals("recovery" to restart.reason, events.last())
+
+    // The reconnect step after the restart carries its own view too.
+    clock.advanceMs(30_000)
+    val reconnect = m.tick().single()
+    assertEquals(RecoveryStepKind.RECONNECT, reconnect.kind)
+    assertEquals(2, events.count { it.first == "strap" })
+    assertEquals("strap", events[events.size - 2].first)
+    assertEquals("recovery" to reconnect.reason, events.last())
+  }
+
+  @Test
   fun aBluetoothCycleAsksToReconnectAsSoonAsTheRadioIsBack() {
     val m = monitor()
     m.onPhase(RecordingState.Phase.RECORDING)

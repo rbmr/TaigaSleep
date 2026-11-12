@@ -15,13 +15,20 @@ enum class RecoveryStepKind {
 
   /** Drop the link, connect again and start the streams on the new link. */
   RECONNECT,
+
+  /**
+   * Tear the sensor's transport down and start it over, then connect and start the streams. A
+   * dropped session can be parked by the Bluetooth stack until the strap advertises again, and a
+   * strap still held by the stale link never does, so a plain reconnect can change nothing.
+   */
+  RESET_SENSOR,
 }
 
 /** One recovery step and why it is taken. The reason is what events.jsonl keeps. */
 data class RecoveryStep(val kind: RecoveryStepKind, val reason: String)
 
 /**
- * What a live stream does when it stops delivering while the link still says connected.
+ * What a live stream does when it stops delivering, or when its link stays down.
  *
  * A strap can keep the BLE link up and stop sending notifications. The SDK reports no error then,
  * so the silence is the only evidence. The policy turns that silence into one step per call:
@@ -32,13 +39,17 @@ data class RecoveryStep(val kind: RecoveryStepKind, val reason: String)
  *   then every [LATER_RETRY_MS] for the rest of the recording. It never ends the recording.
  * - Bluetooth comes back on: reconnect at once and start the streams again.
  *
+ * A link that stays down is not left to the sensor either. For [LINK_DOWN_AFTER_MS] a drop is
+ * treated as ordinary and nothing is done; then the link is made again. If it is still down for
+ * the next attempt, the sensor's transport is reset instead: a dropped session can be parked until
+ * a scan hears the strap advertise, which a strap held by the stale link never does. The existing
+ * backoff ladder then goes on for the rest of the recording. A link that comes back resets the
+ * ladder, and an HR sample always starts everything over.
+ *
  * An HR sample ends the escalation, so the next stall starts at the restart step with the first
- * retry delay again. A link that is down before any recovery started is not a stalled stream: the
- * sensor reconnects on its own, and the timers of the current stage start again when it is back.
- * Once a recovery is under way, however, it does not wait for the link: a reconnect attempt whose
- * link never comes back is followed by the next attempt on the same backoff ladder, until samples
- * arrive or the recording ends. A reconnect that does not bring samples back therefore continues
- * the ladder instead of starting it over.
+ * retry delay again. Once a stream recovery is under way it does not wait for the link: a reconnect
+ * attempt whose link never comes back is followed by the next attempt on the same backoff ladder,
+ * until samples arrive or the recording ends.
  *
  * The policy holds no Android types and is handed the elapsed clock, so it is unit-tested with a
  * fake clock. [RecordingMonitor] reports every HR sample and link change; the service performs the
@@ -54,10 +65,14 @@ class StreamRecoveryPolicy(startedAtMs: Long) {
 
     /** Reconnecting a stalled stream, waiting for the next attempt. */
     RECONNECTING,
+
+    /** The link went down and stayed down: the link-down ladder is running. */
+    LINK_DOWN,
   }
 
   private var lastSampleAtMs = startedAtMs
   private var connected = false
+  private var linkDownSinceMs = startedAtMs
   private var stage = Stage.CLEAR
   private var restartedAtMs = 0L
   private var nextReconnectAtMs = 0L
@@ -67,20 +82,25 @@ class StreamRecoveryPolicy(startedAtMs: Long) {
   /** An HR sample arrived: whatever was being recovered is delivering again, so start over. */
   fun onHrSample(nowMs: Long) {
     lastSampleAtMs = nowMs
+    // Samples are proof the link works, even when the link state has not caught up yet.
+    linkDownSinceMs = nowMs
     stage = Stage.CLEAR
     reconnects = 0
     nextReconnectAtMs = 0L
   }
 
   /**
-   * The link came up or went down. A link that is down is left to the sensor's own reconnection; when
-   * it is back, the streams start again with it, so the timers of the current stage are re-anchored
-   * there instead of firing on time spent without a link.
+   * The link came up or went down. A short drop is left to the sensor's own reconnection; after
+   * [LINK_DOWN_AFTER_MS] the link-down ladder takes over. When the link is back, the streams start
+   * again with it and the ladder starts over.
    */
   fun onLink(connected: Boolean, nowMs: Long) {
     if (connected == this.connected) return
     this.connected = connected
-    if (!connected) return
+    if (!connected) {
+      linkDownSinceMs = nowMs
+      return
+    }
     lastSampleAtMs = nowMs
     when (stage) {
       Stage.CLEAR -> Unit
@@ -88,27 +108,45 @@ class StreamRecoveryPolicy(startedAtMs: Long) {
       Stage.RESTARTED -> restartedAtMs = nowMs
       // A new link deserves its delay before it is dropped again.
       Stage.RECONNECTING -> nextReconnectAtMs = nowMs + retryDelayMs(reconnects)
+      // The ladder was for a lost link; a link that comes back joins the stream ladder instead.
+      Stage.LINK_DOWN -> {
+        stage = Stage.CLEAR
+        reconnects = 0
+        nextReconnectAtMs = 0L
+      }
     }
   }
 
-  /** The steps a stalled stream needs now, usually none. */
+  /** The steps a stalled stream or a lost link needs now, usually none. */
   fun evaluate(nowMs: Long): List<RecoveryStep> {
     if (bluetoothDown) return emptyList()
     return when (stage) {
-      Stage.CLEAR -> {
-        // Nothing to recover is not a stall: only a link the sensor says is up can be silent.
-        if (!connected) return emptyList()
-        if (nowMs - lastSampleAtMs < HR_STALE_MS) return emptyList()
-        stage = Stage.RESTARTED
-        restartedAtMs = nowMs
-        listOf(
-            RecoveryStep(
-                RecoveryStepKind.RESTART_STREAMS,
-                "hr stream delivered nothing for ${HR_STALE_MS / 1_000} s while connected; " +
-                    "restarted the streams",
+      Stage.CLEAR ->
+          if (connected) {
+            // Nothing to recover is not a stall: only a link the sensor says is up can be silent.
+            if (nowMs - lastSampleAtMs < HR_STALE_MS) return emptyList()
+            stage = Stage.RESTARTED
+            restartedAtMs = nowMs
+            listOf(
+                RecoveryStep(
+                    RecoveryStepKind.RESTART_STREAMS,
+                    "hr stream delivered nothing for ${HR_STALE_MS / 1_000} s while connected; " +
+                        "restarted the streams",
+                )
             )
-        )
-      }
+          } else {
+            val downMs = (nowMs - linkDownSinceMs).coerceAtLeast(0)
+            if (downMs < LINK_DOWN_AFTER_MS) return emptyList()
+            stage = Stage.LINK_DOWN
+            reconnects = 1
+            nextReconnectAtMs = nowMs + retryDelayMs(reconnects)
+            listOf(
+                RecoveryStep(
+                    RecoveryStepKind.RECONNECT,
+                    "link down for ${downMs / 1_000} s; reconnecting",
+                )
+            )
+          }
       Stage.RESTARTED -> {
         // The restart may itself have lost the link; that does not pause the ladder, or a link that
         // never comes back would leave the recording with no further attempt at all.
@@ -135,6 +173,27 @@ class StreamRecoveryPolicy(startedAtMs: Long) {
                 "hr stream still stalled; reconnect attempt $reconnects, next in " +
                     "${waitMs / 1_000} s",
             )
+        )
+      }
+      Stage.LINK_DOWN -> {
+        if (nowMs < nextReconnectAtMs) return emptyList()
+        reconnects++
+        val reset = reconnects == 2
+        val waitMs = retryDelayMs(reconnects)
+        nextReconnectAtMs = nowMs + waitMs
+        listOf(
+            if (reset) {
+              RecoveryStep(
+                  RecoveryStepKind.RESET_SENSOR,
+                  "link still down after the reconnect; resetting the sensor, next in " +
+                      "${waitMs / 1_000} s",
+              )
+            } else {
+              RecoveryStep(
+                  RecoveryStepKind.RECONNECT,
+                  "link still down; reconnect attempt $reconnects, next in ${waitMs / 1_000} s",
+              )
+            }
         )
       }
     }
@@ -186,6 +245,9 @@ class StreamRecoveryPolicy(startedAtMs: Long) {
     /** Still silent this long after the streams were restarted: the link itself is the problem. */
     const val RECONNECT_AFTER_MS = 30_000L
 
+    /** How long a link is left to the sensor's own reconnection before recovery takes it over. */
+    const val LINK_DOWN_AFTER_MS = 60_000L
+
     const val FIRST_RETRY_MS = 5_000L
     const val SECOND_RETRY_MS = 15_000L
     const val THIRD_RETRY_MS = 30_000L
@@ -215,6 +277,14 @@ suspend fun executeRecovery(
     }
     RecoveryStepKind.RECONNECT -> {
       sensor.disconnect()
+      delay(reconnectPauseMs)
+      sensor.connect()
+      sensor.startStreams(config, listener)
+    }
+    RecoveryStepKind.RESET_SENSOR -> {
+      // The streams belong to the instance being replaced, so they are stopped before it goes.
+      sensor.stopStreams()
+      sensor.resetTransport()
       delay(reconnectPauseMs)
       sensor.connect()
       sensor.startStreams(config, listener)

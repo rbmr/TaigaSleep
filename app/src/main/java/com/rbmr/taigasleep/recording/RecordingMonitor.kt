@@ -35,8 +35,8 @@ interface SampleMonitor {
  * Staleness has two consumers with different jobs: the published state says how the recording looks
  * now (a stream is stale after [STALE_MS]), while [StreamRecoveryPolicy] decides what to do about a
  * stream that stays silent. The monitor reports every HR sample and every link change to it and
- * records each step with its reason; the service performs the steps. It recovers only a streamed
- * recording; an on-device one has no live stream to recover.
+ * records each step with its reason and the phone's own view of the strap; the service performs the
+ * steps. It recovers only a streamed recording; an on-device one has no live stream to recover.
  */
 class RecordingMonitor(
     private val meta: RecordingMeta,
@@ -45,6 +45,11 @@ class RecordingMonitor(
     private val event: (type: String, message: String) -> Unit,
     /** The phone's free space, read once a minute; null when there is nothing to check. */
     private val space: SpaceProvider? = null,
+    /**
+     * The phone's own view of the strap, read only for events; null when the phone cannot be
+     * asked, as on a JVM test or an app without the Bluetooth permission.
+     */
+    private val strapView: (() -> String?)? = null,
     /** The writer's storage health; read at 1 Hz, never on the sample path. */
     private val storageHealth: () -> StorageHealth,
 ) : SampleMonitor {
@@ -61,6 +66,7 @@ class RecordingMonitor(
   private var phase = RecordingState.Phase.STARTING
   private var link = RecordingState.LinkState.DISCONNECTED
   private var linkSinceMs = startedElapsedMs
+  private var linkViewLogged = false
   private var everConnected = false
   private var reconnects = 0
 
@@ -170,6 +176,9 @@ class RecordingMonitor(
       }
       link = next
       linkSinceMs = nowMs
+      // One view per outage, written when the link has been down for a while; a reconnect starts
+      // a new outage. Recovery steps write their own view.
+      if (next == RecordingState.LinkState.CONNECTED) linkViewLogged = false
       recovery.onLink(next == RecordingState.LinkState.CONNECTED, nowMs)
       when {
         next == RecordingState.LinkState.CONNECTED ->
@@ -233,16 +242,19 @@ class RecordingMonitor(
     val nowMs = nowNs / NS_PER_MS
     val events = ArrayList<Pair<String, String>>(2)
     val steps: List<RecoveryStep>
+    var logLinkView = false
     synchronized(lock) {
       evaluateContact(nowMs)
       evaluateStreams(nowNs, events)
       evaluateQuality(events)
       evaluateStorage(nowNs, events)
       evaluateSpace(nowMs, events)
+      logLinkView = linkViewDueLocked(nowMs)
       steps = evaluateRecovery(nowMs)
       publishLocked(nowMs)
     }
     emit(events)
+    if (logLinkView) emitStrapView()
     emitRecovery(steps)
     return steps
   }
@@ -406,8 +418,29 @@ class RecordingMonitor(
   private fun evaluateRecovery(nowMs: Long): List<RecoveryStep> =
       if (recovers()) recovery.evaluate(nowMs) else emptyList()
 
+  /**
+   * A link that has been down for a while is where the phone's own Bluetooth view matters: it says
+   * whether Android still holds the strap, independently of the app's link state. Marked here and
+   * read outside the lock, because the view belongs to the phone.
+   */
+  private fun linkViewDueLocked(nowMs: Long): Boolean {
+    if (!recovers() || strapView == null || link == RecordingState.LinkState.CONNECTED) return false
+    if (linkViewLogged || nowMs - linkSinceMs < LINK_VIEW_AFTER_MS) return false
+    linkViewLogged = true
+    return true
+  }
+
+  private fun emitStrapView() {
+    val view = runCatching { strapView?.invoke() }.getOrNull() ?: return
+    emit(listOf("strap" to view))
+  }
+
   private fun emitRecovery(steps: List<RecoveryStep>) {
-    emit(steps.map { "recovery" to it.reason })
+    for (step in steps) {
+      // Every recovery step carries the phone's own view of the strap, before the step it explains.
+      emitStrapView()
+      emit(listOf("recovery" to step.reason))
+    }
   }
 
   private fun publishLocked(nowMs: Long) {
@@ -498,6 +531,8 @@ class RecordingMonitor(
     private const val NS_PER_MS = 1_000_000L
     // A stream that delivered nothing for this long has stalled, even if the link says connected.
     const val STALE_MS = 3_000L
+    // The phone's own view of a strap is written once a lost link has lasted this long.
+    const val LINK_VIEW_AFTER_MS = 30_000L
     // Brief contact flicker must not change the notification.
     const val OFF_BODY_AFTER_MS = 60_000L
     const val ON_BODY_AFTER_MS = 5_000L

@@ -191,8 +191,11 @@ A Stream recording is handed from one process to the next instead of being decla
 - A stream that stops delivering while the link still says connected is recovered instead of
   waited out: the streams are restarted after 30 s of silence, the link is dropped and made again
   if that does not help, and the further attempts back off for the rest of the recording without
-  ever ending it. When Bluetooth comes back on, the link and the streams are made again at once.
-  Each step is an event with its reason, and samples resuming reset the escalation.
+  ever ending it. A link that stays down is recovered as well: after a minute the link is made
+  again, the next attempt tears the Bluetooth stack down and starts it over, and the same ladder
+  goes on from there. When Bluetooth comes back on, the link and the streams are made again at
+  once. Each step is an event with its reason and with the phone's own view of the strap, and
+  samples resuming reset the escalation.
 - Storage is part of staying alive: a recording starts only when the phone can hold a whole night
   of its streams, free space is checked every minute while it runs, and a frame the phone refuses
   is rolled back to the last good frame and counted instead of silently swallowed. Below an hour

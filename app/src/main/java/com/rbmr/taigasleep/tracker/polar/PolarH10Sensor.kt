@@ -48,7 +48,8 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * One process-wide Polar SDK instance. Its single callback is fanned out to the sensor objects by
- * device id, so a sensor can be replaced without re-creating the SDK.
+ * device id, so a sensor can be replaced without re-creating the SDK, and the SDK can be re-created
+ * without replacing the sensors: they keep their registration and their state flows.
  */
 private object PolarSdk {
   private var api: PolarBleApi? = null
@@ -75,14 +76,26 @@ private object PolarSdk {
                 api = it
               }
 
+  /**
+   * Shuts the instance down and makes a fresh one. A dropped session can be parked until a scan
+   * hears the strap advertise, and a strap still held by the stale link never advertises; a new
+   * instance is what clears that. The callbacks reach the same sensor objects by device id.
+   */
+  @Synchronized
+  fun recreate(context: Context): PolarBleApi {
+    api?.let { runCatching { it.shutDown() } }
+    api = null
+    return get(context)
+  }
+
   private val callback =
       object : PolarBleApiCallback() {
         override fun deviceConnecting(polarDeviceInfo: PolarDeviceInfo) {
-          sensors[polarDeviceInfo.deviceId]?.onConnecting()
+          sensors[polarDeviceInfo.deviceId]?.onConnecting(polarDeviceInfo.address)
         }
 
         override fun deviceConnected(polarDeviceInfo: PolarDeviceInfo) {
-          sensors[polarDeviceInfo.deviceId]?.onConnected()
+          sensors[polarDeviceInfo.deviceId]?.onConnected(polarDeviceInfo.address)
         }
 
         override fun deviceDisconnected(polarDeviceInfo: PolarDeviceInfo) {
@@ -128,6 +141,12 @@ class PolarH10Sensor(
 ) : SleepSensor, OnDeviceTracker {
   override val kind = SensorKind.POLAR_H10
   override val capabilities = SensorCapabilities(ecg = true, acc = true, rr = true)
+
+  // The SDK hands the address out with its connect callbacks; it is kept because the phone's own
+  // Bluetooth view is asked for while the link may be down.
+  @Volatile private var linkAddress: String? = null
+  override val address: String?
+    get() = linkAddress
 
   private val appContext = context.applicationContext
   private val api: PolarBleApi
@@ -197,6 +216,26 @@ class PolarH10Sensor(
       Log.w(TAG, "disconnect failed", e)
     }
     _connection.value = ConnectionState.DISCONNECTED
+  }
+
+  /**
+   * A dropped session can stay parked until a scan hears the strap advertise, and a strap still
+   * held by the stale link never advertises. Replacing the SDK instance is the reset that clears
+   * it; this sensor object, its flows and its registration by device id stay as they are.
+   */
+  override fun resetTransport() {
+    awaitControl {
+      // Any callback from the old instance is now an explicit teardown, not a drop to recover.
+      userDisconnect = true
+      disposeStreams()
+      ready.clear()
+      clockSynced = false
+      clockSyncing = false
+      clockWaiting = false
+      PolarSdk.recreate(appContext)
+    }
+    _connection.value = ConnectionState.DISCONNECTED
+    userDisconnect = false
   }
 
   override fun recordingModes(config: StreamConfig): Set<RecordingMode> = polarRecordingModes(config)
@@ -327,11 +366,13 @@ class PolarH10Sensor(
 
   // Callbacks from the SDK.
 
-  internal fun onConnecting() {
+  internal fun onConnecting(deviceAddress: String?) {
+    noteAddress(deviceAddress)
     _connection.value = ConnectionState.CONNECTING
   }
 
-  internal fun onConnected() {
+  internal fun onConnected(deviceAddress: String?) {
+    noteAddress(deviceAddress)
     _connection.value = ConnectionState.CONNECTED
     control.execute {
       maybeBeginOnDevice()
@@ -340,6 +381,10 @@ class PolarH10Sensor(
     // If readiness is never reported, try anyway after a while.
     control.schedule({ maybeBeginStreams(force = true) }, FEATURE_WAIT_S, TimeUnit.SECONDS)
     control.schedule({ maybeBeginOnDevice(force = true) }, FEATURE_WAIT_S, TimeUnit.SECONDS)
+  }
+
+  private fun noteAddress(deviceAddress: String?) {
+    if (!deviceAddress.isNullOrBlank()) linkAddress = deviceAddress
   }
 
   internal fun onDisconnected() {
