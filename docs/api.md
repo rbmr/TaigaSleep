@@ -26,7 +26,8 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
 - **Status codes.** `200` with a body, `201` with a body and `Location` when something was
   created, `204` without a body, `400` malformed request, `401` not authenticated, `403`
   wrong role, `404` not found or not yours, `409` the resource is in a state that does not
-  allow this, `413` too large, `422` well-formed but invalid, `5xx` ours.
+  allow this, `413` too large, `422` well-formed but invalid, `429` too many requests from
+  this address, `5xx` ours.
 - **One error shape**, for every error from every endpoint:
 
   ```json
@@ -41,7 +42,7 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
   | `unauthorized` | 401 | No token, or a token the server does not accept. |
   | `forbidden` | 403 | The token's role may not call this endpoint. |
   | `not_found` | 404 | The resource does not exist, is not yours, or a worker does not hold its lease. |
-  | `too_many_attempts` | 429 | Too many failed logins; wait before trying again. |
+  | `too_many_requests` | 429 | Too many requests from this client address; wait before trying again. |
   | `id_taken` | 409 | That recording id belongs to another account. |
   | `recording_incomplete` | 409 | An analysis was asked for before the recording was sealed. |
   | `recording_in_progress` | 409 | The recording is not finished: it is still being recorded, or the rest of it is still on the tracker (`fetch_pending`). |
@@ -84,7 +85,7 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
 
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
-| `POST /v1/auth/login` | public | Body `{ "email", "password" }`. Answers `{ "token", "role", "user": { "id", "email" } }`. `role` is `user` or `worker`. |
+| `POST /v1/auth/login` | public | Body `{ "email", "password" }`. Answers `{ "token", "role", "user": { "id", "email" } }`. `role` is `user` or `worker`. Repeated requests from one client address are answered `429`. |
 | `POST /v1/auth/refresh` | any | A fresh token for the current one, same shape. |
 | `GET /v1/me` | any | `{ "id", "email", "role" }`: also how a client checks a stored token. |
 
