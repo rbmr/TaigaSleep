@@ -1,11 +1,11 @@
 package com.rbmr.taigasleep.sync
 
+import com.rbmr.taigasleep.backend.parseServerTime
 import android.content.Context
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.profile.recordingStartDate
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import java.time.LocalDate
-import java.time.OffsetDateTime
 
 /**
  * The date a recording started on, for the age SleepECG uses as a model feature. A recording on the
@@ -22,8 +22,7 @@ internal suspend fun startDateOf(context: Context, key: String): LocalDate? {
   val account = container.remoteRepository.accountKey.orEmpty()
   val started = container.remoteHistoryCache.startedAt(account, recordingIdOf(key)) ?: return null
   val ms =
-      runCatching { OffsetDateTime.parse(started).toInstant().toEpochMilli() }.getOrNull()
-          ?: return null
+      parseServerTime(started)?.toEpochMilli() ?: return null
   return recordingStartDate(ms, null)
 }
 
