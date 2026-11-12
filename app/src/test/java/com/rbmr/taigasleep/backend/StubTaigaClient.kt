@@ -40,7 +40,7 @@ open class StubTaigaClient : TaigaClient {
 
   override suspend fun listRecordings(limit: Int): RecordingListDto = unexpected()
 
-  override suspend fun listAnalyses(recording: String?, limit: Int, offset: Int): AnalysisListDto =
+  override suspend fun listAnalyses(recording: String?, page: Int, perPage: Int): AnalysisListDto =
       unexpected()
 
   override suspend fun listAccessTokens(): AccessTokenListDto = unexpected()

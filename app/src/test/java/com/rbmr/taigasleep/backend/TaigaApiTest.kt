@@ -39,16 +39,15 @@ class TaigaApiTest {
   }
 
   @Test
-  fun putRecordingSendsTheMetaVerbatimAtThePhonesId() = runBlocking {
+  fun putRecordingSendsTheMetaAtThePhonesId() = runBlocking {
     server.enqueue(
         json(
             """
             {"id":"20261023_223000-k3f9","state":"stopped","device":"H10",
              "started_at":"2026-10-23T20:30:00Z","ended_at":"2026-10-24T05:41:12Z",
-             "duration_s":33072,"complete":false,"size_bytes":0,
+             "duration_s":33072,"complete":false,"stored_bytes":0,
              "created":"2026-10-24T05:50:01Z","updated":"2026-10-24T05:50:01Z"}
-            """,
-            code = 201,
+            """
         )
     )
     val meta = """{"format":"taiga-recording","version":1,"session_id":"20261023_223000-k3f9"}"""
@@ -58,12 +57,12 @@ class TaigaApiTest {
     assertEquals("20261023_223000-k3f9", recording.id)
     assertFalse(recording.complete)
     val request = server.takeRequest()
-    assertEquals("PUT", request.method)
-    assertEquals("/v1/recordings/20261023_223000-k3f9", request.path)
+    assertEquals("POST", request.method)
+    assertEquals("/api/collections/recordings/records", request.path)
     assertEquals("Bearer test-token", request.getHeader("Authorization"))
     assertEquals("application/json", request.getHeader("Content-Type")?.substringBefore(';'))
-    // The recording's meta.json is the whole body, not wrapped in another object.
-    assertEquals(meta, request.body.readUtf8())
+    // The recording's meta.json is the record's meta field, not a string holding it.
+    assertEquals("""{"id":"20261023_223000-k3f9","meta":$meta}""", request.body.readUtf8())
   }
 
   @Test
@@ -75,7 +74,7 @@ class TaigaApiTest {
     assertTrue(recording.complete)
     val request = server.takeRequest()
     assertEquals("GET", request.method)
-    assertEquals("/v1/recordings/r1", request.path)
+    assertEquals("/api/collections/recordings/records/r1", request.path)
   }
 
   @Test
@@ -154,7 +153,13 @@ class TaigaApiTest {
         MockResponse()
             .setResponseCode(409)
             .addHeader("Upload-Offset", "7")
-            .setBody("""{"code":"offset_mismatch","message":"the file is 7 bytes long, not 4"}""")
+            .setBody(
+                """
+                {"status":409,"message":"the file is 7 bytes long, not 4",
+                 "data":{"code":"offset_mismatch"}}
+                """
+                    .trimIndent()
+            )
     )
 
     val error =
@@ -176,7 +181,11 @@ class TaigaApiTest {
         MockResponse()
             .setResponseCode(409)
             .setBody(
-                """{"code":"recording_complete","message":"the recording is complete and can no longer change"}"""
+                """
+                {"status":409,"message":"the recording is complete and can no longer change",
+                 "data":{"code":"recording_complete"}}
+                """
+                    .trimIndent()
             )
     )
 
@@ -193,7 +202,9 @@ class TaigaApiTest {
     server.enqueue(
         MockResponse()
             .setResponseCode(401)
-            .setBody("""{"code":"unauthorized","message":"a valid token is required"}""")
+            .setBody(
+                """{"status":401,"message":"a valid token is required","data":{"code":"unauthorized"}}"""
+            )
     )
 
     val error = runCatching { runBlocking { api.getAnalysis("a1") } }.exceptionOrNull()
@@ -205,7 +216,9 @@ class TaigaApiTest {
   @Test
   fun aForbiddenTokenIsUnauthorizedToo() {
     server.enqueue(
-        MockResponse().setResponseCode(403).setBody("""{"code":"forbidden","message":"no"}""")
+        MockResponse()
+            .setResponseCode(403)
+            .setBody("""{"status":403,"message":"no","data":{"code":"forbidden"}}""")
     )
 
     val error = runCatching { runBlocking { api.getAlgorithms() } }.exceptionOrNull()
@@ -218,7 +231,13 @@ class TaigaApiTest {
     server.enqueue(
         MockResponse()
             .setResponseCode(413)
-            .setBody("""{"code":"chunk_too_large","message":"a chunk is at most 1048576 bytes"}""")
+            .setBody(
+                """
+                {"status":413,"message":"a chunk is at most 1048576 bytes",
+                 "data":{"code":"chunk_too_large"}}
+                """
+                    .trimIndent()
+            )
     )
 
     val error = runCatching { runBlocking { api.appendFile("r1", "hr.log", 0, byteArrayOf(1)) } }
@@ -271,7 +290,7 @@ class TaigaApiTest {
     assertTrue(recording.complete)
     val request = server.takeRequest()
     assertEquals("PATCH", request.method)
-    assertEquals("/v1/recordings/r1", request.path)
+    assertEquals("/api/collections/recordings/records/r1", request.path)
     assertEquals("application/json", request.getHeader("Content-Type")?.substringBefore(';'))
     assertEquals("""{"complete":true}""", request.body.readUtf8())
   }
@@ -283,8 +302,7 @@ class TaigaApiTest {
             """
             {"id":"a1","recording":"r1","algorithm":"baseline","version":"1.0.0",
              "params":{},"status":"queued","error":"","attempts":0,"summary":null}
-            """,
-            code = 201,
+            """
         )
     )
 
@@ -294,30 +312,36 @@ class TaigaApiTest {
     assertEquals("queued", analysis.status)
     val request = server.takeRequest()
     assertEquals("POST", request.method)
-    assertEquals("/v1/recordings/r1/analyses", request.path)
-    assertEquals("""{"algorithm":"baseline","version":"1.0.0"}""", request.body.readUtf8())
+    assertEquals("/api/collections/analyses/records", request.path)
+    assertEquals(
+        """{"recording":"r1","algorithm":"baseline","version":"1.0.0"}""",
+        request.body.readUtf8(),
+    )
   }
 
   @Test
   fun aRetryRepeatsTheParamsOfTheFailedRun() = runBlocking {
-    server.enqueue(json("""{"id":"a2","status":"queued"}""", code = 201))
+    server.enqueue(json("""{"id":"a2","status":"queued"}"""))
     val params = JsonObject(mapOf("window" to JsonPrimitive(5)))
 
     api.requestAnalysis("r1", "baseline", "1.0.0", params)
 
     assertEquals(
-        """{"algorithm":"baseline","version":"1.0.0","params":{"window":5}}""",
+        """{"recording":"r1","algorithm":"baseline","version":"1.0.0","params":{"window":5}}""",
         server.takeRequest().body.readUtf8(),
     )
   }
 
   @Test
   fun aBlankVersionIsLeftToTheServer() = runBlocking {
-    server.enqueue(json("""{"id":"a1","status":"queued"}""", code = 201))
+    server.enqueue(json("""{"id":"a1","status":"queued"}"""))
 
     api.requestAnalysis("r1", "baseline", "")
 
-    assertEquals("""{"algorithm":"baseline"}""", server.takeRequest().body.readUtf8())
+    assertEquals(
+        """{"recording":"r1","algorithm":"baseline"}""",
+        server.takeRequest().body.readUtf8(),
+    )
   }
 
   @Test
@@ -342,7 +366,7 @@ class TaigaApiTest {
 
     val request = server.takeRequest()
     assertEquals("GET", request.method)
-    assertEquals("/v1/analyses/a1", request.path)
+    assertEquals("/api/collections/analyses/records/a1", request.path)
     assertTrue(analysis.isSucceeded)
     assertEquals("light", analysis.result?.stages?.segments?.get(1)?.stage)
     assertEquals(85.0, analysis.result?.items?.single()?.value ?: 0.0, 0.001)
@@ -353,9 +377,9 @@ class TaigaApiTest {
     server.enqueue(
         json(
             """
-            {"items":[{"id":"r1","device":"H10","started_at":"2026-10-25T14:00:00Z",
-                       "duration_s":3600,"complete":true}],
-             "limit":100,"offset":0,"total":1}
+            {"page":1,"perPage":100,"totalItems":1,"totalPages":1,
+             "items":[{"id":"r1","device":"H10","started_at":"2026-10-25T14:00:00Z",
+                       "duration_s":3600,"complete":true}]}
             """
         )
     )
@@ -363,9 +387,16 @@ class TaigaApiTest {
     val list = api.listRecordings(limit = 100)
 
     assertEquals("r1", list.items.single().id)
-    assertEquals(1L, list.total)
-    val request = server.takeRequest()
-    assertEquals("/v1/recordings?limit=100&sort=-started_at", request.path)
+    assertEquals(1L, list.totalItems)
+    val url = server.takeRequest().requestUrl!!
+    assertEquals("/api/collections/recordings/records", url.encodedPath)
+    assertEquals("1", url.queryParameter("page"))
+    assertEquals("100", url.queryParameter("perPage"))
+    assertEquals("-started_at", url.queryParameter("sort"))
+    // The list carries what History shows, not each recording's meta.json.
+    val fields = url.queryParameter("fields").orEmpty().split(',')
+    assertTrue("stored_bytes" in fields)
+    assertFalse("meta" in fields)
   }
 
   @Test
@@ -374,41 +405,65 @@ class TaigaApiTest {
 
     api.listRecordings(limit = 1000)
 
-    assertEquals("/v1/recordings?limit=200&sort=-started_at", server.takeRequest().path)
+    assertEquals("500", server.takeRequest().requestUrl?.queryParameter("perPage"))
   }
 
   @Test
   fun analysesAreListedForTheAccountOrForOneRecording() = runBlocking {
-    server.enqueue(json("""{"items":[{"id":"a1","recording":"r1","status":"running"}],"total":1}"""))
-    server.enqueue(json("""{"items":[],"total":0}"""))
+    server.enqueue(
+        json(
+            """
+            {"page":2,"perPage":200,"totalItems":201,"totalPages":2,
+             "items":[{"id":"a1","recording":"r1","status":"running"}]}
+            """
+        )
+    )
+    server.enqueue(json("""{"items":[]}"""))
 
-    val all = api.listAnalyses(offset = 200)
+    val all = api.listAnalyses(page = 2)
     api.listAnalyses(recording = "r1")
 
     assertEquals("running", all.items.single().status)
-    assertEquals("/v1/analyses?limit=200&offset=200&sort=-created", server.takeRequest().path)
-    assertEquals(
-        "/v1/recordings/r1/analyses?limit=200&offset=0&sort=-created",
-        server.takeRequest().path,
-    )
+    assertEquals(201L, all.totalItems)
+    val everyOne = server.takeRequest().requestUrl!!
+    assertEquals("/api/collections/analyses/records", everyOne.encodedPath)
+    assertEquals("2", everyOne.queryParameter("page"))
+    assertEquals("200", everyOne.queryParameter("perPage"))
+    assertEquals("-created", everyOne.queryParameter("sort"))
+    assertNull(everyOne.queryParameter("filter"))
+    // A list leaves the full result out; it is fetched only when it is shown.
+    val fields = everyOne.queryParameter("fields").orEmpty().split(',')
+    assertTrue("summary" in fields)
+    assertFalse("result" in fields)
+    val oneRecording = server.takeRequest().requestUrl!!
+    assertEquals("/api/collections/analyses/records", oneRecording.encodedPath)
+    assertEquals("1", oneRecording.queryParameter("page"))
+    assertEquals("recording = \"r1\"", oneRecording.queryParameter("filter"))
   }
 
   @Test
   fun summariesGroupTheAnalysesOfEveryPageByRecording() = runBlocking {
-    server.enqueue(json("""{"items":[{"id":"r1","complete":true},{"id":"r2","complete":true}]}"""))
     server.enqueue(
         json(
             """
-            {"items":[{"id":"a1","recording":"r1"},{"id":"a2","recording":"r2"}],
-             "limit":2,"offset":0,"total":4}
+            {"page":1,"perPage":100,"totalItems":2,"totalPages":1,
+             "items":[{"id":"r1","complete":true},{"id":"r2","complete":true}]}
             """
         )
     )
     server.enqueue(
         json(
             """
-            {"items":[{"id":"a3","recording":"r1"},{"id":"gone","recording":"older"}],
-             "limit":2,"offset":2,"total":4}
+            {"page":1,"perPage":200,"totalItems":4,"totalPages":2,
+             "items":[{"id":"a1","recording":"r1"},{"id":"a2","recording":"r2"}]}
+            """
+        )
+    )
+    server.enqueue(
+        json(
+            """
+            {"page":2,"perPage":200,"totalItems":4,"totalPages":2,
+             "items":[{"id":"a3","recording":"r1"},{"id":"gone","recording":"older"}]}
             """
         )
     )
@@ -419,9 +474,9 @@ class TaigaApiTest {
     assertEquals(listOf("a1", "a3"), summaries.items[0].analyses.map { it.id })
     assertEquals(listOf("a2"), summaries.items[1].analyses.map { it.id })
     server.takeRequest()
-    assertEquals("/v1/analyses?limit=200&offset=0&sort=-created", server.takeRequest().path)
-    // The second page starts after the analyses the first one returned.
-    assertEquals("/v1/analyses?limit=200&offset=2&sort=-created", server.takeRequest().path)
+    assertEquals("1", server.takeRequest().requestUrl?.queryParameter("page"))
+    // The next page follows the analysis list's own page count.
+    assertEquals("2", server.takeRequest().requestUrl?.queryParameter("page"))
   }
 
   @Test
@@ -432,13 +487,17 @@ class TaigaApiTest {
 
     val request = server.takeRequest()
     assertEquals("DELETE", request.method)
-    assertEquals("/v1/recordings/r1", request.path)
+    assertEquals("/api/collections/recordings/records/r1", request.path)
     assertEquals("Bearer test-token", request.getHeader("Authorization"))
   }
 
   @Test
   fun aDeleteOfAMissingRecordingIsA404() {
-    server.enqueue(MockResponse().setResponseCode(404).setBody("""{"code":"not_found","message":"x"}"""))
+    server.enqueue(
+        MockResponse()
+            .setResponseCode(404)
+            .setBody("""{"status":404,"message":"The requested resource wasn't found.","data":{}}""")
+    )
 
     val error = runCatching { runBlocking { api.deleteRecording("r1") } }.exceptionOrNull()
 
@@ -482,7 +541,11 @@ class TaigaApiTest {
 
   @Test
   fun aFailedDownloadLeavesNoPartialFile() {
-    server.enqueue(MockResponse().setResponseCode(404).setBody("""{"code":"not_found","message":"x"}"""))
+    server.enqueue(
+        MockResponse()
+            .setResponseCode(404)
+            .setBody("""{"status":404,"message":"recording not found","data":{"code":"not_found"}}""")
+    )
     val target = Files.createTempFile("taiga-download", ".part").toFile()
 
     val error = runCatching { runBlocking { api.downloadFile("r1", "hr.log", target) } }

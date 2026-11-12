@@ -177,7 +177,7 @@ class AnalysisDtoTest {
             """
             {"id": "20261023_223000-k3f9", "state": "recording", "device": "Polar H10 069A4737",
              "started_at": "2026-10-23T20:30:00Z", "ended_at": null, "duration_s": 0,
-             "complete": false, "size_bytes": 12,
+             "complete": false, "stored_bytes": 12,
              "meta": {"format": "taiga-recording", "version": 1},
              "created": "2026-10-23T20:30:01Z", "updated": "2026-10-23T20:30:01Z"}
             """
@@ -187,6 +187,7 @@ class AnalysisDtoTest {
     assertNull(recording.ended_at)
     assertFalse(recording.complete)
     assertEquals("Polar H10 069A4737", recording.device)
+    assertEquals(12L, recording.stored_bytes)
   }
 
   @Test

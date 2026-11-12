@@ -171,7 +171,7 @@ fun RecordingDto.toRow(account: String, position: Int): RemoteRecordingRow =
         endedAt = ended_at,
         durationS = duration_s,
         complete = complete,
-        sizeBytes = size_bytes,
+        sizeBytes = stored_bytes,
         created = created,
         updated = updated,
     )
@@ -185,7 +185,7 @@ fun RemoteRecordingRow.toRecordingDto(): RecordingDto =
         ended_at = endedAt,
         duration_s = durationS,
         complete = complete,
-        size_bytes = sizeBytes,
+        stored_bytes = sizeBytes,
         created = created,
         updated = updated,
     )
