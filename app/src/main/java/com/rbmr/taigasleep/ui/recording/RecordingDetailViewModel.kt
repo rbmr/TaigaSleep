@@ -234,7 +234,7 @@ class RecordingDetailViewModel(
       val shared =
           when {
             !_state.value.canExport ->
-                Result.failure(IllegalStateException("no copy of this night is available"))
+                Result.failure(IllegalStateException("no copy of this recording is available"))
             _state.value.exportNeedsRestore ->
                 restoreThenShare(id, _state.value.remoteId, contents)
             else -> share(id, contents)

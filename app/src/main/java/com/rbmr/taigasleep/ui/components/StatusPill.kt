@@ -114,7 +114,8 @@ fun StatusPill(
 
 /**
  * A chip that chooses one of a few values, such as a trend range. The chosen chip is filled; the
- * others sit on the quiet track colour. It is a [Pressable], so its touch target is 48 dp.
+ * others sit on the quiet track colour. Pass [role] = `Role.Checkbox` when the chips are independent
+ * switches instead of one choice. It is a [Pressable], so its touch target is 48 dp.
  */
 @Composable
 fun ChoiceChip(
@@ -122,12 +123,13 @@ fun ChoiceChip(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    role: Role = Role.RadioButton,
 ) {
   Pressable(
       onClick = onClick,
       modifier = modifier,
       shape = CircleShape,
-      role = Role.RadioButton,
+      role = role,
       onClickLabel = label,
   ) {
     Box(

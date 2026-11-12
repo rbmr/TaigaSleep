@@ -22,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.recording.CaptureStatus
@@ -41,7 +42,6 @@ import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.theme.taiga
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.delay
 
 internal enum class StopAction {
@@ -124,8 +124,8 @@ private fun RecordingHeader(status: CaptureStatus) {
       RecordingFormat.elapsed(
           if (status.liveStreaming) status.state.capture.elapsedMs else sinceStartMs
       )
-  val since =
-      SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(status.startUtcMs))
+  val locale = LocalLocale.current.platformLocale
+  val since = SimpleDateFormat("HH:mm", locale).format(Date(status.startUtcMs))
   Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.xs)) {
     PulsingLabel(
         text =

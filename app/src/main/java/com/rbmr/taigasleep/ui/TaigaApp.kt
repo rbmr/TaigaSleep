@@ -42,10 +42,12 @@ import com.rbmr.taigasleep.ui.recording.RecordingDetailScreen
 import com.rbmr.taigasleep.ui.history.HistoryScreen
 import com.rbmr.taigasleep.ui.settings.AboutScreen
 import com.rbmr.taigasleep.ui.settings.AccessTokensScreen
+import com.rbmr.taigasleep.ui.settings.AnalysisScreen
 import com.rbmr.taigasleep.ui.settings.FlowScreen
 import com.rbmr.taigasleep.ui.settings.PersonalDataScreen
 import com.rbmr.taigasleep.ui.settings.RemoteScreen
 import com.rbmr.taigasleep.ui.settings.SettingsScreen
+import com.rbmr.taigasleep.ui.settings.UploadsScreen
 import com.rbmr.taigasleep.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
 
@@ -78,6 +80,8 @@ fun TaigaApp(
   var showRemote by rememberSaveable { mutableStateOf(false) }
   var showTokens by rememberSaveable { mutableStateOf(false) }
   var showPersonal by rememberSaveable { mutableStateOf(false) }
+  var showUploads by rememberSaveable { mutableStateOf(false) }
+  var showAnalysis by rememberSaveable { mutableStateOf(false) }
   var detailLocal by rememberSaveable { mutableStateOf<String?>(null) }
   var detailRemote by rememberSaveable { mutableStateOf<String?>(null) }
   var detailAnalysis by rememberSaveable { mutableStateOf<String?>(null) }
@@ -126,6 +130,8 @@ fun TaigaApp(
     showRemote -> RemoteScreen(onBack = { showRemote = false })
     showTokens -> AccessTokensScreen(onBack = { showTokens = false })
     showPersonal -> PersonalDataScreen(onBack = { showPersonal = false })
+    showUploads -> UploadsScreen(onBack = { showUploads = false })
+    showAnalysis -> AnalysisScreen(onBack = { showAnalysis = false })
     detailLocal != null || detailRemote != null ->
         RecordingDetailScreen(
             localId = detailLocal,
@@ -194,6 +200,8 @@ fun TaigaApp(
                       onRemoteClick = { showRemote = true },
                       onTokensClick = { showTokens = true },
                       onPersonalClick = { showPersonal = true },
+                      onUploadsClick = { showUploads = true },
+                      onAnalysisClick = { showAnalysis = true },
                   )
             }
           }

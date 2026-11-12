@@ -667,7 +667,7 @@ class RecordingDetailViewModelTest {
 
     assertFalse(work.calls.any { it.startsWith("share:") })
     assertTrue(
-        model.state.value.actionError.orEmpty().contains("no copy of this night is available")
+        model.state.value.actionError.orEmpty().contains("no copy of this recording is available")
     )
   }
 

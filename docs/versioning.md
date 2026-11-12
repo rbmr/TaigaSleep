@@ -120,7 +120,7 @@ python3 tools/release_plan.py               # the plan for this branch
 
 ## What the version appears in
 
-- Settings, About subtitle: `Taiga Sleep 0.2.0`.
+- Settings, About Taiga Sleep row: `0.2.0`.
 - About screen: version name and code, from `BuildConfig`.
 - Diagnostics `process_start`: version name, version code, build type and git
   commit.

@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
@@ -19,22 +18,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,32 +59,31 @@ import com.rbmr.taigasleep.ui.components.ButtonSize
 import com.rbmr.taigasleep.ui.components.ConfirmDialog
 import com.rbmr.taigasleep.ui.components.ConfirmDialogStyle
 import com.rbmr.taigasleep.ui.components.PrimaryButton
-import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SecondaryButton
 import com.rbmr.taigasleep.ui.components.SegmentedProgress
 import com.rbmr.taigasleep.ui.components.StatusPill
 import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.components.TaigaScreen
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** The three pages of the flow. Which one is shown is the user's choice, not the state's. */
-private enum class RemotePage(val titleRes: Int) {
-  SERVER(R.string.server_page_server),
-  ACCOUNT(R.string.server_page_account),
-  STATUS(R.string.server_page_status),
+private enum class RemotePage(val titleRes: Int, val bodyRes: Int) {
+  SERVER(R.string.server_page_server, R.string.server_page_server_body),
+  ACCOUNT(R.string.server_page_account, R.string.server_page_account_body),
+  STATUS(R.string.server_page_status, R.string.server_page_status_body),
 }
 
 /**
- * Settings → Remote, as three self-contained pages: the server, the account and the status.
+ * Settings → Server, as three self-contained pages: the server, the account and the status.
  *
  * Each page shows only its own field and its own action, and nothing about the other pages.
  * Swiping sideways or the Previous/Next buttons switch pages even when a page cannot act yet; in
  * that case its action is simply disabled. The connection state lives in [RemoteRepository], so no
  * page keeps a copy of it.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RemoteScreen(onBack: () -> Unit) {
   val context = LocalContext.current
@@ -113,6 +105,7 @@ fun RemoteScreen(onBack: () -> Unit) {
       }
   val current = RemotePage.entries[pagerState.currentPage]
   val scope = rememberCoroutineScope()
+  val space = MaterialTheme.taiga.space
 
   // The saved session is re-checked on every resume; the server and account pages are untouched.
   LifecycleResumeEffect(Unit) {
@@ -149,76 +142,35 @@ fun RemoteScreen(onBack: () -> Unit) {
   // Back leaves the screen; the page arrows at the bottom do the paging.
   BackHandler(onBack = onBack)
 
-  Scaffold(
-      containerColor = MaterialTheme.colorScheme.background,
-      topBar = {
-        Column {
-          TopAppBar(
-              title = { Text(stringResource(R.string.server_title)) },
-              colors =
-                  TopAppBarDefaults.topAppBarColors(
-                      containerColor = MaterialTheme.colorScheme.background
-                  ),
-              navigationIcon = {
-                IconButton(onClick = onBack) {
-                  Icon(
-                      imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                      contentDescription = stringResource(R.string.server_back),
-                  )
-                }
-              },
-          )
-          SegmentedProgress(
-              steps = RemotePage.entries.size,
-              current = pagerState.currentPage + 1,
-              description =
-                  stringResource(
-                      R.string.server_progress,
-                      pagerState.currentPage + 1,
-                      RemotePage.entries.size,
-                      stringResource(current.titleRes),
-                  ),
-              modifier = Modifier.padding(horizontal = 20.dp),
-          )
-        }
-      },
-      bottomBar = {
-        Surface(color = MaterialTheme.colorScheme.background) {
-          Row(
-              modifier =
-                  Modifier.fillMaxWidth()
-                      .navigationBarsPadding()
-                      .imePadding()
-                      .padding(horizontal = 20.dp, vertical = 12.dp),
-              horizontalArrangement = Arrangement.spacedBy(12.dp),
-          ) {
-            SecondaryButton(
-                text = stringResource(R.string.server_previous_page),
-                onClick = { goTo(RemotePage.entries[pagerState.currentPage - 1]) },
-                modifier = Modifier.weight(1f),
-                enabled = current != RemotePage.SERVER,
-            )
-            SecondaryButton(
-                text = stringResource(R.string.server_next_page),
-                onClick = { goTo(RemotePage.entries[pagerState.currentPage + 1]) },
-                modifier = Modifier.weight(1f),
-                enabled = current != RemotePage.STATUS,
-            )
-          }
-        }
-      },
-  ) { padding ->
+  TaigaScreen(
+      title = stringResource(current.titleRes),
+      subtitle = stringResource(current.bodyRes),
+      onBack = onBack,
+      scrollable = false,
+  ) {
+    SegmentedProgress(
+        steps = RemotePage.entries.size,
+        current = pagerState.currentPage + 1,
+        description =
+            stringResource(
+                R.string.server_progress,
+                pagerState.currentPage + 1,
+                RemotePage.entries.size,
+                stringResource(current.titleRes),
+            ),
+        modifier = Modifier.fillMaxWidth(),
+    )
     HorizontalPager(
         state = pagerState,
-        modifier = Modifier.fillMaxSize().padding(padding),
+        modifier = Modifier.fillMaxWidth().weight(1f),
     ) { index ->
       val shown = RemotePage.entries[index]
       Column(
           modifier =
               Modifier.fillMaxSize()
                   .verticalScroll(rememberScrollState())
-                  .padding(horizontal = 20.dp, vertical = 24.dp),
-          verticalArrangement = Arrangement.spacedBy(18.dp),
+                  .padding(bottom = space.m),
+          verticalArrangement = Arrangement.spacedBy(space.m),
       ) {
         when (shown) {
           RemotePage.SERVER ->
@@ -256,6 +208,23 @@ fun RemoteScreen(onBack: () -> Unit) {
         }
       }
     }
+    Row(
+        modifier = Modifier.fillMaxWidth().imePadding(),
+        horizontalArrangement = Arrangement.spacedBy(space.s),
+    ) {
+      SecondaryButton(
+          text = stringResource(R.string.server_previous_page),
+          onClick = { goTo(RemotePage.entries[pagerState.currentPage - 1]) },
+          modifier = Modifier.weight(1f),
+          enabled = current != RemotePage.SERVER,
+      )
+      SecondaryButton(
+          text = stringResource(R.string.server_next_page),
+          onClick = { goTo(RemotePage.entries[pagerState.currentPage + 1]) },
+          modifier = Modifier.weight(1f),
+          enabled = current != RemotePage.STATUS,
+      )
+    }
   }
 
   if (showLogout) {
@@ -291,10 +260,6 @@ private fun ServerPage(
   val failure = (status as? RemoteStatus.Unreachable)?.reason?.takeIf { checked }
   val reachable = checked && status !is RemoteStatus.Unreachable
 
-  ScreenHeader(
-      title = stringResource(R.string.server_page_server),
-      subtitle = stringResource(R.string.server_page_server_body),
-  )
   TaigaCard {
     OutlinedTextField(
         value = url,
@@ -332,7 +297,7 @@ private fun ServerPage(
   if (failure != null) {
     Text(
         text = errorMessage(failure),
-        style = MaterialTheme.typography.bodyMedium,
+        style = MaterialTheme.taiga.text.body,
         color = MaterialTheme.taiga.bad,
     )
   }
@@ -365,12 +330,8 @@ private fun AccountPage(
     checking: Boolean,
     onLogin: () -> Unit,
 ) {
-  ScreenHeader(
-      title = stringResource(R.string.server_page_account),
-      subtitle = stringResource(R.string.server_page_account_body),
-  )
   TaigaCard {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.m)) {
       OutlinedTextField(
           value = email,
           onValueChange = onEmailChange,
@@ -410,7 +371,7 @@ private fun AccountPage(
   if (failure != null) {
     Text(
         text = errorMessage(failure),
-        style = MaterialTheme.typography.bodyMedium,
+        style = MaterialTheme.taiga.text.body,
         color = MaterialTheme.taiga.bad,
     )
   }
@@ -433,23 +394,18 @@ private fun StatusPage(
     onCheck: () -> Unit,
     onLogout: () -> Unit,
 ) {
-  ScreenHeader(
-      title = stringResource(R.string.server_page_status),
-      subtitle = stringResource(R.string.server_page_status_body),
-  )
   TaigaCard {
     StatusPill(state = state.kind, label = stringResource(state.labelRes))
-    Spacer(Modifier.height(10.dp))
+    Spacer(Modifier.height(MaterialTheme.taiga.space.s))
     Text(
         text = stringResource(state.explanationRes),
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.taiga.text.body,
     )
     state.extra(status)?.let { extra ->
-      Spacer(Modifier.height(4.dp))
+      Spacer(Modifier.height(MaterialTheme.taiga.space.xs))
       Text(
           text = extra,
-          style = MaterialTheme.typography.bodyMedium,
+          style = MaterialTheme.taiga.text.body,
           color =
               if (state == RemoteState.UNREACHABLE) MaterialTheme.taiga.bad
               else MaterialTheme.colorScheme.onSurface,
@@ -457,7 +413,7 @@ private fun StatusPage(
     }
     val checkedAt = status.checkedAt()
     if (checkedAt != null) {
-      Spacer(Modifier.height(6.dp))
+      Spacer(Modifier.height(MaterialTheme.taiga.space.s))
       LastCheck(checkedAt)
     }
   }
@@ -499,7 +455,7 @@ private fun LastCheck(checkedAtMs: Long) {
           .toString()
   Text(
       text = stringResource(R.string.server_last_check, relative),
-      style = MaterialTheme.typography.bodySmall,
+      style = MaterialTheme.taiga.text.meta,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
   )
 }

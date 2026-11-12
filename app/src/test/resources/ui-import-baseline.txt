@@ -50,11 +50,13 @@ recording/SharedComponents.kt 1
 recording/SleepSection.kt 1
 recording/StatusCards.kt 1
 settings/AboutScreen.kt 0
+settings/AnalysisScreen.kt 1
 settings/FlowScreen.kt 11
 settings/PersonalData.kt 0
 settings/RemoteScreen.kt 7
-settings/SettingsScreen.kt 4
+settings/SettingsScreen.kt 2
 settings/TokensScreen.kt 1
+settings/UploadsScreen.kt 2
 theme/Color.kt 0
 theme/Theme.kt 0
 theme/ThemeMode.kt 0

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -182,13 +183,19 @@ sealed interface ListRowTrailing {
       val label: String,
       val onClick: () -> Unit,
       val enabled: Boolean = true,
+      /** True when the action removes something, as Revoke does. */
+      val destructive: Boolean = false,
   ) : ListRowTrailing
+
+  /** The row's own controls, such as the two arrows of a reorderable list. */
+  data class Controls(val content: @Composable RowScope.() -> Unit) : ListRowTrailing
 }
 
 /**
  * One row of a list: an optional leading icon, the title with an optional [subtitle] under it, an
- * optional value and the trailing slot. The row is a button when [onClick] is given; the switch and
- * radio are drawn from their state and the row's click changes them.
+ * optional value and the trailing slot. [below] draws a control under the title that needs the
+ * whole width, such as the three-way appearance switch. The row is a button when [onClick] is
+ * given; the switch and radio are drawn from their state and the row's click changes them.
  */
 @Composable
 fun ListRow(
@@ -202,6 +209,7 @@ fun ListRow(
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     onClickLabel: String? = null,
+    below: (@Composable () -> Unit)? = null,
 ) {
   val space = MaterialTheme.taiga.space
   val row: @Composable () -> Unit = {
@@ -236,6 +244,10 @@ fun ListRow(
               color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
         }
+        if (below != null) {
+          Spacer(Modifier.height(space.s))
+          below()
+        }
       }
       if (value != null) {
         Spacer(Modifier.width(space.s))
@@ -266,6 +278,15 @@ fun ListRow(
                   text = trailing.label,
                   onClick = trailing.onClick,
                   enabled = enabled && trailing.enabled,
+                  contentColor =
+                      if (trailing.destructive) MaterialTheme.taiga.bad
+                      else MaterialTheme.colorScheme.primary,
+              )
+          is ListRowTrailing.Controls ->
+              Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(space.xs),
+                  content = trailing.content,
               )
           ListRowTrailing.None -> Unit
         }
@@ -330,6 +351,24 @@ private fun ListRowPreview() {
         title = "wav2sleep 1.2",
         subtitle = "Stages: Awake, REM, Light, Deep",
         trailing = ListRowTrailing.Action("Run", onClick = {}),
+    )
+    ListRow(
+        title = "Polar H10",
+        subtitle = "Ends in a1b2",
+        trailing = ListRowTrailing.Action("Revoke", onClick = {}, destructive = true),
+    )
+    ListRow(
+        title = "Appearance",
+        trailing = ListRowTrailing.None,
+        below = {
+          SegmentedControl(
+              options = listOf("System", "Light", "Dark"),
+              selectedIndex = 0,
+              onSelect = {},
+              modifier = Modifier.fillMaxWidth(),
+              fillWidth = true,
+          )
+        },
     )
     ListRow(title = "Access tokens", value = "2", enabled = false)
   }

@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="server_title">Server</string>
-  <string name="server_back">Back</string>
 
   <string name="server_page_server">Server</string>
   <string name="server_page_account">Account</string>
@@ -42,11 +40,8 @@
   <string name="server_logout_title">Log out of the server?</string>
   <string name="server_logout_body">Taiga logs out on this phone only; other devices stay logged in. Recordings stay on the phone and finish normally.</string>
   <string name="server_logout_confirm">Log out</string>
-  <string name="server_cancel">Cancel</string>
 
   <!-- The settings row summary; the Status page has its own wording. -->
-  <string name="server_state_not_configured">No server connected</string>
-  <string name="server_state_connected">Connected as %1$s</string>
   <string name="server_state_login_needed_short">Login needed</string>
   <string name="server_state_unreachable_short">Server unreachable</string>
 

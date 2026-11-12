@@ -23,9 +23,11 @@ data class AutoUploadSettings(
  * Users can turn it off for a very fast server or to keep the server-side files directly readable.
  *
  * Raw retention decides when the local stream files of an uploaded recording may be removed.
- * The default, [RawRetentionMode.NEVER], keeps every raw file on the phone.
+ * Nothing stored means Keep none, [RawRetentionMode.IMMEDIATE]: the raw files leave the phone as
+ * soon as the server confirmed the upload, and the server copy is the one History reads. A stored
+ * choice, including Keep all, is kept as it is.
  */
-class UploadSettings private constructor(context: Context) {
+class UploadSettings internal constructor(context: Context) {
   private val prefs =
       context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
@@ -35,8 +37,7 @@ class UploadSettings private constructor(context: Context) {
   private val _compressUploads = MutableStateFlow(prefs.getBoolean(KEY_COMPRESS, true))
   val compressUploads: StateFlow<Boolean> = _compressUploads.asStateFlow()
 
-  private val _rawRetention =
-      MutableStateFlow(RawRetentionMode.fromStored(prefs.getString(KEY_RAW_RETENTION, null)))
+  private val _rawRetention = MutableStateFlow(loadRawRetention())
   val rawRetention: StateFlow<RawRetentionMode> = _rawRetention.asStateFlow()
 
   fun setEnabled(enabled: Boolean) {
@@ -77,6 +78,11 @@ class UploadSettings private constructor(context: Context) {
           wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, true),
           chargingOnly = prefs.getBoolean(KEY_CHARGING_ONLY, false),
       )
+
+  /** A stored retention choice, or Keep none for a phone that never chose one. */
+  private fun loadRawRetention(): RawRetentionMode =
+      prefs.getString(KEY_RAW_RETENTION, null)?.let(RawRetentionMode::fromStored)
+          ?: RawRetentionMode.IMMEDIATE
 
   companion object {
     private const val KEY_ENABLED = "auto_upload_enabled"

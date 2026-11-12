@@ -105,7 +105,6 @@
   <string name="rec_discard_body">Discard stops the recording and deletes everything recorded so far from this phone. This cannot be undone.</string>
   <string name="rec_discard_body_on_device">Discard tells the tracker to delete the recording and deletes it on this phone. Nothing is downloaded. This cannot be undone.</string>
   <string name="rec_discard_confirm">Discard</string>
-  <string name="rec_cancel">Cancel</string>
   <string name="rec_finishing_title">Finishing up</string>
   <string name="rec_finishing_subtitle">Keep the tracker nearby until this is done.</string>
   <string name="rec_finishing_done_title">Recording saved</string>

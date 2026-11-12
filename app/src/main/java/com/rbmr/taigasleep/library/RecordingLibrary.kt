@@ -145,7 +145,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   override suspend fun requestManual(recording: RecordingView, algorithmId: String): Result<Unit> =
       withContext(Dispatchers.IO) {
         val server = recording.remoteId
-            ?: return@withContext Result.failure(IllegalStateException("this night is not uploaded"))
+            ?: return@withContext Result.failure(IllegalStateException("this recording is not uploaded"))
         val account = remote.accountKey
             ?: return@withContext Result.failure(IllegalStateException("login required"))
         val started =

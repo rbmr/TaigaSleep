@@ -1,18 +1,15 @@
 <resources>
-  <string name="settings_group_recordings">Recordings</string>
   <string name="settings_auto_upload_title">Upload automatically</string>
-  <string name="settings_auto_upload_body">Automatically upload recordings to the server.</string>
   <string name="settings_auto_upload_wifi">Only on Wi-Fi</string>
   <string name="settings_auto_upload_charging">Only while charging</string>
   <string name="settings_upload_compress_title">Compress uploads</string>
-  <string name="settings_upload_compress_body">Send less data over the network. The recording on this phone stays uncompressed.</string>
-  <string name="settings_raw_retention_title">Raw recordings</string>
-  <string name="settings_raw_retention_body">Raw streams are removed from this phone only after the server confirms the upload. The metadata, the analysis and the server copy stay, so the recording remains in History and the raw data can be downloaded again.</string>
-  <string name="raw_retention_never">Keep raw data on this phone</string>
-  <string name="raw_retention_immediate">Delete raw data straight after upload</string>
-  <string name="raw_retention_days_5">Delete raw data after 5 days</string>
-  <string name="raw_retention_days_14">Delete raw data after 14 days</string>
-  <string name="raw_retention_days_30">Delete raw data after 30 days</string>
+  <string name="uploads_raw_title">Raw data on this phone after upload</string>
+  <string name="uploads_raw_body">Raw streams are removed from this phone only after the server confirms the upload. The metadata, the analysis and the server copy stay, so the recording remains in History and the raw data can be downloaded again.</string>
+  <string name="raw_retention_keep_all">Keep all</string>
+  <string name="raw_retention_keep_none">Keep none</string>
+  <string name="raw_retention_days_5">Keep 5 days</string>
+  <string name="raw_retention_days_14">Keep 14 days</string>
+  <string name="raw_retention_days_30">Keep 30 days</string>
 
   <string name="upload_notification_channel">Uploads</string>
   <string name="upload_notification_title">Uploading recording</string>
@@ -44,7 +41,6 @@
   <string name="night_discard_confirm">Discard</string>
   <string name="night_raw_restore_failed">Could not download the raw data.</string>
   <string name="night_error_detail">%1$s: %2$s</string>
-  <string name="night_details">Recording details</string>
   <string name="night_details_started">Started</string>
   <string name="night_details_stopped">Stopped</string>
   <string name="night_details_device">Tracker</string>
@@ -72,7 +68,6 @@
   <string name="night_sleep_score">Sleep score</string>
   <string name="night_sleep_score_none">No sleep score</string>
   <string name="night_sleep_score_value">%1$d / 100</string>
-  <string name="night_data_quality">Data quality</string>
   <string name="night_data_quality_score">%1$d / 100</string>
   <string name="night_heart_rate_stats">Heart rate</string>
   <string name="night_data_quality_stats">Data quality</string>
@@ -110,7 +105,6 @@
   <string name="night_upload_other_account_body">This recording is already uploaded to another account. Upload it to %1$s with the account %2$s as well?</string>
   <string name="night_upload_other_account_confirm">Upload</string>
   <string name="night_warnings">Warnings</string>
-  <string name="night_analyzed_with">Analyzed with %1$s %2$s</string>
   <string name="night_analyzed_with_algorithm">Analyzed with %1$s</string>
   <string name="night_analysis">Analysis</string>
   <string name="night_analysis_choose">Choose an analysis</string>

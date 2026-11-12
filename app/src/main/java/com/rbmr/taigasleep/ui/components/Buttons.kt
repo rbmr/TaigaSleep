@@ -152,6 +152,7 @@ fun TertiaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    contentColor: Color = MaterialTheme.colorScheme.primary,
 ) {
   Pressable(
       onClick = onClick,
@@ -172,8 +173,7 @@ fun TertiaryButton(
       Text(
           text = text,
           style = MaterialTheme.taiga.text.row,
-          color =
-              if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.taiga.disabled,
+          color = if (enabled) contentColor else MaterialTheme.taiga.disabled,
       )
     }
   }
@@ -182,7 +182,7 @@ fun TertiaryButton(
 /**
  * A compact switch between a few views, such as Recordings | Trends. The chosen segment is filled;
  * every segment is a [Pressable], so its touch target is 48 dp while the visible control stays
- * smaller.
+ * smaller. With [fillWidth] the segments share the whole width, as in a settings row.
  */
 @Composable
 fun SegmentedControl(
@@ -190,6 +190,7 @@ fun SegmentedControl(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    fillWidth: Boolean = false,
 ) {
   Box(modifier.height(48.dp), contentAlignment = Alignment.Center) {
     Box(
@@ -198,12 +199,13 @@ fun SegmentedControl(
                 .padding(vertical = MaterialTheme.taiga.space.xs)
                 .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
     )
-    Row(Modifier.fillMaxHeight()) {
+    Row(Modifier.fillMaxHeight().then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)) {
       options.forEachIndexed { index, option ->
         val selected = index == selectedIndex
         Pressable(
             onClick = { onSelect(index) },
-            modifier = Modifier.fillMaxHeight(),
+            modifier =
+                Modifier.fillMaxHeight().then(if (fillWidth) Modifier.weight(1f) else Modifier),
             shape = CircleShape,
             role = Role.Tab,
             onClickLabel = option,
