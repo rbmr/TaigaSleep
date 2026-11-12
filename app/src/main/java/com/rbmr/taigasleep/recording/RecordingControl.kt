@@ -361,6 +361,7 @@ class RecordingControl(
             clock = clock,
             event = writer::event,
             space = PhoneSpace(writer.dir),
+            strapView = { host.strapView(sensor.id) },
             storageHealth = writer::storageHealth,
         )
     monitor.onPhase(RecordingState.Phase.RECORDING)

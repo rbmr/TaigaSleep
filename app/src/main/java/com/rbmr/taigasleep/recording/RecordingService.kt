@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -118,6 +120,26 @@ class RecordingService : Service(), RecordingHost {
   override fun mayStart(mode: RecordingMode): Boolean = hooks.mayStart(this, mode)
 
   override fun readinessSummary(): String = hooks.readinessSummary(this)
+
+  override fun strapView(sensorId: String): String? {
+    val manager = getSystemService(BluetoothManager::class.java) ?: return null
+    val address = bluetoothAddress(sensorId) ?: return null
+    return try {
+      val device = manager.adapter?.getRemoteDevice(address) ?: return null
+      val gatt = manager.getConnectionState(device, BluetoothProfile.GATT)
+      val listed =
+          manager.getConnectedDevices(BluetoothProfile.GATT).any {
+            it.address.equals(device.address, ignoreCase = true)
+          }
+      "phone sees the strap: gatt ${gattName(gatt)}, " +
+          if (listed) "listed in the phone's connected devices"
+          else "not listed in the phone's connected devices"
+    } catch (_: SecurityException) {
+      "phone sees the strap: not readable without the Bluetooth permission"
+    } catch (_: IllegalArgumentException) {
+      null
+    }
+  }
 
   override fun newWakeLock(): RecordingWakeLock? =
       getSystemService(PowerManager::class.java)
@@ -310,6 +332,26 @@ class RecordingService : Service(), RecordingHost {
     private const val TAG = "RecordingService"
     private const val CHANNEL_ID = "recording"
     private const val NOTIFICATION_ID = 1
+
+    /** A Polar device id is usually the strap's Bluetooth address without its colons. */
+    private fun bluetoothAddress(id: String): String? =
+        when {
+          id.length == 17 && id.count { it == ':' } == 5 -> id
+          id.length == 12 && id.all { it.isHexDigit() } -> id.chunked(2).joinToString(":")
+          else -> null
+        }
+
+    private fun Char.isHexDigit() =
+        this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
+
+    private fun gattName(state: Int): String =
+        when (state) {
+          BluetoothProfile.STATE_DISCONNECTED -> "disconnected"
+          BluetoothProfile.STATE_CONNECTING -> "connecting"
+          BluetoothProfile.STATE_CONNECTED -> "connected"
+          BluetoothProfile.STATE_DISCONNECTING -> "disconnecting"
+          else -> "state $state"
+        }
 
     const val ACTION_START = "com.rbmr.taigasleep.recording.START"
     const val ACTION_STOP = "com.rbmr.taigasleep.recording.STOP"
