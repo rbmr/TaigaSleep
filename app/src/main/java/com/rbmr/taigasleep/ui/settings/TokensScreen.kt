@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -47,6 +46,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AccessTokenDto
 import com.rbmr.taigasleep.ui.components.ButtonSize
+import com.rbmr.taigasleep.ui.components.ConfirmDialog
+import com.rbmr.taigasleep.ui.components.ConfirmDialogStyle
 import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SecondaryButton
@@ -135,7 +136,7 @@ fun AccessTokensScreen(onBack: () -> Unit) {
                   modifier = Modifier.fillMaxWidth(),
                   label = { Text(stringResource(R.string.tokens_name_label)) },
                   singleLine = true,
-                  shape = RoundedCornerShape(16.dp),
+                  shape = MaterialTheme.taiga.shape.control,
               )
               PrimaryButton(
                   text = stringResource(R.string.tokens_create),
@@ -225,25 +226,16 @@ fun AccessTokensScreen(onBack: () -> Unit) {
   }
 
   revoking?.let { token ->
-    AlertDialog(
-        onDismissRequest = { revoking = null },
-        title = { Text(stringResource(R.string.tokens_revoke_title)) },
-        text = { Text(stringResource(R.string.tokens_revoke_body, token.name)) },
-        confirmButton = {
-          TextButton(
-              onClick = {
-                viewModel.revoke(token.id)
-                revoking = null
-              }
-          ) {
-            Text(stringResource(R.string.tokens_revoke), color = MaterialTheme.taiga.bad)
-          }
+    ConfirmDialog(
+        title = stringResource(R.string.tokens_revoke_title),
+        body = stringResource(R.string.tokens_revoke_body, token.name),
+        confirmLabel = stringResource(R.string.tokens_revoke),
+        onConfirm = {
+          viewModel.revoke(token.id)
+          revoking = null
         },
-        dismissButton = {
-          TextButton(onClick = { revoking = null }) {
-            Text(stringResource(R.string.server_cancel))
-          }
-        },
+        onDismiss = { revoking = null },
+        style = ConfirmDialogStyle.Destructive,
     )
   }
 }

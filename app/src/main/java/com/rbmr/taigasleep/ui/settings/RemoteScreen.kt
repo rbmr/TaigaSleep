@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -25,7 +24,6 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -35,7 +33,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -66,12 +63,14 @@ import com.rbmr.taigasleep.backend.RemoteState
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.backend.RemoteUrl
 import com.rbmr.taigasleep.ui.components.ButtonSize
+import com.rbmr.taigasleep.ui.components.ConfirmDialog
+import com.rbmr.taigasleep.ui.components.ConfirmDialogStyle
 import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.ScreenHeader
 import com.rbmr.taigasleep.ui.components.SecondaryButton
 import com.rbmr.taigasleep.ui.components.SegmentedProgress
-import com.rbmr.taigasleep.ui.components.StatusChip
-import com.rbmr.taigasleep.ui.components.StatusKind
+import com.rbmr.taigasleep.ui.components.StatusPill
+import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.coroutines.delay
@@ -260,29 +259,17 @@ fun RemoteScreen(onBack: () -> Unit) {
   }
 
   if (showLogout) {
-    AlertDialog(
-        onDismissRequest = { showLogout = false },
-        title = { Text(stringResource(R.string.server_logout_title)) },
-        text = { Text(stringResource(R.string.server_logout_body)) },
-        confirmButton = {
-          TextButton(
-              onClick = {
-                showLogout = false
-                password = ""
-                repository.logout()
-              }
-          ) {
-            Text(
-                text = stringResource(R.string.server_logout_confirm),
-                color = MaterialTheme.taiga.bad,
-            )
-          }
+    ConfirmDialog(
+        title = stringResource(R.string.server_logout_title),
+        body = stringResource(R.string.server_logout_body),
+        confirmLabel = stringResource(R.string.server_logout_confirm),
+        onConfirm = {
+          showLogout = false
+          password = ""
+          repository.logout()
         },
-        dismissButton = {
-          TextButton(onClick = { showLogout = false }) {
-            Text(stringResource(R.string.server_cancel))
-          }
-        },
+        onDismiss = { showLogout = false },
+        style = ConfirmDialogStyle.Destructive,
     )
   }
 }
@@ -317,7 +304,7 @@ private fun ServerPage(
         placeholder = { Text(stringResource(R.string.server_url_placeholder)) },
         singleLine = true,
         isError = failure != null,
-        shape = RoundedCornerShape(16.dp),
+        shape = MaterialTheme.taiga.shape.control,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
         trailingIcon = {
           when {
@@ -390,7 +377,7 @@ private fun AccountPage(
           modifier = Modifier.fillMaxWidth(),
           label = { Text(stringResource(R.string.server_email_label)) },
           singleLine = true,
-          shape = RoundedCornerShape(16.dp),
+          shape = MaterialTheme.taiga.shape.control,
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
       )
       OutlinedTextField(
@@ -399,7 +386,7 @@ private fun AccountPage(
           modifier = Modifier.fillMaxWidth(),
           label = { Text(stringResource(R.string.server_password_label)) },
           singleLine = true,
-          shape = RoundedCornerShape(16.dp),
+          shape = MaterialTheme.taiga.shape.control,
           visualTransformation =
               if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -451,7 +438,7 @@ private fun StatusPage(
       subtitle = stringResource(R.string.server_page_status_body),
   )
   TaigaCard {
-    StatusChip(kind = state.kind, label = stringResource(state.labelRes))
+    StatusPill(state = state.kind, label = stringResource(state.labelRes))
     Spacer(Modifier.height(10.dp))
     Text(
         text = stringResource(state.explanationRes),
@@ -533,13 +520,13 @@ private val RemoteState.labelRes: Int
         RemoteState.CONNECTED -> R.string.server_status_connected
       }
 
-private val RemoteState.kind: StatusKind
+private val RemoteState.kind: StatusPillState
   get() =
       when (this) {
-        RemoteState.NO_REMOTE -> StatusKind.Warn
-        RemoteState.UNREACHABLE -> StatusKind.Bad
-        RemoteState.NOT_LOGGED_IN -> StatusKind.Warn
-        RemoteState.CONNECTED -> StatusKind.Ok
+        RemoteState.NO_REMOTE -> StatusPillState.Warn
+        RemoteState.UNREACHABLE -> StatusPillState.Bad
+        RemoteState.NOT_LOGGED_IN -> StatusPillState.Warn
+        RemoteState.CONNECTED -> StatusPillState.Ok
       }
 
 /** The fixed explanation of each status; it never changes with the details of a check. */

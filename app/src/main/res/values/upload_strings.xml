@@ -7,7 +7,7 @@
   <string name="settings_upload_compress_title">Compress uploads</string>
   <string name="settings_upload_compress_body">Send less data over the network. The recording on this phone stays uncompressed.</string>
   <string name="settings_raw_retention_title">Raw recordings</string>
-  <string name="settings_raw_retention_body">Raw streams are removed from this phone only after the server confirms the upload. The metadata, the analysis and the server copy stay, so the night remains in History and the raw data can be downloaded again.</string>
+  <string name="settings_raw_retention_body">Raw streams are removed from this phone only after the server confirms the upload. The metadata, the analysis and the server copy stay, so the recording remains in History and the raw data can be downloaded again.</string>
   <string name="raw_retention_never">Keep raw data on this phone</string>
   <string name="raw_retention_immediate">Delete raw data straight after upload</string>
   <string name="raw_retention_days_5">Delete raw data after 5 days</string>
@@ -16,11 +16,11 @@
 
   <string name="upload_notification_channel">Uploads</string>
   <string name="upload_notification_title">Uploading recording</string>
-  <string name="upload_notification_body">Taiga is uploading your night to the server.</string>
+  <string name="upload_notification_body">Taiga is uploading your recording to the server.</string>
 
   <string name="upload_error_login">Log in to the server to upload.</string>
 
-  <string name="history_nights_label">Nights</string>
+  <string name="history_nights_label">Recordings</string>
   <string name="history_local_only">Only on this phone</string>
   <string name="history_recording">Recording</string>
   <string name="history_queued">Waiting to upload</string>
@@ -37,7 +37,7 @@
   <string name="history_no_sleep_score">No score</string>
   <string name="history_stage_bar_description">Sleep stage distribution</string>
 
-  <string name="night_title">Night</string>
+  <string name="night_title">Recording</string>
   <string name="night_back">Back</string>
   <string name="night_delete_title">Delete this recording?</string>
   <string name="night_delete_body">This removes the recording and its analysis from this phone, and deletes the server copy. If the server is offline, the deletion is retried later.</string>
@@ -48,11 +48,11 @@
   <string name="night_cancel">Cancel</string>
   <string name="night_raw_restore_failed">Could not download the raw data.</string>
   <string name="night_error_detail">%1$s: %2$s</string>
-  <string name="night_details">Night details</string>
-  <string name="night_details_title">Night details</string>
+  <string name="night_details">Recording details</string>
+  <string name="night_details_title">Recording details</string>
   <string name="night_details_started">Started</string>
   <string name="night_details_stopped">Stopped</string>
-  <string name="night_details_device">Device</string>
+  <string name="night_details_device">Tracker</string>
   <string name="night_details_duration">Duration</string>
   <string name="night_details_phone">This phone</string>
   <string name="night_details_server">Server</string>
@@ -66,7 +66,7 @@
   <string name="night_details_delete_raw">Delete raw data on this phone</string>
   <string name="night_details_download_raw">Download raw data</string>
   <string name="night_raw_delete_title">Delete the raw data on this phone?</string>
-  <string name="night_raw_delete_body">Only the raw streams on this phone are removed. The metadata, the analysis and the copy on the server stay, so this night remains in History and the raw data can be downloaded again later.</string>
+  <string name="night_raw_delete_body">Only the raw streams on this phone are removed. The metadata, the analysis and the copy on the server stay, so this recording remains in History and the raw data can be downloaded again later.</string>
   <string name="night_raw_delete_confirm">Delete raw data</string>
   <string name="night_raw_delete_failed">Could not delete the raw data.</string>
   <string name="night_raw_not_uploaded">Upload the recording before deleting its raw data.</string>
@@ -78,7 +78,7 @@
   <string name="night_export_results_missing">No saved result on this phone.</string>
   <string name="night_delete_action">Delete</string>
   <string name="night_discard_action">Discard</string>
-  <string name="night_kicker">NIGHT</string>
+  <string name="night_kicker">RECORDING</string>
   <string name="night_header_line">%1$s · %2$s–%3$s · %4$s</string>
   <string name="night_header_line_start_only">%1$s · %2$s</string>
   <string name="night_sleep_score">Sleep score</string>
@@ -100,14 +100,14 @@
   <string name="night_sleep_stages">Sleep stages</string>
   <string name="night_sleep_stages_description">Sleep stages from %1$s to %2$s</string>
   <string name="night_stage_breakdown">Stage breakdown</string>
-  <string name="night_stage_wake">Wake</string>
+  <string name="night_stage_wake">Awake</string>
   <string name="night_stage_rem">REM</string>
   <string name="night_stage_nrem">NREM</string>
   <string name="night_stage_light">Light</string>
   <string name="night_stage_deep">Deep</string>
   <string name="night_stage_sleep">Sleep</string>
   <string name="night_stage_unknown">Unscored</string>
-  <string name="night_local_only_title">This night is only on your phone</string>
+  <string name="night_local_only_title">This recording is only on your phone</string>
   <string name="night_local_only_body">Upload it to see sleep, heart rate and data quality statistics.</string>
   <string name="night_uploading_title">Uploading recording</string>
   <string name="night_uploading_body">The recording is moving to the server. It continues where it stopped if the connection drops.</string>
@@ -121,13 +121,13 @@
   <string name="night_analysis_failed_title">Analysis failed</string>
   <string name="night_upload_failed_title">Upload failed</string>
   <string name="night_analysis_failed_body">The server could not process this recording.</string>
-  <string name="night_load_failed">Could not load this night</string>
+  <string name="night_load_failed">Could not load this recording</string>
   <string name="night_offline_saved">Showing the saved result; the server is unreachable.</string>
-  <string name="night_result_loading">Loading the night</string>
+  <string name="night_result_loading">Loading the recording</string>
   <string name="night_retry">Try again</string>
   <string name="night_upload">Upload now</string>
   <string name="night_upload_other_account_title">Upload to this account?</string>
-  <string name="night_upload_other_account_body">This night is already uploaded to another account. Upload it to %1$s with the account %2$s as well?</string>
+  <string name="night_upload_other_account_body">This recording is already uploaded to another account. Upload it to %1$s with the account %2$s as well?</string>
   <string name="night_upload_other_account_confirm">Upload</string>
   <string name="night_warnings">Warnings</string>
   <string name="night_warning_item">• %1$s</string>
@@ -144,10 +144,10 @@
   <string name="night_analysis_name_manual">%1$s · %2$s</string>
   <string name="night_analysis_version">v%1$s</string>
   <string name="night_analysis_list_separator">", "</string>
-  <string name="night_analysis_this_night">This night</string>
+  <string name="night_analysis_this_night">This recording</string>
   <string name="night_analysis_add">Add an analysis</string>
-  <string name="night_analysis_loading">Loading algorithms…</string>
-  <string name="night_analysis_empty">No other compatible algorithms are installed.</string>
+  <string name="night_analysis_loading">Loading methods…</string>
+  <string name="night_analysis_empty">No other compatible methods are installed.</string>
   <string name="night_analysis_show">Show</string>
   <string name="night_analysis_shown">Shown</string>
   <string name="night_analysis_run">Run</string>
@@ -172,11 +172,11 @@
   <string name="night_heart_rate_no_samples">No valid heart-rate samples in this recording.</string>
   <string name="night_heart_rate_no_series">This saved result has no heart-rate curve. Run the analysis again to see one.</string>
   <string name="night_hrv_supporting">HRV uses %1$d clean RR intervals.</string>
-  <string name="night_device_unknown">Unknown device</string>
+  <string name="night_device_unknown">Unknown tracker</string>
   <string name="night_value_none">—</string>
   <string name="night_sleep_score_experimental">Experimental</string>
   <string name="night_sleep_score_experimental_description">Experimental sleep score. Tap to read what that means.</string>
-  <string name="night_sleep_score_experimental_body">Sleep stages come from a model that has not been checked against sleep-lab measurements on this tracker. How the score changes from night to night is more meaningful than the absolute number.</string>
+  <string name="night_sleep_score_experimental_body">Sleep stages come from a model that has not been checked against sleep-lab measurements on this tracker. How the score changes from recording to recording is more meaningful than the absolute number.</string>
   <string name="night_sleep_score_not_enough_data">No sleep score: not enough good data</string>
 
 </resources>

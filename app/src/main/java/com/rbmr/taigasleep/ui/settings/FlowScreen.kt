@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -70,8 +69,8 @@ import com.rbmr.taigasleep.ui.components.ButtonSize
 import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.SecondaryButton
 import com.rbmr.taigasleep.ui.components.SegmentedProgress
-import com.rbmr.taigasleep.ui.components.StatusChip
-import com.rbmr.taigasleep.ui.components.StatusKind
+import com.rbmr.taigasleep.ui.components.StatusPill
+import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
 
 // Renders any [Flow]: an intro page, one page per step, then the summary.
@@ -354,8 +353,8 @@ private fun StepPage(step: Step, ok: Boolean, onToggle: (Boolean) -> Unit) {
 // The OK / NOT YET state, the same chip for device checks and manual confirmation.
 @Composable
 private fun StateBadge(ok: Boolean, modifier: Modifier = Modifier) {
-  StatusChip(
-      kind = if (ok) StatusKind.Ok else StatusKind.Warn,
+  StatusPill(
+      state = if (ok) StatusPillState.Ok else StatusPillState.Warn,
       label = stringResource(if (ok) R.string.g_state_ok else R.string.g_state_not_yet).uppercase(),
       modifier = modifier,
   )

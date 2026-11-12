@@ -50,7 +50,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -61,6 +60,7 @@ import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.SettingsGroup
 import com.rbmr.taigasleep.ui.components.SettingsRow
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.theme.taiga
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -397,7 +397,7 @@ private fun TimeOfDayDialog(
 
   Dialog(onDismissRequest = onDismiss) {
     Surface(
-        shape = RoundedCornerShape(28.dp),
+        shape = MaterialTheme.taiga.shape.card,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
     ) {

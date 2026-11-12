@@ -12,7 +12,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisResultDto
-import com.rbmr.taigasleep.insights.MetricSpec
 import com.rbmr.taigasleep.ui.components.ChartExpandButton
 import com.rbmr.taigasleep.ui.components.HeartRateChart
 import com.rbmr.taigasleep.ui.components.TaigaCard
@@ -23,7 +22,6 @@ import kotlin.math.roundToInt
 @Composable
 internal fun HeartRateStatsCard(
     analysis: AnalysisResultDto,
-    onMetric: (MetricSpec) -> Unit,
     onExpand: () -> Unit,
 ) {
   TaigaCard {
@@ -57,7 +55,7 @@ internal fun HeartRateStatsCard(
     val items = analysis.items.filter { it.kind == "number" && it.group == "heart" }
     if (items.isNotEmpty()) {
       Spacer(Modifier.height(12.dp))
-      MetricGrid(items = items, onMetric = onMetric)
+      MetricGrid(items = items)
     }
     val rrCount = analysis.items.firstOrNull { it.id == "hrv_rr_count" }?.value?.roundToInt()
     if (rrCount != null && rrCount > 0) {

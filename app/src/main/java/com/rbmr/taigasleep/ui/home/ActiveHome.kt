@@ -10,14 +10,12 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,6 +27,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.ui.components.ButtonSize
+import com.rbmr.taigasleep.ui.components.ConfirmDialog
+import com.rbmr.taigasleep.ui.components.ConfirmDialogStyle
 import com.rbmr.taigasleep.ui.components.LogoVariant
 import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.ScreenHeader
@@ -179,10 +179,10 @@ private fun Note(res: Int) {
 
 /**
  * The confirmation that stands between a tap and ending the recording. Each text says what happens
- * to the data in this mode, and the stop one says where the night goes next.
+ * to the data in this mode, and the stop one says where the recording goes next.
  */
 @Composable
-internal fun ConfirmDialog(
+internal fun StopConfirmDialog(
     action: StopAction,
     onDevice: Boolean,
     onDismiss: () -> Unit,
@@ -209,20 +209,14 @@ internal fun ConfirmDialog(
                 R.string.rec_discard_confirm,
             )
       }
-  AlertDialog(
-      onDismissRequest = onDismiss,
-      title = { Text(stringResource(title)) },
-      text = { Text(stringResource(body)) },
-      confirmButton = {
-        TextButton(onClick = onConfirm) {
-          Text(
-              text = stringResource(label),
-              color =
-                  if (action == StopAction.DISCARD) MaterialTheme.colorScheme.error
-                  else MaterialTheme.colorScheme.primary,
-          )
-        }
-      },
-      dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.rec_cancel)) } },
+  ConfirmDialog(
+      title = stringResource(title),
+      body = stringResource(body),
+      confirmLabel = stringResource(label),
+      onConfirm = onConfirm,
+      onDismiss = onDismiss,
+      style =
+          if (action == StopAction.DISCARD) ConfirmDialogStyle.Destructive
+          else ConfirmDialogStyle.Primary,
   )
 }

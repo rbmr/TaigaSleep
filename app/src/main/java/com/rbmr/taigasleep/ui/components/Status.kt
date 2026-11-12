@@ -8,14 +8,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -27,7 +22,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -102,7 +96,7 @@ fun StatusBanner(
       }
   Surface(
       modifier = modifier.fillMaxWidth().then(clickable),
-      shape = RoundedCornerShape(22.dp),
+      shape = MaterialTheme.taiga.shape.card,
       color = kind.container(colors),
       border = border,
   ) {
@@ -141,61 +135,6 @@ fun StatusBanner(
   }
 }
 
-/** A small pill with the state of one check. */
-@Composable
-fun StatusChip(kind: StatusKind, label: String, modifier: Modifier = Modifier) {
-  val colors = MaterialTheme.taiga
-  Surface(
-      modifier = modifier,
-      shape = RoundedCornerShape(50),
-      color = kind.container(colors),
-      contentColor = kind.color(colors),
-  ) {
-    Row(
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-      Icon(kind.icon, contentDescription = null, modifier = Modifier.size(18.dp))
-      Spacer(Modifier.width(6.dp))
-      Text(text = label, style = MaterialTheme.typography.labelLarge)
-    }
-  }
-}
-
-/**
- * A toggle shown as a pill. Without an [onClick] the chip is a fixed fact and is drawn solid, like
- * the heart rate that is always recorded.
- */
-@Composable
-fun TaigaChip(
-    label: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = null,
-) {
-  val scheme = MaterialTheme.colorScheme
-  val (container, content) =
-      when {
-        onClick == null -> scheme.primary to scheme.onPrimary
-        selected -> scheme.primaryContainer to scheme.primary
-        else -> scheme.surfaceVariant to scheme.onSurfaceVariant
-      }
-  val toggle =
-      if (onClick != null) {
-        Modifier.toggleable(value = selected, role = Role.Checkbox, onValueChange = { onClick() })
-      } else {
-        Modifier
-      }
-  Surface(modifier = modifier.then(toggle), shape = RoundedCornerShape(50), color = container) {
-    Row(
-        modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-      Text(text = label, style = MaterialTheme.typography.labelLarge, color = content)
-    }
-  }
-}
-
 @Preview(name = "Light")
 @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
@@ -203,12 +142,12 @@ private fun StatusPreview() {
   PreviewTheme {
     StatusBanner(
         kind = StatusKind.Ok,
-        title = "Ready for the night",
+        title = "Ready to record",
         body = "Background access allowed",
     )
     StatusBanner(
         kind = StatusKind.Warn,
-        title = "Background settings need fixing",
+        title = "Preventing shutdown needs fixing",
         body = "Without these the phone can stop the recording.",
         details = listOf("Allow Taiga to run in the background."),
         actions = {
@@ -228,15 +167,5 @@ private fun StatusPreview() {
         },
     )
     StatusBanner(kind = StatusKind.Bad, title = "Writing to the phone failed")
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      StatusChip(StatusKind.Ok, "OK")
-      StatusChip(StatusKind.Warn, "Check")
-      StatusChip(StatusKind.Bad, "Not yet")
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      TaigaChip("Heart rate", selected = true)
-      TaigaChip("ECG · 130 Hz", selected = true, onClick = {})
-      TaigaChip("Motion", selected = false, onClick = {})
-    }
   }
 }

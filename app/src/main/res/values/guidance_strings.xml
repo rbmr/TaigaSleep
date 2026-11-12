@@ -13,7 +13,7 @@
   <string name="g_state_not_yet">Not yet</string>
 
   <!-- Intro -->
-  <string name="g_intro_body">Phones stop background apps to save battery. A sleep recording runs for hours with the screen off, so if the system stops Taiga at 3 am, that night is lost. A few minutes of setup makes this far less likely.</string>
+  <string name="g_intro_body">Phones stop background apps to save battery. A sleep recording runs for hours with the screen off, so if the system stops Taiga at 3 am, that recording is lost. A few minutes of setup makes this far less likely.</string>
   <string name="g_flow_oneplus">OxygenOS / ColorOS</string>
   <string name="g_flow_samsung">Samsung One UI</string>
   <string name="g_flow_generic">Generic Android</string>

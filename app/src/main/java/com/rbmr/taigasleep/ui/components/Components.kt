@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Sensors
@@ -34,7 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -89,7 +87,7 @@ fun TaigaCard(
 ) {
   Surface(
       modifier = modifier.fillMaxWidth(),
-      shape = RoundedCornerShape(24.dp),
+      shape = MaterialTheme.taiga.shape.card,
       color = containerColor,
       border = BorderStroke(1.dp, borderColor),
   ) {
@@ -108,7 +106,7 @@ fun SettingsGroup(
     SectionLabel(label, Modifier.padding(bottom = 8.dp))
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = MaterialTheme.taiga.shape.card,
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         content = { Column(content = content) },
@@ -210,51 +208,12 @@ fun IconBadge(icon: ImageVector, modifier: Modifier = Modifier) {
   }
 }
 
-/** A small label over one value, for the live readings of a recording. */
-@Composable
-fun StatTile(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    valueColor: Color = MaterialTheme.colorScheme.onSurface,
-    caption: String? = null,
-) {
-  Surface(
-      modifier = modifier,
-      shape = RoundedCornerShape(20.dp),
-      color = MaterialTheme.colorScheme.surface,
-      border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-  ) {
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-      Text(
-          text = label.uppercase(),
-          style = MaterialTheme.typography.labelMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-      Text(
-          text = value,
-          style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
-          color = valueColor,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-      )
-      if (caption != null) {
-        Text(
-            text = caption,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-    }
-  }
-}
-
 @Preview(name = "Light")
 @Preview(name = "Dark", uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun ComponentsPreview() {
   PreviewTheme {
-    ScreenHeader(kicker = "TONIGHT", title = "Sleep well.", subtitle = "Connect your sensor.")
+    ScreenHeader(kicker = "TONIGHT", title = "Sleep well.", subtitle = "Connect your tracker.")
     TaigaCard {
       Row(verticalAlignment = Alignment.CenterVertically) {
         IconBadge(Icons.Outlined.Sensors)
@@ -265,11 +224,11 @@ private fun ComponentsPreview() {
     SettingsGroup("Recording") {
       SettingsRow("Preventing shutdown", "Ready", subtitleColor = MaterialTheme.taiga.ok)
       SettingsDivider()
-      SettingsRow("Remote", "Not connected", subtitleColor = MaterialTheme.taiga.warn)
+      SettingsRow("Server", "Not connected", subtitleColor = MaterialTheme.taiga.warn)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
       StatTile("ECG", "130 Hz", Modifier.weight(1f))
-      StatTile("Sensor", "Connected", Modifier.weight(1f), valueColor = MaterialTheme.colorScheme.primary)
+      StatTile("Tracker", "Connected", Modifier.weight(1f), valueColor = MaterialTheme.colorScheme.primary)
     }
   }
 }

@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Sensors
 import androidx.compose.material.icons.outlined.Settings
@@ -36,6 +35,7 @@ import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.SecondaryButton
+import com.rbmr.taigasleep.ui.theme.taiga
 import com.rbmr.taigasleep.ui.components.TaigaCard
 
 /** The sensor card: which tracker is selected, whether it is here, and the two things to do with it. */
@@ -163,7 +163,7 @@ internal fun SensorPickerSheet(
         Row(
             modifier =
                 Modifier.fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(MaterialTheme.taiga.shape.control)
                     .clickable { onSelect(s) }
                     .padding(vertical = 12.dp, horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -183,7 +183,7 @@ internal fun SensorPickerSheet(
         OutlinedButton(
             onClick = onScanAgain,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = MaterialTheme.taiga.shape.control,
         ) {
           Text(stringResource(R.string.rec_scan_again))
         }

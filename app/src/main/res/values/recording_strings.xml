@@ -1,6 +1,6 @@
 <resources>
   <string name="rec_channel_name">Recording</string>
-  <string name="rec_notification_title">Recording your night</string>
+  <string name="rec_notification_title">Recording</string>
   <string name="rec_notification_device">Tracker</string>
   <string name="rec_notification_starting">Starting…</string>
   <string name="rec_notification_connected">%1$s connected</string>
@@ -14,10 +14,10 @@
   <string name="rec_notification_storage_low">%1$s · phone storage almost full</string>
   <string name="rec_notification_rates">%1$s · %2$s</string>
 
-  <string name="rec_error_not_ready">Recording was not started: the phone would stop Taiga in the background. Fix the background settings first.</string>
+  <string name="rec_error_not_ready">Recording was not started: the phone would stop Taiga in the background. Set up preventing shutdown first.</string>
   <string name="rec_error_no_sensor">Recording was not started: no tracker selected.</string>
   <string name="rec_error_storage">Recording was not started: could not create the recording on this phone.</string>
-  <string name="rec_error_space">Recording was not started: the phone does not have enough free space for a night with these streams.</string>
+  <string name="rec_error_space">Recording was not started: the phone does not have enough free space for a recording with these streams.</string>
   <string name="rec_error_mode">Recording was not started: this tracker cannot record with the chosen streams.</string>
   <string name="rec_error_fetch_missing">Could not fetch the recording: it is no longer waiting on this phone.</string>
   <string name="rec_error_fetch_failed">Could not reach the tracker. Keep it nearby and try again.</string>
@@ -39,7 +39,7 @@
   <string name="rec_mode_on_device">Record on tracker</string>
   <string name="rec_mode_stream_note">The tracker sends data to the phone while you sleep. Keep the phone awake and nearby.</string>
   <string name="rec_mode_on_device_unavailable_note">The tracker can only store heart rate. Turn off ECG and movement to record on the tracker.</string>
-  <string name="rec_mode_on_device_note">The tracker stores the night itself. Taiga fetches it when you stop in the morning.</string>
+  <string name="rec_mode_on_device_note">The tracker stores the recording itself. Taiga fetches it when you stop in the morning.</string>
   <string name="rec_done">Done</string>
   <string name="rec_home_title_idle">Tonight</string>
   <string name="rec_home_subtitle_idle">Get ready and start recording.</string>
@@ -95,7 +95,7 @@
   <string name="rec_active_storage_low_body">There is almost no free space left. Stop the recording, then upload or delete older recordings.</string>
   <string name="rec_active_ecg">ECG</string>
   <string name="rec_active_acc">Movement</string>
-  <string name="rec_active_offline">This tracker is storing the night itself. Stop in the morning to fetch it.</string>
+  <string name="rec_active_offline">This tracker is storing the recording itself. Stop in the morning to fetch it.</string>
   <string name="rec_active_failure">Writing to the phone failed: %1$s</string>
   <string name="rec_stop">Stop</string>
   <string name="rec_force_stop">Force stop</string>
@@ -103,18 +103,18 @@
   <string name="rec_more_actions">More actions</string>
   <string name="rec_stop_title">Stop recording?</string>
   <string name="rec_stop_body">The recording is saved on this phone. If automatic upload is on, it is uploaded in the background.</string>
-  <string name="rec_stop_body_on_device">The night is fetched from the tracker and saved on this phone. If automatic upload is on, it is uploaded in the background.</string>
+  <string name="rec_stop_body_on_device">The recording is fetched from the tracker and saved on this phone. If automatic upload is on, it is uploaded in the background.</string>
   <string name="rec_force_stop_title">Force stop?</string>
   <string name="rec_force_stop_body">Force stop ends the recording right away, without waiting for the tracker. What is already on this phone is kept.</string>
-  <string name="rec_force_stop_body_on_device">Force stop ends the recording without fetching the night from the tracker. Only what is already on this phone is kept.</string>
+  <string name="rec_force_stop_body_on_device">Force stop ends the recording without fetching it from the tracker. Only what is already on this phone is kept.</string>
   <string name="rec_discard_title">Discard this recording?</string>
   <string name="rec_discard_body">Discard stops the recording and deletes everything recorded so far from this phone. This cannot be undone.</string>
-  <string name="rec_discard_body_on_device">Discard tells the tracker to delete the night and deletes the recording on this phone. Nothing is downloaded. This cannot be undone.</string>
+  <string name="rec_discard_body_on_device">Discard tells the tracker to delete the recording and deletes it on this phone. Nothing is downloaded. This cannot be undone.</string>
   <string name="rec_discard_confirm">Discard</string>
   <string name="rec_cancel">Cancel</string>
   <string name="rec_finishing_title">Finishing up</string>
   <string name="rec_finishing_subtitle">Keep the tracker nearby until this is done.</string>
-  <string name="rec_finishing_done_title">Night saved</string>
+  <string name="rec_finishing_done_title">Recording saved</string>
   <string name="rec_finishing_done_subtitle">Everything is on this phone now.</string>
   <string name="rec_finishing_step_tracker">Stopping the tracker</string>
   <string name="rec_finishing_step_fetch">Fetching from the tracker</string>
@@ -127,9 +127,9 @@
     <item quantity="other">%1$d samples stored</item>
   </plurals>
   <string name="rec_finishing_done">Saved. You can take off the tracker.</string>
-  <string name="rec_finishing_open">Open the night</string>
+  <string name="rec_finishing_open">Open recording</string>
   <string name="rec_finishing_close">Done</string>
-  <string name="rec_fetch_pending_title">Night waiting on the tracker</string>
+  <string name="rec_fetch_pending_title">Recording waiting on the tracker</string>
   <string name="rec_fetch_pending_subtitle">The recording is still stored on the tracker.</string>
   <string name="rec_fetch_pending_body">Taiga could not fetch the recording from %1$s. The tracker keeps it until the fetch succeeds.</string>
   <string name="rec_fetch_pending_note">Keep the tracker nearby and connected, then try again.</string>

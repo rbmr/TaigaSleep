@@ -12,7 +12,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisResultDto
-import com.rbmr.taigasleep.insights.MetricSpec
 import com.rbmr.taigasleep.ui.components.ChartExpandButton
 import com.rbmr.taigasleep.ui.components.SleepStagesChart
 import com.rbmr.taigasleep.ui.components.StageBreakdown
@@ -23,7 +22,6 @@ import com.rbmr.taigasleep.ui.components.TaigaCard
 internal fun SleepStatsCard(
     state: RecordingDetailUiState,
     analysis: AnalysisResultDto,
-    onMetric: (MetricSpec) -> Unit,
     onExpand: () -> Unit,
 ) {
   TaigaCard {
@@ -61,7 +59,7 @@ internal fun SleepStatsCard(
     val items = analysis.items.filter { it.kind == "number" && it.group == "sleep" }
     if (items.isNotEmpty()) {
       Spacer(Modifier.height(16.dp))
-      MetricGrid(items = items, onMetric = onMetric)
+      MetricGrid(items = items)
     }
   }
 }

@@ -17,10 +17,10 @@
   <string name="wake_channel_alarm">Wake-up alarm</string>
   <string name="wake_channel_screen">Wake-up alarm (screen)</string>
   <string name="wake_notification_title">Time to wake up</string>
-  <string name="wake_notification_text">Your wake-up window is here. Your night is still being recorded.</string>
+  <string name="wake_notification_text">Your wake-up window is here. Your recording is still in progress.</string>
   <string name="wake_notification_dismiss">Dismiss</string>
   <string name="wake_screen_title">Good morning</string>
-  <string name="wake_screen_body">Your night is still being recorded.</string>
+  <string name="wake_screen_body">Your recording is still in progress.</string>
   <string name="wake_screen_dismiss">Dismiss</string>
   <string name="wake_screen_full_screen">Allow Taiga to show this alarm over the lock screen in the system settings for full-screen notifications.</string>
 </resources>

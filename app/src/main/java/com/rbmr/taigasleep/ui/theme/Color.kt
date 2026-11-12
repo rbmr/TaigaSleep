@@ -40,6 +40,10 @@ class TaigaColors(
     val stageDeep: Color,
     // Heart-rate curve; deliberately outside the sleep-stage palette.
     val chartHr: Color,
+    // The non-colour tokens travel with the colours so `MaterialTheme.taiga` reaches all of them.
+    val text: TaigaText = TaigaText,
+    val space: TaigaSpacing = TaigaSpacing,
+    val shape: TaigaShapes = TaigaShapes,
 )
 
 val LightTaigaColors =

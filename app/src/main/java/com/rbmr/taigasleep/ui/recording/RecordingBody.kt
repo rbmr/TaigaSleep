@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,7 +35,6 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.insights.AlgorithmNames
-import com.rbmr.taigasleep.insights.MetricSpec
 import com.rbmr.taigasleep.insights.sleepScoreCardState
 import com.rbmr.taigasleep.library.formatNightHeader
 import com.rbmr.taigasleep.library.formatRecordingDate
@@ -44,6 +43,7 @@ import com.rbmr.taigasleep.ui.components.SecondaryButton
 import com.rbmr.taigasleep.ui.components.StatusBanner
 import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
  * The scrolling body of the recording screen: the header, what the screen has to report, and the parts
@@ -61,7 +61,6 @@ internal fun RecordingBody(
     onOpenQuality: () -> Unit,
     onOpenSleepScore: () -> Unit,
     onExplainScore: () -> Unit,
-    onMetric: (MetricSpec) -> Unit,
     onExpand: (String) -> Unit,
 ) {
   val run = state.result
@@ -131,7 +130,7 @@ internal fun RecordingBody(
               modifier =
                   Modifier.padding(horizontal = 4.dp)
                       .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                      .clip(RoundedCornerShape(12.dp))
+                      .clip(MaterialTheme.taiga.shape.control)
                       .clickable(role = Role.Button, onClick = onOpenAnalysis)
                       .semantics(mergeDescendants = true) { contentDescription = description },
               contentAlignment = Alignment.CenterStart,
@@ -188,7 +187,6 @@ internal fun RecordingBody(
                 state = state,
                 run = run,
                 analysis = analysis,
-                onMetric = onMetric,
                 onExpand = onExpand,
                 onOpenQuality = onOpenQuality,
             )
@@ -211,7 +209,6 @@ private fun LazyListScope.processedRecording(
     state: RecordingDetailUiState,
     run: AnalysisDto,
     analysis: AnalysisResultDto,
-    onMetric: (MetricSpec) -> Unit,
     onExpand: (String) -> Unit,
     onOpenQuality: () -> Unit,
 ) {
@@ -219,7 +216,6 @@ private fun LazyListScope.processedRecording(
     SleepStatsCard(
         state = state,
         analysis = analysis,
-        onMetric = onMetric,
         onExpand = { onExpand("sleep") },
     )
   }
@@ -230,16 +226,15 @@ private fun LazyListScope.processedRecording(
     item {
       HeartRateStatsCard(
           analysis = analysis,
-          onMetric = onMetric,
           onExpand = { onExpand("heart") },
       )
     }
   }
   if (analysis.items.any { it.id == "data_quality" } || qualityItems.isNotEmpty()) {
-    item { DataQualityStatsCard(analysis = analysis, onOpen = onOpenQuality, onMetric = onMetric) }
+    item { DataQualityStatsCard(analysis = analysis, onOpen = onOpenQuality) }
   }
   if (movementItems.isNotEmpty()) {
-    item { MovementStatsCard(items = movementItems, onMetric = onMetric) }
+    item { MovementStatsCard(items = movementItems) }
   }
   analysis.warnings.takeIf { it.isNotEmpty() }?.let { warnings ->
     item { WarningCard(warnings) }
@@ -296,7 +291,7 @@ private fun ResultPlaceholder() {
           SkeletonBlock(width = 96.dp, height = 16.dp)
           SkeletonBlock(width = 190.dp, height = 12.dp)
         }
-        SkeletonBlock(width = 96.dp, height = 96.dp, shape = RoundedCornerShape(50))
+        SkeletonBlock(width = 96.dp, height = 96.dp, shape = CircleShape)
       }
     }
     TaigaCard {
@@ -335,7 +330,7 @@ private fun ResultPlaceholder() {
 private fun SkeletonBlock(
     width: Dp? = null,
     height: Dp,
-    shape: Shape = RoundedCornerShape(8.dp),
+    shape: Shape = MaterialTheme.taiga.shape.control,
 ) {
   Box(
       Modifier.then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())

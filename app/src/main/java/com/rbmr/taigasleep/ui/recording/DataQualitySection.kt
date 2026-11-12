@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.backend.ResultItemDto
-import com.rbmr.taigasleep.insights.MetricSpec
 import com.rbmr.taigasleep.ui.components.ScoreRing
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import kotlin.math.roundToInt
@@ -35,7 +34,6 @@ import kotlin.math.roundToInt
 internal fun DataQualityStatsCard(
     analysis: AnalysisResultDto,
     onOpen: () -> Unit,
-    onMetric: (MetricSpec) -> Unit,
 ) {
   TaigaCard {
     val score = analysis.items.firstOrNull { it.id == "data_quality" }?.value
@@ -70,7 +68,7 @@ internal fun DataQualityStatsCard(
     val items = analysis.items.filter { it.kind == "number" && it.group == "quality" }
     if (items.isNotEmpty()) {
       Spacer(Modifier.height(12.dp))
-      MetricGrid(items = items, onMetric = onMetric)
+      MetricGrid(items = items)
     }
   }
 }

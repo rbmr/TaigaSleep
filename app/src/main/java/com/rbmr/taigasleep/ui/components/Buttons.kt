@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -24,9 +23,9 @@ import androidx.compose.ui.unit.sp
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /** Regular buttons sit inside cards and rows; large ones carry the main action of a screen. */
-enum class ButtonSize(val minHeight: Int, val radius: Int) {
-  Regular(minHeight = 52, radius = 16),
-  Large(minHeight = 58, radius = 20),
+enum class ButtonSize(val minHeight: Int) {
+  Regular(minHeight = 52),
+  Large(minHeight = 58),
 }
 
 @Composable
@@ -48,7 +47,7 @@ fun PrimaryButton(
       onClick = onClick,
       enabled = enabled,
       modifier = modifier.fillMaxWidth().heightIn(min = size.minHeight.dp),
-      shape = RoundedCornerShape(size.radius.dp),
+      shape = MaterialTheme.taiga.shape.control,
       colors =
           ButtonDefaults.buttonColors(
               containerColor = containerColor,
@@ -75,7 +74,7 @@ fun SecondaryButton(
       onClick = onClick,
       enabled = enabled,
       modifier = modifier.heightIn(min = size.minHeight.dp),
-      shape = RoundedCornerShape(size.radius.dp),
+      shape = MaterialTheme.taiga.shape.control,
       border = BorderStroke(1.dp, if (enabled) borderColor else MaterialTheme.colorScheme.outlineVariant),
       colors =
           ButtonDefaults.outlinedButtonColors(

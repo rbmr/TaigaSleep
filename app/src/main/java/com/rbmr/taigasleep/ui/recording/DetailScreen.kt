@@ -24,7 +24,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.insights.MetricSpec
 
 /**
  * The recording screen: one scaffold that draws [RecordingDetailUiState] and forwards the user's
@@ -54,7 +53,6 @@ fun RecordingDetailScreen(
   var showSleepScore by rememberSaveable { mutableStateOf(false) }
   var showScoreExplanation by rememberSaveable { mutableStateOf(false) }
   var fullscreenChart by rememberSaveable { mutableStateOf<String?>(null) }
-  var metric by remember { mutableStateOf<MetricSpec?>(null) }
   var showAnalysis by rememberSaveable { mutableStateOf(false) }
   var showDelete by remember { mutableStateOf(false) }
   var showRawDelete by remember { mutableStateOf(false) }
@@ -112,7 +110,6 @@ fun RecordingDetailScreen(
         onOpenQuality = { showQuality = true },
         onOpenSleepScore = { showSleepScore = true },
         onExplainScore = { showScoreExplanation = true },
-        onMetric = { metric = it },
         onExpand = { fullscreenChart = it },
     )
 
@@ -122,7 +119,6 @@ fun RecordingDetailScreen(
         showSleepScore = showSleepScore,
         showScoreExplanation = showScoreExplanation,
         fullscreenChart = fullscreenChart,
-        metric = metric,
         showAnalysis = showAnalysis,
         showDelete = showDelete,
         showRawDelete = showRawDelete,
@@ -130,7 +126,6 @@ fun RecordingDetailScreen(
         onDismissSleepScore = { showSleepScore = false },
         onDismissScoreExplanation = { showScoreExplanation = false },
         onDismissChart = { fullscreenChart = null },
-        onDismissMetric = { metric = null },
         onDismissAnalysis = { showAnalysis = false },
         onSelectAnalysis = { id ->
           viewModel.selectAnalysis(id)
