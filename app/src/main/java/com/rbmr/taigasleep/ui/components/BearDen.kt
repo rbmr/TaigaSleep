@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +30,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -100,7 +101,8 @@ fun BearDen(
   val statusBarTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this) }
 
   var eyes by remember { mutableStateOf(Eyes.Sleeping) }
-  var pop by remember { mutableFloatStateOf(1f) }
+  // The two eye holes grow by this factor on a tap; the bear outline never changes size.
+  val eyePop = remember { Animatable(1f) }
   var waking by remember { mutableStateOf(false) }
   val pulses = remember { mutableStateListOf<DenPulse>() }
 
@@ -113,9 +115,8 @@ fun BearDen(
     try {
       eyes = Eyes.Open
       if (animations) {
-        pop = EYE_POP
-        delay(90)
-        pop = 1f
+        eyePop.snapTo(EYE_POP)
+        eyePop.animateTo(1f, tween(EYE_POP_MS))
         delayUntil(start + FIRST_BLINK_MS)
         eyes = Eyes.Closed
         delay(BLINK_MS)
@@ -128,7 +129,6 @@ fun BearDen(
       delayUntil(start + SETTLE_MS)
       closeAgain()
     } finally {
-      pop = 1f
       waking = false
     }
   }
@@ -281,17 +281,18 @@ fun BearDen(
         )
         drawContext.canvas.restore()
 
-        val body = if (openEyes) awakeBearPath else sleepingBearPath
-        val ink = if (openEyes) colors.bearAwake else colors.bear
-        scale(pop, pivot = Offset(VIEW_WIDTH / 2f, 87.7f)) { drawPath(path = body, color = ink) }
+        val body = if (openEyes) openEyesBear(eyePop.value) else sleepingBearPath
+        // The tap animation only moves the eyes: the ink stays the colour of this variant.
+        val ink = if (variant == LogoVariant.Awake) colors.bearAwake else colors.bear
+        drawPath(path = body, color = ink)
 
-        // The force field's bands and rings are light in front of the den, still inside the arch.
+        // The band is light inside the arch; the ring grows freely over the whole header.
         clipPath(archInterior) {
-          pulses.forEach { pulse ->
-            val at = Offset((pulse.at.x - left) / unit, (pulse.at.y - top) / unit)
-            drawBand(pulse, colors.auroraStart)
-            drawRing(pulse, at, colors.auroraStart, colors.auroraEnd)
-          }
+          pulses.forEach { pulse -> drawBand(pulse, colors.auroraStart) }
+        }
+        pulses.forEach { pulse ->
+          val at = Offset((pulse.at.x - left) / unit, (pulse.at.y - top) / unit)
+          drawRing(pulse, at, colors.auroraStart, colors.auroraEnd)
         }
       }
     }
@@ -315,12 +316,19 @@ private suspend fun delayUntil(wallMs: Long) {
   if (wait > 0) delay(wait)
 }
 
-// The wake sequence: the pop, the two blinks, then the eyes close again.
+// The wake sequence: the eye pop, the two blinks, then the eyes close again.
 private const val EYE_POP = 1.15f
+private const val EYE_POP_MS = 150
 private const val FIRST_BLINK_MS = 1_000L
 private const val SECOND_BLINK_MS = 1_600L
 private const val SETTLE_MS = 2_800L
 private const val BLINK_MS = 120L
+
+// The two eyes of the logo's awake bear, whose holes grow for a moment when the bear wakes.
+private const val EYE_LEFT_X = 94.16f
+private const val EYE_RIGHT_X = 116.16f
+private const val EYE_Y = 87.7f
+private const val EYE_RADIUS = 2.8f
 
 // The force field, in one 800 ms timeline: the band takes 550 ms and the ring 600 ms of it.
 private const val PULSE_MS = 800
@@ -336,6 +344,25 @@ private val archInterior =
     Path().apply {
       addPath(archPath)
       close()
+    }
+
+/**
+ * The logo's open-eyed bear, with each eye hole cut again at [pop] times its normal radius around
+ * the eye's own centre. The outline is the logo's and never changes size.
+ */
+private fun openEyesBear(pop: Float): Path {
+  if (pop <= 1f) return awakeBearPath
+  val first = Path()
+  first.op(awakeBearPath, eyeHole(EYE_LEFT_X, pop), PathOperation.Difference)
+  val both = Path()
+  both.op(first, eyeHole(EYE_RIGHT_X, pop), PathOperation.Difference)
+  both.fillType = PathFillType.EvenOdd
+  return both
+}
+
+private fun eyeHole(centerX: Float, pop: Float): Path =
+    Path().apply {
+      addOval(Rect(center = Offset(centerX, EYE_Y), radius = EYE_RADIUS * pop))
     }
 
 /** Six small stars, in the logo's coordinates, above the bear. */
