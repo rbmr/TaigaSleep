@@ -108,11 +108,11 @@ class EventServer:
 
             def do_POST(self) -> None:
                 self._drain()
-                if self.path == "/v1/auth/login":
+                if self.path == "/api/collections/workers/auth-with-password":
                     with stub.lock:
                         stub.logins += 1
                         token = f"token-{stub.logins}"
-                    self._answer(200, {"token": token, "role": "worker"})
+                    self._answer(200, {"token": token, "record": {"id": "w1", "email": "w@example.com"}})
                 elif self.path == "/v1/analyses/claim" and self._authorized():
                     with stub.lock:
                         stub.claims.append(self._token())
