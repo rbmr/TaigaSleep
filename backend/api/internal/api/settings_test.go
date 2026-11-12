@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -10,6 +12,8 @@ import (
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
+
+	"github.com/rbmr/TaigaSleep/backend/api/internal/ratelimit"
 )
 
 // newConfiguredServer is a server whose PocketBase settings were applied the way the
@@ -107,7 +111,7 @@ func TestLoginRateLimitCountsPerClientAddress(t *testing.T) {
 		other    = "203.0.113.8"
 	)
 	attempts := 0
-	for attempts <= 2*loginRateLimit {
+	for attempts <= 2*ratelimit.LoginMaxRequests {
 		status, body := login("wrong", guessing)
 		if status == http.StatusBadRequest {
 			attempts++
@@ -122,8 +126,8 @@ func TestLoginRateLimitCountsPerClientAddress(t *testing.T) {
 		}
 		break
 	}
-	if attempts != loginRateLimit {
-		t.Fatalf("got %d attempts before the limit, want %d", attempts, loginRateLimit)
+	if attempts != ratelimit.LoginMaxRequests {
+		t.Fatalf("got %d attempts before the limit, want %d", attempts, ratelimit.LoginMaxRequests)
 	}
 
 	// The right password waits too once the address is out of budget.
@@ -133,5 +137,101 @@ func TestLoginRateLimitCountsPerClientAddress(t *testing.T) {
 	// Another address is a different client, with its own budget.
 	if status, body := login("password123", other); status != http.StatusOK {
 		t.Errorf("login from another address = %d: %s", status, body)
+	}
+}
+
+// patchSettings changes PocketBase's settings as a superuser, the way the dashboard
+// does.
+func patchSettings(t *testing.T, app core.App, body any) {
+	t.Helper()
+	superusers, err := app.FindCollectionByNameOrId("_superusers")
+	if err != nil {
+		t.Fatalf("superusers collection: %v", err)
+	}
+	admin := core.NewRecord(superusers)
+	admin.SetEmail("admin@example.com")
+	admin.SetPassword("password123")
+	admin.SetVerified(true)
+	if err := app.Save(admin); err != nil {
+		t.Fatalf("create superuser: %v", err)
+	}
+
+	router, err := apis.NewRouter(app)
+	if err != nil {
+		t.Fatalf("router: %v", err)
+	}
+	mux, err := router.BuildMux()
+	if err != nil {
+		t.Fatalf("mux: %v", err)
+	}
+	call := func(method, path, token string, payload any) (int, []byte) {
+		var reader io.Reader
+		if payload != nil {
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reader = bytes.NewReader(raw)
+		}
+		request := httptest.NewRequest(method, path, reader)
+		if payload != nil {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		if token != "" {
+			request.Header.Set("Authorization", "Bearer "+token)
+		}
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, request)
+		result := recorder.Result()
+		data, _ := io.ReadAll(result.Body)
+		return result.StatusCode, data
+	}
+
+	status, data := call(http.MethodPost, "/api/collections/_superusers/auth-with-password", "",
+		map[string]string{"identity": "admin@example.com", "password": "password123"})
+	if status != http.StatusOK {
+		t.Fatalf("superuser login: %d %s", status, data)
+	}
+	var login struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(data, &login); err != nil {
+		t.Fatalf("superuser token: %v", err)
+	}
+
+	status, data = call(http.MethodPatch, "/api/settings", login.Token, body)
+	if status != http.StatusOK {
+		t.Fatalf("patch settings: %d %s", status, data)
+	}
+}
+
+// TestRateLimitDefaultsAreSetOnceAndTheOperatorKeepsTheChoice follows a data directory
+// from its first start: the migration enables the rules, and a rule the operator changes
+// through the settings API afterwards is not written over by a later start.
+func TestRateLimitDefaultsAreSetOnceAndTheOperatorKeepsTheChoice(t *testing.T) {
+	dir := t.TempDir()
+	fresh := migratedApp(t, dir)
+	if !fresh.Settings().RateLimits.Enabled {
+		t.Fatal("the rate limiter is disabled")
+	}
+
+	rules := slices.Clone(fresh.Settings().RateLimits.Rules)
+	for i := range rules {
+		if rules[i].Label == "*:authWithPassword" {
+			rules[i].MaxRequests = 7
+			rules[i].Duration = 90
+		}
+	}
+	patchSettings(t, fresh, map[string]any{
+		"rateLimits": map[string]any{"rules": rules},
+	})
+	if err := fresh.ClearBootstrap(); err != nil {
+		t.Fatalf("stop the first instance: %v", err)
+	}
+
+	restarted := migratedApp(t, dir)
+	rule, ok := rateLimitByLabel(restarted.Settings(), "*:authWithPassword")
+	if !ok || rule.MaxRequests != 7 || rule.Duration != 90 {
+		t.Errorf("restarted password login rule = %+v (%v), want 7 per 90 s", rule, ok)
 	}
 }
