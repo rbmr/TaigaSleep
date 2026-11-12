@@ -13,9 +13,11 @@ import (
 )
 
 // newConfiguredServer is a server whose PocketBase settings were applied the way the
-// bootstrap applies them, so the routes run behind PocketBase's rate limiter.
+// bootstrap applies them, so the routes run behind PocketBase's rate limiter. Like the
+// integration harness, it acts as clients behind a proxy and names its header.
 func newConfiguredServer(t *testing.T) *server {
 	t.Helper()
+	t.Setenv("TAIGA_TRUSTED_PROXY_HEADERS", "X-Forwarded-For")
 	app, err := tests.NewTestApp()
 	if err != nil {
 		t.Fatalf("test app: %v", err)
@@ -42,12 +44,12 @@ func newConfiguredServer(t *testing.T) *server {
 }
 
 // TestProxyHeaderCarriesTheClientAddress checks the address the request log records and
-// the rate limiter keys on: behind the shipped reverse proxy it is the header's client,
-// and without a header it is the connection's address.
+// the rate limiter keys on once a proxy header is configured: it is the header's client,
+// and without the header it is the connection's address.
 func TestProxyHeaderCarriesTheClientAddress(t *testing.T) {
 	s := newConfiguredServer(t)
-	if got := s.app.Settings().TrustedProxy.Headers; !slices.Equal(got, []string{defaultTrustedProxyHeaders}) {
-		t.Fatalf("trusted proxy headers = %v, want %q", got, defaultTrustedProxyHeaders)
+	if got := s.app.Settings().TrustedProxy.Headers; !slices.Equal(got, []string{"X-Forwarded-For"}) {
+		t.Fatalf("trusted proxy headers = %v, want X-Forwarded-For", got)
 	}
 
 	event := func(header map[string]string) *core.RequestEvent {
@@ -61,10 +63,27 @@ func TestProxyHeaderCarriesTheClientAddress(t *testing.T) {
 		return e
 	}
 
-	if got := event(map[string]string{defaultTrustedProxyHeaders: "203.0.113.7"}).RealIP(); got != "203.0.113.7" {
+	if got := event(map[string]string{"X-Forwarded-For": "203.0.113.7"}).RealIP(); got != "203.0.113.7" {
 		t.Errorf("real address = %q, want the client's", got)
 	}
 	if got := event(nil).RealIP(); got != "192.0.2.10" {
+		t.Errorf("real address = %q, want the connection's", got)
+	}
+}
+
+// TestUnconfiguredProxyHeaderIsIgnored keeps a client that sends the header itself from
+// choosing the address it is logged and limited as.
+func TestUnconfiguredProxyHeaderIsIgnored(t *testing.T) {
+	t.Setenv("TAIGA_TRUSTED_PROXY_HEADERS", "")
+	app := bootedApp(t, t.TempDir())
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	request.RemoteAddr = "192.0.2.10:5000"
+	request.Header.Set("X-Forwarded-For", "203.0.113.7")
+	event := &core.RequestEvent{App: app}
+	event.Request = request
+
+	if got := event.RealIP(); got != "192.0.2.10" {
 		t.Errorf("real address = %q, want the connection's", got)
 	}
 }
@@ -79,7 +98,7 @@ func TestLoginRateLimitCountsPerClientAddress(t *testing.T) {
 	login := func(password, address string) (int, []byte) {
 		status, _, body := s.call(http.MethodPost, "/v1/auth/login", "",
 			map[string]string{"email": "bob@example.com", "password": password},
-			map[string]string{defaultTrustedProxyHeaders: address})
+			map[string]string{"X-Forwarded-For": address})
 		return status, body
 	}
 

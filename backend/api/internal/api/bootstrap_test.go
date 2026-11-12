@@ -1,10 +1,13 @@
 package api
 
 import (
+	"os"
 	"slices"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
+
+	_ "github.com/rbmr/TaigaSleep/backend/api/migrations"
 )
 
 // bootedApp starts the API on the data directory and returns the app with its settings
@@ -22,6 +25,37 @@ func bootedApp(t *testing.T, dataDir string) *core.BaseApp {
 		t.Fatalf("reload settings: %v", err)
 	}
 	return app
+}
+
+// migratedApp starts the API the way `serve` does: the bootstrap applies the environment
+// and the migrations then run.
+func migratedApp(t *testing.T, dataDir string) *core.BaseApp {
+	t.Helper()
+	app := bootedApp(t, dataDir)
+	if err := app.RunAllMigrations(); err != nil {
+		t.Fatalf("migrations: %v", err)
+	}
+	if err := app.ReloadSettings(); err != nil {
+		t.Fatalf("reload settings: %v", err)
+	}
+	return app
+}
+
+// clearEnv removes the variables for the duration of the test, so a test that depends on
+// their absence is not decided by the shell it runs in.
+func clearEnv(t *testing.T, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		value, set := os.LookupEnv(name)
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("unset %s: %v", name, err)
+		}
+		t.Cleanup(func() {
+			if set {
+				_ = os.Setenv(name, value)
+			}
+		})
+	}
 }
 
 // rateLimitFor looks a rule up the way PocketBase's limiter does, with both labels it
@@ -50,15 +84,10 @@ func TestBootstrapStoresDeploymentSettings(t *testing.T) {
 	}
 }
 
-// TestBootstrapConfiguresPocketBaseSettings checks the settings an empty data directory
-// gets when no variable names a value.
-func TestBootstrapConfiguresPocketBaseSettings(t *testing.T) {
-	app := bootedApp(t, t.TempDir())
-	settings := app.Settings()
+// TestBootstrapEnablesTheRateLimiter checks the rules an empty data directory gets.
+func TestBootstrapEnablesTheRateLimiter(t *testing.T) {
+	settings := bootedApp(t, t.TempDir()).Settings()
 
-	if got := settings.TrustedProxy.Headers; !slices.Equal(got, []string{defaultTrustedProxyHeaders}) {
-		t.Errorf("trusted proxy headers = %v, want %q", got, defaultTrustedProxyHeaders)
-	}
 	if !settings.RateLimits.Enabled {
 		t.Error("the rate limiter is disabled")
 	}
@@ -74,16 +103,10 @@ func TestBootstrapConfiguresPocketBaseSettings(t *testing.T) {
 		rule.MaxRequests != apiRateLimit || rule.Duration != apiRateLimitWindow {
 		t.Errorf("API rule = %+v (%v), want %d per %d s", rule, ok, apiRateLimit, apiRateLimitWindow)
 	}
-	if got := settings.Backups.Cron; got != defaultBackupCron {
-		t.Errorf("backup cron = %q, want %q", got, defaultBackupCron)
-	}
-	if got := settings.Backups.CronMaxKeep; got != defaultBackupKeep {
-		t.Errorf("backup keep = %d, want %d", got, defaultBackupKeep)
-	}
 }
 
-// TestBootstrapTrustsOnlyConfiguredProxyHeaders reads the addresses the API is told to
-// trust from the environment; an empty value means clients connect directly.
+// TestBootstrapTrustsOnlyConfiguredProxyHeaders reads the headers the API may take the
+// client address from out of the environment.
 func TestBootstrapTrustsOnlyConfiguredProxyHeaders(t *testing.T) {
 	t.Setenv("TAIGA_TRUSTED_PROXY_HEADERS", "X-Real-IP, CF-Connecting-IP")
 	behind := bootedApp(t, t.TempDir())
@@ -98,22 +121,16 @@ func TestBootstrapTrustsOnlyConfiguredProxyHeaders(t *testing.T) {
 	}
 }
 
-// TestBackupSettingsOutliveARestart keeps what the operator set in the dashboard: the
-// default only fills an empty value, and a variable overrides only what it names.
-func TestBackupSettingsOutliveARestart(t *testing.T) {
-	const (
-		operatorCron = "15 4 * * *"
-		operatorKeep = 30
-	)
+// TestBootstrapTrustsNoProxyHeaderByDefault keeps a header nobody configured out of the
+// settings, including one an earlier start stored: a client must not be able to choose
+// the address it is logged and limited as.
+func TestBootstrapTrustsNoProxyHeaderByDefault(t *testing.T) {
+	t.Setenv("TAIGA_TRUSTED_PROXY_HEADERS", "")
 	dir := t.TempDir()
 
 	first := bootedApp(t, dir)
-	if got := first.Settings().Backups; got.Cron != defaultBackupCron || got.CronMaxKeep != defaultBackupKeep {
-		t.Fatalf("fresh backups = %+v, want the defaults", got)
-	}
 	settings := first.Settings()
-	settings.Backups.Cron = operatorCron
-	settings.Backups.CronMaxKeep = operatorKeep
+	settings.TrustedProxy.Headers = []string{"X-Forwarded-For"}
 	if err := first.Save(settings); err != nil {
 		t.Fatalf("save settings: %v", err)
 	}
@@ -122,24 +139,89 @@ func TestBackupSettingsOutliveARestart(t *testing.T) {
 	}
 
 	restarted := bootedApp(t, dir)
-	if got := restarted.Settings().Backups; got.Cron != operatorCron || got.CronMaxKeep != operatorKeep {
-		t.Errorf("restarted backups = %+v, want %q and %d", got, operatorCron, operatorKeep)
+	if got := restarted.Settings().TrustedProxy.Headers; len(got) != 0 {
+		t.Errorf("trusted proxy headers = %v, want none", got)
+	}
+}
+
+// TestBackupDefaultsAreSetOnceAndTheOperatorKeepsTheChoice follows a data directory from
+// its first start: the migration writes the schedule, and what the operator changes or
+// clears in the dashboard afterwards is not written over by a later start.
+func TestBackupDefaultsAreSetOnceAndTheOperatorKeepsTheChoice(t *testing.T) {
+	clearEnv(t, "TAIGA_BACKUP_CRON", "TAIGA_BACKUP_KEEP")
+	dir := t.TempDir()
+
+	fresh := migratedApp(t, dir)
+	if got := fresh.Settings().Backups; got.Cron != "0 3 * * *" || got.CronMaxKeep != 14 {
+		t.Fatalf("fresh backups = %+v, want 0 3 * * * and 14", got)
+	}
+
+	// The operator changes the schedule and the limit in the dashboard.
+	settings := fresh.Settings()
+	settings.Backups.Cron = "15 4 * * *"
+	settings.Backups.CronMaxKeep = 30
+	if err := fresh.Save(settings); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	if err := fresh.ClearBootstrap(); err != nil {
+		t.Fatalf("stop the first instance: %v", err)
+	}
+
+	restarted := migratedApp(t, dir)
+	if got := restarted.Settings().Backups; got.Cron != "15 4 * * *" || got.CronMaxKeep != 30 {
+		t.Errorf("restarted backups = %+v, want the operator's values", got)
+	}
+
+	// Clearing the schedule turns automatic backups off, and that stays too.
+	settings = restarted.Settings()
+	settings.Backups.Cron = ""
+	if err := restarted.Save(settings); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	if err := restarted.ClearBootstrap(); err != nil {
+		t.Fatalf("stop the second instance: %v", err)
+	}
+
+	cleared := migratedApp(t, dir)
+	if got := cleared.Settings().Backups.Cron; got != "" {
+		t.Errorf("backup cron after clearing = %q, want none", got)
 	}
 }
 
 // TestBackupVariablesOverrideTheStoredSettings checks that the two variables win over
-// what the operator set, and that an empty schedule turns automatic backups off.
+// what is stored, and that an empty schedule turns automatic backups off.
 func TestBackupVariablesOverrideTheStoredSettings(t *testing.T) {
+	clearEnv(t, "TAIGA_BACKUP_CRON", "TAIGA_BACKUP_KEEP")
+	dir := t.TempDir()
+
+	first := migratedApp(t, dir)
+	if err := first.ClearBootstrap(); err != nil {
+		t.Fatalf("stop the first instance: %v", err)
+	}
+
 	t.Setenv("TAIGA_BACKUP_CRON", "30 1 * * *")
 	t.Setenv("TAIGA_BACKUP_KEEP", "7")
-	app := bootedApp(t, t.TempDir())
-	if got := app.Settings().Backups; got.Cron != "30 1 * * *" || got.CronMaxKeep != 7 {
+	overridden := bootedApp(t, dir)
+	if got := overridden.Settings().Backups; got.Cron != "30 1 * * *" || got.CronMaxKeep != 7 {
 		t.Errorf("backups = %+v, want the variables", got)
+	}
+	if err := overridden.ClearBootstrap(); err != nil {
+		t.Fatalf("stop the second instance: %v", err)
 	}
 
 	t.Setenv("TAIGA_BACKUP_CRON", "")
-	off := bootedApp(t, t.TempDir())
-	if got := off.Settings().Backups; got.Cron != "" || got.CronMaxKeep != 7 {
-		t.Errorf("backups = %+v, want automatic backups off", got)
+	off := bootedApp(t, dir)
+	if got := off.Settings().Backups.Cron; got != "" {
+		t.Errorf("backup cron = %q, want automatic backups off", got)
+	}
+}
+
+// TestDisabledBackupsOnAFreshDataDirStayOff covers the first start with the variable that
+// turns them off: the migration runs after the bootstrap and must not switch them on.
+func TestDisabledBackupsOnAFreshDataDirStayOff(t *testing.T) {
+	t.Setenv("TAIGA_BACKUP_CRON", "")
+	app := migratedApp(t, t.TempDir())
+	if got := app.Settings().Backups.Cron; got != "" {
+		t.Errorf("backup cron = %q, want automatic backups off", got)
 	}
 }

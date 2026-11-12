@@ -9,14 +9,6 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-// The deployment settings PocketBase keeps in its database rather than in flags.
-// Each has a default that fits the deployed setup described in backend/README.md.
-const (
-	defaultTrustedProxyHeaders = "X-Forwarded-For"
-	defaultBackupCron          = "0 3 * * *"
-	defaultBackupKeep          = 14
-)
-
 // How often one client address may call a group of routes. PocketBase's rate limiter
 // keys on the client address, so these are per address, not per account: the login
 // limit is what slows password guessing, the others only keep one client from
@@ -35,9 +27,11 @@ const (
 // applyDeploymentSettings writes the settings the TAIGA_* variables configure and
 // reports whether anything changed, so the bootstrap saves only when it has to.
 //
-// The trusted proxy and the rate limits are this API's own configuration: they are
-// written every time. The backup settings belong to the operator once they exist, so
-// a default only fills an empty value and a variable only overrides what it names.
+// The trusted proxy and the rate limits are this API's own configuration, so they are
+// written every time: no header is trusted unless one is named, and the client address
+// cannot be chosen by the caller. The backup settings belong to the operator once the
+// schema migration has written the defaults, so a variable overrides a stored value
+// only when it is set.
 func applyDeploymentSettings(settings *core.Settings) bool {
 	changed := false
 
@@ -50,10 +44,7 @@ func applyDeploymentSettings(settings *core.Settings) bool {
 		changed = true
 	}
 
-	headers := []string{defaultTrustedProxyHeaders}
-	if raw, set := os.LookupEnv("TAIGA_TRUSTED_PROXY_HEADERS"); set {
-		headers = headerList(raw)
-	}
+	headers := headerList(os.Getenv("TAIGA_TRUSTED_PROXY_HEADERS"))
 	if !slices.Equal(settings.TrustedProxy.Headers, headers) {
 		settings.TrustedProxy.Headers = headers
 		changed = true
@@ -65,23 +56,26 @@ func applyDeploymentSettings(settings *core.Settings) bool {
 		changed = true
 	}
 
-	// The limit belongs to the schedule the operator stored, so it is read before the
-	// schedule is replaced.
-	storedCron := settings.Backups.Cron
-	if cron := backupCron(storedCron); cron != storedCron {
-		settings.Backups.Cron = cron
-		changed = true
+	// An empty value disables the automatic backups, so the variable is read even when
+	// it is set to nothing.
+	if raw, set := os.LookupEnv("TAIGA_BACKUP_CRON"); set {
+		if cron := strings.TrimSpace(raw); cron != settings.Backups.Cron {
+			settings.Backups.Cron = cron
+			changed = true
+		}
 	}
-	if keep := backupKeep(storedCron, settings.Backups.CronMaxKeep); keep != settings.Backups.CronMaxKeep {
-		settings.Backups.CronMaxKeep = keep
-		changed = true
+	if raw := strings.TrimSpace(os.Getenv("TAIGA_BACKUP_KEEP")); raw != "" {
+		if keep, err := strconv.Atoi(raw); err == nil && keep > 0 && keep != settings.Backups.CronMaxKeep {
+			settings.Backups.CronMaxKeep = keep
+			changed = true
+		}
 	}
 
 	return changed
 }
 
-// headerList reads a comma-separated list of header names. An empty value means
-// clients connect directly and no header is trusted.
+// headerList reads a comma-separated list of header names. Without one, clients
+// connect directly and no header is trusted.
 func headerList(raw string) []string {
 	var headers []string
 	for _, part := range strings.Split(raw, ",") {
@@ -118,32 +112,4 @@ func rateLimitRules() []core.RateLimitRule {
 			Duration:    apiRateLimitWindow,
 		},
 	}
-}
-
-// backupCron is the automatic backup schedule. Unset keeps the operator's schedule,
-// or the default when none is stored; set uses the value, and an empty value turns
-// automatic backups off.
-func backupCron(stored string) string {
-	if raw, set := os.LookupEnv("TAIGA_BACKUP_CRON"); set {
-		return strings.TrimSpace(raw)
-	}
-	if stored != "" {
-		return stored
-	}
-	return defaultBackupCron
-}
-
-// backupKeep is how many automatic backups are kept. TAIGA_BACKUP_KEEP overrides it
-// when it is a positive whole number; a schedule the operator set keeps its own limit,
-// and without a schedule the default applies.
-func backupKeep(storedCron string, storedKeep int) int {
-	if raw := strings.TrimSpace(os.Getenv("TAIGA_BACKUP_KEEP")); raw != "" {
-		if keep, err := strconv.Atoi(raw); err == nil && keep > 0 {
-			return keep
-		}
-	}
-	if storedCron != "" && storedKeep > 0 {
-		return storedKeep
-	}
-	return defaultBackupKeep
 }

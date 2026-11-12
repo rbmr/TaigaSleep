@@ -126,6 +126,9 @@ class Backend:
         )
         env = os.environ.copy()
         env["TAIGA_MAX_UPLOAD_CHUNK_MB"] = str(CHUNK_LIMIT_MB)
+        # The suite acts as clients behind the shipped proxy and sends the header, so
+        # this server has to trust it; the API trusts none unless one is named.
+        env["TAIGA_TRUSTED_PROXY_HEADERS"] = "X-Forwarded-For"
         self.server = subprocess.Popen(
             [
                 self.binary,
