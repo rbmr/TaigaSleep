@@ -48,7 +48,8 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * One process-wide Polar SDK instance. Its single callback is fanned out to the sensor objects by
- * device id, so a sensor can be replaced without re-creating the SDK.
+ * device id, so a sensor can be replaced without re-creating the SDK, and the SDK can be re-created
+ * without replacing the sensors: they keep their registration and their state flows.
  */
 private object PolarSdk {
   private var api: PolarBleApi? = null
@@ -74,6 +75,18 @@ private object PolarSdk {
                 it.setApiCallback(callback)
                 api = it
               }
+
+  /**
+   * Shuts the instance down and makes a fresh one. A dropped session can be parked until a scan
+   * hears the strap advertise, and a strap still held by the stale link never advertises; a new
+   * instance is what clears that. The callbacks reach the same sensor objects by device id.
+   */
+  @Synchronized
+  fun recreate(context: Context): PolarBleApi {
+    api?.let { runCatching { it.shutDown() } }
+    api = null
+    return get(context)
+  }
 
   private val callback =
       object : PolarBleApiCallback() {
@@ -197,6 +210,26 @@ class PolarH10Sensor(
       Log.w(TAG, "disconnect failed", e)
     }
     _connection.value = ConnectionState.DISCONNECTED
+  }
+
+  /**
+   * A dropped session can stay parked until a scan hears the strap advertise, and a strap still
+   * held by the stale link never advertises. Replacing the SDK instance is the reset that clears
+   * it; this sensor object, its flows and its registration by device id stay as they are.
+   */
+  override fun resetTransport() {
+    awaitControl {
+      // Any callback from the old instance is now an explicit teardown, not a drop to recover.
+      userDisconnect = true
+      disposeStreams()
+      ready.clear()
+      clockSynced = false
+      clockSyncing = false
+      clockWaiting = false
+      PolarSdk.recreate(appContext)
+    }
+    _connection.value = ConnectionState.DISCONNECTED
+    userDisconnect = false
   }
 
   override fun recordingModes(config: StreamConfig): Set<RecordingMode> = polarRecordingModes(config)

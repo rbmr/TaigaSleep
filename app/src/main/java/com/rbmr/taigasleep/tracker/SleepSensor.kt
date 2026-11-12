@@ -116,6 +116,13 @@ interface SleepSensor {
   fun disconnect()
 
   /**
+   * Starts the sensor's transport over, so the next [connect] cannot be answered from a stale
+   * session. Only a sensor whose Bluetooth stack can park a dropped link needs this; the default
+   * does nothing.
+   */
+  fun resetTransport() {}
+
+  /**
    * Starts the configured streams, now if connected and otherwise as soon as the sensor connects.
    * The streams are started again after every reconnect until [stopStreams].
    */
