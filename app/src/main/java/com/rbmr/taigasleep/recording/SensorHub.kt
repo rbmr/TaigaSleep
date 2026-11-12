@@ -8,11 +8,17 @@ import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.polar.PolarH10Sensor
-import io.reactivex.rxjava3.disposables.Disposable
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 /**
  * The one sensor the app talks to, shared by the Home screen and the recording service, plus device
@@ -29,7 +35,8 @@ class SensorHub {
   private val _scanning = MutableStateFlow(false)
   val scanning: StateFlow<Boolean> = _scanning.asStateFlow()
 
-  private var scan: Disposable? = null
+  private var scan: Job? = null
+  private val scanScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private val main = Handler(Looper.getMainLooper())
   private val stopScanRunnable = Runnable { stopScan() }
 
@@ -41,27 +48,26 @@ class SensorHub {
     _found.value = listOfNotNull(DebugTools.simulatedSensor)
     _scanning.value = true
     scan =
-        try {
-          PolarH10Sensor.scan(context)
-              // Only the H10 is supported so far; Verity and Loop would be listed here later.
-              .filter { it.name.contains("H10", ignoreCase = true) }
-              .subscribe(
-                  { d ->
-                    val s = FoundSensor(SensorKind.POLAR_H10, d.deviceId, d.name, d.rssi)
-                    _found.update { list -> list.filter { it.id != s.id } + s }
-                  },
-                  { _scanning.value = false },
-              )
-        } catch (_: SecurityException) {
-          _scanning.value = false
-          null
+        scanScope.launch {
+          try {
+            PolarH10Sensor.scan(context)
+                // Only the H10 is supported so far; Verity and Loop would be listed here later.
+                .filter { it.name.contains("H10", ignoreCase = true) }
+                .catch { _scanning.value = false }
+                .collect { d ->
+                  val s = FoundSensor(SensorKind.POLAR_H10, d.deviceId, d.name, d.rssi)
+                  _found.update { list -> list.filter { it.id != s.id } + s }
+                }
+          } catch (_: SecurityException) {
+            _scanning.value = false
+          }
         }
     main.postDelayed(stopScanRunnable, SCAN_MS)
   }
 
   fun stopScan() {
     main.removeCallbacks(stopScanRunnable)
-    scan?.dispose()
+    scan?.cancel()
     scan = null
     _scanning.value = false
   }
