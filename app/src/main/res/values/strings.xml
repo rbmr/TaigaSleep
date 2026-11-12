@@ -32,6 +32,9 @@
   <string name="trends_summary_lowest">Lowest</string>
   <string name="trends_summary_average_bedtime">Average bedtime</string>
   <string name="trends_summary_average_wake">Average wake time</string>
+  <string name="trends_reference_usual_bedtime">Usual bedtime</string>
+  <string name="trends_reference_usual_wake">Usual wake time</string>
+  <string name="trends_reference_intended">Intended</string>
   <string name="trends_description_schedule">Sleep schedule, average bedtime %1$s and average wake time %2$s over %3$d recordings</string>
   <string name="trends_description_time">%1$s, average %2$s over %3$d recordings</string>
   <string name="trends_description_whole">%1$s, average %2$d over %3$d recordings</string>

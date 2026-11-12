@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.outlined.Sensors
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.tracker.ConnectionState
@@ -88,6 +91,8 @@ internal fun IdleHome(
       Text(
           text = stringResource(headline),
           style = MaterialTheme.taiga.text.screenTitle,
+          textAlign = TextAlign.Center,
+          modifier = Modifier.fillMaxWidth(),
       )
       ChecklistCard(
           view = view,
@@ -132,9 +137,14 @@ private fun ChecklistCard(
       }
   TaigaCard(contentPadding = PaddingValues(vertical = MaterialTheme.taiga.space.xs)) {
     ListRow(
-        title = view.tracker?.name ?: stringResource(R.string.rec_sensor_none_title),
+        title = view.tracker?.name ?: stringResource(R.string.home_tracker_title),
         icon = Icons.Outlined.Sensors,
-        value = view.tracker?.battery?.let { stringResource(R.string.rec_battery, it) },
+        value =
+            if (connected) {
+              view.tracker?.battery?.let { stringResource(R.string.rec_battery, it) }
+            } else {
+              stringResource(R.string.home_tracker_hint)
+            },
         trailing =
             ListRowTrailing.Pill(
                 label =
@@ -150,6 +160,7 @@ private fun ChecklistCard(
       SettingsDivider()
       ListRow(
           title = stringResource(R.string.rec_data_settings),
+          icon = Icons.AutoMirrored.Outlined.List,
           value = streamsText(config),
           onClick = onDataSettings,
       )
@@ -157,6 +168,7 @@ private fun ChecklistCard(
     SettingsDivider()
     ListRow(
         title = stringResource(R.string.settings_prevent_title),
+        icon = Icons.Outlined.Shield,
         trailing =
             ListRowTrailing.Pill(label = stringResource(guardLabel), state = guardPill),
         onClick = onGuard,

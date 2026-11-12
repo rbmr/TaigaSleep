@@ -28,6 +28,7 @@ import com.rbmr.taigasleep.ui.components.Section
 import com.rbmr.taigasleep.ui.components.TrendChart
 import com.rbmr.taigasleep.ui.components.TrendChartKind
 import com.rbmr.taigasleep.ui.components.TrendPoint
+import com.rbmr.taigasleep.ui.components.TrendReference
 import com.rbmr.taigasleep.ui.components.TrendSeries
 import com.rbmr.taigasleep.ui.components.TrendSpanPoint
 import com.rbmr.taigasleep.ui.components.TrendSummary
@@ -134,6 +135,7 @@ private fun TotalSleepChart(data: Trends, onOpen: (TrendNight) -> Unit) {
   val average = data.totalSleep
   val points = data.points { totalSleepHours(it.totalSleepSeconds) }
   val value = average.value ?: 0.0
+  val intended = data.intendedSleepMinutes
   TrendChart(
       title = title,
       days = data.days,
@@ -146,6 +148,15 @@ private fun TotalSleepChart(data: Trends, onOpen: (TrendNight) -> Unit) {
       description = stringResource(R.string.trends_description_time, title, formatSeconds(value), average.nights),
       onOpen = onOpen,
       emptyMessage = moreRecordings(average.enough),
+      references =
+          listOfNotNull(
+              intended?.let {
+                TrendReference(
+                    label = stringResource(R.string.trends_reference_intended),
+                    value = it / 60.0,
+                )
+              }
+          ),
       topLabel = { "$it h" },
       steps = HourSteps,
       minStep = 1.0,
@@ -196,6 +207,21 @@ private fun ScheduleChart(data: Trends, onOpen: (TrendNight) -> Unit) {
       description = description,
       onOpen = onOpen,
       emptyMessage = moreRecordings(enough),
+      references =
+          listOfNotNull(
+              data.usualBedtimeMinutes?.let {
+                TrendReference(
+                    label = stringResource(R.string.trends_reference_usual_bedtime),
+                    value = nightMinuteOfDay(it).toDouble(),
+                )
+              },
+              data.usualWakeMinutes?.let {
+                TrendReference(
+                    label = stringResource(R.string.trends_reference_usual_wake),
+                    value = nightMinuteOfDay(it).toDouble(),
+                )
+              },
+          ),
       axisFormat = { trendClock(clockMinuteOfNightMinute(it.roundToInt())) },
       steps = ClockSteps,
       minStep = 60.0,

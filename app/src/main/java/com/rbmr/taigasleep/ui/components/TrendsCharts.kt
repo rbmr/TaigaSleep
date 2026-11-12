@@ -73,6 +73,12 @@ data class TrendSeries(
 /** A named value above a chart, such as `Average` and `7h 52m`. */
 data class TrendSummary(val name: String, val value: String)
 
+/**
+ * A thin dotted reference line across a [TrendChart], such as the usual bedtime or the intended
+ * sleep duration. [value] is in the chart's own axis units; the line is drawn only when it is set.
+ */
+data class TrendReference(val label: String, val value: Double)
+
 /** How a [TrendChart] draws the recordings of its range. */
 sealed interface TrendChartKind {
   /** One line per series; a day without a value stays a gap. */
@@ -222,13 +228,13 @@ private data class TrendPlot(
 }
 
 /**
- * One metrics trend: the title, the named summary values, the legend of a two-series chart and the
- * chart itself, with the expand button that opens the same chart full screen. A range without
- * enough recordings shows [emptyMessage] instead.
+ * One metrics trend: the title, the named summary values, the legend of its series and reference
+ * lines, and the chart itself, with the expand button that opens the same chart full screen. A
+ * range without enough recordings shows [emptyMessage] instead.
  *
  * The y axis is labelled with its round values and the unit on the top label; the grid is dashed at
- * the top and the middle; the x axis names the first, middle and last date. Tapping a point opens
- * its recording.
+ * the top and the middle; the x axis names the first, middle and last date. Reference lines are thin
+ * and dotted, so they never read as data. Tapping a point opens its recording.
  */
 @Composable
 fun TrendChart(
@@ -240,6 +246,7 @@ fun TrendChart(
     onOpen: (TrendNight) -> Unit,
     modifier: Modifier = Modifier,
     emptyMessage: String? = null,
+    references: List<TrendReference> = emptyList(),
     axisFormat: (Double) -> String = ::trendNumber,
     topLabel: ((String) -> String)? = null,
     steps: DoubleArray = MetricSteps,
@@ -247,7 +254,7 @@ fun TrendChart(
 ) {
   val space = MaterialTheme.taiga.space
   var expanded by rememberSaveable { mutableStateOf(false) }
-  val axis = trendChartAxis(kind, axisFormat, steps, minStep)
+  val axis = trendChartAxis(kind, axisFormat, steps, minStep, references)
   val series = (kind as? TrendChartKind.Line)?.series.orEmpty()
   TaigaCard(modifier) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -265,11 +272,14 @@ fun TrendChart(
       )
     } else if (axis != null) {
       if (summary.isNotEmpty()) TrendSummaryRow(summary, Modifier.padding(top = space.s))
-      if (series.size == 2) TrendLegend(series, Modifier.padding(top = space.xs))
+      if (series.size > 1 || references.isNotEmpty()) {
+        TrendLegend(series, references, Modifier.padding(top = space.xs))
+      }
       TrendPlotCanvas(
           days = days,
           kind = kind,
           axis = axis,
+          references = references,
           description = description,
           topLabel = topLabel,
           onOpen = onOpen,
@@ -282,11 +292,14 @@ fun TrendChart(
     ChartFullscreenDialog(title = title, onDismiss = { expanded = false }) { contentModifier ->
       Column(contentModifier) {
         if (summary.isNotEmpty()) TrendSummaryRow(summary)
-        if (series.size == 2) TrendLegend(series, Modifier.padding(top = space.xs))
+        if (series.size > 1 || references.isNotEmpty()) {
+          TrendLegend(series, references, Modifier.padding(top = space.xs))
+        }
         TrendPlotCanvas(
             days = days,
             kind = kind,
             axis = axis,
+            references = references,
             description = description,
             topLabel = topLabel,
             onOpen = onOpen,
@@ -298,12 +311,16 @@ fun TrendChart(
   }
 }
 
-/** The axis that covers every value of [kind]; bars start at zero so their heights stay honest. */
+/**
+ * The axis that covers every value of [kind] and every reference line; bars start at zero so their
+ * heights stay honest.
+ */
 private fun trendChartAxis(
     kind: TrendChartKind,
     format: (Double) -> String,
     steps: DoubleArray,
     minStep: Double,
+    references: List<TrendReference>,
 ): TrendAxis? {
   val values =
       when (kind) {
@@ -315,8 +332,9 @@ private fun trendChartAxis(
             kind.spans.flatMap { span -> span?.let { listOf(it.start, it.end) } ?: emptyList() }
       }
   if (values.isEmpty()) return null
-  val low = if (kind is TrendChartKind.Bars) 0.0 else values.min()
-  return trendAxis(low, values.max(), format, steps, minStep)
+  val covered = values + references.map { it.value }
+  val low = if (kind is TrendChartKind.Bars) 0.0 else covered.min()
+  return trendAxis(low, covered.max(), format, steps, minStep)
 }
 
 /** The recording a tap at [index] opens, or null when that day has no mark. */
@@ -348,39 +366,67 @@ private fun TrendSummaryRow(summary: List<TrendSummary>, modifier: Modifier = Mo
   }
 }
 
-/** The legend of a two-series chart: the line style and colour of each series. */
+/**
+ * The legend of a chart: the line style and colour of each series, then a dotted swatch for every
+ * reference line.
+ */
 @Composable
-private fun TrendLegend(series: List<TrendSeries>, modifier: Modifier = Modifier) {
+private fun TrendLegend(
+    series: List<TrendSeries>,
+    references: List<TrendReference>,
+    modifier: Modifier = Modifier,
+) {
+  val referenceColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
   Row(
       modifier = modifier,
       horizontalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.m),
       verticalAlignment = Alignment.CenterVertically,
   ) {
     for (item in series) {
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        Canvas(Modifier.width(16.dp).height(2.dp)) {
-          drawLine(
-              color = item.color,
-              start = Offset(0f, size.height / 2f),
-              end = Offset(size.width, size.height / 2f),
-              strokeWidth = 2.dp.toPx(),
-              cap = StrokeCap.Round,
-              pathEffect = if (item.dashed) dashEffect() else null,
-          )
-        }
-        Spacer(Modifier.width(MaterialTheme.taiga.space.s))
-        Text(
-            text = item.label,
-            style = MaterialTheme.taiga.text.meta,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
+      LegendEntry(label = item.label, color = item.color, dashed = item.dashed, dotted = false)
     }
+    for (item in references) {
+      LegendEntry(label = item.label, color = referenceColor, dashed = false, dotted = true)
+    }
+  }
+}
+
+@Composable
+private fun LegendEntry(label: String, color: Color, dashed: Boolean, dotted: Boolean) {
+  Row(verticalAlignment = Alignment.CenterVertically) {
+    Canvas(Modifier.width(16.dp).height(2.dp)) {
+      drawLine(
+          color = color,
+          start = Offset(0f, size.height / 2f),
+          end = Offset(size.width, size.height / 2f),
+          strokeWidth = 2.dp.toPx(),
+          cap = StrokeCap.Round,
+          pathEffect =
+              when {
+                dotted -> dotEffect()
+                dashed -> dashEffect()
+                else -> null
+              },
+      )
+    }
+    Spacer(Modifier.width(MaterialTheme.taiga.space.s))
+    Text(
+        text = label,
+        style = MaterialTheme.taiga.text.meta,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
   }
 }
 
 private fun DrawScope.dashEffect(): PathEffect =
     PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx()))
+
+/** The reference lines are thinner and dotted, so they stay clearly apart from the data. */
+private fun DrawScope.dotEffect(): PathEffect =
+    PathEffect.dashPathEffect(
+        floatArrayOf(1.5.dp.toPx(), 3.dp.toPx()),
+        phase = 0f,
+    )
 
 /**
  * The frame and the marks of a trend chart. The labels stay clear of the plot, and a tap opens the
@@ -391,6 +437,7 @@ private fun TrendPlotCanvas(
     days: List<LocalDate>,
     kind: TrendChartKind,
     axis: TrendAxis,
+    references: List<TrendReference>,
     description: String,
     topLabel: ((String) -> String)?,
     onOpen: (TrendNight) -> Unit,
@@ -446,6 +493,7 @@ private fun TrendPlotCanvas(
             textSize = labelSp.toPx()
           }
       val dash = dashEffect()
+      val dot = dotEffect()
 
       for (fraction in floatArrayOf(0f, 0.5f)) {
         val y = plot.y(fraction)
@@ -497,6 +545,27 @@ private fun TrendPlotCanvas(
         is TrendChartKind.FloatingBars -> {
           drawTrendSpans(plot, kind.spans, axis, large, markColor)
         }
+      }
+
+      // The reference lines sit above the marks: thin, dotted, and labelled at their right end.
+      paint.textAlign = Paint.Align.RIGHT
+      for (reference in references) {
+        val y = plot.y(axis.fraction(reference.value))
+        drawLine(
+            color = referenceColor,
+            start = Offset(plot.left, y),
+            end = Offset(plot.right, y),
+            strokeWidth = 1.dp.toPx(),
+            pathEffect = dot,
+        )
+        // A label that would sit above the plot goes under its line instead.
+        val above = y - paint.textSize - 2.dp.toPx() >= plot.top
+        drawContext.canvas.nativeCanvas.drawText(
+            reference.label,
+            plot.right - 2.dp.toPx(),
+            if (above) y - 2.dp.toPx() else y + paint.textSize + 2.dp.toPx(),
+            paint,
+        )
       }
 
       drawLine(
@@ -682,6 +751,7 @@ private fun TrendChartPreview() {
         summary = listOf(TrendSummary("Average", "7h 6m")),
         description = "Total sleep over seven recordings",
         onOpen = {},
+        references = listOf(TrendReference("Intended", 7.5)),
         topLabel = { "$it h" },
         steps = HourSteps,
         minStep = 1.0,
@@ -700,6 +770,11 @@ private fun TrendChartPreview() {
             ),
         description = "Sleep schedule over seven recordings",
         onOpen = {},
+        references =
+            listOf(
+                TrendReference("Usual bedtime", 400.0),
+                TrendReference("Usual wake time", 1120.0),
+            ),
         axisFormat = { trendClock(clockMinuteOfNightMinute(it.roundToInt())) },
         steps = ClockSteps,
         minStep = 60.0,

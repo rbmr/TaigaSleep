@@ -28,7 +28,8 @@
   <string name="rec_connection_connected">Connected</string>
   <string name="rec_connection_disconnected">Not connected</string>
   <string name="rec_disconnect">Disconnect</string>
-  <string name="rec_sensor_none_title">No tracker connected</string>
+  <string name="home_tracker_title">Tracker</string>
+  <string name="home_tracker_hint">Put it on so it wakes up</string>
   <string name="rec_data_settings">Data to record</string>
   <string name="rec_data_title">Data to record</string>
   <string name="rec_mode_title">Recording mode</string>

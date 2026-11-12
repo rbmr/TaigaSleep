@@ -25,10 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.PathOperation
@@ -59,10 +57,13 @@ import kotlinx.coroutines.launch
 /** How tall a den header is, and how much of it the ground takes below the horizon. */
 enum class DenSize(val height: Dp, val ground: Dp) {
   /** The full header of Home before a recording. */
-  Header(height = 300.dp, ground = 56.dp),
+  Header(height = 300.dp, ground = 14.dp),
   /** The smaller header while a recording runs and while it is finished. */
-  Compact(height = 210.dp, ground = 44.dp),
+  Compact(height = 180.dp, ground = 12.dp),
 }
+
+/** The widest the arch's own view may be drawn, so sky remains beside it on a phone screen. */
+private val DenWidth = 260.dp
 
 /** What a tap on the den does, if anything. */
 enum class DenTapEffect {
@@ -77,8 +78,9 @@ enum class DenTapEffect {
 
 /**
  * The bear in its den, as the home header: the logo's arch standing on a horizon that runs across
- * the whole width, a faint aurora inside the arch and the bear resting on the den floor. In the dark
- * theme a few small stars sit in the sky. The bear and arch paths are the logo's own.
+ * the whole width, a faint aurora inside the arch and the bear resting on the den floor. The arch
+ * stays narrow enough to leave sky beside it, where a few small stars sit in the dark theme. The
+ * bear and arch paths are the logo's own.
  *
  * The header draws nothing else: its ground is the colour the content sits on, so a screen places it
  * above its column and lets the den end where the content begins.
@@ -170,17 +172,24 @@ fun BearDen(
   Canvas(modifier.fillMaxWidth().height(size.height).then(tap).then(described)) {
     val side = 24.dp.toPx()
     val ground = size.ground.toPx()
-    val available = (this.size.height - statusBarTop - ground).coerceAtLeast(1f)
-    // The den keeps the logo's proportions: it is as wide as the screen allows, but always fits
-    // between the status bar and the ground.
-    val unit = minOf((this.size.width - 2 * side) / VIEW_WIDTH, available / VIEW_HEIGHT)
+    // The horizon sits near the bottom of the header: only a thin strip of ground lies below it.
+    val horizon = this.size.height - ground
+    val sky = (horizon - statusBarTop).coerceAtLeast(1f)
+    // The arch keeps the logo's proportions, is never wider than DenWidth and always fits between
+    // the status bar and the horizon, so sky stays visible beside and above it.
+    val unit =
+        minOf(
+            DenWidth.toPx() / VIEW_WIDTH,
+            (this.size.width - 2 * side) / VIEW_WIDTH,
+            sky / VIEW_HEIGHT,
+        )
     val left = (this.size.width - VIEW_WIDTH * unit) / 2f
-    val top = statusBarTop + (available - VIEW_HEIGHT * unit) / 2f
-    val horizon = top + ARCH_BOTTOM * unit
+    // The arch stands on the horizon, so its feet meet the ground at the end of the header.
+    val top = horizon - ARCH_BOTTOM * unit
 
     // Sky above the horizon, ground below it. The ground is the colour the content sits on.
     drawRect(color = scheme.background, size = Size(this.size.width, horizon))
-    if (colors.dark) drawStars(left, top, unit, scheme.onBackground)
+    if (colors.dark) drawStars(this.size.width, statusBarTop.toFloat(), sky, scheme.onBackground)
     drawRect(
         color = scheme.surface,
         topLeft = Offset(0f, horizon),
@@ -246,8 +255,7 @@ fun BearDen(
         // Every running tap tints the den once more; the tints stack while they fade.
         pulses.forEach { pulse -> drawTint(pulse, colors.auroraStart, colors.auroraEnd) }
 
-        // The arch's own gradient, faded out towards both feet.
-        drawContext.canvas.saveLayer(Rect(0f, 0f, VIEW_WIDTH, VIEW_HEIGHT), Paint())
+        // The arch's own gradient, exactly as the logo draws it: solid, feet included.
         drawPath(
             path = archPath,
             brush =
@@ -258,28 +266,6 @@ fun BearDen(
                 ),
             style = Stroke(width = ARCH_STROKE, cap = StrokeCap.Round, join = StrokeJoin.Round),
         )
-        drawRect(
-            brush =
-                Brush.horizontalGradient(
-                    colorStops =
-                        arrayOf(
-                            0f to Color.Transparent,
-                            0.12f to Color.Black,
-                            0.88f to Color.Black,
-                            1f to Color.Transparent,
-                        ),
-                    startX = ARCH_LEFT,
-                    endX = ARCH_RIGHT,
-                ),
-            topLeft = Offset(ARCH_LEFT - ARCH_STROKE, ARCH_TOP - ARCH_STROKE),
-            size =
-                Size(
-                    ARCH_RIGHT - ARCH_LEFT + 2 * ARCH_STROKE,
-                    ARCH_BOTTOM - ARCH_TOP + 2 * ARCH_STROKE,
-                ),
-            blendMode = BlendMode.DstIn,
-        )
-        drawContext.canvas.restore()
 
         val body = if (openEyes) openEyesBear(eyePop.value) else sleepingBearPath
         // The tap animation only moves the eyes: the ink stays the colour of this variant.
@@ -366,27 +352,28 @@ private fun eyeHole(centerX: Float, pop: Float): Path =
     }
 
 /**
- * Six small stars, in the logo's coordinates, in the sky outside the arch: beside its shoulders
- * and past its feet, never inside the den.
+ * Six small stars as fractions of the header: two in the sky above the arch and two beside each
+ * of its sides, never inside the den, so the smaller arch leaves the stars in the visible sky.
  */
 private val stars =
     listOf(
-        Star(-6f, 22f, 0.7f),
-        Star(12f, 54f, 0.5f),
-        Star(30f, 8f, 0.8f),
-        Star(178f, 6f, 0.6f),
-        Star(198f, 34f, 0.8f),
-        Star(212f, 72f, 0.5f),
+        Star(0.38f, 0.10f, 0.8f),
+        Star(0.63f, 0.20f, 0.5f),
+        Star(0.09f, 0.52f, 0.7f),
+        Star(0.14f, 0.79f, 0.5f),
+        Star(0.91f, 0.48f, 0.8f),
+        Star(0.86f, 0.76f, 0.6f),
     )
 
+/** A star at a fraction of the header's width and of the sky's height, with its own opacity. */
 private class Star(val x: Float, val y: Float, val alpha: Float)
 
-private fun DrawScope.drawStars(left: Float, top: Float, unit: Float, ink: Color) {
+private fun DrawScope.drawStars(width: Float, skyTop: Float, sky: Float, ink: Color) {
   stars.forEach { star ->
     drawCircle(
         color = ink.copy(alpha = star.alpha),
-        radius = 1.1f * unit,
-        center = Offset(left + star.x * unit, top + star.y * unit),
+        radius = 1.3.dp.toPx(),
+        center = Offset(width * star.x, skyTop + sky * star.y),
     )
   }
 }
