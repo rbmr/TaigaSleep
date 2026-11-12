@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
@@ -87,6 +88,25 @@ func handle(handler func(*core.RequestEvent) error) func(*core.RequestEvent) err
 	}
 }
 
+// middlewareError turns an error from a middleware that runs before the route handlers
+// into the one error shape. PocketBase's rate limiter is the one that answers this way;
+// anything outside /v1 keeps its own shape.
+func middlewareError(e *core.RequestEvent) error {
+	err := e.Next()
+	if err == nil || e.Written() || !strings.HasPrefix(e.Request.URL.Path, apiPrefix+"/") {
+		return err
+	}
+	var pbErr *router.ApiError
+	if !errors.As(err, &pbErr) {
+		return err
+	}
+	message := pbErr.Message
+	if pbErr.Status == http.StatusTooManyRequests {
+		message = "too many requests, try again later"
+	}
+	return e.JSON(pbErr.Status, ErrorResponse{Code: statusCode(pbErr.Status), Message: message})
+}
+
 func statusCode(status int) string {
 	switch status {
 	case http.StatusBadRequest:
@@ -103,6 +123,8 @@ func statusCode(status int) string {
 		return "too_large"
 	case http.StatusUnprocessableEntity:
 		return "unprocessable"
+	case http.StatusTooManyRequests:
+		return "too_many_requests"
 	}
 	return "error"
 }

@@ -170,8 +170,10 @@ extra disk. See [`docs/sleepecg.md`](../docs/sleepecg.md).
 
 ### PocketBase
 
-PocketBase itself is configured with flags. The deployment examples use these
-variables and expand them in the unit/compose files:
+PocketBase itself is configured with flags. The deployment examples pass the
+listen address, the data directory and the app name and URL through the unit and
+compose files; the API reads the rest from its environment at every start. These
+are the variables it reads:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -180,6 +182,9 @@ variables and expand them in the unit/compose files:
 | `TAIGA_APP_URL` | unset | Stored in PocketBase settings; used in auth email links. |
 | `TAIGA_APP_NAME` | `Taiga Sleep` | Display name in the dashboard and emails. |
 | `TAIGA_ENCRYPTION_KEY` | unset | Optional 32-character key for PocketBase settings encryption. |
+| `TAIGA_TRUSTED_PROXY_HEADERS` | unset | Headers a reverse proxy sets with the client's address, comma separated. Trusted only when named; the Caddy setup sets `X-Forwarded-For`. |
+| `TAIGA_BACKUP_CRON` | `0 3 * * *` | Automatic backup schedule, written once by the schema migration. Empty turns automatic backups off. |
+| `TAIGA_BACKUP_KEEP` | `14` | How many automatic backups are kept, written once by the schema migration. |
 | `TAIGA_MAX_RECORDING_MB` | `256` | Total bytes allowed for one recording directory. |
 | `TAIGA_MAX_RECORDING_FILE_MB` | `64` | Bytes allowed for one stream file. |
 | `TAIGA_MAX_UPLOAD_CHUNK_MB` | `8` | Maximum upload chunk; keep it below PocketBase's 10 MB request-body cap. |
@@ -189,6 +194,41 @@ variables and expand them in the unit/compose files:
 The API also reads `TAIGA_JOB_LEASE_S` as the default claim lease (default
 `1800`, clamped to 1 day) and `TAIGA_JOB_MAX_ATTEMPTS` as the retry limit for
 retryable analysis failures (default `3`).
+
+### Proxy headers, rate limits and backups
+
+These three live in PocketBase's own settings rather than in flags. The API
+applies the variables at every start, after PocketBase has loaded the settings
+from the database.
+
+- **Trusted proxy.** The API trusts no proxy header by default, so the address a
+  request is logged and rate limited as is the one the connection came from and a
+  client cannot choose it. Behind a reverse proxy, set
+  `TAIGA_TRUSTED_PROXY_HEADERS` to the header it sets with the client's address,
+  comma separated; `X-Forwarded-For` for the shipped Caddy setup, which
+  `deploy/docker-compose.yml` passes. The request log then records the client
+  instead of the proxy. The variable is applied at every start and an unset or
+  empty value trusts none, so set it there rather than in the dashboard.
+- **Rate limits.** PocketBase's rate limiter is enabled with one rule per group of
+  `/v1` routes, per client address: login 20 requests per 5 minutes, token creation
+  20 per minute, uploads 300 per minute and everything else 300 per 10 seconds. A
+  request over its limit is answered `429` with the code `too_many_requests`. The API
+  writes the rules at every start, so change them here and in the code, not in the
+  dashboard.
+- **Backups.** A data directory that reaches the schema migration is given
+  `0 3 * * *` with 14 copies, once. From then on the dashboard owns the values:
+  changing or clearing the schedule stays that way, because the migration does not
+  run again. `TAIGA_BACKUP_CRON` and `TAIGA_BACKUP_KEEP` override the stored values
+  at every start when they are set, and an empty `TAIGA_BACKUP_CRON` turns automatic
+  backups off, also from the first start. The schedule has to be a valid five-field
+  cron expression, or the API refuses to start; the count applies when it is a
+  positive whole number. See [Backup and restore](#backup-and-restore).
+
+The systemd unit reads them from `EnvironmentFile=/etc/taiga-sleep/api.env`. The
+Compose example passes `TAIGA_TRUSTED_PROXY_HEADERS=X-Forwarded-For` because Caddy
+is in front, and does not pass the backup variables through `deploy/.env`, because an
+always-set variable would override the operator's backup settings; add a line to the
+`api` service's `environment` there when your deployment needs a different value.
 
 ### Worker
 
@@ -524,7 +564,29 @@ ssh -L 8090:127.0.0.1:8090 user@server
 
 If you really need to listen on a LAN without a proxy, set
 `TAIGA_HTTP_ADDR=0.0.0.0:8090` (or `TAIGA_BIND_ADDR=0.0.0.0` for Compose) and
-accept that the dashboard is reachable by anyone who can reach the port.
+accept that the dashboard is reachable by anyone who can reach the port. In that
+case leave `TAIGA_TRUSTED_PROXY_HEADERS` unset, so clients cannot claim another
+address in the request log or skip the rate limiter; the default trusts no header.
+
+#### Superuser MFA and OTP
+
+A superuser can read and change everything, so the account that holds it deserves a
+second factor. PocketBase supports that through a one-time code sent by email, which
+means SMTP has to work before it is enabled:
+
+1. `Settings -> Mail settings`: enable SMTP and fill in the host, port, username,
+   password and sender address. Send a test email and wait for it to arrive.
+2. `Collections -> _superusers -> Options`: enable **OTP**, then enable **MFA**. MFA
+   needs two enabled authentication methods; for superusers that is the password plus
+   the emailed code.
+3. Log out and log in again: the password is followed by the code (8 digits, valid
+   for 3 minutes by default; both are on the same page).
+
+Do not enable it before mail works: with no way to receive the code, the dashboard
+cannot be opened again. Keep the SMTP settings current, and keep a backup from before
+the change as the way back (see [Backup and restore](#backup-and-restore)). The API
+accounts in `users` and `workers` are separate collections and keep password-only
+login, so the app and the worker are not affected.
 
 ### Small machines and swap
 
@@ -601,8 +663,12 @@ the API keeps serving while it is written.
 
 ### Schedule and retention
 
-Configure this under `Settings -> Backups` in the dashboard, or patch the
-settings as a superuser (`jq` is only used to read the token here):
+The schema migration gives a new data directory `0 3 * * *` with 14 copies, once.
+From then on the dashboard owns the values, and `TAIGA_BACKUP_CRON` and
+`TAIGA_BACKUP_KEEP` override them when they are set (see
+[Proxy headers, rate limits and backups](#proxy-headers-rate-limits-and-backups)).
+Change them in the dashboard, or patch the settings as a superuser (`jq` is only
+used to read the token here):
 
 ```bash
 BASE=http://127.0.0.1:8090
@@ -616,12 +682,13 @@ curl -fsS -X PATCH "$BASE/api/settings" \
   -d '{"backups":{"cron":"0 3 * * *","cronMaxKeep":14}}'
 ```
 
-- `cron` is a five-field cron expression. It is **empty by default**, which
-  leaves automatic backups disabled. Choose a schedule that matches how much
+- `cron` is a five-field cron expression. A value set here stays, and clearing it
+  turns automatic backups off and keeps them off; to do the same from the unit, set
+  `TAIGA_BACKUP_CRON` to an empty value. Choose a schedule that matches how much
   history you are willing to lose; a nightly run with two weeks of copies
-  (`0 3 * * *`, `cronMaxKeep: 14`) is a common baseline, not a requirement.
+  (`0 3 * * *`, `cronMaxKeep: 14`) is the default, not a requirement.
 - `cronMaxKeep` is required once `cron` is set and limits how many automatic
-  backups are kept.
+  backups are kept. A value set here stays unless `TAIGA_BACKUP_KEEP` is set.
 - Automatic backups are written to `<data dir>/backups/` as
   `@auto_pb_backup_<app name>_<timestamp>.zip` and listed under
   `Settings -> Backups`.
@@ -869,6 +936,9 @@ curl -fsS -G "$BASE/api/collections/analyses/records" \
 - PocketBase settings, including the optional backup S3 secret, live in
   `pb_data/data.db`. Set `TAIGA_ENCRYPTION_KEY` to encrypt them at rest.
 - Registration is disabled; there is one app user in the intended setup.
+- Login attempts and the rest of `/v1` are rate limited per client address by
+  PocketBase's limiter. Login is the tightest rule; a request over its limit is
+  answered `429 too_many_requests`.
 - Worker credentials are separate from the app user. The worker cannot read records
   directly, and through the API it reads only the analysis it holds the lease of, with
   that analysis's recording and files.

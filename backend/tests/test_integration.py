@@ -135,16 +135,22 @@ def test_a_wrong_password_is_401_and_does_not_say_which_part_was_wrong(api: Back
     )
 
 
-def test_repeated_wrong_passwords_are_throttled(api: Backend) -> None:
+def test_repeated_logins_from_one_address_are_throttled(api: Backend) -> None:
     victim = api.new_user("throttled")
+    guessing = "203.0.113.7"
+    elsewhere = "203.0.113.8"
 
-    for _ in range(10):
-        api.login(victim.email, "wrong", expect=401)
+    # The limit counts requests from one client address, not failures, so the wrong and
+    # the right password share one budget.
+    statuses = [api.login(victim.email, "wrong", address=guessing).status for _ in range(60)]
+    assert 401 in statuses, statuses
+    throttled = statuses.index(429)
+    assert throttled > 0, statuses
+    assert all(status == 429 for status in statuses[throttled:]), statuses
 
-    assert_error(api.login(victim.email, "wrong"), 429, "too_many_attempts")
-    # Even the right password has to wait, but other accounts are not affected.
-    assert_error(api.login(victim.email, PASSWORD), 429, "too_many_attempts")
-    api.login(api.user_b.email, PASSWORD, expect=200)
+    # Even the right password has to wait, but another client address is not affected.
+    assert_error(api.login(victim.email, PASSWORD, address=guessing), 429, "too_many_requests")
+    api.login(api.user_b.email, PASSWORD, address=elsewhere, expect=200)
 
 
 def test_missing_and_invalid_tokens_are_401(api: Backend) -> None:

@@ -64,6 +64,22 @@ func newServer(t *testing.T) *server {
 
 func (s *server) account(collection, email, name string) {
 	s.t.Helper()
+	s.createAccount(collection, email, name)
+	status, _, body := s.call(http.MethodPost, "/v1/auth/login", "", map[string]string{"email": email, "password": "password123"}, nil)
+	if status != 200 {
+		s.t.Fatalf("login %s: %d %s", email, status, body)
+	}
+	var out TokenResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		s.t.Fatal(err)
+	}
+	s.tokens[strings.SplitN(email, "@", 2)[0]] = out.Token
+}
+
+// createAccount adds an account without logging it in, for tests that cannot spend
+// the login budget of the address they act as.
+func (s *server) createAccount(collection, email, name string) {
+	s.t.Helper()
 	c, err := s.app.FindCollectionByNameOrId(collection)
 	if err != nil {
 		s.t.Fatal(err)
@@ -78,15 +94,6 @@ func (s *server) account(collection, email, name string) {
 	if err := s.app.Save(record); err != nil {
 		s.t.Fatalf("create %s: %v", email, err)
 	}
-	status, _, body := s.call(http.MethodPost, "/v1/auth/login", "", map[string]string{"email": email, "password": "password123"}, nil)
-	if status != 200 {
-		s.t.Fatalf("login %s: %d %s", email, status, body)
-	}
-	var out TokenResponse
-	if err := json.Unmarshal(body, &out); err != nil {
-		s.t.Fatal(err)
-	}
-	s.tokens[strings.SplitN(email, "@", 2)[0]] = out.Token
 }
 
 // call sends a request. body may be nil, raw bytes, or anything JSON-encodable.
@@ -241,15 +248,6 @@ func TestAuthentication(t *testing.T) {
 	// A user cannot use worker endpoints and a worker cannot use user ones.
 	s.expectCode(403, "forbidden", http.MethodPost, "/v1/analyses/claim", s.tokens["alice"], nil, nil)
 	s.expectCode(403, "forbidden", http.MethodGet, "/v1/recordings", s.tokens["worker"], nil, nil)
-}
-
-func TestLoginIsThrottled(t *testing.T) {
-	s := newServer(t)
-	t.Cleanup(func() { logins.failures = map[string][]time.Time{} })
-	for i := 0; i < loginMaxFailures; i++ {
-		s.expect(401, http.MethodPost, "/v1/auth/login", "", map[string]string{"email": "bob@example.com", "password": "nope"}, nil)
-	}
-	s.expectCode(429, "too_many_attempts", http.MethodPost, "/v1/auth/login", "", map[string]string{"email": "bob@example.com", "password": "password123"}, nil)
 }
 
 func TestPocketBaseRecordAPIIsClosed(t *testing.T) {
