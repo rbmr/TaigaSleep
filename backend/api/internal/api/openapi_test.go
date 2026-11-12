@@ -144,6 +144,37 @@ func TestOpenAPIDocumentIsValid(t *testing.T) {
 	}
 }
 
+// TestOpenAPIDocumentDescribesRealtime checks the documentation-only part: PocketBase
+// serves the stream, so there is no route of this API to describe, only the topics a
+// client subscribes to.
+func TestOpenAPIDocumentDescribesRealtime(t *testing.T) {
+	document := OpenAPIDocument()
+	realtime, ok := document["x-realtime"].(map[string]any)
+	if !ok {
+		t.Fatalf("the document has no x-realtime entry")
+	}
+	if description, _ := realtime["description"].(string); !strings.Contains(description, "/api/realtime") {
+		t.Errorf("x-realtime does not describe the stream: %v", realtime["description"])
+	}
+	topics, _ := realtime["topics"].([]any)
+	names := map[string]bool{}
+	for _, entry := range topics {
+		topic, _ := entry.(map[string]any)
+		name, _ := topic["topic"].(string)
+		names[name] = topic["audience"] != nil
+	}
+	for _, want := range []string{"recordings/*", "analyses/*"} {
+		if !names[want] {
+			t.Errorf("x-realtime does not document the topic %q", want)
+		}
+	}
+	for path := range document["paths"].(map[string]any) {
+		if strings.HasSuffix(path, "/events") {
+			t.Errorf("the custom event stream is still documented at %s", path)
+		}
+	}
+}
+
 func TestOpenAPIDocumentIsDeterministic(t *testing.T) {
 	encode := func() string {
 		data, err := json.MarshalIndent(OpenAPIDocument(), "", "  ")

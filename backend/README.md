@@ -112,12 +112,13 @@ export TAIGA_WORKER_PASSWORD='<password>'
 uv run --frozen python -m taiga_worker
 ```
 
-It logs in, reports the algorithms it has installed, listens to the API's event
-stream (`GET /v1/events`) and claims an analysis the moment one is queued, and
-once after every (re)connect, since events are not replayed. It then downloads one
+It logs in, reports the algorithms it has installed, subscribes to the queued
+analyses through PocketBase's realtime stream (`GET /api/realtime`) and claims one
+the moment it is queued, and once after every (re)connect, since changes are not
+replayed. It then downloads one
 recording through the API, runs one stager in a fresh subprocess, and reports the
 result. While the queue is empty it also claims every `TAIGA_POLL_INTERVAL_S`
-seconds (60 by default), which finds what no event announces, such as a retry whose
+seconds (60 by default), which finds what no change announces, such as a retry whose
 delay ran out, and keeps a worker whose stream is down (a proxy that buffers it,
 say) working. The supervisor never reads the database or recording files directly.
 
@@ -236,7 +237,7 @@ Command-line flags take precedence over environment variables.
 | `TAIGA_WORKER_PASSWORD` | `--password` | required | Password; prefer the file/env form. |
 | `TAIGA_WORKER_PASSWORD_FILE` | `--password-file` | unset | Read the password from a root-only file. |
 | `TAIGA_WORKER_ID` | `--worker-id` | hostname-pid | Name recorded on a lease. |
-| `TAIGA_POLL_INTERVAL_S` | `--poll-interval` | `60` | Fallback when the queue is empty: claim again after this long without an event. New work normally arrives as an event. |
+| `TAIGA_POLL_INTERVAL_S` | `--poll-interval` | `60` | Fallback when the queue is empty: claim again after this long without a change. New work normally arrives through the realtime stream. |
 | `TAIGA_JOB_LEASE_S` | `--lease-seconds` | `1800` | Lease length; an expired lease is requeued. |
 | `TAIGA_JOB_MEMORY_MB` | `--memory-mb` | `1024` | Address-space limit for one job; `0` disables it. Use `2048` for wav2sleep or SleepECG. |
 | `TAIGA_JOB_TIMEOUT_S` | `--timeout` | `3600` | Wall-clock limit for one job. |
@@ -821,15 +822,15 @@ the new results. Do not reset a row's status instead: the app keeps the result
 of that id and would never download it again.
 
 Deleting a run does not touch the recording or its files, and no app data needs
-to be cleared. The app hears about the delete over the event stream, or reads it
+to be cleared. The app hears about the delete over the realtime stream, or reads it
 at the next open: the run leaves the night's list and History shows the night as
 processing again. The payload it had already downloaded stays on the phone under
 the old id; the new run has a different id, so that payload is not used for it.
 The app does not request a replacement on its own; automatic
 analysis only asks for a run as part of an upload. Request the new run with one
 of the routes below, or in the app by opening the night and choosing an analysis.
-A run that succeeds is downloaded while the app is open (events) or at the next
-open, because its id is new.
+A run that succeeds is downloaded while the app is open (the realtime stream) or
+at the next open, because its id is new.
 
 #### Rerun a recording with the user's token
 

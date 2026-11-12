@@ -32,7 +32,7 @@ const (
 	tagFiles      = "recording files"
 	tagAnalyses   = "analyses"
 	tagAlgorithms = "algorithms"
-	tagEvents     = "events"
+	tagRealtime   = "realtime"
 	tagWorkers    = "worker"
 )
 
@@ -50,11 +50,27 @@ refused on every write.
 
 Recordings and analyses are read and written through PocketBase's record API at
 ` + "`/api/collections/{collection}/records`" + `, whose rules decide what the caller sees; this
-document describes those routes from the collection schema. Everything else is under
+document describes those routes from the collection schema. Changes to them arrive through
+PocketBase's realtime stream at ` + "`/api/realtime`" + ` (see ` + "`x-realtime`" + `). Everything else is under
 ` + "`/v1`" + `. Every error has PocketBase's shape,
 ` + "`{\"status\", \"message\", \"data\"}`" + `; the API's stable code is in ` + "`data.code`" + `.
 
 Browse this document in Swagger UI at /v1/docs, or fetch it as JSON.`
+
+// realtimeDescription is the protocol of PocketBase's realtime API, which is where a
+// client learns that a recording or an analysis changed. It has no route of its own in
+// this document, because PocketBase serves it and its payloads are records; the topics
+// are listed under x-realtime so a client knows what to subscribe to.
+const realtimeDescription = `PocketBase's realtime API is a Server-Sent Events stream served by the backend itself.
+Open it with the account's token (GET /api/realtime, ` + "`Accept: text/event-stream`" + `); the first
+message is PB_CONNECT, whose data is {"clientId": "..."}. Subscribe with a POST to
+/api/realtime carrying that clientId and the topics below, with the same token and from the
+same client address. Every change to a record the caller may read is delivered as a message
+named after its topic, with data {"action": "create|update|delete", "record": {...}}.
+
+Nothing is replayed: a change that happened before the subscription is lost, so a client
+refetches what it shows on every (re)connect. A connection is closed after 30 minutes at the
+latest and after 5 minutes without a message, so a client reconnects and subscribes again.`
 
 type routeParam struct {
 	Name        string
@@ -157,9 +173,6 @@ func buildOpenAPIDocument(app core.App) map[string]any {
 	// Keep the shared error shape in components even though operations only
 	// reference it through responses.
 	reflector.schemaOf(reflect.TypeOf(ErrorResponse{}))
-	// The event payloads are only referenced from prose, so list them here.
-	reflector.schemaOf(reflect.TypeOf(AnalysisEvent{}))
-	reflector.schemaOf(reflect.TypeOf(RecordingEvent{}))
 	// A recording's meta.json keeps the type it is stored as.
 	reflector.schemaOf(reflect.TypeOf(RecordingMeta{}))
 
@@ -196,11 +209,29 @@ func buildOpenAPIDocument(app core.App) map[string]any {
 			map[string]any{"name": tagRecordings, "description": "Recordings and their metadata, through PocketBase's record API."},
 			map[string]any{"name": tagFiles, "description": "The raw data files of a recording."},
 			map[string]any{"name": tagAnalyses, "description": "Analyses of recordings: request, read and delete through the record API, filled in by the queue."},
-			map[string]any{"name": tagEvents, "description": "Live changes."},
+			map[string]any{"name": tagRealtime, "description": "PocketBase's realtime stream of the changes to recordings and analyses."},
 			map[string]any{"name": tagAlgorithms, "description": "What can analyse a recording."},
 			map[string]any{"name": tagWorkers, "description": "Used by the analysis worker."},
 		},
 		"paths": paths,
+		// Realtime has no route of this document to call: PocketBase serves it and its
+		// messages carry records. The topics are documented here for a client that
+		// needs to know what to subscribe to.
+		"x-realtime": map[string]any{
+			"description": realtimeDescription,
+			"topics": []any{
+				map[string]any{
+					"topic":       "recordings/*",
+					"audience":    "A user or an access token, for the recordings it may read.",
+					"description": "A recording was created, changed or deleted. Actions are `create`, `update` and `delete`.",
+				},
+				map[string]any{
+					"topic":       "analyses/*",
+					"audience":    "A user or an access token for its own analyses; a worker for queued analyses and for the analysis it holds a lease of.",
+					"description": "An analysis was created, changed or deleted. A worker treats a queued one as work to claim.",
+				},
+			},
+		},
 		"components": map[string]any{
 			"schemas": reflector.defs,
 			"securitySchemes": map[string]any{

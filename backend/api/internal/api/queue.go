@@ -84,7 +84,6 @@ func ClaimAnalysis(e *core.RequestEvent) error {
 	if claimed == nil {
 		return e.NoContent(http.StatusNoContent)
 	}
-	announceAnalysis(e.App, claimed, statusRunning) // the claim is raw SQL: no record hook ran
 	return e.JSON(http.StatusOK, serializeAnalysis(claimed, false))
 }
 
@@ -168,7 +167,16 @@ func claim(txApp core.App, worker string, lease int, algorithms []ClaimAlgorithm
 	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
 		return nil, err
 	}
-	return txApp.FindRecordById("analyses", rows[0].Id)
+	record, err := txApp.FindRecordById("analyses", rows[0].Id)
+	if err != nil {
+		return nil, err
+	}
+	// The guarded update above is what takes the analysis; saving the values it set
+	// publishes the change to realtime subscribers, which a raw SQL update does not.
+	if err := txApp.Save(record); err != nil {
+		return nil, err
+	}
+	return record, nil
 }
 
 // leasesAnalysis reports whether the worker holds the lease of this analysis right now.
@@ -286,8 +294,9 @@ func FailAnalysis(e *core.RequestEvent) error {
 		return err
 	}
 	if retryIn > 0 {
-		// The queued event went out when the analysis was requeued, but it cannot be
-		// claimed until the backoff has passed: tell the workers again when it can.
+		// A requeued analysis is announced when the failure is saved, but it cannot be
+		// claimed until the backoff has passed: save it again when it can, which wakes
+		// the workers subscribed to the queue without waiting for their poll.
 		app, id := e.App, saved.Id
 		time.AfterFunc(time.Duration(retryIn)*time.Second, func() {
 			// The server may be shutting down by then; there is nobody to tell.
@@ -295,7 +304,9 @@ func FailAnalysis(e *core.RequestEvent) error {
 				return
 			}
 			if record, err := app.FindRecordById("analyses", id); err == nil && record.GetString("status") == statusQueued {
-				announceAnalysis(app, record, statusQueued)
+				if err := app.Save(record); err != nil {
+					app.Logger().Debug("taiga: cannot announce the requeued analysis", "id", id, "error", err.Error())
+				}
 			}
 		})
 	}
