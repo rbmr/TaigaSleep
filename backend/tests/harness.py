@@ -8,6 +8,7 @@ talks to the server only through API v1, like any client would.
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json as jsonlib
 import os
 import shutil
@@ -49,6 +50,18 @@ def unique(prefix: str) -> str:
     """An id that is valid as a recording id and unique within the run."""
 
     return f"{prefix}-{uuid.uuid4().hex[:10]}"
+
+
+def client_address(account: str) -> str:
+    """A stable client address per account, for the header the shipped proxy sets.
+
+    The API rate limits per client address, and every test talks from 127.0.0.1. Sending
+    the address of each account keeps the tests acting like different clients behind the
+    proxy instead of spending one shared budget.
+    """
+
+    digest = hashlib.sha256(account.encode("utf-8")).digest()
+    return f"198.51.100.{digest[0] % 254 + 1}"
 
 
 @dataclass
@@ -198,6 +211,14 @@ class Backend:
             sent["Content-Type"] = "application/json"
         elif data is not None:
             sent.setdefault("Content-Type", "application/octet-stream")
+        # The suite acts as several clients behind the shipped proxy: one address per
+        # account (or standalone token), so one test's traffic does not spend another's
+        # rate limit budget.
+        if "X-Forwarded-For" not in sent:
+            if isinstance(token, Account):
+                sent["X-Forwarded-For"] = client_address(token.email)
+            elif isinstance(token, str) and token:
+                sent["X-Forwarded-For"] = client_address(token)
         if isinstance(token, Account):
             token = token.token
         if token:
@@ -241,8 +262,20 @@ class Backend:
 
     # --- accounts ---
 
-    def login(self, email: str, password: str, expect: int | tuple[int, ...] | None = None) -> Response:
-        return self.post("/v1/auth/login", json={"email": email, "password": password}, expect=expect)
+    def login(
+        self,
+        email: str,
+        password: str,
+        expect: int | tuple[int, ...] | None = None,
+        *,
+        address: str | None = None,
+    ) -> Response:
+        return self.post(
+            "/v1/auth/login",
+            json={"email": email, "password": password},
+            headers={"X-Forwarded-For": address or client_address(email)},
+            expect=expect,
+        )
 
     def new_account(self, collection: str, label: str) -> Account:
         email = f"{label}-{uuid.uuid4().hex[:8]}@example.com"

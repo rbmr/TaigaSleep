@@ -2,10 +2,11 @@ package api
 
 import (
 	"net/http"
-	"os"
 	"reflect"
 
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/router"
 )
 
@@ -30,16 +31,7 @@ func Register(app core.App) {
 			return err
 		}
 		settings := e.App.Settings()
-		changed := false
-		if name := os.Getenv("TAIGA_APP_NAME"); name != "" && settings.Meta.AppName != name {
-			settings.Meta.AppName = name
-			changed = true
-		}
-		if url := os.Getenv("TAIGA_APP_URL"); url != "" && settings.Meta.AppURL != url {
-			settings.Meta.AppURL = url
-			changed = true
-		}
-		if changed {
+		if applyDeploymentSettings(settings) {
 			if err := e.App.Save(settings); err != nil {
 				return err
 			}
@@ -63,6 +55,14 @@ func Register(app core.App) {
 // RegisterRoutes mounts every declared route. Each handler runs behind the route's
 // access check and the error shape, so no endpoint can skip either.
 func RegisterRoutes(router *router.Router[*core.RequestEvent]) {
+	// PocketBase's rate limiter answers before the route handlers run, so its error
+	// never reaches handle(). Bound just outside the limiter, this turns it into the
+	// one error shape of this API; the limiter has a Priority of -1000.
+	router.Bind(&hook.Handler[*core.RequestEvent]{
+		Id:       "taigaMiddlewareError",
+		Priority: apis.DefaultRateLimitMiddlewarePriority - 1,
+		Func:     middlewareError,
+	})
 	// Bound after PocketBase's own auth loading, which the router registered first: a
 	// login token is read there, and only a request without one is tried as an access token.
 	router.BindFunc(loadAccessToken)
@@ -172,7 +172,7 @@ func Routes() []openAPIRoute {
 		{
 			Method: http.MethodPost, Path: apiPrefix + "/auth/login", OperationID: "login", Tag: tagAuth,
 			Summary:     "Log in with an email and password",
-			Description: "Works for app accounts (role `user`) and the worker account (role `worker`). Repeated wrong passwords are throttled.",
+			Description: "Works for app accounts (role `user`) and the worker account (role `worker`). Repeated attempts from one address are throttled.",
 			Body:        jsonBody(LoginRequest{}, "The account's email and password."),
 			Responses: withErrors([]routeResponse{jsonResponse(200, "The token and who it belongs to.", TokenResponse{})},
 				400, 401, 429),
