@@ -88,13 +88,20 @@ func headerList(raw string) []string {
 
 // rateLimitRules is the whole rate-limit configuration of the API. PocketBase matches
 // a rule on "METHOD /path" first and then on the longest path prefix, so the upload
-// rule only has to name the file paths and the last rule covers everything else.
+// rule only has to name the file paths and the last rule covers everything else. The
+// auth rules name PocketBase's collection actions, which is how its own routes find
+// them: the password routes of both auth collections are what slows password guessing.
 func rateLimitRules() []core.RateLimitRule {
 	return []core.RateLimitRule{
 		{
-			Label:       "POST " + apiPrefix + "/auth/login",
+			Label:       "*:authWithPassword",
 			MaxRequests: loginRateLimit,
 			Duration:    loginRateLimitWindow,
+		},
+		{
+			Label:       "*:authRefresh",
+			MaxRequests: apiRateLimit,
+			Duration:    apiRateLimitWindow,
 		},
 		{
 			Label:       "POST " + apiPrefix + "/tokens",

@@ -272,10 +272,11 @@ class Backend:
         expect: int | tuple[int, ...] | None = None,
         *,
         address: str | None = None,
+        collection: str = "users",
     ) -> Response:
         return self.post(
-            "/v1/auth/login",
-            json={"email": email, "password": password},
+            f"/api/collections/{collection}/auth-with-password",
+            json={"identity": email, "password": password},
             headers={"X-Forwarded-For": address or client_address(email)},
             expect=expect,
         )
@@ -291,7 +292,7 @@ class Backend:
         if collection == "workers":
             body["name"] = f"worker-{label}"
         created = self.admin("POST", f"/api/collections/{collection}/records", json=body, expect=200).json()
-        token = self.login(email, PASSWORD, expect=200).json()["token"]
+        token = self.login(email, PASSWORD, expect=200, collection=collection).json()["token"]
         return Account(created["id"], email, PASSWORD, token)
 
     def new_user(self, label: str = "user") -> Account:

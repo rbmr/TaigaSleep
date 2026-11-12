@@ -65,11 +65,12 @@ func newServer(t *testing.T) *server {
 func (s *server) account(collection, email, name string) {
 	s.t.Helper()
 	s.createAccount(collection, email, name)
-	status, _, body := s.call(http.MethodPost, "/v1/auth/login", "", map[string]string{"email": email, "password": "password123"}, nil)
+	status, _, body := s.call(http.MethodPost, "/api/collections/"+collection+"/auth-with-password", "",
+		map[string]string{"identity": email, "password": "password123"}, nil)
 	if status != 200 {
 		s.t.Fatalf("login %s: %d %s", email, status, body)
 	}
-	var out TokenResponse
+	var out AuthResponse
 	if err := json.Unmarshal(body, &out); err != nil {
 		s.t.Fatal(err)
 	}
@@ -229,21 +230,43 @@ func TestSystemRoutesArePublic(t *testing.T) {
 
 func TestAuthentication(t *testing.T) {
 	s := newServer(t)
-	s.expectCode(401, "unauthorized", http.MethodPost, "/v1/auth/login", "", map[string]string{"email": "alice@example.com", "password": "wrong"}, nil)
-	s.expectCode(400, "invalid_body", http.MethodPost, "/v1/auth/login", "", map[string]string{"email": "alice@example.com"}, nil)
-	s.expectCode(401, "unauthorized", http.MethodGet, "/v1/me", "", nil, nil)
-	s.expectCode(401, "unauthorized", http.MethodGet, "/v1/me", "not-a-token", nil, nil)
+	// PocketBase's password login answers its own error for a wrong password.
+	if status, _, body := s.call(http.MethodPost, "/api/collections/users/auth-with-password", "",
+		map[string]string{"identity": "alice@example.com", "password": "wrong"}, nil); status != 400 {
+		t.Fatalf("wrong password = %d %s", status, body)
+	}
+	if status, _, body := s.call(http.MethodPost, "/api/collections/users/auth-with-password", "",
+		map[string]string{"identity": "alice@example.com"}, nil); status != 400 {
+		t.Fatalf("missing password = %d %s", status, body)
+	}
+	s.expectCode(401, "unauthorized", http.MethodGet, "/v1/recordings", "", nil, nil)
+	s.expectCode(401, "unauthorized", http.MethodGet, "/v1/recordings", "not-a-token", nil, nil)
 
-	me := decode[MeResponse](t, s.expect(200, http.MethodGet, "/v1/me", s.tokens["alice"], nil, nil))
-	if me.Role != roleUser || me.Email != "alice@example.com" {
-		t.Fatalf("me = %+v", me)
+	// A user token reads the user's own data; a worker token is refused outside worker routes.
+	s.expect(200, http.MethodGet, "/v1/recordings", s.tokens["alice"], nil, nil)
+
+	// Refreshing answers the token with the account it belongs to, and the new token works.
+	refreshed := decode[AuthResponse](t, s.expect(200, http.MethodPost,
+		"/api/collections/users/auth-refresh", s.tokens["alice"], map[string]any{}, nil))
+	if refreshed.Token == "" || refreshed.Record.Email != "alice@example.com" || refreshed.Record.ID == "" {
+		t.Fatalf("refreshed = %+v", refreshed)
 	}
-	worker := decode[MeResponse](t, s.expect(200, http.MethodGet, "/v1/me", s.tokens["worker"], nil, nil))
-	if worker.Role != roleWorker {
-		t.Fatalf("worker me = %+v", worker)
+	s.expect(200, http.MethodGet, "/v1/recordings", refreshed.Token, nil, nil)
+
+	// A worker token is for the workers collection: the users route refuses it, its own
+	// route refreshes it, and the worker routes work with it.
+	if status, _, body := s.call(http.MethodPost, "/api/collections/users/auth-refresh", s.tokens["worker"], map[string]any{}, nil); status != 403 {
+		t.Fatalf("worker token on the users refresh = %d %s", status, body)
 	}
-	refreshed := decode[TokenResponse](t, s.expect(200, http.MethodPost, "/v1/auth/refresh", s.tokens["alice"], nil, nil))
-	s.expect(200, http.MethodGet, "/v1/me", refreshed.Token, nil, nil)
+	workerSession := decode[AuthResponse](t, s.expect(200, http.MethodPost,
+		"/api/collections/workers/auth-refresh", s.tokens["worker"], map[string]any{}, nil))
+	if workerSession.Token == "" || workerSession.Record.Email != "worker@example.com" {
+		t.Fatalf("worker refresh = %+v", workerSession)
+	}
+	s.expect(204, http.MethodPut, "/v1/workers/me", workerSession.Token, WorkerAnnouncement{
+		Name: "worker-1", Version: "0.1.0",
+		Algorithms: []AlgorithmView{{ID: "baseline", Version: "1.0.0", Name: "baseline", License: "MIT"}},
+	}, nil)
 
 	// A user cannot use worker endpoints and a worker cannot use user ones.
 	s.expectCode(403, "forbidden", http.MethodPost, "/v1/analyses/claim", s.tokens["alice"], nil, nil)
@@ -264,11 +287,16 @@ func TestPocketBaseRecordAPIIsClosed(t *testing.T) {
 			t.Errorf("GET %s = %d, want it closed", path, status)
 		}
 	}
+	// Sign-up stays closed: an account is made by the operator, not by anyone who can
+	// reach the auth route.
 	for _, collection := range []string{"users", "workers"} {
-		status, _, _ := s.call(http.MethodPost, "/api/collections/"+collection+"/auth-with-password", "",
-			map[string]string{"identity": "alice@example.com", "password": "password123"}, nil)
-		if status == 200 {
-			t.Errorf("PocketBase password login for %s still works", collection)
+		status, _, body := s.call(http.MethodPost, "/api/collections/"+collection+"/records", "",
+			map[string]string{
+				"email": "new@example.com", "password": "password123",
+				"passwordConfirm": "password123",
+			}, nil)
+		if status != 403 && status != 404 {
+			t.Errorf("sign-up for %s = %d %s, want it refused", collection, status, body)
 		}
 	}
 }
@@ -995,11 +1023,12 @@ func TestAccessTokensAreReadOnly(t *testing.T) {
 		CompleteRequest{Result: mustJSON(t, validResult("baseline", "1.0.0"))}, nil)
 
 	created := createToken(s, "alice", "my assistant")
-	if !strings.HasPrefix(created.Token, tokenPrefix) || len(created.Token) < 40 || created.Name != "my assistant" ||
+	if len(created.Token) < 40 || created.Name != "my assistant" ||
 		created.ID == "" || created.Created == "" {
 		t.Fatalf("created = %+v", created)
 	}
-	// Only the hash is stored, and the list never carries the token again.
+	// The token is a PocketBase static token of the record: the record is its identity,
+	// and the list never carries the token again.
 	aliceAccount, err := s.app.FindAuthRecordByEmail("users", "alice@example.com")
 	if err != nil {
 		t.Fatal(err)
@@ -1008,11 +1037,14 @@ func TestAccessTokensAreReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.GetString("hash") != tokenHash(created.Token) || record.GetString("hash") == created.Token {
-		t.Fatalf("stored hash = %q", record.GetString("hash"))
+	if !record.Collection().IsAuth() {
+		t.Fatalf("access_tokens is not an auth collection")
 	}
 	if record.GetString("hint") != created.Token[len(created.Token)-4:] || record.GetString("owner") != aliceAccount.Id {
 		t.Fatalf("stored token = %+v", record)
+	}
+	if _, err := s.app.FindAuthRecordByToken(created.Token, core.TokenTypeAuth); err != nil {
+		t.Fatalf("the created token is not accepted: %v", err)
 	}
 	list := decode[TokenList](t, s.expect(200, http.MethodGet, "/v1/tokens", alice, nil, nil))
 	if len(list.Items) != 1 || list.Items[0].ID != created.ID || list.Items[0].Token != "" {
@@ -1065,7 +1097,6 @@ func TestAccessTokensAreReadOnly(t *testing.T) {
 		{http.MethodDelete, "/v1/analyses/" + analysis.ID, nil},
 		{http.MethodPost, "/v1/tokens", TokenRequest{Name: "another"}},
 		{http.MethodDelete, "/v1/tokens/" + created.ID, nil},
-		{http.MethodPost, "/v1/auth/refresh", nil},
 		{http.MethodPut, "/v1/workers/me", map[string]string{"name": "x"}},
 		{http.MethodPost, "/v1/analyses/claim", nil},
 		{http.MethodPost, "/v1/analyses/" + analysis.ID + "/lease", nil},
@@ -1075,9 +1106,18 @@ func TestAccessTokensAreReadOnly(t *testing.T) {
 		{http.MethodGet, "/v1/recordings/" + id + "/files/hr.log", nil},
 		{http.MethodGet, "/v1/algorithms", nil},
 		{http.MethodGet, "/v1/events", nil},
-		{http.MethodGet, "/v1/me", nil},
 	} {
 		s.expectCode(403, "forbidden", call.method, call.path, created.Token, call.body, nil)
+	}
+	// PocketBase's auth routes do not turn a read-only token into a login: its collection
+	// has no auth rule, and the users route refuses a token of another collection.
+	for _, path := range []string{
+		"/api/collections/access_tokens/auth-refresh",
+		"/api/collections/users/auth-refresh",
+	} {
+		if status, _, body := s.call(http.MethodPost, path, created.Token, map[string]any{}, nil); status != 403 {
+			t.Errorf("POST %s with an access token = %d %s", path, status, body)
+		}
 	}
 	// A HEAD answer has no body, so only its status can refuse the raw files.
 	if status, _, _ := s.call(http.MethodHead, "/v1/recordings/"+id+"/files/hr.log", created.Token, nil, nil); status != 403 {

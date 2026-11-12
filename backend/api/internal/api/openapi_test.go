@@ -38,6 +38,14 @@ func TestOpenAPIDocumentIsValid(t *testing.T) {
 	operationIDs := map[string]bool{}
 	pathParameter := regexp.MustCompile(`\{([A-Za-z0-9_]+)\}`)
 
+	// The documented auth routes share the id namespace with the mounted ones.
+	for _, route := range AuthRoutes() {
+		if operationIDs[route.OperationID] {
+			t.Errorf("operationId %q is used twice", route.OperationID)
+		}
+		operationIDs[route.OperationID] = true
+	}
+
 	for _, route := range Routes() {
 		path, ok := paths[route.Path].(map[string]any)
 		if !ok {
@@ -105,6 +113,27 @@ func TestOpenAPIDocumentIsValid(t *testing.T) {
 		}
 		if route.Handler == nil {
 			t.Errorf("%s %s has no handler", route.Method, route.Path)
+		}
+	}
+
+	// PocketBase serves the auth routes, so they are documented without being mounted,
+	// and the document still has to describe them: they are what a client calls first.
+	for _, route := range AuthRoutes() {
+		path, ok := paths[route.Path].(map[string]any)
+		if !ok {
+			t.Errorf("%s %s is not in the document", route.Method, route.Path)
+			continue
+		}
+		operation, ok := path[strings.ToLower(route.Method)].(map[string]any)
+		if !ok {
+			t.Errorf("%s %s has no operation", route.Method, route.Path)
+			continue
+		}
+		if operation["operationId"] == "" || operation["requestBody"] == nil && route.Body != nil {
+			t.Errorf("%s %s is incompletely documented", route.Method, route.Path)
+		}
+		if route.Handler != nil {
+			t.Errorf("%s %s is documented as external but has a handler", route.Method, route.Path)
 		}
 	}
 

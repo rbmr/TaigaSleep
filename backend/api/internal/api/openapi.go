@@ -39,11 +39,15 @@ const (
 const apiDescription = `The HTTP API of the self-hosted Taiga Sleep backend. The design and its conventions
 are in docs/api.md of the repository.
 
-Log in with ` + "`POST /v1/auth/login`" + ` and send the token as ` + "`Authorization: Bearer <token>`" + `.
+Log in through PocketBase's auth route of the account's collection
+(` + "`POST /api/collections/users/auth-with-password`" + ` for an app account,
+` + "`POST /api/collections/workers/auth-with-password`" + ` for the worker) and send the token as
+` + "`Authorization: Bearer <token>`" + `. Refresh it with that collection's ` + "`auth-refresh`" + ` route.
 Each operation says which role may call it: a **user** (an app account) or a **worker**
 (the analysis service). A user can make a read-only access token for their own assistant
 with ` + "`POST /v1/tokens`" + `; it reads their recordings, analyses and results and is
-refused on every write. Every error has the same body, ` + "`{\"code\", \"message\"}`" + `.
+refused on every write. Every error from ` + "`/v1`" + ` has the same body,
+` + "`{\"code\", \"message\"}`" + `; the PocketBase auth routes answer PocketBase's own error shape.
 
 PocketBase's own record API is closed; everything the backend offers is described
 here. Browse this document in Swagger UI at /v1/docs, or fetch it as JSON.`
@@ -129,7 +133,7 @@ func buildOpenAPIDocument() map[string]any {
 	reflector.schemaOf(reflect.TypeOf(RecordingEvent{}))
 
 	paths := map[string]any{}
-	for _, route := range Routes() {
+	for _, route := range append(Routes(), AuthRoutes()...) {
 		path, _ := paths[route.Path].(map[string]any)
 		if path == nil {
 			path = map[string]any{}
@@ -167,7 +171,7 @@ func buildOpenAPIDocument() map[string]any {
 				securityBearer: map[string]any{
 					"type":        "http",
 					"scheme":      "bearer",
-					"description": "The token from POST /v1/auth/login, or a read-only access token from POST /v1/tokens.",
+					"description": "The token from PocketBase's auth route of the account's collection, or a read-only access token from POST /v1/tokens.",
 				},
 			},
 		},

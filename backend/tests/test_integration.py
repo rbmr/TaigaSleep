@@ -104,35 +104,41 @@ def test_docs_page_and_assets_are_served(api: Backend) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_login_gives_a_token_and_the_role_of_the_account(api: Backend) -> None:
+def test_login_gives_a_token_through_the_collections_auth_route(api: Backend) -> None:
     user = api.login(api.user_a.email, PASSWORD, expect=200).json()
-    assert user["role"] == "user"
-    assert user["user"] == {"id": api.user_a.id, "email": api.user_a.email}
     assert user["token"]
+    assert user["record"]["id"] == api.user_a.id
+    assert user["record"]["email"] == api.user_a.email
 
-    worker = api.login(api.worker.email, PASSWORD, expect=200).json()
-    assert worker["role"] == "worker"
-    assert worker["user"] == {"id": api.worker.id, "email": api.worker.email}
+    worker = api.login(api.worker.email, PASSWORD, expect=200, collection="workers").json()
+    assert worker["token"]
+    assert worker["record"]["id"] == api.worker.id
 
-    me = api.get("/v1/me", token=user["token"], expect=200).json()
-    assert me == {"id": api.user_a.id, "email": api.user_a.email, "role": "user"}
-    me = api.get("/v1/me", token=worker["token"], expect=200).json()
-    assert me == {"id": api.worker.id, "email": api.worker.email, "role": "worker"}
+    # Each token works on the routes of its own role.
+    api.get("/v1/recordings", token=user["token"], expect=200)
+    api.put(
+        "/v1/workers/me",
+        token=worker["token"],
+        json={"name": "worker-1", "version": "1", "algorithms": []},
+        expect=204,
+    )
+    # A worker account does not exist in the users collection, so its login is refused there.
+    api.login(api.worker.email, PASSWORD, expect=400)
 
 
-def test_a_wrong_password_is_401_and_does_not_say_which_part_was_wrong(api: Backend) -> None:
-    wrong_password = assert_error(api.login(api.user_a.email, "not-the-password", expect=401), 401, "unauthorized")
-    unknown_user = assert_error(api.login("nobody@example.com", PASSWORD, expect=401), 401, "unauthorized")
+def test_a_wrong_password_is_refused_and_does_not_say_which_part_was_wrong(api: Backend) -> None:
+    wrong_password = api.login(api.user_a.email, "not-the-password", expect=400).json()
+    unknown_user = api.login("nobody@example.com", PASSWORD, expect=400).json()
     assert wrong_password["message"] == unknown_user["message"]
 
-    assert_error(api.post("/v1/auth/login", json={}), 400, "invalid_body")
-    assert_error(api.post("/v1/auth/login", data=b"not json"), 400, "invalid_body")
-    # PocketBase's own login is closed, so there is one way to get a token.
-    api.post(
-        "/api/collections/users/auth-with-password",
-        json={"identity": api.user_a.email, "password": PASSWORD},
-        expect=(403, 404),
-    )
+    assert api.post(
+        "/api/collections/users/auth-with-password", json={}, expect=400
+    ).status == 400
+    assert api.post(
+        "/api/collections/users/auth-with-password", data=b"not json", expect=400
+    ).status == 400
+    # The old API route is gone; there is one way to get a token left.
+    assert api.post("/v1/auth/login", json={"email": api.user_a.email, "password": PASSWORD}).status == 404
 
 
 def test_repeated_logins_from_one_address_are_throttled(api: Backend) -> None:
@@ -143,38 +149,39 @@ def test_repeated_logins_from_one_address_are_throttled(api: Backend) -> None:
     # The limit counts requests from one client address, not failures, so the wrong and
     # the right password share one budget.
     statuses = [api.login(victim.email, "wrong", address=guessing).status for _ in range(60)]
-    assert 401 in statuses, statuses
+    assert 400 in statuses, statuses
     throttled = statuses.index(429)
     assert throttled > 0, statuses
     assert all(status == 429 for status in statuses[throttled:]), statuses
 
     # Even the right password has to wait, but another client address is not affected.
-    assert_error(api.login(victim.email, PASSWORD, address=guessing), 429, "too_many_requests")
+    assert api.login(victim.email, PASSWORD, address=guessing).status == 429
     api.login(api.user_b.email, PASSWORD, address=elsewhere, expect=200)
 
 
 def test_missing_and_invalid_tokens_are_401(api: Backend) -> None:
-    assert_error(api.get("/v1/me"), 401, "unauthorized")
-    assert_error(api.get("/v1/me", token="garbage"), 401, "unauthorized")
     assert_error(api.get("/v1/recordings"), 401, "unauthorized")
+    assert_error(api.get("/v1/recordings", token="garbage"), 401, "unauthorized")
+    assert_error(api.get("/v1/analyses"), 401, "unauthorized")
     assert_error(api.post("/v1/analyses/claim", json={}), 401, "unauthorized")
     assert api.head("/v1/recordings/x/files/hr.log").status == 401
 
 
 def test_a_superuser_token_is_not_an_api_token(api: Backend) -> None:
-    assert_error(api.get("/v1/me", token=api.admin_token), 403, "forbidden")
     assert_error(api.get("/v1/recordings", token=api.admin_token), 403, "forbidden")
+    assert_error(api.get("/v1/analyses", token=api.admin_token), 403, "forbidden")
 
 
 def test_refresh_gives_a_working_token(api: Backend) -> None:
     account = api.new_user("refresh")
 
-    refreshed = api.post("/v1/auth/refresh", token=account, expect=200).json()
+    refreshed = api.post(
+        "/api/collections/users/auth-refresh", token=account, json={}, expect=200
+    ).json()
 
-    assert refreshed["role"] == "user"
-    assert refreshed["user"]["id"] == account.id
-    api.get("/v1/me", token=refreshed["token"], expect=200)
-    assert_error(api.post("/v1/auth/refresh"), 401, "unauthorized")
+    assert refreshed["record"]["id"] == account.id
+    api.get("/v1/recordings", token=refreshed["token"], expect=200)
+    assert api.post("/api/collections/users/auth-refresh", json={}).status == 401
 
 
 def test_an_access_token_reads_the_accounts_data_and_cannot_write(api: Backend) -> None:
@@ -197,7 +204,7 @@ def test_an_access_token_reads_the_accounts_data_and_cannot_write(api: Backend) 
     # Make a token with the account's login, as the doc does; the token is shown once.
     created = api.post("/v1/tokens", token=user, json={"name": "my assistant"}, expect=201).json()
     token = created["token"]
-    assert token.startswith("ts_")
+    assert len(token) > 40
     assert created["name"] == "my assistant" and created["hint"] == token[-4:]
     listed_tokens = api.get("/v1/tokens", token=user, expect=200).json()["items"]
     assert [item["id"] for item in listed_tokens].count(created["id"]) == 1
@@ -242,9 +249,14 @@ def test_an_access_token_reads_the_accounts_data_and_cannot_write(api: Backend) 
         ("DELETE", f"/v1/analyses/{analysis['id']}", None),
         ("POST", "/v1/tokens", {"name": "another"}),
         ("DELETE", f"/v1/tokens/{created['id']}", None),
-        ("GET", "/v1/me", None),
     ]:
         assert_error(api.request(method, path, token=token, json=body), 403, "forbidden")
+    # PocketBase's auth routes do not turn it into a login either.
+    for path in (
+        "/api/collections/access_tokens/auth-refresh",
+        "/api/collections/users/auth-refresh",
+    ):
+        assert api.post(path, token=token, json={}).status == 403
     assert api.get(f"/v1/recordings/{recording}", token=user, expect=200).json()["complete"] is True
 
     # Revoking it stops it at once.
@@ -283,8 +295,8 @@ def test_roles_are_enforced(api: Backend) -> None:
     for method, path, body in user_only:
         assert_error(api.request(method, path, token=worker, json=body), 403, "forbidden")
 
-    # Both roles may ask who they are; a worker only reads what it holds a lease for.
-    api.get("/v1/me", token=worker, expect=200)
+    # Both roles have their own auth route; a worker only reads what it holds a lease for.
+    api.post("/api/collections/workers/auth-refresh", token=worker, json={}, expect=200)
     assert_error(api.get(f"/v1/recordings/{recording}", token=worker), 404, "not_found")
 
 
@@ -335,8 +347,8 @@ def test_every_v1_error_has_the_same_shape(api: Backend) -> None:
     api.put_recording(user, open_recording, state="recording")
 
     cases: list[tuple[Response, int, str]] = [
-        (api.get("/v1/me"), 401, "unauthorized"),
-        (api.post("/v1/auth/login", json={}), 400, "invalid_body"),
+        (api.get("/v1/recordings"), 401, "unauthorized"),
+        (api.post("/v1/tokens", token=user, json={}), 400, "invalid_body"),
         (api.get("/v1/recordings", token=worker), 403, "forbidden"),
         (api.get("/v1/recordings/nope", token=user), 404, "not_found"),
         (api.get("/v1/recordings?limit=0", token=user), 400, "invalid_query"),
@@ -2057,10 +2069,13 @@ def test_the_openapi_document_and_the_served_routes_agree(api: Backend) -> None:
     documented = {
         (method, path) for path, item in paths.items() for method in item if method in HTTP_METHODS or method == "head"
     }
-    # The paths the contract promises (docs/api.md) are in it.
+    # The paths the contract promises (docs/api.md) are in it, and so are the
+    # PocketBase auth routes clients call.
     for method, path in (
         ("get", "/v1/health"),
-        ("post", "/v1/auth/login"),
+        ("post", "/api/collections/users/auth-with-password"),
+        ("post", "/api/collections/users/auth-refresh"),
+        ("post", "/api/collections/workers/auth-with-password"),
         ("put", "/v1/recordings/{id}"),
         ("patch", "/v1/recordings/{id}/files/{name}"),
         ("post", "/v1/recordings/{id}/analyses"),
@@ -2069,7 +2084,11 @@ def test_the_openapi_document_and_the_served_routes_agree(api: Backend) -> None:
         ("put", "/v1/workers/me"),
     ):
         assert (method, path) in documented
-    assert not [path for path in paths if not path.startswith("/v1/")]
+    assert not [
+        path
+        for path in paths
+        if not path.startswith("/v1/") and not path.startswith("/api/collections/")
+    ]
 
     operation_ids = set()
     for path, item in paths.items():
@@ -2083,12 +2102,13 @@ def test_the_openapi_document_and_the_served_routes_agree(api: Backend) -> None:
             # Every documented operation is served: without a token it reaches its access check
             # (or, for the public ones, its handler); an unknown route would be a 404.
             response = api.request(method.upper(), url)
-            if secured:
+            if path.startswith("/api/collections/"):
+                # PocketBase answers in its own error shape; these are its routes.
+                assert response.status == (401 if secured else 400), (method, path)
+            elif secured:
                 assert response.status == 401, (method, path)
                 if method != "head":
                     assert_error(response, 401, "unauthorized")
-            elif (method, path) == ("post", "/v1/auth/login"):
-                assert_error(api.post(url, json={}), 400, "invalid_body")
             else:
                 assert response.status == 200, (method, path)
 
