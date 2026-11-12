@@ -1,12 +1,12 @@
 package api
 
 import (
-	"os"
 	"slices"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
 
+	"github.com/rbmr/TaigaSleep/backend/api/internal/ratelimit"
 	_ "github.com/rbmr/TaigaSleep/backend/api/migrations"
 )
 
@@ -39,23 +39,6 @@ func migratedApp(t *testing.T, dataDir string) *core.BaseApp {
 		t.Fatalf("reload settings: %v", err)
 	}
 	return app
-}
-
-// clearEnv removes the variables for the duration of the test, so a test that depends on
-// their absence is not decided by the shell it runs in.
-func clearEnv(t *testing.T, names ...string) {
-	t.Helper()
-	for _, name := range names {
-		value, set := os.LookupEnv(name)
-		if err := os.Unsetenv(name); err != nil {
-			t.Fatalf("unset %s: %v", name, err)
-		}
-		t.Cleanup(func() {
-			if set {
-				_ = os.Setenv(name, value)
-			}
-		})
-	}
 }
 
 // rateLimitFor looks a rule up the way PocketBase's limiter does, with both labels it
@@ -95,24 +78,24 @@ func TestBootstrapStoresDeploymentSettings(t *testing.T) {
 	}
 }
 
-// TestBootstrapEnablesTheRateLimiter checks the rules an empty data directory gets.
-func TestBootstrapEnablesTheRateLimiter(t *testing.T) {
-	settings := bootedApp(t, t.TempDir()).Settings()
+// TestMigrationsEnableTheRateLimiter checks the rules a fresh data directory gets.
+func TestMigrationsEnableTheRateLimiter(t *testing.T) {
+	settings := migratedApp(t, t.TempDir()).Settings()
 
 	if !settings.RateLimits.Enabled {
 		t.Error("the rate limiter is disabled")
 	}
 	if rule, ok := rateLimitByLabel(settings, "*:authWithPassword"); !ok ||
-		rule.MaxRequests != loginRateLimit || rule.Duration != loginRateLimitWindow {
-		t.Errorf("password login rule = %+v (%v), want %d per %d s", rule, ok, loginRateLimit, loginRateLimitWindow)
+		rule.MaxRequests != ratelimit.LoginMaxRequests || rule.Duration != ratelimit.LoginWindowSeconds {
+		t.Errorf("password login rule = %+v (%v), want %d per %d s", rule, ok, ratelimit.LoginMaxRequests, ratelimit.LoginWindowSeconds)
 	}
 	if rule, ok := rateLimitFor(settings, "PATCH", "/v1/recordings/x/files/hr.log"); !ok ||
-		rule.MaxRequests != uploadRateLimit || rule.Duration != uploadRateLimitWindow {
-		t.Errorf("upload rule = %+v (%v), want %d per %d s", rule, ok, uploadRateLimit, uploadRateLimitWindow)
+		rule.MaxRequests != ratelimit.UploadMaxRequests || rule.Duration != ratelimit.UploadWindowSeconds {
+		t.Errorf("upload rule = %+v (%v), want %d per %d s", rule, ok, ratelimit.UploadMaxRequests, ratelimit.UploadWindowSeconds)
 	}
 	if rule, ok := rateLimitFor(settings, "GET", "/v1/recordings"); !ok ||
-		rule.MaxRequests != apiRateLimit || rule.Duration != apiRateLimitWindow {
-		t.Errorf("API rule = %+v (%v), want %d per %d s", rule, ok, apiRateLimit, apiRateLimitWindow)
+		rule.MaxRequests != ratelimit.APIMaxRequests || rule.Duration != ratelimit.APIWindowSeconds {
+		t.Errorf("API rule = %+v (%v), want %d per %d s", rule, ok, ratelimit.APIMaxRequests, ratelimit.APIWindowSeconds)
 	}
 }
 
@@ -159,7 +142,6 @@ func TestBootstrapTrustsNoProxyHeaderByDefault(t *testing.T) {
 // its first start: the migration writes the schedule, and what the operator changes or
 // clears in the dashboard afterwards is not written over by a later start.
 func TestBackupDefaultsAreSetOnceAndTheOperatorKeepsTheChoice(t *testing.T) {
-	clearEnv(t, "TAIGA_BACKUP_CRON", "TAIGA_BACKUP_KEEP")
 	dir := t.TempDir()
 
 	fresh := migratedApp(t, dir)
@@ -196,43 +178,5 @@ func TestBackupDefaultsAreSetOnceAndTheOperatorKeepsTheChoice(t *testing.T) {
 	cleared := migratedApp(t, dir)
 	if got := cleared.Settings().Backups.Cron; got != "" {
 		t.Errorf("backup cron after clearing = %q, want none", got)
-	}
-}
-
-// TestBackupVariablesOverrideTheStoredSettings checks that the two variables win over
-// what is stored, and that an empty schedule turns automatic backups off.
-func TestBackupVariablesOverrideTheStoredSettings(t *testing.T) {
-	clearEnv(t, "TAIGA_BACKUP_CRON", "TAIGA_BACKUP_KEEP")
-	dir := t.TempDir()
-
-	first := migratedApp(t, dir)
-	if err := first.ClearBootstrap(); err != nil {
-		t.Fatalf("stop the first instance: %v", err)
-	}
-
-	t.Setenv("TAIGA_BACKUP_CRON", "30 1 * * *")
-	t.Setenv("TAIGA_BACKUP_KEEP", "7")
-	overridden := bootedApp(t, dir)
-	if got := overridden.Settings().Backups; got.Cron != "30 1 * * *" || got.CronMaxKeep != 7 {
-		t.Errorf("backups = %+v, want the variables", got)
-	}
-	if err := overridden.ClearBootstrap(); err != nil {
-		t.Fatalf("stop the second instance: %v", err)
-	}
-
-	t.Setenv("TAIGA_BACKUP_CRON", "")
-	off := bootedApp(t, dir)
-	if got := off.Settings().Backups.Cron; got != "" {
-		t.Errorf("backup cron = %q, want automatic backups off", got)
-	}
-}
-
-// TestDisabledBackupsOnAFreshDataDirStayOff covers the first start with the variable that
-// turns them off: the migration runs after the bootstrap and must not switch them on.
-func TestDisabledBackupsOnAFreshDataDirStayOff(t *testing.T) {
-	t.Setenv("TAIGA_BACKUP_CRON", "")
-	app := migratedApp(t, t.TempDir())
-	if got := app.Settings().Backups.Cron; got != "" {
-		t.Errorf("backup cron = %q, want automatic backups off", got)
 	}
 }

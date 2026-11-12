@@ -183,8 +183,6 @@ are the variables it reads:
 | `TAIGA_APP_NAME` | `Taiga Sleep` | Display name in the dashboard and emails. |
 | `TAIGA_ENCRYPTION_KEY` | unset | Optional 32-character key for PocketBase settings encryption. |
 | `TAIGA_TRUSTED_PROXY_HEADERS` | unset | Headers a reverse proxy sets with the client's address, comma separated. Trusted only when named; the Caddy setup sets `X-Forwarded-For`. |
-| `TAIGA_BACKUP_CRON` | `0 3 * * *` | Automatic backup schedule, written once by the schema migration. Empty turns automatic backups off. |
-| `TAIGA_BACKUP_KEEP` | `14` | How many automatic backups are kept, written once by the schema migration. |
 | `TAIGA_MAX_RECORDING_MB` | `256` | Total bytes allowed for one recording directory. |
 | `TAIGA_MAX_RECORDING_FILE_MB` | `64` | Bytes allowed for one stream file. |
 | `TAIGA_MAX_UPLOAD_CHUNK_MB` | `8` | Maximum upload chunk; keep it below PocketBase's 10 MB request-body cap. |
@@ -197,9 +195,10 @@ retryable analysis failures (default `3`).
 
 ### Proxy headers, rate limits and backups
 
-These three live in PocketBase's own settings rather than in flags. The API
-applies the variables at every start, after PocketBase has loaded the settings
-from the database.
+These live in PocketBase's own settings rather than in flags. The API applies the
+trusted proxy variable at every start, after PocketBase has loaded the settings
+from the database. The rate limits and the backup schedule are written once by
+the schema migrations; after that the dashboard owns them.
 
 - **Trusted proxy.** The API trusts no proxy header by default, so the address a
   request is logged and rate limited as is the one the connection came from and a
@@ -212,23 +211,19 @@ from the database.
 - **Rate limits.** PocketBase's rate limiter is enabled with one rule per group of
   `/v1` routes, per client address: login 20 requests per 5 minutes, token creation
   20 per minute, uploads 300 per minute and everything else 300 per 10 seconds. A
-  request over its limit is answered `429` with the code `too_many_requests`. The API
-  writes the rules at every start, so change them here and in the code, not in the
-  dashboard.
+  request over its limit is answered `429` with the code `too_many_requests`. A new
+  data directory gets these rules once from the schema migration; change them in
+  the dashboard and the change stays.
 - **Backups.** A data directory that reaches the schema migration is given
   `0 3 * * *` with 14 copies, once. From then on the dashboard owns the values:
   changing or clearing the schedule stays that way, because the migration does not
-  run again. `TAIGA_BACKUP_CRON` and `TAIGA_BACKUP_KEEP` override the stored values
-  at every start when they are set, and an empty `TAIGA_BACKUP_CRON` turns automatic
-  backups off, also from the first start. The schedule has to be a valid five-field
-  cron expression, or the API refuses to start; the count applies when it is a
-  positive whole number. See [Backup and restore](#backup-and-restore).
+  run again. The schedule has to be a valid five-field cron expression; the count
+  applies when it is a positive whole number. See
+  [Backup and restore](#backup-and-restore).
 
 The systemd unit reads them from `EnvironmentFile=/etc/taiga-sleep/api.env`. The
 Compose example passes `TAIGA_TRUSTED_PROXY_HEADERS=X-Forwarded-For` because Caddy
-is in front, and does not pass the backup variables through `deploy/.env`, because an
-always-set variable would override the operator's backup settings; add a line to the
-`api` service's `environment` there when your deployment needs a different value.
+is in front.
 
 ### Worker
 
@@ -663,8 +658,7 @@ the API keeps serving while it is written.
 ### Schedule and retention
 
 The schema migration gives a new data directory `0 3 * * *` with 14 copies, once.
-From then on the dashboard owns the values, and `TAIGA_BACKUP_CRON` and
-`TAIGA_BACKUP_KEEP` override them when they are set (see
+From then on the dashboard owns the values (see
 [Proxy headers, rate limits and backups](#proxy-headers-rate-limits-and-backups)).
 Change them in the dashboard, or patch the settings as a superuser (`jq` is only
 used to read the token here):
@@ -682,12 +676,11 @@ curl -fsS -X PATCH "$BASE/api/settings" \
 ```
 
 - `cron` is a five-field cron expression. A value set here stays, and clearing it
-  turns automatic backups off and keeps them off; to do the same from the unit, set
-  `TAIGA_BACKUP_CRON` to an empty value. Choose a schedule that matches how much
-  history you are willing to lose; a nightly run with two weeks of copies
+  turns automatic backups off and keeps them off. Choose a schedule that matches how
+  much history you are willing to lose; a nightly run with two weeks of copies
   (`0 3 * * *`, `cronMaxKeep: 14`) is the default, not a requirement.
 - `cronMaxKeep` is required once `cron` is set and limits how many automatic
-  backups are kept. A value set here stays unless `TAIGA_BACKUP_KEEP` is set.
+  backups are kept. A value set here stays.
 - Automatic backups are written to `<data dir>/backups/` as
   `@auto_pb_backup_<app name>_<timestamp>.zip` and listed under
   `Settings -> Backups`.
