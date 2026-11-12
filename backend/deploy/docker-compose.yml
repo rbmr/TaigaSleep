@@ -18,8 +18,6 @@ services:
       - taiga-data:/pb/pb_data
     environment:
       TAIGA_HTTP_ADDR: "0.0.0.0:8090"
-      TAIGA_APP_NAME: "${TAIGA_APP_NAME:-Taiga Sleep}"
-      TAIGA_APP_URL: "${TAIGA_APP_URL:-http://127.0.0.1:8090}"
       # Caddy in front sets X-Forwarded-For with the client's address. The API trusts
       # no proxy header unless one is named here; set the value empty when the port is
       # exposed directly instead of through Caddy.

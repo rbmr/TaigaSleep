@@ -172,16 +172,14 @@ extra disk. See [`docs/sleepecg.md`](../docs/sleepecg.md).
 ### PocketBase
 
 PocketBase itself is configured with flags. The deployment examples pass the
-listen address, the data directory and the app name and URL through the unit and
-compose files; the API reads the rest from its environment at every start. These
-are the variables it reads:
+listen address and the data directory through the unit and compose files; the
+API reads the rest from its environment at every start. These are the variables
+it reads:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `TAIGA_HTTP_ADDR` | `127.0.0.1:8090` | Listen address. Use `0.0.0.0:8090` inside a container. |
 | `TAIGA_DATA_DIR` | `pb_data` / `/pb/pb_data` | Data directory (database, files, logs). Back this up. |
-| `TAIGA_APP_URL` | unset | Stored in PocketBase settings; used in auth email links. |
-| `TAIGA_APP_NAME` | `Taiga Sleep` | Display name in the dashboard and emails. |
 | `TAIGA_ENCRYPTION_KEY` | unset | Optional 32-character key for PocketBase settings encryption. |
 | `TAIGA_TRUSTED_PROXY_HEADERS` | unset | Headers a reverse proxy sets with the client's address, comma separated. Trusted only when named; the Caddy setup sets `X-Forwarded-For`. |
 | `TAIGA_MAX_RECORDING_MB` | `256` | Total bytes allowed for one recording directory. |
@@ -200,6 +198,11 @@ These live in PocketBase's own settings rather than in flags. The API applies th
 trusted proxy variable at every start, after PocketBase has loaded the settings
 from the database. The rate limits and the backup schedule are written once by
 the schema migrations; after that the dashboard owns them.
+
+The app name and the app URL are ordinary PocketBase settings as well. The schema
+migration sets the app name once and no start writes it again, so change it in
+the dashboard. Set the app URL there too when emails are configured: PocketBase
+uses it as the base of the links it sends.
 
 - **Trusted proxy.** The API trusts no proxy header by default, so the address a
   request is logged and rate limited as is the one the connection came from and a
