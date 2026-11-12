@@ -27,8 +27,8 @@ class ApiClient:
 
     Recordings come from PocketBase's record API, whose rules let a worker read one
     while it holds the lease of an analysis of it; the queue, the recording files and
-    the event stream are the API's own routes under /v1. Every error has PocketBase's
-    shape: {"status", "message", "data"}.
+    the realtime stream are the API's own routes under /v1 and PocketBase's /api.
+    Every error has PocketBase's shape: {"status", "message", "data"}.
     """
 
     def __init__(self, base_url: str, timeout_s: float = 30.0) -> None:
@@ -108,15 +108,25 @@ class ApiClient:
         except ValueError as exc:
             raise ApiError("API returned invalid JSON") from exc
 
-    def open_events(self, timeout_s: float = 60.0) -> Any:
-        """Open the event stream (GET /v1/events) and return the open response.
+    def open_realtime(self, timeout_s: float = 360.0) -> Any:
+        """Open PocketBase's realtime stream (GET /api/realtime) and return the response.
 
-        The caller reads it line by line and closes it. ``timeout_s`` is how long the
-        stream may stay silent before a read fails; the API sends a comment line every
-        20 seconds, so a connection that stays quiet longer than that is dead.
+        The caller reads it line by line, subscribes with the client id of its first
+        message and closes it. ``timeout_s`` is how long the stream may stay silent
+        before a read fails; PocketBase closes a connection that sent nothing for five
+        minutes, so a connection that stays quiet longer than that is dead.
         """
 
-        return self._open("GET", "/v1/events", accept="text/event-stream", timeout_s=timeout_s)
+        return self._open("GET", "/api/realtime", accept="text/event-stream", timeout_s=timeout_s)
+
+    def subscribe_realtime(self, client_id: str, subscriptions: list[str]) -> None:
+        """Subscribe the open realtime connection to the topics changes are read from."""
+
+        self._request(
+            "POST",
+            "/api/realtime",
+            {"clientId": client_id, "subscriptions": list(subscriptions)},
+        )
 
     def login(self, email: str, password: str) -> str:
         payload = self._request(

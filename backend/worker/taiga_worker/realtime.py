@@ -1,15 +1,15 @@
-"""The worker's side of the event stream (``GET /v1/events``, docs/api.md).
+"""The worker's side of PocketBase's realtime stream (``GET /api/realtime``, docs/api.md).
 
 The API tells a connected worker that an analysis was queued, so the worker claims it at
-once instead of finding it on its next poll. Events are not replayed: whatever was queued
+once instead of finding it on its next poll. Changes are not replayed: whatever was queued
 while the worker was not connected is found by the claim the worker makes after every
 (re)connect, and a requeue that becomes due without any change to the data (a retry that
-waited out its delay) has no event at all, which is why the poll interval stays as a
-fallback.
+waited out its delay) is announced by the API when it becomes claimable, while the poll
+interval stays as the fallback.
 
 The stream is only a doorbell. It never carries work and a failure of it never stops the
-worker: :class:`EventStream` runs in a thread of its own, reconnects with a backoff and
-does nothing but set an event for the worker loop to wait on.
+worker: :class:`Realtime` runs in a thread of its own, reconnects with a backoff and does
+nothing but set an event for the worker loop to wait on.
 """
 
 from __future__ import annotations
@@ -20,28 +20,42 @@ import logging
 import socket
 import threading
 from typing import Any, Callable, Iterable, Iterator, TypeVar
+from urllib.parse import quote
 
 from .api import ApiClient, ApiError
 
 T = TypeVar("T")
 
-# The API sends a comment every 20 seconds; a stream that stays quiet for three times
-# that is dead.
-READ_TIMEOUT_S = 60.0
+# PocketBase closes a connection that has sent nothing for five minutes, and any
+# connection after thirty; a stream that stays quiet for longer than either is dead.
+READ_TIMEOUT_S = 360.0
 MIN_BACKOFF_S = 1.0
 MAX_BACKOFF_S = 30.0
-# A line of an event is a few dozen bytes; this only bounds what a broken server can make
-# the worker buffer.
-MAX_LINE_BYTES = 64 * 1024
+# A line of a message is a record, which is at most a few kilobytes plus its result; this
+# only bounds what a broken server can make the worker buffer.
+MAX_LINE_BYTES = 4 * 1024 * 1024
+
+# The first message of the stream carries the id the subscription is made with.
+PB_CONNECT = "PB_CONNECT"
+
+def topic(collection: str, fields: str) -> str:
+    """One subscription, asking PocketBase for the fields the worker needs and no more."""
+
+    options = json.dumps({"query": {"fields": fields}}, separators=(",", ":"))
+    return f"{collection}/*?options={quote(options, safe='')}"
+
+
+# The topics the worker follows: the queue of analyses it may take.
+SUBSCRIPTIONS = (topic("analyses", "id,recording,status"),)
 
 
 def parse_events(lines: Iterable[bytes | str]) -> Iterator[tuple[str, str]]:
-    """Yield ``(event, data)`` for every event of a Server-Sent Events stream.
+    """Yield ``(event, data)`` for every message of a Server-Sent Events stream.
 
     ``lines`` are the lines of the stream, in order, with or without their line ending.
     Comments (``:``), ``id`` and ``retry`` fields and fields it does not know are skipped.
-    An event ends at a blank line; one without a ``data`` field is not an event, and one
-    the stream ended in the middle of is dropped. An event without an ``event`` field is
+    A message ends at a blank line; one without a ``data`` field is not a message, and one
+    the stream ended in the middle of is dropped. A message without an ``event`` field is
     named ``message``.
     """
 
@@ -66,19 +80,19 @@ def parse_events(lines: Iterable[bytes | str]) -> Iterator[tuple[str, str]]:
             data.append(value)
 
 
-class EventStream:
-    """Listens to ``/v1/events`` in a background thread and sets ``wake`` when there is work.
+class Realtime:
+    """Listens to ``/api/realtime`` in a background thread and sets ``wake`` when there is work.
 
-    ``wake`` is set once on every successful (re)connect, because events are not
-    replayed, and on every ``analysis`` event whose status is ``queued``. Any error or
-    end of the stream leads to a new connection after a delay that starts at
+    ``wake`` is set once on every successful (re)connect and subscription, because changes
+    are not replayed, and on every change that leaves an analysis queued. Any error or end
+    of the stream leads to a new connection after a delay that starts at
     ``min_backoff_s``, doubles with every failed attempt up to ``max_backoff_s`` and starts
-    over after a successful connection.
+    over after a successful subscription.
 
-    ``call`` wraps the request that opens the stream, the way the worker wraps every
-    other request: it logs in when there is no token and again when the stream answers
-    ``401``. ``wait`` is how the thread sleeps between attempts; it returns True when it
-    should stop (the default also wakes up on :meth:`stop`).
+    ``call`` wraps the requests that open and subscribe the stream, the way the worker
+    wraps every other request: it logs in when there is no token and again when the API
+    answers ``401``. ``wait`` is how the thread sleeps between attempts; it returns True
+    when it should stop (the default also wakes up on :meth:`stop`).
     """
 
     def __init__(
@@ -86,6 +100,7 @@ class EventStream:
         api: ApiClient,
         wake: threading.Event,
         *,
+        subscriptions: tuple[str, ...] = SUBSCRIPTIONS,
         call: Callable[[Callable[[], T]], T] | None = None,
         logger: logging.Logger | None = None,
         read_timeout_s: float = READ_TIMEOUT_S,
@@ -95,6 +110,7 @@ class EventStream:
     ) -> None:
         self.api = api
         self.wake = wake
+        self.subscriptions = subscriptions
         self.log = logger or logging.getLogger("taiga_worker")
         self.read_timeout_s = read_timeout_s
         self.min_backoff_s = min_backoff_s
@@ -115,7 +131,7 @@ class EventStream:
             return
         # A daemon thread: if it cannot be interrupted (see _interrupt) it must still
         # not keep a stopping worker alive.
-        self._thread = threading.Thread(target=self._run, name="taiga-events", daemon=True)
+        self._thread = threading.Thread(target=self._run, name="taiga-realtime", daemon=True)
         self._thread.start()
 
     def stop(self, timeout_s: float = 2.0) -> None:
@@ -165,7 +181,7 @@ class EventStream:
 
             if connected:
                 delay = self.min_backoff_s
-                self.log.debug("the event stream ended; reconnecting in %ss", delay)
+                self.log.debug("the realtime stream ended; reconnecting in %ss", delay)
             elif not self._warned:
                 self._warned = True
                 self.log.warning(
@@ -174,7 +190,7 @@ class EventStream:
                     delay,
                 )
             else:
-                self.log.debug("event stream unavailable (%s); retrying in %ss", error, delay)
+                self.log.debug("realtime stream unavailable (%s); retrying in %ss", error, delay)
 
             if self._wait(delay):
                 return
@@ -182,13 +198,13 @@ class EventStream:
                 delay = min(delay * 2, self.max_backoff_s)
 
     def _session(self) -> bool:
-        """Listen on one connection. Returns whether the connection was made.
+        """Listen on one connection. Returns whether the subscription was made.
 
-        Errors before the connection is made are raised; once it is made, whatever ends
-        it only ends the session.
+        Errors before the subscription are raised; once it is made, whatever ends the
+        session only ends the session.
         """
 
-        response = self._call(lambda: self.api.open_events(self.read_timeout_s))
+        response = self._call(lambda: self.api.open_realtime(self.read_timeout_s))
         with self._lock:
             self._response = response
         connected = False
@@ -198,26 +214,24 @@ class EventStream:
             content_type = str(response.headers.get("Content-Type") or "")
             if not content_type.lower().startswith("text/event-stream"):
                 # Some proxy or captive portal answering for the API; not a stream.
-                raise ApiError(f"/v1/events did not answer with an event stream ({content_type or 'no type'})")
-
-            connected = True
-            if self._connected_before and self._warned:
-                self.log.info("listening for new analyses again")
-            elif not self._connected_before:
-                self.log.info("listening for new analyses (event stream connected)")
-            else:
-                self.log.debug("event stream connected")
-            self._connected_before = True
-            self._warned = False
-            # Nothing was replayed: whatever was queued meanwhile is found by a claim.
-            self.wake.set()
+                raise ApiError(f"/api/realtime did not answer with a realtime stream ({content_type or 'no type'})")
 
             for event, data in parse_events(self._lines(response)):
+                if event == PB_CONNECT:
+                    if not self._subscribe(data):
+                        raise ApiError("/api/realtime did not name a client to subscribe")
+                    if not connected:
+                        connected = True
+                        self._connected()
+                    continue
+                if not connected:
+                    # Nothing is delivered before the subscription, so this cannot happen.
+                    continue
                 self._handle(event, data)
         except (OSError, http.client.HTTPException, ValueError) as exc:
             if connected:
                 if not self._stop.is_set():
-                    self.log.debug("the event stream broke: %s", exc)
+                    self.log.debug("the realtime stream broke: %s", exc)
             else:
                 raise
         finally:
@@ -229,6 +243,31 @@ class EventStream:
                 pass
         return connected
 
+    def _connected(self) -> None:
+        if self._connected_before and self._warned:
+            self.log.info("listening for new analyses again")
+        elif not self._connected_before:
+            self.log.info("listening for new analyses (realtime connected)")
+        else:
+            self.log.debug("realtime connected")
+        self._connected_before = True
+        self._warned = False
+        # Nothing was replayed: whatever was queued meanwhile is found by a claim.
+        self.wake.set()
+
+    def _subscribe(self, data: str) -> bool:
+        """Subscribe the open connection to the queue; False when the message names no client."""
+
+        try:
+            payload = json.loads(data)
+        except ValueError:
+            return False
+        client_id = payload.get("clientId") if isinstance(payload, dict) else None
+        if not client_id:
+            return False
+        self._call(lambda: self.api.subscribe_realtime(str(client_id), list(self.subscriptions)))
+        return True
+
     @staticmethod
     def _lines(response: Any) -> Iterator[bytes]:
         while True:
@@ -238,12 +277,15 @@ class EventStream:
             yield line
 
     def _handle(self, event: str, data: str) -> None:
-        if event != "analysis":
+        if not event.startswith("analyses"):
             return
         try:
             payload = json.loads(data)
         except ValueError:
-            self.log.debug("ignoring an analysis event that is not JSON")
+            self.log.debug("ignoring a change that is not JSON")
             return
-        if isinstance(payload, dict) and payload.get("status") == "queued":
+        if not isinstance(payload, dict):
+            return
+        record = payload.get("record")
+        if isinstance(record, dict) and record.get("status") == "queued":
             self.wake.set()

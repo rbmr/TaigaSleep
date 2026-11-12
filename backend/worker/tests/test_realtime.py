@@ -7,8 +7,16 @@ from typing import Any, Callable, Iterator
 import pytest
 
 from taiga_worker.api import ApiClient, ApiError
-from taiga_worker.events import MAX_LINE_BYTES, EventStream, parse_events
-from tests.event_server import EventServer, Plan, event, queued, wait_until
+from taiga_worker.realtime import MAX_LINE_BYTES, Realtime, parse_events
+from tests.realtime_server import (
+    TOPIC,
+    RealtimeServer,
+    Plan,
+    change,
+    message,
+    queued,
+    wait_until,
+)
 
 # --- the parser ---
 
@@ -18,24 +26,20 @@ def parsed(text: str | bytes) -> list[tuple[str, str]]:
     return list(parse_events(raw.splitlines(keepends=True)))
 
 
-def test_an_event_has_a_name_and_data_and_ends_at_a_blank_line() -> None:
-    assert parsed('event: analysis\ndata: {"id": "a1", "status": "queued"}\n\n') == [
-        ("analysis", '{"id": "a1", "status": "queued"}')
+def test_a_message_has_a_name_and_data_and_ends_at_a_blank_line() -> None:
+    assert parsed('event: analyses/*\ndata: {"action": "create"}\n\n') == [
+        ("analyses/*", '{"action": "create"}')
     ]
 
 
-def test_the_opening_of_the_real_stream_carries_no_event() -> None:
-    assert parsed(": connected\nretry: 3000\n\n: keepalive\n\n") == []
+def test_comments_and_fields_it_does_not_know_are_skipped_inside_a_message() -> None:
+    text = ": a comment\nid: 7\nretry: 100\nevent: analyses/*\nflavour: salty\ndata: x\n\n"
+    assert parsed(text) == [("analyses/*", "x")]
 
 
-def test_comments_and_fields_it_does_not_know_are_skipped_inside_an_event() -> None:
-    text = ": a comment\nid: 7\nretry: 100\nevent: analysis\nflavour: salty\ndata: x\n\n"
-    assert parsed(text) == [("analysis", "x")]
-
-
-def test_several_events_follow_each_other_and_do_not_leak_into_one_another() -> None:
-    text = "event: analysis\ndata: one\n\ndata: two\n\nevent: recording\ndata: three\n\n"
-    assert parsed(text) == [("analysis", "one"), ("message", "two"), ("recording", "three")]
+def test_several_messages_follow_each_other_and_do_not_leak_into_one_another() -> None:
+    text = "event: one\ndata: a\n\ndata: b\n\nevent: three\ndata: c\n\n"
+    assert parsed(text) == [("one", "a"), ("message", "b"), ("three", "c")]
 
 
 def test_data_lines_are_joined_with_a_newline() -> None:
@@ -43,21 +47,21 @@ def test_data_lines_are_joined_with_a_newline() -> None:
 
 
 def test_only_one_space_after_the_colon_is_dropped() -> None:
-    assert parsed("event:analysis\ndata:  two spaces\n\n") == [("analysis", " two spaces")]
+    assert parsed("event:analyses/*\ndata:  two spaces\n\n") == [("analyses/*", " two spaces")]
 
 
 def test_carriage_returns_are_line_endings_too() -> None:
-    assert parsed("event: analysis\r\ndata: x\r\n\r\n") == [("analysis", "x")]
+    assert parsed("event: analyses/*\r\ndata: x\r\n\r\n") == [("analyses/*", "x")]
 
 
-def test_an_event_without_data_and_one_cut_short_are_not_events() -> None:
-    assert parsed("event: analysis\n\n") == []
-    assert parsed("event: analysis\ndata: half") == []
-    assert parsed("event: analysis\ndata: whole\n") == []
+def test_a_message_without_data_and_one_cut_short_are_not_messages() -> None:
+    assert parsed("event: analyses/*\n\n") == []
+    assert parsed("event: analyses/*\ndata: half") == []
+    assert parsed("event: analyses/*\ndata: whole\n") == []
 
 
 def test_bytes_that_are_not_utf8_do_not_raise() -> None:
-    assert parsed(b"event: analysis\ndata: \xff\xfe\n\n") == [("analysis", "��")]
+    assert parsed(b"event: analyses/*\ndata: \xff\xfe\n\n") == [("analyses/*", "��")]
 
 
 # --- the stream ---
@@ -76,8 +80,8 @@ class Wake(threading.Event):
 
 
 @pytest.fixture()
-def server() -> Iterator[EventServer]:
-    stub = EventServer()
+def server() -> Iterator[RealtimeServer]:
+    stub = RealtimeServer()
     try:
         yield stub
     finally:
@@ -85,8 +89,8 @@ def server() -> Iterator[EventServer]:
 
 
 @pytest.fixture()
-def streams() -> Iterator[list[EventStream]]:
-    started: list[EventStream] = []
+def streams() -> Iterator[list[Realtime]]:
+    started: list[Realtime] = []
     try:
         yield started
     finally:
@@ -95,54 +99,58 @@ def streams() -> Iterator[list[EventStream]]:
 
 
 def listen(
-    server: EventServer,
-    streams: list[EventStream],
+    server: RealtimeServer,
+    streams: list[Realtime],
     *,
     token: str | None = "t1",
     call: Callable[[Callable[[], Any]], Any] | None = None,
     start: bool = True,
     **options: Any,
-) -> tuple[EventStream, Wake]:
+) -> tuple[Realtime, Wake]:
     options.setdefault("min_backoff_s", 0.01)
     options.setdefault("max_backoff_s", 0.05)
     api = ApiClient(server.url, timeout_s=5)
     api.token = token
     wake = Wake()
-    stream = EventStream(api, wake, call=call, **options)
+    stream = Realtime(api, wake, call=call, **options)
     streams.append(stream)
     if start:
         stream.start()
     return stream, wake
 
 
-def test_connecting_rings_the_worker_once_and_asks_for_an_event_stream(server, streams) -> None:
+def test_connecting_subscribes_the_worker_and_rings_it_once(server, streams) -> None:
     _, wake = listen(server, streams)
 
     assert wake.wait(5)
     assert server.wait_for_connections(1)
+    (subscription,) = server.wait_for_subscriptions(1)
     request = server.requests[0]
     assert request["token"] == "t1"
     assert request["accept"] == "text/event-stream"
-    # An event stream is never compressed.
+    # A stream is never compressed.
     assert "gzip" not in (request["accept_encoding"] or "")
+    assert subscription["token"] == "t1"
+    assert subscription["clientId"] == "client-1"
+    assert subscription["subscriptions"] == [TOPIC]
     assert wake.rings == 1
 
 
-def test_only_queued_analyses_ring_the_worker(server, streams) -> None:
+def test_only_a_queued_analysis_rings_the_worker(server, streams) -> None:
     _, wake = listen(server, streams)
     (connection,) = server.wait_for_connections(1)
     assert wake.wait(5)
     wake.clear()
 
-    connection.send(event("analysis", id="a1", recording="r1", status="running"))
-    connection.send(event("analysis", id="a1", recording="r1", status="succeeded"))
-    connection.send(event("analysis", id="a1", recording="r1", status="deleted"))
-    connection.send(event("recording", id="r1", change="created"))
-    connection.send(event("something-new", status="queued"))
-    connection.send(b": keepalive\n\n")
-    connection.send(b"event: analysis\ndata: this is not json\n\n")
-    connection.send(b'event: analysis\ndata: ["queued"]\n\n')
-    connection.send(b'data: {"status": "queued"}\n\n')  # an event that is not named
+    connection.send(change("update", id="a1", recording="r1", status="running"))
+    connection.send(change("update", id="a1", recording="r1", status="succeeded"))
+    connection.send(change("delete", id="a1", recording="r1", status="failed"))
+    connection.send(message("recordings/*", "create", {"id": "r1"}))
+    connection.send(message("something/*", "create", {"id": "x", "status": "queued"}))
+    connection.send(b": a comment\n\n")
+    connection.send(b"event: analyses/*\ndata: this is not json\n\n")
+    connection.send(b'event: analyses/*\ndata: ["queued"]\n\n')
+    connection.send(b'event: analyses/*\ndata:{"record": {"status": "running"}}\n\n')
     connection.send(queued("a2"))
 
     assert wake.wait(5)
@@ -153,12 +161,15 @@ def test_only_queued_analyses_ring_the_worker(server, streams) -> None:
     assert wake.rings == 3
 
 
-def test_a_stream_that_ends_is_reconnected_and_rings_the_worker_again(server, streams) -> None:
+def test_a_stream_that_ends_is_reconnected_and_subscribed_again(server, streams) -> None:
     server.plans = [Plan(then="end")]
     _, wake = listen(server, streams)
 
     server.wait_for_connections(2)
+    first, second = server.wait_for_subscriptions(2)
 
+    assert first["clientId"] == "client-1"
+    assert second["clientId"] == "client-2"
     assert wait_until(lambda: wake.rings == 2)
 
 
@@ -167,6 +178,7 @@ def test_a_stream_that_is_cut_off_is_reconnected(server, streams) -> None:
     _, wake = listen(server, streams)
 
     server.wait_for_connections(2)
+    server.wait_for_subscriptions(2)
 
     assert wait_until(lambda: wake.rings == 2)
 
@@ -221,6 +233,7 @@ def test_a_stream_without_a_token_is_refused_and_the_worker_is_not_rung(server, 
     time.sleep(0.3)
 
     assert server.requests == []
+    assert server.subscriptions == []
     assert wake.rings == 0
 
 
@@ -254,7 +267,7 @@ def test_without_call_a_rejected_token_is_just_a_failed_attempt(server, streams)
 
 
 def test_a_connection_that_goes_quiet_is_noticed_and_replaced(server, streams) -> None:
-    # The API sends a comment every 20 seconds; this is the same rule, sped up.
+    # PocketBase closes an idle connection; this is the same rule, sped up.
     _, wake = listen(server, streams, read_timeout_s=0.3)
 
     started = time.monotonic()
@@ -262,19 +275,6 @@ def test_a_connection_that_goes_quiet_is_noticed_and_replaced(server, streams) -
 
     assert time.monotonic() - started < 3
     assert wait_until(lambda: wake.rings == 2)
-
-
-def test_keepalive_comments_keep_a_quiet_connection(server, streams) -> None:
-    _, wake = listen(server, streams, read_timeout_s=0.3)
-    (connection,) = server.wait_for_connections(1)
-
-    for _ in range(10):  # three times the read timeout
-        connection.send(b": keepalive\n\n")
-        time.sleep(0.1)
-
-    assert len(server.requests) == 1
-    assert wake.rings == 1
-    assert not connection.gone.is_set()
 
 
 def test_stopping_ends_a_read_that_is_blocked_at_once(server, streams) -> None:
@@ -319,9 +319,9 @@ def test_garbage_does_not_stop_the_stream(server, streams) -> None:
     assert wake.wait(5)
     wake.clear()
 
-    connection.send(b"\xff\xfe\x00\x01 not an event at all\n\n")
-    connection.send(b"data: " + b"x" * (MAX_LINE_BYTES * 3) + b"\n\n")  # longer than a line may be
-    connection.send(b"event: analysis\ndata: {\"status\": \"queued\"\n\n")  # truncated JSON
+    connection.send(b"\xff\xfe\x00\x01 not a message at all\n\n")
+    connection.send(b"data: " + b"x" * (MAX_LINE_BYTES + 1) + b"\n\n")  # longer than a line may be
+    connection.send(b'event: analyses/*\ndata: {"record": {"status": "queued"\n\n')  # truncated JSON
     connection.send(queued())
 
     assert wake.wait(5)
@@ -330,7 +330,7 @@ def test_garbage_does_not_stop_the_stream(server, streams) -> None:
 
 def test_an_unreachable_api_is_retried_and_never_raises(streams) -> None:
     delays: list[float] = []
-    holder: dict[str, EventStream] = {}
+    holder: dict[str, Realtime] = {}
 
     def wait(seconds: float) -> bool:
         delays.append(seconds)
@@ -341,7 +341,7 @@ def test_an_unreachable_api_is_retried_and_never_raises(streams) -> None:
     api = ApiClient("http://127.0.0.1:1", timeout_s=1)
     api.token = "t1"
     wake = Wake()
-    stream = EventStream(api, wake, min_backoff_s=1.0, max_backoff_s=4.0, wait=wait)
+    stream = Realtime(api, wake, min_backoff_s=1.0, max_backoff_s=4.0, wait=wait)
     holder["stream"] = stream
     streams.append(stream)
     stream.start()

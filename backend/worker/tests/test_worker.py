@@ -13,7 +13,7 @@ from taiga_worker.config import Config
 from taiga_worker.runner import Outcome
 from taiga_worker.worker import ANNOUNCE_INTERVAL_S, Worker
 from tests import analysis_fixture as fx
-from tests.event_server import EventServer, queued, wait_until
+from tests.realtime_server import RealtimeServer as EventServer, change, queued, wait_until
 
 
 def config(**changes: Any) -> Config:
@@ -601,7 +601,7 @@ def test_run_forever_recovers_from_api_errors() -> None:
     assert sleeps == [1.0]
 
 
-# --- the worker with its event stream, against a stub of the API ---
+# --- the worker with its realtime stream, against a stub of the API ---
 
 
 @pytest.fixture()
@@ -661,10 +661,9 @@ def test_the_worker_claims_when_connected_and_when_an_analysis_is_queued(api_stu
     claims = settled(lambda: len(api_stub.claims))
     assert claims >= 1  # at least the one it makes on connecting
 
-    # Events that are not about new work leave it idle.
-    connection.send(b": keepalive\n\n")
-    connection.send(b'event: analysis\ndata: {"id": "a", "recording": "r", "status": "running"}\n\n')
-    connection.send(b'event: recording\ndata: {"id": "r", "change": "created"}\n\n')
+    # Changes that are not about new work leave it idle.
+    connection.send(change("update", id="a", recording="r", status="running"))
+    connection.send(change("update", id="a", recording="r", status="succeeded"))
     assert settled(lambda: len(api_stub.claims)) == claims
 
     connection.send(queued())

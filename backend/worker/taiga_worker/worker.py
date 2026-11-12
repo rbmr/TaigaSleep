@@ -11,7 +11,7 @@ from typing import Any, Callable, Mapping
 from . import __version__
 from .api import ApiClient, ApiError
 from .config import Config
-from .events import EventStream
+from .realtime import Realtime
 from .runner import JobRunner, Outcome
 from .upload import RECORDING_FILES, STREAM_IDS, verify_recording_file
 
@@ -38,14 +38,14 @@ class Worker:
         self.runner = runner
         self.log = logger or logging.getLogger("taiga_worker")
         self._stop = threading.Event()
-        # Rung when there may be work: by the event stream, and by a stop request.
+        # Rung when there may be work: by the realtime stream, and by a stop request.
         self.wake = wake if wake is not None else threading.Event()
-        self._events = (
-            EventStream(api, self.wake, call=self._call, logger=self.log) if events else None
+        self._realtime = (
+            Realtime(api, self.wake, call=self._call, logger=self.log) if events else None
         )
         self._sleep = sleep or self._stop.wait
         self._clock = clock or time.monotonic
-        # The event stream logs in from its own thread, so logging in is serialised.
+        # The realtime stream logs in from its own thread, so logging in is serialised.
         self._auth_lock = threading.RLock()
         self._capabilities: list[dict[str, Any]] | None = None
         self._algorithm_ids: list[str] = []
@@ -89,7 +89,7 @@ class Worker:
     def _call(self, fn: Callable[[], Any]) -> Any:
         """Run one request, logging in first and once more when the token is rejected.
 
-        The worker loop and the event stream both call through here, so a token that
+        The worker loop and the realtime stream both call through here, so a token that
         one of them found rejected is not replaced a second time by the other.
         """
 
@@ -444,24 +444,24 @@ class Worker:
         """Claim analyses until stopped.
 
         The worker claims back to back while there is work. When the queue is empty it
-        waits for the event stream to say that something was queued, and claims again
-        after ``poll_interval_s`` at the latest, which covers what no event announces
-        (a retry whose delay ran out) and a stream that is down.
+        waits for the realtime stream to say that something was queued, and claims again
+        after ``poll_interval_s`` at the latest, which covers what no change announces
+        and a stream that is down.
         """
 
-        if self._events is not None:
-            self._events.start()
+        if self._realtime is not None:
+            self._realtime.start()
         try:
             self._loop()
         finally:
-            if self._events is not None:
-                self._events.stop()
+            if self._realtime is not None:
+                self._realtime.stop()
         self.log.info("worker stopped")
 
     def _loop(self) -> None:
         backoff = 1.0
         while not self.stopping:
-            # Cleared before claiming: an event that arrives from here on is either
+            # Cleared before claiming: a change that arrives from here on is either
             # claimed right now or wakes the next wait.
             self.wake.clear()
             try:
