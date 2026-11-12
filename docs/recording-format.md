@@ -226,9 +226,10 @@ ECG quality, rates and staleness are derived only by the live monitor, never by 
 
 Because files only grow, the uploader sends `(file, byte_offset, bytes)` and
 resumes from the server's current length. The recording is created with
-`PUT /v1/recordings/{session_id}` and `meta.json` as the body, each file is
-appended with `PATCH /v1/recordings/{session_id}/files/{name}` and an
-`Upload-Offset` header, and `PATCH /v1/recordings/{session_id}` with
+`POST /api/collections/recordings/records` and a body of
+`{"id": "<session_id>", "meta": <meta.json>}`, each file is appended with
+`PATCH /v1/recordings/{session_id}/files/{name}` and an `Upload-Offset` header, and
+`PATCH /api/collections/recordings/records/{session_id}` with
 `{"complete": true}` ends the upload. `meta.json` is not uploaded as a file. See
 [`api.md`](api.md) for the full contract.
 

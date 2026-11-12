@@ -12,42 +12,45 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
 
 ## Conventions
 
-- **Resources are nouns, methods are verbs.** `GET` reads, `PUT` creates or replaces at a
-  known id, `POST` creates at a server-chosen id or performs an action that is not CRUD,
-  `PATCH` changes part of a resource, `DELETE` removes it. `GET`, `PUT`, `DELETE` and
-  `HEAD` are idempotent.
-- **JSON, snake_case, RFC 3339 UTC timestamps.** File bytes and the event stream are the
-  only exceptions.
+- **Recordings and analyses are PocketBase records.** They are read and written through
+  PocketBase's record API at `/api/collections/{collection}/records`, and the
+  collection rules decide what a caller may see and change. Everything else is under
+  `/v1`.
+- **Resources are nouns, methods are verbs.** `GET` reads, `POST` creates, `PATCH`
+  changes part of a resource, `DELETE` removes it. The file append route is the one
+  `PATCH` that adds bytes.
+- **JSON, snake_case, timestamps as PocketBase stores them for records** (`YYYY-MM-DD
+  HH:MM:SS.sssZ`) and RFC 3339 in `/v1` answers. File bytes and the event stream are the
+  only non-JSON responses.
 - **Authentication** is `Authorization: Bearer <token>` from PocketBase's auth route of
-  the account's collection, or a read-only access token from `POST /v1/tokens`. Endpoints
-  say whether they take a `user`, a `worker`, a `token` or are public.
+  the account's collection, or a read-only access token from `POST /v1/tokens`.
 - **Ownership.** A user only ever sees their own recordings and analyses. Anything that
-  belongs to someone else is `404`, never `403`, so ids do not leak.
-- **Status codes.** `200` with a body, `201` with a body and `Location` when something was
-  created, `204` without a body, `400` malformed request, `401` not authenticated, `403`
-  wrong role, `404` not found or not yours, `409` the resource is in a state that does not
-  allow this, `413` too large, `422` well-formed but invalid, `429` too many requests from
-  this address, `5xx` ours.
-- **One error shape**, for every error from every `/v1` endpoint:
+  belongs to someone else is `404`, never `403`, so ids do not leak. A worker sees a
+  recording (and its analyses) only while it holds a live lease of one of its analyses.
+- **Lists** are PocketBase's: `page` (1-based), `perPage` (30 by default, at most 1000),
+  `filter`, `sort`, `expand`, `fields` and `skipTotal`. The answer is
+  `{ "page", "perPage", "totalItems", "totalPages", "items" }`.
+- **One error shape**, PocketBase's, for every error from every route:
 
   ```json
-  { "code": "recording_complete", "message": "the recording is complete and can no longer change" }
+  { "status": 409, "message": "the recording is complete and can no longer change", "data": { "code": "recording_complete" } }
   ```
 
-  `code` is a stable lowercase identifier a client may switch on, `message` is for a
-  person. The codes a client acts on:
+  `status` repeats the HTTP status, `message` is for a person, and `data` carries the
+  API's stable lowercase code under `code` where a route has one. PocketBase's rule and
+  field validation failures have an empty `data` or per-field entries, so a client maps
+  those by status. The codes a client acts on:
 
   | Code | Status | Meaning |
   | --- | --- | --- |
-  | `unauthorized` | 401 | No token, or a token the server does not accept. |
-  | `forbidden` | 403 | The token's role may not call this endpoint. |
   | `not_found` | 404 | The resource does not exist, is not yours, or a worker does not hold its lease. |
-  | `too_many_requests` | 429 | Too many requests from this client address; wait before trying again. |
   | `id_taken` | 409 | That recording id belongs to another account. |
   | `recording_incomplete` | 409 | An analysis was asked for before the recording was sealed. |
   | `recording_in_progress` | 409 | The recording is not finished: it is still being recorded, or the rest of it is still on the tracker (`fetch_pending`). |
   | `recording_complete` | 409 | A sealed recording can no longer change. |
   | `no_data` | 422 | The recording has no stream file, so it cannot be sealed. |
+  | `invalid_meta` | 400, 422 | The recording's metadata is not valid or does not match its id. |
+  | `invalid_params` | 400, 422 | The analysis parameters are not an object, or do not match the algorithm's announced schema. |
   | `offset_mismatch` | 409 | An upload chunk does not start where the stored file ends; `Upload-Offset` says where it does. |
   | `encoding_mismatch` | 409 | The chunk's encoding differs from the file's. |
   | `chunk_too_large` | 413 | The chunk is over the server's chunk limit. |
@@ -58,30 +61,28 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
   | `unknown_algorithm` | 422 | No registered worker offers that algorithm and version. |
   | `invalid_result` | 422 | A worker's result does not match the analysis or the contract envelope; the analysis is failed. |
   | `not_leased` | 409 | The worker no longer holds the lease of the analysis. |
-  | `internal` | 500 | The server failed; it is logged, and retrying later is reasonable. |
 
-  The other codes name a malformed request, with the same shape: `invalid_body`,
-  `invalid_query`, `invalid_meta`, `invalid_id`, `invalid_algorithm`, `invalid_version`,
-  `invalid_params`, `invalid_offset`, `invalid_gzip`, `unsupported_encoding`,
-  `empty_chunk`, `unreadable_body`, `meta_too_large`, `too_many_algorithms`.
+  The other codes name a malformed request on a custom route or in a hook:
+  `invalid_body`, `invalid_algorithm`, `invalid_version`, `invalid_offset`,
+  `invalid_gzip`, `unsupported_encoding`, `empty_chunk`, `unreadable_body`,
+  `meta_too_large`, `too_many_algorithms`.
 
-  The PocketBase auth routes are PocketBase's own and answer its error shape
-  (`{ "code": <status>, "message", "data" }`); a client maps them by status.
-- **Lists** take `limit` (default 50, at most 200) and `offset`, and answer
-  `{ "items": [...], "limit": 50, "offset": 0, "total": 123 }`. Sorting is a documented
-  `sort` parameter per endpoint; there is no free-form filter language.
-- **Idempotency.** Creating a recording is `PUT` at a client-chosen id, so a retry after a
-  lost response is safe. Requesting an analysis that already exists returns the existing
-  one.
-- **Caching.** `GET` responses are `Cache-Control: no-store`.
+  A missing or invalid token (`401`), a token of a role the route does not take
+  (`403`), a rate limit (`429`) and a server failure (`500`) come from PocketBase's
+  middleware or from the error handler; they carry an empty `data`, so the status is the
+  answer.
+- **Idempotency.** Creating a recording is `POST` with the client-chosen id; repeating
+  it for an open recording replaces the metadata, so a retry after a lost response is
+  safe. Requesting an analysis that already exists returns the existing one.
+- **Caching.** `GET /v1` responses are `Cache-Control: no-store`.
 
 ## System
 
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
 | `GET /v1/health` | public | Liveness: `{ "status": "ok", "time": ... }` |
-| `GET /v1/version` | public | `{ "service": "taiga-sleep", "version": "0.6.1", "api": 4 }`. A client compares `api` with the one it was built for before it does anything else. |
-| `GET /v1/openapi.json` | public | The OpenAPI 3.1 document of this build. |
+| `GET /v1/version` | public | `{ "service": "taiga-sleep", "version": "0.6.21", "api": 6 }`. A client compares `api` with the one it was built for before it does anything else. |
+| `GET /v1/openapi.json` | public | The OpenAPI 3.1 document of this build, including the record API generated from the collection schema. |
 | `GET /v1/docs` | public | Browsable documentation of the same. |
 
 ## Authentication
@@ -98,8 +99,8 @@ backend is PocketBase, so it serves them. The answer is PocketBase's
 | `POST /api/collections/workers/auth-refresh` | worker | A fresh worker token. |
 
 Accounts are created by the operator in the admin UI. Sign-up is closed for both
-collections, and the auth routes are the only ones PocketBase serves for them: its record
-API is closed. The former `/v1/auth/*` routes no longer exist.
+collections, and their record APIs are closed. The former `/v1/auth/*` routes no longer
+exist.
 
 ## Access tokens
 
@@ -115,43 +116,50 @@ is created, and the server keeps the record, not the secret. See
 | `GET /v1/tokens` | user | The account's tokens without the secret (`id`, `name`, `hint`, `created`). |
 | `DELETE /v1/tokens/{id}` | user | Revokes it by deleting its record; it stops working at once. `204`. |
 
-A token may call the routes marked **token** below: it reads the owner's recordings
-(metadata only), analyses and results. Everything else is `403`, including the raw files,
-every write, the event stream and the token routes themselves. A recording or analysis of
-another account is `404`, like any other caller's. A revoked token is `401`.
+A token may read through the record API for its owner: their recordings (metadata, not the
+raw files), analyses and results. Every write is refused: a record create rule refuses the
+collection, an update or delete rule hides the record, and the `/v1` routes answer `403`.
+A recording or analysis of another account is `404`, like any other caller's. A revoked
+token has no identity any more, so the record API answers as it does to a caller with no
+token (and the custom routes answer `401`).
 
 ## Recordings
 
 A recording is created by its owner at an id the client chooses (`[A-Za-z0-9_-]`, 1 to 40
 characters, globally unique), so the phone's id for a recording is also the backend's.
+The create body carries the id and the recording's `meta.json`; the owner, state, device,
+times, duration and file totals are derived from it by the server.
 
 ```json
 {
   "id": "20261023_223000-k3f9",
+  "owner": "k3f9a1b2c3d4e5f",
   "state": "stopped",
   "device": "Polar H10 069A4737",
-  "started_at": "2026-10-23T20:30:00Z",
-  "ended_at": "2026-10-24T05:41:12Z",
+  "started_at": "2026-10-23 20:30:00.000Z",
+  "ended_at": "2026-10-24 05:41:12.000Z",
   "duration_s": 33072,
   "complete": true,
-  "size_bytes": 28412345,
+  "stored_bytes": 28412345,
   "meta": { "format": "taiga-recording", "version": 1, "...": "see recording-format.md" },
-  "created": "2026-10-24T05:50:01Z",
-  "updated": "2026-10-24T05:52:40Z"
+  "files": { "hr.log": { "encoding": "gzip", "uncompressed_size": 123, "members": 3 } },
+  "created": "2026-10-24 05:50:01.123Z",
+  "updated": "2026-10-24 05:52:40.456Z"
 }
 ```
 
-`meta` is the recording's `meta.json` verbatim (fields the backend does not know are kept); `state`, `device`, the times and the
-duration are derived from it. `complete` means all files have been uploaded and the
-recording is sealed.
+`meta` is the recording's `meta.json` verbatim (fields the backend does not know are kept);
+`state`, `device`, the times and the duration are derived from it. `complete` means all
+files have been uploaded and the recording is sealed. `stored_bytes` is what its files
+take up, which is what the account's quota counts.
 
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
-| `GET /v1/recordings` | user, token | List own recordings. Query: `state`, `complete`, `from`, `to`, `sort` (`started_at`, `-started_at`, `created`, `-created`, `duration_s`, `-duration_s`). |
-| `PUT /v1/recordings/{id}` | user | Body is the recording's `meta.json`, whose `session_id` must equal `{id}`. Creates (`201`) or replaces the metadata (`200`). `409 recording_complete` once sealed, `409 id_taken` if another user has the id. |
-| `GET /v1/recordings/{id}` | user, token, worker with a lease | The recording. |
-| `PATCH /v1/recordings/{id}` | user | Body `{ "complete": true }`: seals the recording. `409 recording_in_progress` if `meta.state` is still `recording` or `fetch_pending`, `422 no_data` if it has no stream file. Nothing else can be patched, and a sealed recording cannot be unsealed. |
-| `DELETE /v1/recordings/{id}` | user | Deletes the recording, its files and its analyses. `204`. |
+| `GET /api/collections/recordings/records` | user, token, worker with a lease | List the recordings the caller may see. PocketBase `filter`, `sort`, `page`, `perPage`, `expand`. |
+| `POST /api/collections/recordings/records` | user | Body `{ "id", "meta" }`. Creates (`200`) or replaces the metadata of an open recording (`200`). `409 recording_complete` once sealed, `409 id_taken` if another user has the id, `422/400 invalid_meta` if the metadata is invalid or its `session_id` is not the id. |
+| `GET /api/collections/recordings/records/{id}` | user, token, worker with a lease | The recording. |
+| `PATCH /api/collections/recordings/records/{id}` | user | Body `{ "meta" }` replaces the metadata while open; `{ "complete": true }` seals it. `409 recording_in_progress` if `meta.state` is still `recording` or `fetch_pending`, `422 no_data` if it has no stream file. A sealed recording cannot change, and no other field can be patched. |
+| `DELETE /api/collections/recordings/records/{id}` | user | Deletes the recording, its files, its analyses and its bytes from the account's total. `204`. |
 
 ## Recording files
 
@@ -188,32 +196,36 @@ not update.
   "algorithm": "wav2sleep",
   "version": "0.1.0",
   "params": {},
+  "params_hash": "1a2b3c4d5e6f7a8b",
   "status": "succeeded",
   "error": "",
   "attempts": 1,
-  "created": "2026-10-24T05:52:40Z",
-  "updated": "2026-10-24T05:58:03Z",
-  "finished_at": "2026-10-24T05:58:03Z",
+  "created": "2026-10-24 05:52:40.123Z",
+  "updated": "2026-10-24 05:58:03.456Z",
+  "finished_at": "2026-10-24 05:58:03.456Z",
   "summary": { "...": "headline figures, small" },
   "result": { "contract_version": 3, "...": "see analysis-contract.md" }
 }
 ```
 
 `status` is `queued`, `running`, `succeeded` or `failed`; the last two are terminal.
-`summary` is a small, derived headline (scores and the stage segments) so lists do not
-have to carry the full `result`; it is `null` until the analysis has succeeded. `result`
-is the worker's output, validated for its envelope only (`contract_version` and the
-fields the contract requires). Its shape is versioned and documented in
+`summary` is a small, derived headline (scores and the stage segments) so a client need
+not derive it from the full `result`; it is `null` until the analysis has succeeded, and
+`result` is `null` until then. `params_hash` is the server's hash of the parameters.
+`result` is the worker's output, validated for its envelope only (`contract_version` and
+the fields the contract requires). Its shape is versioned and documented in
 [`analysis-contract.md`](analysis-contract.md), and it is flexible on purpose: what is
 present depends on the data and the algorithm.
 
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
-| `POST /v1/recordings/{id}/analyses` | user | Body `{ "algorithm", "version"?, "params"? }`. The version defaults to the newest a worker offers, ignoring workers that stopped announcing themselves (`TAIGA_WORKER_TTL_S`, 900 s) unless none is left. Creates a queued analysis (`201`) or returns the existing one for the same recording, algorithm, version and params (`200`). A failed existing one is replaced by a fresh queued one (`201`), which is how a retry is made. `409 recording_incomplete` before the recording is sealed, `422 unknown_algorithm` when no worker offers it. |
-| `GET /v1/recordings/{id}/analyses` | user, token | Analyses of one recording. Without `result` unless `expand=result`. |
-| `GET /v1/analyses` | user, token, worker | A user sees their own analyses; a worker sees only the ones it holds the lease of. Query: `recording`, `status`, `expand=result`, `sort` (`created`, `-created`). Without `result` unless expanded. |
-| `GET /v1/analyses/{id}` | user, token, worker | One analysis, with `summary` and `result`. A worker only while it holds the lease. |
-| `DELETE /v1/analyses/{id}` | user | Removes it; a running one is cancelled, and the worker's next call about it gets `404`. `204`. |
+| `POST /api/collections/analyses/records` | user | Body `{ "recording", "algorithm", "version"?, "params"? }`. The version defaults to the newest a worker offers, ignoring workers that stopped announcing themselves (`TAIGA_WORKER_TTL_S`, 900 s) unless none is left. Answers `200` with a queued analysis, or with the existing one for the same recording, algorithm, version and parameters. A failed existing one is replaced, which is how a retry is made. `409 recording_incomplete` before the recording is sealed, `422 unknown_algorithm` when no worker offers it, `422 invalid_params` when the parameters do not match its announced schema. |
+| `GET /api/collections/analyses/records` | user, token, worker with a lease | List the analyses the caller may see. PocketBase `filter`, `sort`, `page`, `perPage`. |
+| `GET /api/collections/analyses/records/{id}` | user, token, worker with a lease | One analysis, with `summary` and `result`. A worker only while it holds the lease. |
+| `DELETE /api/collections/analyses/records/{id}` | user | Removes it; a running one is cancelled, and the worker's next call about it gets `404`. `204`. |
+
+An analysis cannot be changed through the record API: its update rule allows no client.
+The worker queue's own routes are what fill it in.
 
 ## Algorithms
 
@@ -223,7 +235,9 @@ present depends on the data and the algorithm.
 
 ## Worker
 
-The worker is a client with the `worker` role. It uses the endpoints above plus these.
+The worker is a client with the `worker` role. It reads recordings and analyses through
+the record API plus these routes.
+
 There are no worker-only copies of recording or file routes, and a worker sees nothing
 outside the lease: while it holds a `running` analysis it may read that analysis, its
 recording and the recording's files, and nothing else. Everything else is `404`, so ids
@@ -263,8 +277,9 @@ data: {"id": "20261023_223000-k3f9", "change": "deleted"}
 - Events carry ids and a status, never data. A client that missed one fetches the
   resource. Clients reconnect on their own and treat a reconnect as "refetch what I show".
 
-## Closed on purpose
+## Open on purpose, closed on purpose
 
-PocketBase's own `/api/collections/...` record endpoints are closed for every client; the
-data is reachable only through the API above. The PocketBase admin UI (`/_/`) remains the
+The record API of `recordings` and `analyses` is open, with the collection rules above.
+Every other collection's record API stays closed: `users`, `workers`, `access_tokens` and
+the system collections are superuser-only. The PocketBase admin UI (`/_/`) remains the
 operator's tool for creating accounts and inspecting data.

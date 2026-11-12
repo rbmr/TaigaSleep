@@ -273,14 +273,15 @@ about 1.6 GB; `WITH_WAV2SLEEP=false` builds the baseline-only image (about
 
 ## API
 
-The whole HTTP contract is `/v1`. [`docs/api.md`](../docs/api.md) is the design (the
-conventions and what each resource means); the running backend serves the same thing as
-an OpenAPI 3.1 document at `GET /v1/openapi.json` and as Swagger UI at `GET /v1/docs`.
-Both are public, generated from the route manifest when the process starts, and work
-offline (Swagger UI 5.34.0 is vendored under `api/internal/api/swaggerui/`, Apache-2.0,
-see the `LICENSE` there). Nothing is checked in, so there is no generated artifact to
-keep in sync; every route is declared once in `api/internal/api/routes.go`, which both
-mounts the handler and documents it.
+The HTTP contract is PocketBase's record API for `recordings` and `analyses`, plus the
+custom routes under `/v1`. [`docs/api.md`](../docs/api.md) is the design (the conventions
+and what each resource means); the running backend serves the same thing as an OpenAPI
+3.1 document at `GET /v1/openapi.json` and as Swagger UI at `GET /v1/docs`. Both are
+public, generated when the process starts, and work offline (Swagger UI 5.34.0 is
+vendored under `api/internal/api/swaggerui/`, Apache-2.0, see the `LICENSE` there).
+Nothing is checked in, so there is no generated artifact to keep in sync: the custom
+routes are declared once in `api/internal/api/routes.go`, and the record API's entries
+are generated from the collection schema.
 
 ```bash
 curl -s http://127.0.0.1:8090/v1/health
@@ -291,7 +292,8 @@ curl -s http://127.0.0.1:8090/v1/version
 TOKEN=$(curl -s -X POST http://127.0.0.1:8090/api/collections/users/auth-with-password \
   -H 'Content-Type: application/json' \
   -d '{"identity":"you@example.com","password":"<password>"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
-curl -s http://127.0.0.1:8090/v1/recordings -H "Authorization: Bearer $TOKEN" | head -c 200
+curl -s http://127.0.0.1:8090/api/collections/recordings/records \
+  -H "Authorization: Bearer $TOKEN" | head -c 200
 ```
 
 To use the document elsewhere, point any of these at
@@ -299,28 +301,31 @@ To use the document elsewhere, point any of these at
 (`Import > Link`; the bearer scheme maps to the `Authorization` header) or the VS Code
 *OpenAPI (Swagger) Editor* extension.
 
-PocketBase's own record API is closed: every collection is superuser-only, and password
-login through PocketBase's endpoints is disabled. The API above is the only way in for
-users and workers. The PocketBase dashboard (`/_/`) is the operator's tool for creating
-accounts and inspecting data.
+The record API of `recordings` and `analyses` is open, with collection rules (a user
+manages their own, an access token reads for its owner, a worker reads only while it
+holds a live lease). Every other collection's record API is superuser-only, and password
+login through PocketBase's endpoints is disabled for users and workers. The PocketBase
+dashboard (`/_/`) is the operator's tool for creating accounts and inspecting data.
 
 ### Recordings and files
 
-A recording is created by its owner with `PUT /v1/recordings/{id}`, where the body is the
-recording's `meta.json` and the id is the one the phone chose, so a retry is safe. Files
-(`hr.log`, `ecg.log`, `acc.log`, `events.jsonl`) are appended with
+A recording is created by its owner with `POST /api/collections/recordings/records`,
+where the body is `{"id": "<the id the phone chose>", "meta": <meta.json>}`, so a retry is
+safe; repeating it for an open recording replaces its metadata. Files (`hr.log`,
+`ecg.log`, `acc.log`, `events.jsonl`) are appended with
 `PATCH /v1/recordings/{id}/files/{name}` and an `Upload-Offset` header, resumed with
 `HEAD` on the same path, and downloaded with `GET`. Each file is stored as the sender
 chose: plain, or as a sequence of complete gzip members (one per chunk, with
 `Content-Encoding: gzip`); see [`docs/upload-compression.md`](../docs/upload-compression.md).
-`PATCH /v1/recordings/{id}` with `{"complete": true}` seals the recording, after which
-nothing in it changes.
+`PATCH /api/collections/recordings/records/{id}` with `{"complete": true}` seals the
+recording, after which nothing in it changes.
 
 The backend stores the bytes and does not look inside them: the worker validates the frame
 logs (`docs/recording-format.md`) when it analyses, keeps the valid prefix, and says so in
 the analysis warnings. Recordings live in `<pb_data>/recordings/<id>/`, so PocketBase
-backups include them. Deleting a recording (`DELETE /v1/recordings/{id}`) removes its
-files and analyses.
+backups include them. Deleting a recording
+(`DELETE /api/collections/recordings/records/{id}`) removes its files, its analyses and
+its bytes from the account's stored total.
 
 Limits are configurable through `TAIGA_MAX_RECORDING_MB` (256),
 `TAIGA_MAX_RECORDING_FILE_MB` (64), `TAIGA_MAX_RECORDING_UNCOMPRESSED_MB` (512),
@@ -343,9 +348,10 @@ corrects them; run it with the API stopped.
 ### Analyses and the worker
 
 An analysis is one algorithm applied to one recording. Nothing creates one by itself:
-a user asks with `POST /v1/recordings/{id}/analyses` (idempotent on recording, algorithm,
-version and params; asking again for a failed one is how a retry is made). The analysis
-row is the queue item, so there is no separate jobs resource:
+a user asks with `POST /api/collections/analyses/records` (idempotent on recording,
+algorithm, version and params; asking again for a failed one is how a retry is made).
+The parameters are checked against the algorithm's announced schema before the analysis
+is queued. The analysis row is the queue item, so there is no separate jobs resource:
 
 1. The analysis is `queued`.
 2. The worker announces its algorithms with `PUT /v1/workers/me`, then
@@ -353,9 +359,9 @@ row is the queue item, so there is no separate jobs resource:
    conditional inside a transaction, so exactly one caller gets it. The analysis is
    `running` for a lease (`TAIGA_JOB_LEASE_S`, default 1800 s).
 3. While it holds the lease, the worker may read that analysis, its recording and the
-   recording's files through the normal read endpoints (there are no worker-only copies).
-   A worker sees nothing else: `GET /v1/analyses` lists only the analyses it is holding,
-   and every other analysis or recording is `404`.
+   recording's files through the normal record and file routes (there are no worker-only
+   copies). A worker sees nothing else: a list through the analyses record API contains
+   only the analyses it is holding, and every other analysis or recording is `404`.
 4. `POST /v1/analyses/{id}/complete` stores the result; `POST /v1/analyses/{id}/fail`
    reports a failure. A retryable failure is requeued with exponential backoff up to
    `TAIGA_JOB_MAX_ATTEMPTS` (default 3); a permanent one stores the reason.
@@ -791,7 +797,7 @@ means there is nothing to do beyond this procedure.
 ### Stale analysis results after an upgrade
 
 An analysis is keyed by recording, algorithm, version and params. The backend
-stores one row per key, and `POST /v1/recordings/{id}/analyses` returns the
+stores one row per key, and `POST /api/collections/analyses/records` returns the
 existing row when all four match. A release that changes the shape of a result
 without changing the algorithm version therefore keeps the old analysis: the
 worker never recomputes a succeeded run, and the API keeps serving the old
@@ -840,26 +846,30 @@ TOKEN=$(curl -fsS -X POST "$BASE/api/collections/users/auth-with-password" \
   -d '{"identity":"you@example.com","password":"<password>"}' | jq -r .token)
 
 # 1. See the runs of this recording.
-curl -fsS "$BASE/v1/analyses?recording=$RECORDING_ID" \
+curl -fsS -G "$BASE/api/collections/analyses/records" \
   -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "perPage=200" \
+  --data-urlencode "filter=recording='$RECORDING_ID'" \
   | jq -r '.items[] | [.id, .algorithm, .version, .status] | @tsv'
 
 # 2. Delete all of them. Deleting and requesting again is the replacement; a
 #    status update is not.
-curl -fsS "$BASE/v1/analyses?recording=$RECORDING_ID" \
+curl -fsS -G "$BASE/api/collections/analyses/records" \
   -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "perPage=200" \
+  --data-urlencode "filter=recording='$RECORDING_ID'" \
   | jq -r '.items[].id' \
   | while read -r id; do
-      curl -fsS -X DELETE "$BASE/v1/analyses/$id" \
+      curl -fsS -X DELETE "$BASE/api/collections/analyses/records/$id" \
         -H "Authorization: Bearer $TOKEN"
     done
 
 # 3. Ask for a new run. Add "version" and "params" if the old run used anything
 #    other than the newest worker version and the default parameters.
-curl -fsS -X POST "$BASE/v1/recordings/$RECORDING_ID/analyses" \
+curl -fsS -X POST "$BASE/api/collections/analyses/records" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d "{\"algorithm\":\"$ALGORITHM\"}"
+  -d "{\"recording\":\"$RECORDING_ID\",\"algorithm\":\"$ALGORITHM\"}"
 ```
 
 The response is the queued analysis with its new id, and the worker claims it as
@@ -870,22 +880,24 @@ complete recording that had none, so skip it when only particular nights should
 be replaced.
 
 ```bash
-curl -fsS "$BASE/v1/recordings?complete=true&limit=200" \
+curl -fsS -G "$BASE/api/collections/recordings/records" \
   -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "perPage=200" \
+  --data-urlencode "filter=complete=true" \
   | jq -r '.items[].id' \
   | while read -r id; do
-      curl -fsS -X POST "$BASE/v1/recordings/$id/analyses" \
+      curl -fsS -X POST "$BASE/api/collections/analyses/records" \
         -H "Authorization: Bearer $TOKEN" \
         -H 'Content-Type: application/json' \
-        -d "{\"algorithm\":\"$ALGORITHM\"}"
+        -d "{\"recording\":\"$id\",\"algorithm\":\"$ALGORITHM\"}"
     done
 ```
 
 #### Rerun from the operator side with the superuser token
 
-PocketBase's collection API is the operator's route to the same rows. It is
-superuser-only, and a superuser token cannot call `/v1`; use it to delete, then
-request the new runs with the user's token above or in the app.
+The record API is the same route a user calls; a superuser token sees and changes every
+row and cannot call `/v1`. Use it to delete, then request the new runs with the user's
+token above or in the app.
 
 ```bash
 BASE=http://127.0.0.1:8090
@@ -931,9 +943,9 @@ curl -fsS -G "$BASE/api/collections/analyses/records" \
 - Login attempts and the rest of `/v1` are rate limited per client address by
   PocketBase's limiter. Login is the tightest rule; a request over its limit is
   answered `429 too_many_requests`.
-- Worker credentials are separate from the app user. The worker cannot read records
-  directly, and through the API it reads only the analysis it holds the lease of, with
-  that analysis's recording and files.
+- Worker credentials are separate from the app user. Through the API a worker reads only
+  the analysis it holds the lease of, with that analysis's recording and files; the
+  collection rules refuse everything else.
 - One account's recordings together are limited by `TAIGA_USER_QUOTA_GB` (10 GB by
   default), so a leaked app account cannot fill the disk.
 - The admin dashboard is loopback-only in the examples.

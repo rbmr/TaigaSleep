@@ -37,9 +37,11 @@ no state of either.
 - The **worker** does the analysis. It is a client of the same API with a `worker` role,
   not a privileged second API. It reads a recording only while it holds the lease of an
   analysis of that recording.
-- The **API** ([`api.md`](api.md)) is the whole contract. PocketBase's own record API is
-  closed; nothing in the app or the worker uses it. This keeps the backend usable by
-  other clients and independent of PocketBase's internals.
+- The **API** ([`api.md`](api.md)) is the whole contract. Recordings and analyses are
+  PocketBase records: clients read and write them through its record API, and the
+  collection rules decide what a caller may see and change. Every other collection's
+  record API is closed. This keeps the backend usable by other clients and independent
+  of PocketBase's internals.
 
 Realtime is Server-Sent Events on `GET /v1/events`. A client that is connected learns at
 once that an analysis became available; a client that is not connected asks when it next
