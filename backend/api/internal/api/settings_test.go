@@ -205,6 +205,34 @@ func patchSettings(t *testing.T, app core.App, body any) {
 	}
 }
 
+// TestAppNameChangedInTheDashboardSurvivesARestart follows a data directory from its first
+// start: the initial migration sets the app name once, and the name the operator gives it
+// afterwards is not written over by a later start.
+func TestAppNameChangedInTheDashboardSurvivesARestart(t *testing.T) {
+	dir := t.TempDir()
+	fresh := migratedApp(t, dir)
+	if got := fresh.Settings().Meta.AppName; got != "Taiga Sleep" {
+		t.Fatalf("app name after the migration = %q, want Taiga Sleep", got)
+	}
+
+	patchSettings(t, fresh, map[string]any{
+		"meta": map[string]any{"appName": "Night Owls"},
+	})
+	if err := fresh.ClearBootstrap(); err != nil {
+		t.Fatalf("stop the first instance: %v", err)
+	}
+
+	// An older unit or compose file may still name the app the default way; the
+	// operator's choice wins.
+	t.Setenv("TAIGA_APP_NAME", "Taiga Sleep")
+	t.Setenv("TAIGA_APP_URL", "http://127.0.0.1:8090")
+
+	restarted := migratedApp(t, dir)
+	if got := restarted.Settings().Meta.AppName; got != "Night Owls" {
+		t.Errorf("restarted app name = %q, want the operator's", got)
+	}
+}
+
 // TestRateLimitDefaultsAreSetOnceAndTheOperatorKeepsTheChoice follows a data directory
 // from its first start: the migration enables the rules, and a rule the operator changes
 // through the settings API afterwards is not written over by a later start.
