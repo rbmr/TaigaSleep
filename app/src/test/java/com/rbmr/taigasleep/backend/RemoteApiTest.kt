@@ -11,7 +11,7 @@ import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
-/** The real OkHttp client against a fake `/v1` API, so routing and error mapping are covered. */
+/** The real OkHttp client against a fake server, so routing and error mapping are covered. */
 class RemoteApiTest {
   private lateinit var server: MockWebServer
   private val api = OkHttpRemoteApi(HttpClients(OkHttpClient()).remote)
@@ -45,14 +45,16 @@ class RemoteApiTest {
         e.error
       }
 
-  private fun token(role: String = "user") =
-      json("""{"token":"tok-1","role":"$role","user":{"id":"u1","email":"me@example.com"}}""")
+  private fun token(email: String = "me@example.com") =
+      json(
+          """{"token":"tok-1","record":{"id":"u1","email":"$email","collectionName":"users"}}"""
+      )
 
   @Test
-  fun `version, login and the me query use the documented routes`() {
+  fun `version, login and the token check use the documented routes`() {
     server.enqueue(json("""{"service":"taiga-sleep","version":"0.3.0","api":2}"""))
     server.enqueue(token())
-    server.enqueue(json("""{"id":"u1","email":"me@example.com","role":"user"}"""))
+    server.enqueue(token())
 
     val serverVersion = api.version(baseUrl)
     val session = api.login(baseUrl, "me@example.com", "secret")
@@ -71,16 +73,17 @@ class RemoteApiTest {
     assertNull(version.getHeader("Authorization"))
 
     val login = server.takeRequest()
-    assertEquals("/v1/auth/login", login.path)
+    assertEquals("/api/collections/users/auth-with-password", login.path)
     assertEquals("POST", login.method)
     assertNull(login.getHeader("Authorization"))
     val loginBody = login.body.readUtf8()
-    assertTrue(loginBody.contains("\"email\":\"me@example.com\""))
+    assertTrue(loginBody.contains("\"identity\":\"me@example.com\""))
     assertTrue(loginBody.contains("\"password\":\"secret\""))
 
-    val me = server.takeRequest()
-    assertEquals("/v1/me", me.path)
-    assertEquals("Bearer tok-1", me.getHeader("Authorization"))
+    val check = server.takeRequest()
+    assertEquals("/api/collections/users/auth-refresh", check.path)
+    assertEquals("POST", check.method)
+    assertEquals("Bearer tok-1", check.getHeader("Authorization"))
   }
 
   @Test
@@ -93,7 +96,7 @@ class RemoteApiTest {
     assertEquals("me@example.com", session.email)
     val request = server.takeRequest()
     assertEquals("POST", request.method)
-    assertEquals("/v1/auth/refresh", request.path)
+    assertEquals("/api/collections/users/auth-refresh", request.path)
     assertEquals("Bearer stored", request.getHeader("Authorization"))
   }
 
@@ -139,7 +142,8 @@ class RemoteApiTest {
 
   @Test
   fun `rejected credentials are bad credentials`() {
-    server.enqueue(json("""{"code":"unauthorized","message":"the email or password is wrong"}""", 401))
+    // PocketBase answers a failed password login with 400, not 401.
+    server.enqueue(json("""{"code":400,"message":"Failed to authenticate.","data":{}}""", 400))
     assertEquals(
         RemoteError.BadCredentials,
         failure { api.login(baseUrl, "me@example.com", "wrong") },
@@ -148,7 +152,7 @@ class RemoteApiTest {
 
   @Test
   fun `too many failed logins are reported as the http status`() {
-    server.enqueue(json("""{"code":"too_many_attempts","message":"try again later"}""", 429))
+    server.enqueue(json("""{"code":429,"message":"try again later","data":{}}""", 429))
     assertEquals(
         RemoteError.Http(429),
         failure { api.login(baseUrl, "me@example.com", "wrong") },
@@ -157,7 +161,8 @@ class RemoteApiTest {
 
   @Test
   fun `a worker account cannot sign in to the app`() {
-    server.enqueue(token(role = "worker"))
+    // A worker does not exist in the users collection, so its login is refused there.
+    server.enqueue(json("""{"code":400,"message":"Failed to authenticate.","data":{}}""", 400))
     assertEquals(
         RemoteError.BadCredentials,
         failure { api.login(baseUrl, "worker@example.com", "secret") },
@@ -166,19 +171,20 @@ class RemoteApiTest {
 
   @Test
   fun `an expired refresh token is reported as a session expiry`() {
-    server.enqueue(json("""{"code":"unauthorized","message":"a valid token is required"}""", 401))
+    server.enqueue(json("""{"code":401,"message":"The request requires valid record authorization token.","data":{}}""", 401))
     assertEquals(RemoteError.SessionExpired, failure { api.refresh(baseUrl, "stale") })
   }
 
   @Test
-  fun `an expired token on the me query is a session expiry`() {
-    server.enqueue(json("""{"code":"unauthorized","message":"a valid token is required"}""", 401))
+  fun `an expired token on the token check is a session expiry`() {
+    server.enqueue(json("""{"code":401,"message":"The request requires valid record authorization token.","data":{}}""", 401))
     assertEquals(RemoteError.SessionExpired, failure { api.authCheck(baseUrl, "stale") })
   }
 
   @Test
-  fun `a worker token on the me query is a session expiry`() {
-    server.enqueue(json("""{"id":"w1","email":"worker@example.com","role":"worker"}"""))
+  fun `a worker token on the token check is a session expiry`() {
+    // The users auth-refresh route refuses a token from another collection.
+    server.enqueue(json("""{"code":403,"message":"The authorized record is not allowed to perform this action.","data":{}}""", 403))
     assertEquals(RemoteError.SessionExpired, failure { api.authCheck(baseUrl, "worker-token") })
   }
 
@@ -202,7 +208,7 @@ class RemoteApiTest {
 
   @Test
   fun `a login answer without a token is malformed`() {
-    server.enqueue(json("""{"role":"user","user":{"id":"u1","email":"me@example.com"}}"""))
+    server.enqueue(json("""{"record":{"id":"u1","email":"me@example.com"}}"""))
     assertEquals(
         RemoteError.MalformedResponse,
         failure { api.login(baseUrl, "me@example.com", "secret") },

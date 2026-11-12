@@ -63,82 +63,74 @@ class OkHttpRemoteApi(
   }
 
   override fun login(baseUrl: String, email: String, password: String): AuthSession {
-    val payload = json.encodeToString(LoginRequest(email, password))
+    val payload = json.encodeToString(PbkLoginRequest(identity = email, password = password))
     val body =
         try {
-          execute(post(url(baseUrl, LOGIN), payload, token = null))
+          execute(post(url(baseUrl, USERS_AUTH), payload, token = null))
         } catch (e: RemoteHttpException) {
           throw when (e.status) {
+            // PocketBase answers a wrong password with 400; a worker account does not
+            // exist in the users collection and is answered the same way.
+            400,
             401,
             403 -> RemoteFailure(RemoteError.BadCredentials)
             404 -> RemoteFailure(RemoteError.NotTaiga)
             else -> RemoteFailure(RemoteError.Http(e.status))
           }
         }
-    return readSession(body, fallbackEmail = email, wrongRole = RemoteError.BadCredentials)
+    return readSession(body, fallbackEmail = email)
   }
 
   override fun refresh(baseUrl: String, token: String): AuthSession {
     val body =
         try {
-          execute(post(url(baseUrl, REFRESH), payload = "{}", token = token))
+          execute(post(url(baseUrl, USERS_REFRESH), payload = "{}", token = token))
         } catch (e: RemoteHttpException) {
           throw when (e.status) {
+            400,
             401,
             403 -> RemoteFailure(RemoteError.SessionExpired)
             404 -> RemoteFailure(RemoteError.NotTaiga)
             else -> RemoteFailure(RemoteError.Http(e.status))
           }
         }
-    return readSession(body, fallbackEmail = "", wrongRole = RemoteError.SessionExpired)
+    return readSession(body, fallbackEmail = "")
   }
 
   override fun authCheck(baseUrl: String, token: String): AuthUser {
     val body =
         try {
-          execute(
-              Request.Builder()
-                  .url(url(baseUrl, ME))
-                  .get()
-                  .header("Accept", JSON)
-                  .header("Authorization", bearer(token))
-                  .build()
-          )
+          execute(post(url(baseUrl, USERS_REFRESH), payload = "{}", token = token))
         } catch (e: RemoteHttpException) {
           throw when (e.status) {
+            400,
             401,
             403 -> RemoteFailure(RemoteError.SessionExpired)
             404 -> RemoteFailure(RemoteError.NotTaiga)
             else -> RemoteFailure(RemoteError.Http(e.status))
           }
         }
-    val me =
+    val response =
         try {
-          json.decodeFromString<MeDto>(body)
+          json.decodeFromString<PbkAuthResponse>(body)
         } catch (_: Exception) {
           throw RemoteFailure(RemoteError.MalformedResponse)
         }
-    if (me.id.isBlank()) throw RemoteFailure(RemoteError.MalformedResponse)
-    // A worker account is valid on the server but cannot be used by the app.
-    if (me.role != ROLE_USER) throw RemoteFailure(RemoteError.SessionExpired)
-    return AuthUser(id = me.id, email = me.email, role = me.role)
+    val record = response.record
+    if (record.id.isBlank()) throw RemoteFailure(RemoteError.MalformedResponse)
+    return AuthUser(id = record.id, email = record.email, role = ROLE_USER)
   }
 
-  private fun readSession(
-      body: String,
-      fallbackEmail: String,
-      wrongRole: RemoteError,
-  ): AuthSession {
+  /** Reads PocketBase's auth answer: the token and the account's record. */
+  private fun readSession(body: String, fallbackEmail: String): AuthSession {
     val response =
         try {
-          json.decodeFromString<AuthResponse>(body)
+          json.decodeFromString<PbkAuthResponse>(body)
         } catch (_: Exception) {
           throw RemoteFailure(RemoteError.MalformedResponse)
         }
     if (response.token.isBlank()) throw RemoteFailure(RemoteError.MalformedResponse)
-    // Only an app account may sign in; the worker's token would be refused by every user route.
-    if (response.role != ROLE_USER) throw RemoteFailure(wrongRole)
-    val email = response.user?.email?.takeIf { it.isNotBlank() } ?: fallbackEmail
+    val email = response.record.email.takeIf { it.isNotBlank() } ?: fallbackEmail
     if (email.isBlank()) throw RemoteFailure(RemoteError.MalformedResponse)
     return AuthSession(token = response.token, email = email)
   }
@@ -182,9 +174,10 @@ class OkHttpRemoteApi(
 
   private companion object {
     const val VERSION = "/v1/version"
-    const val ME = "/v1/me"
-    const val LOGIN = "/v1/auth/login"
-    const val REFRESH = "/v1/auth/refresh"
+    // PocketBase's auth routes for the users collection: the app is a user, never a
+    // worker, so a worker account simply has no account here.
+    const val USERS_AUTH = "/api/collections/users/auth-with-password"
+    const val USERS_REFRESH = "/api/collections/users/auth-refresh"
     const val ROLE_USER = "user"
     const val JSON = "application/json"
     val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
@@ -198,26 +191,20 @@ private data class VersionDto(
     val api: Int = 0,
 )
 
+/** What PocketBase answers on a password login and on a token refresh. */
 @Serializable
-private data class AuthResponse(
+private data class PbkAuthResponse(
     val token: String = "",
-    val role: String = "",
-    val user: UserDto? = null,
+    val record: PbkAccount = PbkAccount(),
 )
 
 @Serializable
-private data class UserDto(
-    val email: String = "",
-)
-
-@Serializable private data class LoginRequest(val email: String, val password: String)
-
-@Serializable
-private data class MeDto(
+private data class PbkAccount(
     val id: String = "",
     val email: String = "",
-    val role: String = "",
 )
+
+@Serializable private data class PbkLoginRequest(val identity: String, val password: String)
 
 /** The `Authorization` header value; the API wants the token as a bearer credential. */
 internal fun bearer(token: String): String = "Bearer $token"
