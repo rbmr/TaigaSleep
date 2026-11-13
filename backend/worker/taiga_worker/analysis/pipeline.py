@@ -143,7 +143,7 @@ def _serialize_stages(
 ) -> dict[str, Any]:
     stages = list(result.stages)
     if sum(segment["count"] for segment in _segments(stages)) != grid.count:
-        raise AnalysisError("invalid_result", "stage timeline does not cover every epoch")
+        raise AnalysisError("invalid_result", "stage timeline does not cover every 30-second interval")
     probabilities = None
     if result.probabilities is not None:
         probabilities = {

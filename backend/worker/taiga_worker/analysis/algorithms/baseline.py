@@ -114,7 +114,7 @@ class BaselineStager(Stager):
             night_median = float(np.median(valid_hr))
         else:
             night_median = float("nan")
-            warnings.append("no valid HR samples; all epochs are unknown")
+            warnings.append("no valid HR samples; every 30-second interval is unknown")
 
         has_acc = recording.acc is not None
         if not has_acc:

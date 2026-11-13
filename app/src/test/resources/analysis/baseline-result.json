@@ -31,7 +31,7 @@
   },
   "items": [
     {
-      "explanation": "Time scored as sleep across REM, light and deep epochs. It excludes wake and unscored time.",
+      "explanation": "Time scored as sleep across REM, light and deep sleep. It excludes wake and unscored time.",
       "group": "sleep",
       "id": "total_sleep_s",
       "kind": "number",
@@ -43,7 +43,7 @@
       "value": 240.0
     },
     {
-      "explanation": "Time from the first scored epoch to the first sleep epoch. Unscored time before it is not counted.",
+      "explanation": "Time from the first scored 30-second interval to the first interval of sleep. Unscored time before it is not counted.",
       "group": "sleep",
       "id": "sleep_latency_s",
       "kind": "number",
@@ -91,7 +91,7 @@
       "value": 0.0
     },
     {
-      "explanation": "Wake time at the end of the recording after the last sleep epoch.",
+      "explanation": "Wake time at the end of the recording after the last interval of sleep.",
       "group": "sleep",
       "id": "final_awakening_s",
       "kind": "number",
@@ -139,7 +139,7 @@
       "value": 60.0
     },
     {
-      "explanation": "Beat-to-beat variation from sleep epochs only: the root mean square of successive RR-interval differences, combined over uninterrupted stretches weighted by beat count.",
+      "explanation": "Beat-to-beat variation from the sleep intervals only: the root mean square of successive RR-interval differences, combined over uninterrupted stretches weighted by beat count.",
       "group": "heart",
       "id": "hrv_rmssd_ms",
       "kind": "number",
@@ -151,7 +151,7 @@
       "value": 28.3
     },
     {
-      "explanation": "Overall heart-rate variability from sleep epochs only: the standard deviation of the RR intervals.",
+      "explanation": "Overall heart-rate variability from the sleep intervals only: the standard deviation of the RR intervals.",
       "group": "heart",
       "id": "hrv_sdnn_ms",
       "kind": "number",
@@ -163,7 +163,7 @@
       "value": 16.3
     },
     {
-      "explanation": "Number of clean RR intervals from sleep epochs used for HRV after filtering.",
+      "explanation": "Number of clean RR intervals from the sleep intervals used for HRV after filtering.",
       "group": "heart_support",
       "id": "hrv_rr_count",
       "kind": "number",
@@ -175,7 +175,7 @@
       "value": 720.0
     },
     {
-      "explanation": "Share of epochs with movement above 0.08 g, measured from the night's median accelerometer magnitude.",
+      "explanation": "Share of 30-second intervals with movement above 0.08 g, measured from the night's median accelerometer magnitude.",
       "group": "movement",
       "id": "movement_index",
       "kind": "number",
@@ -187,7 +187,7 @@
       "value": 0.0
     },
     {
-      "explanation": "Average movement per epoch, the deviation from the night's median accelerometer magnitude.",
+      "explanation": "Average movement per 30-second interval, the deviation from the night's median accelerometer magnitude.",
       "group": "movement",
       "id": "movement_mean_g",
       "kind": "number",
@@ -199,11 +199,11 @@
       "value": 0.0
     },
     {
-      "explanation": "Number of epochs with movement above 0.08 g, measured from the night's median accelerometer magnitude.",
+      "explanation": "Number of 30-second intervals with movement above 0.08 g, measured from the night's median accelerometer magnitude.",
       "group": "movement",
       "id": "movement_epochs",
       "kind": "number",
-      "label": "Epochs with movement",
+      "label": "Intervals with movement",
       "sources": [
         "acc"
       ],
@@ -238,13 +238,13 @@
       "components": [
         {
           "id": "usable_epoch_coverage",
-          "label": "Usable epoch coverage",
+          "label": "Usable coverage",
           "value": 100.0,
           "weight": 46.7
         },
         {
           "id": "artifact_free_rate",
-          "label": "Artifact-free epochs",
+          "label": "Artifact-free intervals",
           "value": 100.0,
           "weight": 33.3
         },
@@ -255,7 +255,7 @@
           "weight": 20.0
         }
       ],
-      "explanation": "How much of the recording could be used for staging: epoch coverage, artifact-free time and heart-rate coverage, each weighted.",
+      "explanation": "How much of the recording could be used for staging: usable coverage, artifact-free time and heart-rate coverage, each weighted.",
       "group": "score",
       "id": "data_quality",
       "kind": "score",
@@ -306,7 +306,7 @@
       "value": 100.0
     },
     {
-      "explanation": "Mean heart rate for each epoch. Gaps are epochs without a valid sample.",
+      "explanation": "Mean heart rate for each 30-second interval. Gaps are intervals without a valid sample.",
       "group": "heart",
       "id": "hr",
       "kind": "series",

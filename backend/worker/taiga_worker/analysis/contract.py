@@ -464,7 +464,7 @@ def validate_staging_result(
     if len(result.stages) != epoch_count:
         raise AnalysisError(
             "invalid_result",
-            f"stager returned {len(result.stages)} stages for {epoch_count} epochs",
+            f"stager returned {len(result.stages)} stages for {epoch_count} intervals",
         )
     allowed = set(result.supported_stages or info.supported_stages)
     if result.supported_stages is not None:
@@ -482,14 +482,14 @@ def validate_staging_result(
         )
     if result.confidence is not None:
         if len(result.confidence) != epoch_count:
-            raise AnalysisError("invalid_result", "confidence length does not match epochs")
+            raise AnalysisError("invalid_result", "confidence length does not match the intervals")
         for value in result.confidence:
             if value is None:
                 continue
             if not 0.0 <= float(value) <= 1.0:
                 raise AnalysisError("invalid_result", "confidence must be between 0 and 1")
     if result.artifacts is not None and len(result.artifacts) != epoch_count:
-        raise AnalysisError("invalid_result", "artifact length does not match epochs")
+        raise AnalysisError("invalid_result", "artifact length does not match the intervals")
     if result.probabilities is not None:
         for stage, values in result.probabilities.items():
             if stage not in STAGES or len(values) != epoch_count:

@@ -89,6 +89,7 @@
   <string name="night_uploading_progress">Uploading %1$d%%</string>
   <string name="night_uploading_progress_body">%1$s · %2$s</string>
   <string name="night_queued_body">Waiting for the conditions set for automatic uploads.</string>
+  <string name="night_queued_retry_body">The last attempt did not finish. Trying again shortly.</string>
   <string name="night_retry_upload">Retry upload</string>
   <string name="night_processing_title">Analysis is on the way</string>
   <string name="night_processing_body">The recording is uploaded. The server is analyzing it, and the result will appear here.</string>
@@ -125,7 +126,7 @@
   <string name="night_sleep_score_breakdown">Sleep score breakdown</string>
   <string name="night_sleep_score_formula">The score combines sleep efficiency, wake after sleep onset, awakenings per hour of sleep, time to fall asleep and the deep and REM share of sleep. Each component is scaled from 0 to 100 where a higher value is better. Missing components are removed and the remaining weights are renormalized; there is no target sleep duration.</string>
   <string name="night_sleep_score_unavailable">This saved result was created before sleep scores existed. Run the analysis again to calculate one.</string>
-  <string name="night_quality_formula">The data-quality score combines usable coverage, artifact-free epochs and heart-rate coverage. Missing components are removed and the remaining weights are renormalized.</string>
+  <string name="night_quality_formula">The data-quality score combines usable coverage, artifact-free time and heart-rate coverage. Missing components are removed and the remaining weights are renormalized.</string>
   <string name="night_quality_component_value">%1$d%% · weight %2$d%%</string>
   <string name="night_percent">%1$d%%</string>
   <string name="night_heart_rate_chart_description">Heart rate from %1$s to %2$s, between %3$d and %4$d bpm</string>
@@ -147,9 +148,9 @@
   <string name="night_export_open">Export…</string>
   <string name="night_delete_recording">Delete recording</string>
   <string name="night_discard_recording">Discard recording</string>
-  <string name="night_sleep_stages_info">Each epoch of the recording is scored as Awake, REM, Light or Deep by the method, or left Unscored when it cannot be scored. The chart places the stages in time, the bar shows the whole recording and the list gives the time spent in each stage.</string>
-  <string name="night_heart_rate_info">The mean heart rate of every epoch of the recording. A gap is an epoch without a valid sample; the lowest and the highest value come from the samples themselves.</string>
-  <string name="night_movement_info">Movement comes from the tracker\'s accelerometer. The index is the share of epochs that moved more than the method\'s threshold.</string>
+  <string name="night_sleep_stages_info">Each 30-second interval of the recording is scored as Awake, REM, Light or Deep by the method, or left Unscored when it cannot be scored. The chart places the stages in time, the bar shows the whole recording and the list gives the time spent in each stage.</string>
+  <string name="night_heart_rate_info">The mean heart rate of every 30-second interval of the recording. A gap is an interval without a valid sample; the lowest and the highest value come from the samples themselves.</string>
+  <string name="night_movement_info">Movement comes from the tracker\'s accelerometer. The index is the share of 30-second intervals that moved more than the method\'s threshold.</string>
   <string name="night_quality_weight">weight %1$d%%</string>
   <string name="night_chart_bpm">%1$s bpm</string>
   <string name="night_analysis_done_heading">Done for this recording</string>

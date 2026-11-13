@@ -149,7 +149,7 @@ private fun SegmentedProgressPreview() {
     ProgressTrack(ProgressTrackState.Indeterminate, description = "Analyzing")
     ProgressTrack(ProgressTrackState.Empty)
     ShareBar(
-        label = "Usable epoch coverage",
+        label = "Usable coverage",
         value = "86%",
         fraction = 0.86f,
         caption = "weight 50%",

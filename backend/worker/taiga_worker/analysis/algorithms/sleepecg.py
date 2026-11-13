@@ -498,7 +498,7 @@ def build_result(
     model_epochs = class_probs.shape[0]
     scored = min(canonical, model_epochs)
     if scored < 1:
-        raise AnalysisError("insufficient_beats", "SleepECG scored no epochs")
+        raise AnalysisError("insufficient_beats", "SleepECG scored no 30-second intervals")
 
     class_probs = class_probs[:scored]
     undefined = undefined[:scored]
@@ -531,7 +531,7 @@ def build_result(
     stageable = ~unknown
     stageable_epochs = int(np.count_nonzero(stageable))
     if stageable_epochs == 0:
-        raise AnalysisError("insufficient_data", "no 30 s epoch has usable RR/ECG contact")
+        raise AnalysisError("insufficient_data", "no 30-second interval has usable RR/ECG contact")
     if stageable_epochs < int(config["min_usable_epochs"]):
         needed = int(config["min_usable_epochs"]) * 30 / 60.0
         raise AnalysisError(
@@ -610,7 +610,7 @@ class SleepEcgStager(Stager):
         ]
         if prepared.unknown_epochs:
             messages.append(
-                f"{prepared.artifact_epochs} epoch(s) have low beat/contact quality; "
+                f"{prepared.artifact_epochs} 30-second interval(s) have low beat/contact quality; "
                 f"{prepared.unknown_epochs} are unknown and the rest are artifacts"
             )
         if config["age"] is None or config["gender"] is None:
@@ -621,7 +621,7 @@ class SleepEcgStager(Stager):
         if int(config["smooth_window_epochs"]) > 1:
             messages.append(
                 f"smoothed stage probabilities over {config['smooth_window_epochs']} "
-                f"epochs ({int(config['smooth_window_epochs']) * 30 / 60.0:g} min)"
+                f"intervals ({int(config['smooth_window_epochs']) * 30 / 60.0:g} min)"
             )
 
         from sleepecg import __version__ as sleepecg_version

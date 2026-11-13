@@ -283,7 +283,7 @@ def derive(
     supported_stages: Sequence[Stage] | None = None,
 ) -> Derived:
     if len(stages) != grid.count:
-        raise ValueError("stage count does not match the epoch grid")
+        raise ValueError("stage count does not match the interval grid")
 
     stage_values = np.asarray(stages, dtype=object)
     epoch_seconds = grid.epoch_seconds
@@ -542,7 +542,7 @@ def _quality(
     if artifacts is not None:
         algorithm_artifact = np.asarray(artifacts, dtype=bool)
         if algorithm_artifact.size != grid.count:
-            raise ValueError("artifact count does not match the epoch grid")
+            raise ValueError("artifact count does not match the interval grid")
         artifact = derived_artifact | algorithm_artifact
     else:
         artifact = derived_artifact

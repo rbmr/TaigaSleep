@@ -119,12 +119,12 @@ INFO = AlgorithmInfo(
             "max_ecg_rms_ratio": {
                 "type": "number",
                 "minimum": 0.0,
-                "description": "Reject epochs this many times louder than the night median; 0 disables.",
+                "description": "Reject 30-second intervals this many times louder than the night median; 0 disables.",
             },
             "min_ecg_rms_ratio": {
                 "type": "number",
                 "minimum": 0.0,
-                "description": "Reject epochs this much quieter than the night median; 0 disables.",
+                "description": "Reject 30-second intervals this much quieter than the night median; 0 disables.",
             },
             "min_unknown_epochs": {
                 "type": "integer",
@@ -410,7 +410,7 @@ def prepare_ecg(recording: Recording, config: Mapping[str, Any]) -> PreparedEcg:
     stageable = ~unknown
     stageable_epochs = int(np.count_nonzero(stageable))
     if stageable_epochs == 0:
-        raise AnalysisError("bad_ecg", "no 30 s epoch has usable ECG contact and signal quality")
+        raise AnalysisError("bad_ecg", "no 30-second interval has usable ECG contact and signal quality")
     if stageable_epochs < int(config["min_usable_epochs"]):
         needed = int(config["min_usable_epochs"]) * EPOCH_SECONDS / 60.0
         raise AnalysisError(
@@ -572,22 +572,22 @@ def to_result(
     warnings: list[str] = []
     if prepared.scored_epochs < prepared.canonical_epochs:
         warnings.append(
-            f"scored the first {prepared.scored_epochs} of {prepared.canonical_epochs} epochs "
+            f"scored the first {prepared.scored_epochs} of {prepared.canonical_epochs} intervals "
             f"({int(extras.get('max_length_hours', 10))} h limit); the rest are unknown"
         )
     if prepared.padded_epochs > 0:
         warnings.append(
-            f"padded {prepared.padded_epochs} epochs with zeros to match the model input"
+            f"padded {prepared.padded_epochs} intervals with zeros to match the model input"
         )
     if prepared.artifact_epochs > 0:
         warnings.append(
-            f"{prepared.artifact_epochs} epoch(s) have no reliable ECG contact or signal "
+            f"{prepared.artifact_epochs} 30-second interval(s) have no reliable ECG contact or signal "
             f"quality; {prepared.unknown_epochs} are reported as unknown and the rest are "
             "flagged as artifacts"
         )
     if smooth_window_epochs > 1:
         warnings.append(
-            f"smoothed stage probabilities over {smooth_window_epochs} epochs "
+            f"smoothed stage probabilities over {smooth_window_epochs} intervals "
             f"({smooth_window_epochs * EPOCH_SECONDS / 60.0:g} min)"
         )
 

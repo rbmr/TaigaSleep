@@ -27,7 +27,7 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Total asleep",
         "s",
         "sleep",
-        "Time scored as sleep across REM, light and deep epochs. It excludes wake and unscored time.",
+        "Time scored as sleep across REM, light and deep sleep. It excludes wake and unscored time.",
         ("stages",),
     ),
     NumberItem(
@@ -35,7 +35,7 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Time to fall asleep",
         "s",
         "sleep",
-        "Time from the first scored epoch to the first sleep epoch. Unscored time before "
+        "Time from the first scored 30-second interval to the first interval of sleep. Unscored time before "
         "it is not counted.",
         ("stages",),
     ),
@@ -69,7 +69,7 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Final awakening",
         "s",
         "sleep",
-        "Wake time at the end of the recording after the last sleep epoch.",
+        "Wake time at the end of the recording after the last interval of sleep.",
         ("stages",),
     ),
     NumberItem(
@@ -101,7 +101,7 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "HRV RMSSD",
         "ms",
         "heart",
-        "Beat-to-beat variation from sleep epochs only: the root mean square of successive "
+        "Beat-to-beat variation from the sleep intervals only: the root mean square of successive "
         "RR-interval differences, combined over uninterrupted stretches weighted by beat count.",
         ("hr",),
     ),
@@ -110,7 +110,7 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "HRV SDNN",
         "ms",
         "heart",
-        "Overall heart-rate variability from sleep epochs only: the standard deviation of the "
+        "Overall heart-rate variability from the sleep intervals only: the standard deviation of the "
         "RR intervals.",
         ("hr",),
     ),
@@ -119,7 +119,7 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "RR intervals used",
         "count",
         "heart_support",
-        "Number of clean RR intervals from sleep epochs used for HRV after filtering.",
+        "Number of clean RR intervals from the sleep intervals used for HRV after filtering.",
         ("hr",),
     ),
     NumberItem(
@@ -127,7 +127,7 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Movement index",
         "%",
         "movement",
-        "Share of epochs with movement above 0.08 g, measured from the night's median "
+        "Share of 30-second intervals with movement above 0.08 g, measured from the night's median "
         "accelerometer magnitude.",
         ("acc",),
     ),
@@ -136,16 +136,16 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Average movement",
         "g",
         "movement",
-        "Average movement per epoch, the deviation from the night's median accelerometer "
+        "Average movement per 30-second interval, the deviation from the night's median accelerometer "
         "magnitude.",
         ("acc",),
     ),
     NumberItem(
         "movement_epochs",
-        "Epochs with movement",
+        "Intervals with movement",
         "count",
         "movement",
-        "Number of epochs with movement above 0.08 g, measured from the night's median "
+        "Number of 30-second intervals with movement above 0.08 g, measured from the night's median "
         "accelerometer magnitude.",
         ("acc",),
     ),
@@ -170,8 +170,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
 PERCENT_FROM_FRACTION = {"sleep_efficiency", "movement_index"}
 
 QUALITY_COMPONENTS = {
-    "usable_epoch_coverage": "Usable epoch coverage",
-    "artifact_free_rate": "Artifact-free epochs",
+    "usable_epoch_coverage": "Usable coverage",
+    "artifact_free_rate": "Artifact-free intervals",
     "hr_coverage": "Heart-rate coverage",
 }
 
@@ -272,7 +272,7 @@ def score_items(
         "Data quality",
         quality,
         QUALITY_COMPONENTS,
-        "How much of the recording could be used for staging: epoch coverage, artifact-free "
+        "How much of the recording could be used for staging: usable coverage, artifact-free "
         "time and heart-rate coverage, each weighted.",
         ["stages", "hr"],
     )
@@ -302,7 +302,7 @@ def series_item(hr: Mapping[str, Any] | None) -> dict[str, Any] | None:
         "group": "heart",
         "unit": "bpm",
         "series": hr,
-        "explanation": "Mean heart rate for each epoch. Gaps are epochs without a valid sample.",
+        "explanation": "Mean heart rate for each 30-second interval. Gaps are intervals without a valid sample.",
         "sources": ["hr"],
     }
 
