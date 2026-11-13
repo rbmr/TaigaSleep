@@ -8,6 +8,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.recording.RecordingService
@@ -19,8 +20,9 @@ import kotlinx.coroutines.withContext
 
 /**
  * Owns the WorkManager queue. Uploads resume from the stored size of each file on the server, so
- * replacing a queued worker never loses bytes. Manual uploads use the same worker with a connected-network constraint and no
- * charging requirement.
+ * replacing a queued worker never loses bytes. A manual upload is the user's own request: it runs
+ * at once, needing only a network, and the automatic-upload conditions (Wi-Fi only, charging) are
+ * not applied to it.
  *
  * Every request carries the account it was queued for. A worker whose account is no longer the active
  * one stops instead of sending that work to the new account.
@@ -33,8 +35,9 @@ internal object UploadScheduler {
   suspend fun enqueueManual(context: Context, localId: String) {
     val account = context.appContainer.remoteRepository.accountKey ?: return
     val store = context.appContainer.uploadStore
-    store.markQueued(localId, account = account)
-    enqueue(context, localId, account, manualConstraints(), ExistingWorkPolicy.REPLACE)
+    // The upload starts now, so it is shown as uploading instead of waiting in the queue.
+    store.markUploading(localId, 0f, account)
+    enqueue(context, localId, account, UploadConditions.manual(), ExistingWorkPolicy.REPLACE)
   }
 
   suspend fun enqueueAuto(context: Context, localId: String) {
@@ -49,7 +52,7 @@ internal object UploadScheduler {
     if (record?.phase == UploadPhase.LOCAL || record == null) {
       store.markQueued(localId, account = account)
     }
-    enqueue(context, localId, account, autoConstraints(settings), ExistingWorkPolicy.KEEP)
+    enqueue(context, localId, account, UploadConditions.automatic(settings), ExistingWorkPolicy.KEEP)
   }
 
   fun cancelRecordingWork(context: Context, localId: String) {
@@ -158,7 +161,9 @@ internal object UploadScheduler {
             null ->
                 if (settings.enabled) {
                   enqueueAuto(context, recording.id)
-                } else if (record?.phase == UploadPhase.UPLOADING) {
+                } else if (record?.phase == UploadPhase.UPLOADING &&
+                    !isUploadWorkActive(context, recording.id)) {
+                  // Only an upload nothing is running is stale; a manual one in flight stays.
                   store.markQueued(recording.id, account = session.account)
                 }
           }
@@ -169,18 +174,22 @@ internal object UploadScheduler {
       context: Context,
       localId: String,
       account: String,
-      constraints: Constraints,
+      conditions: UploadConditions,
       policy: ExistingWorkPolicy,
   ) {
+    val builder = OneTimeWorkRequestBuilder<UploadWorker>()
+    if (conditions.expedited) {
+      builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+    }
     val request: OneTimeWorkRequest =
-        OneTimeWorkRequestBuilder<UploadWorker>()
+        builder
             .setInputData(
                 Data.Builder()
                     .putString(KEY_SESSION_ID, localId)
                     .putString(KEY_ACCOUNT, account)
                     .build()
             )
-            .setConstraints(constraints)
+            .setConstraints(conditions.toConstraints())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .addTag(TAG_UPLOAD)
             .build()
@@ -188,17 +197,39 @@ internal object UploadScheduler {
         .enqueueUniqueWork("upload-$localId", policy, request)
   }
 
-  private fun manualConstraints(): Constraints =
-      Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
-
-  private fun autoConstraints(settings: AutoUploadSettings): Constraints =
-      Constraints.Builder()
-          .setRequiredNetworkType(
-              if (settings.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
-          )
-          .setRequiresCharging(settings.chargingOnly)
-          .build()
+  /** Whether an upload worker for this recording is queued or running. */
+  private fun isUploadWorkActive(context: Context, localId: String): Boolean =
+      WorkManager.getInstance(context).getWorkInfosForUniqueWork("upload-$localId").get().any {
+        !it.state.isFinished
+      }
 
   private const val TAG_UPLOAD = "recording-upload"
   private const val TAG_DELETE = "recording-delete"
+}
+
+/**
+ * What an upload needs before it may start. A manual upload needs only a network and is expedited,
+ * so it starts at once; the Wi-Fi and charging choices belong to automatic uploads alone.
+ */
+internal data class UploadConditions(
+    val network: NetworkType,
+    val requiresCharging: Boolean,
+    val expedited: Boolean,
+) {
+  fun toConstraints(): Constraints =
+      Constraints.Builder()
+          .setRequiredNetworkType(network)
+          .setRequiresCharging(requiresCharging)
+          .build()
+
+  companion object {
+    fun manual() = UploadConditions(NetworkType.CONNECTED, requiresCharging = false, expedited = true)
+
+    fun automatic(settings: AutoUploadSettings) =
+        UploadConditions(
+            network = if (settings.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED,
+            requiresCharging = settings.chargingOnly,
+            expedited = false,
+        )
+  }
 }

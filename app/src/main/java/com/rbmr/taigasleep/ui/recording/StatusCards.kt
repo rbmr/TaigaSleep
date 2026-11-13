@@ -62,7 +62,11 @@ internal fun LazyListScope.statusCards(
                       stringResource(R.string.night_uploading_body),
                   )
                 } else {
-                  stringResource(R.string.night_queued_body)
+                  // A failed attempt that will be retried is not waiting for any setting.
+                  stringResource(
+                      if (state.failure != null) R.string.night_queued_retry_body
+                      else R.string.night_queued_body
+                  )
                 },
         ) {
           ProgressTrack(
