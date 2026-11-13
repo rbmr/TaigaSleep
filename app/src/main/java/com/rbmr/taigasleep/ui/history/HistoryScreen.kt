@@ -1,10 +1,12 @@
 package com.rbmr.taigasleep.ui.history
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -90,30 +92,44 @@ fun HistoryScreen(
   // recordings.
   var trends by rememberSaveable { mutableStateOf(false) }
   TaigaScreen(title = stringResource(R.string.history_title), scrollable = false) {
-    if (trends) {
-      TrendsScreen(onOpenRecording = onOpenRecording, modifier = Modifier.weight(1f))
-    } else {
-      RecordingsList(
-          state = state,
-          onOpenRecording = onOpenRecording,
-          onOpenServer = onOpenServer,
-          modifier = Modifier.weight(1f),
+    // The switch floats over the list or the charts, which scroll behind it: nothing but the
+    // control itself is drawn there. The content leaves room for it below its last item.
+    Box(Modifier.weight(1f).fillMaxWidth()) {
+      if (trends) {
+        TrendsScreen(
+            onOpenRecording = onOpenRecording,
+            modifier = Modifier.fillMaxSize(),
+            bottomPadding = SwitcherClearance,
+        )
+      } else {
+        RecordingsList(
+            state = state,
+            onOpenRecording = onOpenRecording,
+            onOpenServer = onOpenServer,
+            modifier = Modifier.fillMaxSize(),
+        )
+      }
+      SegmentedControl(
+          options =
+              listOf(
+                  stringResource(R.string.history_mode_nights),
+                  stringResource(R.string.history_mode_trends),
+              ),
+          selectedIndex = if (trends) 1 else 0,
+          onSelect = { trends = it == 1 },
+          modifier =
+              Modifier.align(Alignment.BottomCenter)
+                  .fillMaxWidth()
+                  .padding(bottom = MaterialTheme.taiga.space.m),
+          fillWidth = true,
+          floating = true,
       )
     }
-    // The switch sits at the bottom, where a thumb reaches it, just above the navigation bar.
-    SegmentedControl(
-        options =
-            listOf(
-                stringResource(R.string.history_mode_nights),
-                stringResource(R.string.history_mode_trends),
-            ),
-        selectedIndex = if (trends) 1 else 0,
-        onSelect = { trends = it == 1 },
-        modifier = Modifier.fillMaxWidth().padding(bottom = MaterialTheme.taiga.space.s),
-        fillWidth = true,
-    )
   }
 }
+
+/** The 48 dp switch with 16 dp above and below it: what a list keeps free under its last item. */
+private val SwitcherClearance = 80.dp
 
 /** The recordings, one list without grouping. The empty state and the server warning stay. */
 @Composable
@@ -126,7 +142,7 @@ private fun RecordingsList(
   val space = MaterialTheme.taiga.space
   LazyColumn(
       modifier.fillMaxWidth(),
-      contentPadding = PaddingValues(bottom = space.m),
+      contentPadding = PaddingValues(bottom = SwitcherClearance),
       verticalArrangement = Arrangement.spacedBy(space.m),
   ) {
     val warning = state.serverWarning

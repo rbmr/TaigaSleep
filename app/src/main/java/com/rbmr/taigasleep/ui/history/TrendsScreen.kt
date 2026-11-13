@@ -13,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
@@ -48,6 +49,7 @@ import kotlin.math.roundToInt
 fun TrendsScreen(
     onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
     modifier: Modifier = Modifier,
+    bottomPadding: Dp = MaterialTheme.taiga.space.m,
 ) {
   val context = LocalContext.current
   val factory = remember { TrendsViewModel.Factory(context) }
@@ -59,6 +61,7 @@ fun TrendsScreen(
       onRangeChange = viewModel::setRange,
       onOpenRecording = onOpenRecording,
       modifier = modifier,
+      bottomPadding = bottomPadding,
   )
 }
 
@@ -68,6 +71,7 @@ fun TrendsContent(
     onRangeChange: (Int) -> Unit,
     onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
     modifier: Modifier = Modifier,
+    bottomPadding: Dp = MaterialTheme.taiga.space.m,
 ) {
   val space = MaterialTheme.taiga.space
   val data = state.data
@@ -76,7 +80,7 @@ fun TrendsContent(
   }
   LazyColumn(
       modifier.fillMaxWidth(),
-      contentPadding = PaddingValues(bottom = space.m),
+      contentPadding = PaddingValues(bottom = bottomPadding),
       verticalArrangement = Arrangement.spacedBy(space.l),
   ) {
     item { RangeChips(rangeDays = state.rangeDays, onRangeChange = onRangeChange) }
