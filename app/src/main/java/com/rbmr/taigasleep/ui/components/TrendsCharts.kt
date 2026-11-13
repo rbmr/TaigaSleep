@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -207,8 +208,8 @@ fun hoursAxis(values: List<Double?>, targetHours: Double?): TrendAxis {
 }
 
 private val ChartHeight = 176.dp
-private val LeftLabelWidth = 64.dp
-private val LargeLeftLabelWidth = 96.dp
+private val LeftLabelWidth = 48.dp
+private val LargeLeftLabelWidth = 64.dp
 
 private data class TrendPlot(
     val left: Float,
@@ -256,36 +257,36 @@ fun TrendChart(
   var expanded by rememberSaveable { mutableStateOf(false) }
   val axis = trendChartAxis(kind, axisFormat, steps, minStep, references)
   val series = (kind as? TrendChartKind.Line)?.series.orEmpty()
-  TaigaCard(modifier) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Text(text = title, style = MaterialTheme.taiga.text.row, modifier = Modifier.weight(1f))
+  TaigaCard(modifier, contentPadding = PaddingValues(top = space.xs)) {
+    ChartHeader(title = title) {
       if (axis != null && emptyMessage == null) {
         ChartExpandButton(onClick = { expanded = true })
       }
     }
-    if (emptyMessage != null) {
-      Text(
-          text = emptyMessage,
-          style = MaterialTheme.taiga.text.body,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          modifier = Modifier.padding(top = space.xs),
-      )
-    } else if (axis != null) {
-      if (summary.isNotEmpty()) TrendSummaryRow(summary, Modifier.padding(top = space.s))
-      if (series.size > 1 || references.isNotEmpty()) {
-        TrendLegend(series, references, Modifier.padding(top = space.xs))
+    Column(Modifier.padding(start = space.m, end = space.m, bottom = space.m)) {
+      if (emptyMessage != null) {
+        Text(
+            text = emptyMessage,
+            style = MaterialTheme.taiga.text.body,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      } else if (axis != null) {
+        if (summary.isNotEmpty()) TrendSummaryRow(summary)
+        if (series.size > 1 || references.isNotEmpty()) {
+          TrendLegend(series, references, Modifier.padding(top = space.xs))
+        }
+        TrendPlotCanvas(
+            days = days,
+            kind = kind,
+            axis = axis,
+            references = references,
+            description = description,
+            topLabel = topLabel,
+            onOpen = onOpen,
+            large = false,
+            modifier = Modifier.fillMaxWidth().padding(top = space.s).height(ChartHeight),
+        )
       }
-      TrendPlotCanvas(
-          days = days,
-          kind = kind,
-          axis = axis,
-          references = references,
-          description = description,
-          topLabel = topLabel,
-          onOpen = onOpen,
-          large = false,
-          modifier = Modifier.fillMaxWidth().padding(top = space.s).height(ChartHeight),
-      )
     }
   }
   if (expanded && axis != null && emptyMessage == null) {

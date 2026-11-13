@@ -5,7 +5,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -66,13 +65,13 @@ private fun StatTileBody(
     modifier: Modifier = Modifier,
 ) {
   Surface(
-      modifier = modifier.heightIn(min = 92.dp),
+      modifier = modifier,
       shape = MaterialTheme.taiga.shape.card,
       color = MaterialTheme.colorScheme.surface,
       border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
   ) {
     Column(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.padding(MaterialTheme.taiga.space.m),
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.xs),
     ) {
       Text(

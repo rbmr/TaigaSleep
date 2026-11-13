@@ -52,7 +52,6 @@ internal fun IdleHome(
   val space = MaterialTheme.taiga.space
   val connected = view.tracker?.connection == ConnectionState.CONNECTED
   val needsGuard = view.guard == HomeState.NEEDS_SETTINGS
-  val awake = !connected || needsGuard
   val headline =
       when {
         !connected -> R.string.home_headline_connect
@@ -77,15 +76,12 @@ internal fun IdleHome(
   ) {
     BearDen(
         size = DenSize.Header,
-        variant = if (awake) LogoVariant.Awake else LogoVariant.Sleeping,
+        variant = LogoVariant.Sleeping,
         tapEffect = DenTapEffect.Wake,
-        contentDescription =
-            stringResource(
-                if (awake) R.string.home_logo_awake else R.string.home_logo_sleeping
-            ),
+        contentDescription = stringResource(R.string.home_logo_sleeping),
     )
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = space.l).padding(bottom = space.l),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = space.m).padding(bottom = space.l),
         verticalArrangement = Arrangement.spacedBy(space.m),
     ) {
       Text(

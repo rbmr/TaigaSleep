@@ -55,7 +55,7 @@ internal fun FinishingHome(
         contentDescription = stringResource(R.string.home_logo_sleeping),
     )
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = space.l).padding(bottom = space.l),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = space.m).padding(bottom = space.l),
         verticalArrangement = Arrangement.spacedBy(space.m),
     ) {
       Column(verticalArrangement = Arrangement.spacedBy(space.xs)) {

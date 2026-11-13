@@ -4,8 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
@@ -87,21 +89,7 @@ fun HistoryScreen(
   // The switch is presentation state: it lives while the app runs and History opens on the
   // recordings.
   var trends by rememberSaveable { mutableStateOf(false) }
-  TaigaScreen(
-      title = stringResource(R.string.history_title),
-      scrollable = false,
-      actions = {
-        SegmentedControl(
-            options =
-                listOf(
-                    stringResource(R.string.history_mode_nights),
-                    stringResource(R.string.history_mode_trends),
-                ),
-            selectedIndex = if (trends) 1 else 0,
-            onSelect = { trends = it == 1 },
-        )
-      },
-  ) {
+  TaigaScreen(title = stringResource(R.string.history_title), scrollable = false) {
     if (trends) {
       TrendsScreen(onOpenRecording = onOpenRecording, modifier = Modifier.weight(1f))
     } else {
@@ -112,6 +100,18 @@ fun HistoryScreen(
           modifier = Modifier.weight(1f),
       )
     }
+    // The switch sits at the bottom, where a thumb reaches it, just above the navigation bar.
+    SegmentedControl(
+        options =
+            listOf(
+                stringResource(R.string.history_mode_nights),
+                stringResource(R.string.history_mode_trends),
+            ),
+        selectedIndex = if (trends) 1 else 0,
+        onSelect = { trends = it == 1 },
+        modifier = Modifier.fillMaxWidth().padding(bottom = MaterialTheme.taiga.space.s),
+        fillWidth = true,
+    )
   }
 }
 
@@ -126,7 +126,7 @@ private fun RecordingsList(
   val space = MaterialTheme.taiga.space
   LazyColumn(
       modifier.fillMaxWidth(),
-      contentPadding = PaddingValues(bottom = space.l),
+      contentPadding = PaddingValues(bottom = space.m),
       verticalArrangement = Arrangement.spacedBy(space.m),
   ) {
     val warning = state.serverWarning
@@ -173,7 +173,7 @@ private fun RecordingsList(
 }
 
 /**
- * One recording in a fixed 92 dp row: the date, the clock times and length, the score or the state
+ * One recording in a fixed-height row: the date, the clock times and length, the score or the state
  * pill, and an 8 dp bar at the bottom. The bar is a stage bar, a progress bar, an indeterminate bar
  * or an empty track, so the row never changes height.
  */
@@ -208,11 +208,12 @@ private fun RecordingRow(item: RecordingView, onOpen: () -> Unit) {
     Column(
         modifier =
             Modifier.fillMaxWidth()
-                .height(92.dp)
-                .padding(start = space.m, end = space.m, top = space.m, bottom = space.s)
+                // The text carries a few dp of line spacing above its glyphs and the bar has
+                // none, so the top inset is smaller to make both edges look equal.
+                .padding(start = space.m, end = space.m, top = space.s + space.xs, bottom = space.m)
     ) {
       Row(
-          modifier = Modifier.fillMaxWidth().weight(1f),
+          modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp),
           verticalAlignment = Alignment.CenterVertically,
       ) {
         Column(Modifier.weight(1f)) {
@@ -246,6 +247,7 @@ private fun RecordingRow(item: RecordingView, onOpen: () -> Unit) {
           StatusPill(state = pill.state, label = pill.label, modifier = Modifier.padding(start = space.s))
         }
       }
+      Spacer(Modifier.height(space.s))
       if (item.status == RecordingStatus.READY && item.segments.isNotEmpty()) {
         StageBar(item.segments, height = 8.dp)
       } else {

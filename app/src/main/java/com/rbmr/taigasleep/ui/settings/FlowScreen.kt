@@ -160,7 +160,7 @@ fun FlowScreen(
       }
     }
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(bottom = space.l),
         horizontalArrangement = Arrangement.spacedBy(space.s),
     ) {
       if (page == 0) {

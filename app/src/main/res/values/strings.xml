@@ -4,7 +4,6 @@
   <string name="nav_home">Home</string>
   <string name="nav_settings">Settings</string>
   <string name="home_logo_sleeping">Sleeping bear in its den</string>
-  <string name="home_logo_awake">Awake bear in its den</string>
   <string name="home_logo_recording">Sleeping bear, den glowing</string>
   <string name="home_start">Start recording</string>
 

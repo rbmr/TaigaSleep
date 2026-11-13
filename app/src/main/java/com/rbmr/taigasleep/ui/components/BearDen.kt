@@ -269,7 +269,7 @@ fun BearDen(
 
         val body = if (openEyes) openEyesBear(eyePop.value) else sleepingBearPath
         // The tap animation only moves the eyes: the ink stays the colour of this variant.
-        val ink = if (variant == LogoVariant.Awake) colors.bearAwake else colors.bear
+        val ink = colors.bear
         drawPath(path = body, color = ink)
 
         // The band is light inside the arch; the ring grows freely over the whole header.

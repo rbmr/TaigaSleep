@@ -76,8 +76,8 @@ fun TrendsContent(
   }
   LazyColumn(
       modifier.fillMaxWidth(),
-      contentPadding = PaddingValues(bottom = space.l),
-      verticalArrangement = Arrangement.spacedBy(space.m),
+      contentPadding = PaddingValues(bottom = space.m),
+      verticalArrangement = Arrangement.spacedBy(space.l),
   ) {
     item { RangeChips(rangeDays = state.rangeDays, onRangeChange = onRangeChange) }
     item {

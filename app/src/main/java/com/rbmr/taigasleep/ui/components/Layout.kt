@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -97,7 +98,10 @@ fun TaigaScreen(
                   .padding(bottom = if (scrollable) space.l else 0.dp),
           verticalArrangement = Arrangement.spacedBy(space.m),
       ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = if (onBack == null) Modifier.padding(top = space.s) else Modifier,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
           Column(Modifier.weight(1f)) {
             Text(text = title, style = MaterialTheme.taiga.text.screenTitle)
             if (subtitle != null) {
@@ -133,7 +137,11 @@ fun Section(
   var showInfo by remember { mutableStateOf(false) }
   Column(
       modifier = modifier.fillMaxWidth(),
-      verticalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.s),
+      // A header with a 48 dp button is already taller than its title, so it needs no more gap.
+      verticalArrangement =
+          Arrangement.spacedBy(
+              if (info != null || trailing != null) 0.dp else MaterialTheme.taiga.space.s
+          ),
   ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
       Text(
@@ -147,6 +155,9 @@ fun Section(
             shape = CircleShape,
             role = Role.Button,
             onClickLabel = info.title,
+            // The glyph sits in a 48 dp target; pull the target out by its inset so the visible
+            // icon lines up with the right edge of the content.
+            modifier = Modifier.offset(x = 12.dp),
         ) {
           Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
             Icon(

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -278,9 +279,40 @@ private fun epochTimeMs(startUnixMs: Long, totalSeconds: Long, pointCount: Int, 
   return startUnixMs + (index * epochMs).toLong()
 }
 
+/**
+ * The title line of a chart card with an optional trailing action. The card gives it no top
+ * padding: the title's own inset and the 48 dp action decide the line's height.
+ */
+@Composable
+fun ChartHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    trailing: @Composable () -> Unit = {},
+) {
+  val space = MaterialTheme.taiga.space
+  Row(
+      modifier = modifier.fillMaxWidth().padding(start = space.m, end = space.m),
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+        text = title,
+        style = MaterialTheme.taiga.text.row,
+        modifier = Modifier.weight(1f).padding(vertical = space.s),
+    )
+    trailing()
+  }
+}
+
 @Composable
 fun ChartExpandButton(onClick: () -> Unit) {
-  Pressable(onClick = onClick, shape = CircleShape, role = Role.Button) {
+  // The glyph sits in a 48 dp target; pull the target out by its inset so the glyph lines up
+  // with the right edge of the content.
+  Pressable(
+      onClick = onClick,
+      shape = CircleShape,
+      role = Role.Button,
+      modifier = Modifier.offset(x = 12.dp),
+  ) {
     Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
       Icon(
           imageVector = Icons.Outlined.Fullscreen,
@@ -453,17 +485,32 @@ private fun TimeChart(
             labelPaint,
         )
       } else if (ticks.isNotEmpty()) {
+        // Every hour gets a grid line, but a label only when it clears the one before it, so
+        // a narrow chart names every second hour instead of printing labels over each other.
+        val gap = 8.dp.toPx()
+        var lastRight = Float.NEGATIVE_INFINITY
         for (tick in ticks) {
           val x = plot.x(tick.fraction)
           drawLine(gridColor, Offset(x, plot.top), Offset(x, plot.top + plot.height), 1.dp.toPx())
-          labelPaint.textAlign =
+          val text = clock(tick.timeMs)
+          val textWidth = labelPaint.measureText(text)
+          val align =
               when {
                 tick.fraction <= 0.02f -> Paint.Align.LEFT
                 tick.fraction >= 0.98f -> Paint.Align.RIGHT
                 else -> Paint.Align.CENTER
               }
+          val textLeft =
+              when (align) {
+                Paint.Align.LEFT -> x
+                Paint.Align.RIGHT -> x - textWidth
+                else -> x - textWidth / 2f
+              }
+          if (textLeft < lastRight + gap || textLeft + textWidth > size.width) continue
+          lastRight = textLeft + textWidth
+          labelPaint.textAlign = align
           drawContext.canvas.nativeCanvas.drawText(
-              clock(tick.timeMs),
+              text,
               x,
               plot.top + plot.height + labelPaint.textSize + 4.dp.toPx(),
               labelPaint,

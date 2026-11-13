@@ -1,5 +1,9 @@
 package com.rbmr.taigasleep.ui.settings
 
+import com.rbmr.taigasleep.ui.theme.taiga
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
@@ -111,6 +115,7 @@ fun SettingsScreen(
           onClick = onPersonalClick,
       )
     }
+    Spacer(Modifier.height(MaterialTheme.taiga.space.s))
     Section(title = stringResource(R.string.settings_group_app)) {
       TaigaCard(contentPadding = PaddingValues(0.dp)) {
         ListRow(

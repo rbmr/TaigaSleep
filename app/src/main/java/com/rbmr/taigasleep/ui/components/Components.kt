@@ -27,7 +27,7 @@ fun TaigaCard(
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.surface,
     borderColor: Color = MaterialTheme.colorScheme.outlineVariant,
-    contentPadding: PaddingValues = PaddingValues(18.dp),
+    contentPadding: PaddingValues = PaddingValues(MaterialTheme.taiga.space.m),
     content: @Composable ColumnScope.() -> Unit,
 ) {
   Surface(

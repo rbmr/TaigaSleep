@@ -209,7 +209,7 @@ fun RemoteScreen(onBack: () -> Unit) {
       }
     }
     Row(
-        modifier = Modifier.fillMaxWidth().imePadding(),
+        modifier = Modifier.fillMaxWidth().imePadding().padding(bottom = space.l),
         horizontalArrangement = Arrangement.spacedBy(space.s),
     ) {
       SecondaryButton(

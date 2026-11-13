@@ -47,7 +47,7 @@ fun TaigaLogo(
     contentDescription: String? = null,
 ) {
   val colors = MaterialTheme.taiga
-  val bear = if (variant == LogoVariant.Awake) colors.bearAwake else colors.bear
+  val bear = colors.bear
   val body = if (variant == LogoVariant.Awake) awakeBearPath else sleepingBearPath
   val aurora = listOf(colors.auroraStart, colors.auroraEnd)
   val semantics =
