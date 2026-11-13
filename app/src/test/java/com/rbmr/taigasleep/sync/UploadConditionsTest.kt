@@ -18,17 +18,19 @@ class UploadConditionsTest {
   }
 
   @Test
-  fun automaticUploadsOnAnyNetworkWhenWifiOnlyIsOff() {
+  fun automaticUploadsNeedNoNetworkWhenWifiOnlyIsOff() {
     val conditions = UploadConditions.automatic(strict.copy(wifiOnly = false, chargingOnly = false))
-    assertEquals(NetworkType.CONNECTED, conditions.network)
+    assertEquals(NetworkType.NOT_REQUIRED, conditions.network)
     assertFalse(conditions.requiresCharging)
+    assertEquals(NetworkType.NOT_REQUIRED, conditions.toConstraints().requiredNetworkType)
   }
 
   @Test
   fun aManualUploadIgnoresTheAutomaticConditionsAndStartsAtOnce() {
     val conditions = UploadConditions.manual()
-    assertEquals(NetworkType.CONNECTED, conditions.network)
+    assertEquals(NetworkType.NOT_REQUIRED, conditions.network)
     assertFalse(conditions.requiresCharging)
     assertTrue(conditions.expedited)
+    assertEquals(NetworkType.NOT_REQUIRED, conditions.toConstraints().requiredNetworkType)
   }
 }

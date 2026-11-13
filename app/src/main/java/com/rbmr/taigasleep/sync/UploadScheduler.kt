@@ -20,9 +20,11 @@ import kotlinx.coroutines.withContext
 
 /**
  * Owns the WorkManager queue. Uploads resume from the stored size of each file on the server, so
- * replacing a queued worker never loses bytes. A manual upload is the user's own request: it runs
- * at once, needing only a network, and the automatic-upload conditions (Wi-Fi only, charging) are
- * not applied to it.
+ * replacing a queued worker never loses bytes. No upload waits for Android to report a network: the
+ * server may be reachable without one (a port forward), so an upload simply tries and a failed
+ * attempt is retried with backoff. A manual upload is the user's own request: it runs at once and the
+ * automatic-upload conditions (Wi-Fi only, charging) are not applied to it. Its work carries
+ * [TAG_MANUAL], so a later pass over the queue leaves it alone and its retries stay manual.
  *
  * Every request carries the account it was queued for. A worker whose account is no longer the active
  * one stops instead of sending that work to the new account.
@@ -37,7 +39,7 @@ internal object UploadScheduler {
     val store = context.appContainer.uploadStore
     // The upload starts now, so it is shown as uploading instead of waiting in the queue.
     store.markUploading(localId, 0f, account)
-    enqueue(context, localId, account, UploadConditions.manual(), ExistingWorkPolicy.REPLACE)
+    enqueue(context, localId, account, UploadConditions.manual(), manual = true, ExistingWorkPolicy.REPLACE)
   }
 
   suspend fun enqueueAuto(context: Context, localId: String) {
@@ -52,7 +54,7 @@ internal object UploadScheduler {
     if (record?.phase == UploadPhase.LOCAL || record == null) {
       store.markQueued(localId, account = account)
     }
-    enqueue(context, localId, account, UploadConditions.automatic(settings), ExistingWorkPolicy.KEEP)
+    enqueue(context, localId, account, UploadConditions.automatic(settings), manual = false, ExistingWorkPolicy.KEEP)
   }
 
   fun cancelRecordingWork(context: Context, localId: String) {
@@ -109,7 +111,9 @@ internal object UploadScheduler {
     val manager = WorkManager.getInstance(context)
     val store = context.appContainer.uploadStore
     val settings = UploadSettings.get(context).autoUpload.value
-    local.forEach { recording ->
+    // A manual upload is not governed by these settings; it keeps running as it was queued.
+    val manual = local.filter { isManualUploadActive(context, it.id) }.map { it.id }.toSet()
+    local.filter { it.id !in manual }.forEach { recording ->
       manager.cancelUniqueWork("upload-${recording.id}")
       if (store.record(recording.id)?.phase == UploadPhase.UPLOADING) {
         store.markQueued(recording.id)
@@ -117,6 +121,7 @@ internal object UploadScheduler {
     }
     val account = context.appContainer.remoteRepository.accountKey ?: return
     local.forEach { recording ->
+      if (recording.id in manual) return@forEach
       // A recording that is not finished is never queued: the service enqueues it when it ends.
       if (recording.state.unfinished) return@forEach
       // A recording that is processing is on the server already; its result comes from the live stream.
@@ -153,6 +158,7 @@ internal object UploadScheduler {
           when (record?.phase) {
             // Results are not polled: a processing recording is refreshed by the live sync.
             UploadPhase.DONE,
+            UploadPhase.UPLOADED,
             UploadPhase.FAILED,
             UploadPhase.PROCESSING -> Unit
             UploadPhase.LOCAL,
@@ -175,12 +181,14 @@ internal object UploadScheduler {
       localId: String,
       account: String,
       conditions: UploadConditions,
+      manual: Boolean,
       policy: ExistingWorkPolicy,
   ) {
     val builder = OneTimeWorkRequestBuilder<UploadWorker>()
     if (conditions.expedited) {
       builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
     }
+    if (manual) builder.addTag(TAG_MANUAL)
     val request: OneTimeWorkRequest =
         builder
             .setInputData(
@@ -199,17 +207,27 @@ internal object UploadScheduler {
 
   /** Whether an upload worker for this recording is queued or running. */
   private fun isUploadWorkActive(context: Context, localId: String): Boolean =
-      WorkManager.getInstance(context).getWorkInfosForUniqueWork("upload-$localId").get().any {
+      activeUploadWork(context, localId).isNotEmpty()
+
+  /** Whether the upload queued or running for this recording was requested by the user. */
+  private fun isManualUploadActive(context: Context, localId: String): Boolean =
+      activeUploadWork(context, localId).any { TAG_MANUAL in it.tags }
+
+  private fun activeUploadWork(context: Context, localId: String) =
+      WorkManager.getInstance(context).getWorkInfosForUniqueWork("upload-$localId").get().filter {
         !it.state.isFinished
       }
 
   private const val TAG_UPLOAD = "recording-upload"
+  private const val TAG_MANUAL = "recording-upload-manual"
   private const val TAG_DELETE = "recording-delete"
 }
 
 /**
- * What an upload needs before it may start. A manual upload needs only a network and is expedited,
- * so it starts at once; the Wi-Fi and charging choices belong to automatic uploads alone.
+ * What an upload needs before it may start. There is never a generic network requirement: an upload
+ * tries when it is due and is retried with backoff if the server cannot be reached. A manual upload
+ * needs nothing and is expedited, so it starts at once; the Wi-Fi and charging choices belong to
+ * automatic uploads alone.
  */
 internal data class UploadConditions(
     val network: NetworkType,
@@ -223,11 +241,12 @@ internal data class UploadConditions(
           .build()
 
   companion object {
-    fun manual() = UploadConditions(NetworkType.CONNECTED, requiresCharging = false, expedited = true)
+    fun manual() =
+        UploadConditions(NetworkType.NOT_REQUIRED, requiresCharging = false, expedited = true)
 
     fun automatic(settings: AutoUploadSettings) =
         UploadConditions(
-            network = if (settings.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED,
+            network = if (settings.wifiOnly) NetworkType.UNMETERED else NetworkType.NOT_REQUIRED,
             requiresCharging = settings.chargingOnly,
             expedited = false,
         )
