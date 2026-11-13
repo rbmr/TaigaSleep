@@ -72,3 +72,14 @@ def test_optional_sleepecg_is_discovered_only_when_usable() -> None:
     if not available:
         pytest.skip(f"SleepECG is not available: {reason or 'optional extra not installed'}")
     assert sleepecg.INFO.id in discover().latest_by_id()
+
+
+@pytest.mark.parametrize("module", ["baseline", "sleepecg", "wav2sleep"])
+def test_method_descriptions_are_plain_words(module):
+    import importlib
+
+    info = importlib.import_module(f"taiga_worker.analysis.algorithms.{module}").INFO
+    text = info.description
+    assert text.count(".") <= 2, "one or two short sentences"
+    for banned in (";", "—", "–", " - ", "stager", "deterministic", "classifier", "epoch"):
+        assert banned not in text.lower(), banned

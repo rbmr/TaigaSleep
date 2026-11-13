@@ -53,9 +53,8 @@ INFO = AlgorithmInfo(
     version="1.1.0",
     name="SleepECG",
     description=(
-        "RR/ECG heartbeat-based stager from SleepECG. The bundled classifiers "
-        "distinguish Wake/REM/NREM or Wake/Sleep, and deep sleep is never guessed. "
-        "Experimental and not clinically validated."
+        "Uses the time between heartbeats to estimate awake, REM and light sleep. "
+        "It does not tell deep sleep apart from light sleep."
     ),
     license="BSD-3-Clause",
     citation=(

@@ -30,8 +30,8 @@ INFO = AlgorithmInfo(
     version="1.2.0",
     name="Baseline HR/ACC",
     description=(
-        "Deterministic heart-rate and movement reference stager that reports wake and "
-        "sleep only. Experimental and not clinically validated."
+        "Uses heart rate and movement to tell sleep from awake. "
+        "It does not tell sleep stages apart."
     ),
     license="GPL-3.0-or-later",
     citation=None,

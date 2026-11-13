@@ -55,8 +55,8 @@ INFO = AlgorithmInfo(
     version="1.1.0",
     name="wav2sleep ECG",
     description=(
-        "ECG-only cardio-respiratory sleep stager from the wav2sleep model "
-        "(ML4H 2024). Experimental and not clinically validated."
+        "Uses the heart signal (ECG) with a trained model to estimate sleep stages. "
+        "It needs an ECG recording."
     ),
     license="MIT",
     citation=(
