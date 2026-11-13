@@ -56,7 +56,7 @@ INFO = AlgorithmInfo(
     name="wav2sleep ECG",
     description=(
         "ECG-only cardio-respiratory sleep stager from the wav2sleep model "
-        "(ML4H 2024). Experimental; not clinically validated."
+        "(ML4H 2024). Experimental and not clinically validated."
     ),
     license="MIT",
     citation=(
@@ -106,7 +106,7 @@ INFO = AlgorithmInfo(
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 64,
-                "description": "Accepted for API parity; one job analyses one night.",
+                "description": "Not used. One job analyzes one recording.",
             },
             "min_ecg_coverage": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "min_usable_epochs": {"type": "integer", "minimum": 1, "maximum": 1440},
@@ -114,17 +114,17 @@ INFO = AlgorithmInfo(
                 "type": "number",
                 "minimum": 0.0,
                 "maximum": 1.0,
-                "description": "Minimum HR contact fraction when the strap reports contact.",
+                "description": "Minimum HR contact fraction when the tracker reports contact.",
             },
             "max_ecg_rms_ratio": {
                 "type": "number",
                 "minimum": 0.0,
-                "description": "Reject 30-second intervals this many times louder than the night median; 0 disables.",
+                "description": "Reject 30-second intervals this many times louder than the night median; 0 turns it off.",
             },
             "min_ecg_rms_ratio": {
                 "type": "number",
                 "minimum": 0.0,
-                "description": "Reject 30-second intervals this much quieter than the night median; 0 disables.",
+                "description": "Reject 30-second intervals this much quieter than the night median; 0 turns it off.",
             },
             "min_unknown_epochs": {
                 "type": "integer",
@@ -136,7 +136,7 @@ INFO = AlgorithmInfo(
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 21,
-                "description": "Centered probability smoothing window; 1 disables smoothing.",
+                "description": "Centered probability smoothing window; 1 turns smoothing off.",
             },
             "device": {"type": "string", "enum": ["cpu", "auto"]},
         },
@@ -188,15 +188,15 @@ def availability() -> tuple[bool, str]:
     if _remote_checkpoint(None):
         return (
             False,
-            f"{CHECKPOINT_ENV} must be a local directory; download the pinned "
+            f"{CHECKPOINT_ENV} must be a local directory. Download the pinned "
             "checkpoint during installation",
         )
     checkpoint = _resolve_checkpoint(None)
     if checkpoint is None:
         return (
             False,
-            f"wav2sleep is installed but {CHECKPOINT_ENV} is not set; "
-            "download the pinned checkpoint and point the worker at it",
+            f"wav2sleep is installed but {CHECKPOINT_ENV} is not set. "
+            "Download the pinned checkpoint and point the worker at it",
         )
     for name in ("config.yaml", "state_dict.pth"):
         if not (checkpoint / name).is_file():
@@ -415,8 +415,8 @@ def prepare_ecg(recording: Recording, config: Mapping[str, Any]) -> PreparedEcg:
         needed = int(config["min_usable_epochs"]) * EPOCH_SECONDS / 60.0
         raise AnalysisError(
             "insufficient_ecg",
-            f"wav2sleep needs at least {needed:g} min of usable ECG contact; "
-            f"found {stageable_epochs * EPOCH_SECONDS / 60.0:g} min",
+            f"wav2sleep needs at least {needed:g} min of usable ECG contact. "
+            f"Found {stageable_epochs * EPOCH_SECONDS / 60.0:g} min",
         )
 
     if values.size > target_samples:
@@ -485,7 +485,7 @@ def _load_model(checkpoint: Path, device: str) -> Any:
     except Exception as exc:  # noqa: BLE001 - optional extra, memory or broken install
         raise AnalysisError(
             "algorithm_unavailable",
-            "cannot import wav2sleep/torch; install the worker's wav2sleep extra. "
+            "cannot import wav2sleep/torch. Install the worker's wav2sleep extra. "
             "If the install is fine, raise TAIGA_JOB_MEMORY_MB (wav2sleep needs "
             f"about 1.5 GiB of address space). Import error: {type(exc).__name__}: {exc}",
         ) from exc
@@ -573,7 +573,7 @@ def to_result(
     if prepared.scored_epochs < prepared.canonical_epochs:
         warnings.append(
             f"scored the first {prepared.scored_epochs} of {prepared.canonical_epochs} intervals "
-            f"({int(extras.get('max_length_hours', 10))} h limit); the rest are unknown"
+            f"({int(extras.get('max_length_hours', 10))} h limit), and the rest are unknown"
         )
     if prepared.padded_epochs > 0:
         warnings.append(
@@ -582,7 +582,7 @@ def to_result(
     if prepared.artifact_epochs > 0:
         warnings.append(
             f"{prepared.artifact_epochs} 30-second interval(s) have no reliable ECG contact or signal "
-            f"quality; {prepared.unknown_epochs} are reported as unknown and the rest are "
+            f"quality. {prepared.unknown_epochs} are reported as unknown and the rest are "
             "flagged as artifacts"
         )
     if smooth_window_epochs > 1:
@@ -616,13 +616,13 @@ class Wav2SleepStager(Stager):
         if _remote_checkpoint(config["checkpoint"]):
             raise AnalysisError(
                 "invalid_checkpoint",
-                "wav2sleep checkpoints must be local; download the pinned checkpoint during installation",
+                "wav2sleep checkpoints must be local. Download the pinned checkpoint during installation",
             )
         checkpoint = _resolve_checkpoint(config["checkpoint"])
         if checkpoint is None:
             raise AnalysisError(
                 "missing_checkpoint",
-                f"wav2sleep needs a local checkpoint; set {CHECKPOINT_ENV} or the checkpoint param",
+                f"wav2sleep needs a local checkpoint. Set {CHECKPOINT_ENV} or the checkpoint parameter",
             )
 
         prepared = prepare_ecg(recording, config)

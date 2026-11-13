@@ -238,7 +238,7 @@ def run_analysis(
     if recording.duration_s < info.epoch_seconds:
         raise AnalysisError(
             "recording_too_short",
-            f"recording is {recording.duration_s:g}s; {info.id} needs at least "
+            f"recording is {recording.duration_s:g}s. {info.id} needs at least "
             f"{info.epoch_seconds}s",
         )
     _required_streams(recording, info)

@@ -60,7 +60,7 @@ def test_no_contact_produces_unknown_epochs_not_a_crash(tmp_path: Path) -> None:
     assert result.stages == ["unknown"] * 4
     assert result.confidence is None
     assert result.artifacts == [True] * 4
-    assert any("no valid HR" in warning for warning in result.warnings)
+    assert any("no valid heart-rate" in warning for warning in result.warnings)
 
 
 def test_missing_acc_disables_movement_rules(tmp_path: Path) -> None:
@@ -70,7 +70,7 @@ def test_missing_acc_disables_movement_rules(tmp_path: Path) -> None:
     result = baseline.STAGER.stage(recording, {})
     assert len(result.stages) == 4
     assert not result.extras["has_acc"]
-    assert any("no ACC" in warning for warning in result.warnings)
+    assert any("no movement data" in warning for warning in result.warnings)
 
 
 def test_invalid_params_are_rejected(tmp_path: Path) -> None:

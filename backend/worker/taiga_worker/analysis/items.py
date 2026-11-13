@@ -101,7 +101,7 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "HRV RMSSD",
         "ms",
         "heart",
-        "Beat-to-beat variation from the sleep intervals only: the root mean square of successive "
+        "Beat-to-beat variation in the sleep intervals only. It is the root mean square of successive "
         "RR-interval differences, combined over uninterrupted stretches weighted by beat count.",
         ("hr",),
     ),
@@ -110,7 +110,7 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "HRV SDNN",
         "ms",
         "heart",
-        "Overall heart-rate variability from the sleep intervals only: the standard deviation of the "
+        "Overall heart-rate variability in the sleep intervals only. It is the standard deviation of the "
         "RR intervals.",
         ("hr",),
     ),
@@ -284,7 +284,7 @@ def score_items(
         sleep_quality,
         SLEEP_SCORE_COMPONENTS,
         "Weighted average of the sleep figures below. A component whose data is unavailable "
-        "is removed and the remaining weights are renormalised.",
+        "is left out and the other components share its weight.",
         ["stages"],
     )
     if sleep_score is not None:

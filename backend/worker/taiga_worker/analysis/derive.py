@@ -468,7 +468,7 @@ def _sleep_quality(
         weight = SLEEP_SCORE_WEIGHTS[name]
         if value is None:
             components[name] = {"value": None, "weight": weight, "available": False}
-            notes.append(f"{name} unavailable; its weight was renormalized")
+            notes.append(f"{name} is unavailable, so the other components share its weight")
         else:
             components[name] = {
                 "value": round(float(min(1.0, max(0.0, value))), 4),
@@ -492,7 +492,7 @@ def _sleep_quality(
     if quality_score is not None and quality_score < MIN_QUALITY_FOR_SLEEP_SCORE:
         score = None
         notes.append(
-            f"sleep score withheld; data quality {quality_score} is below "
+            f"no sleep score because data quality {quality_score} is below "
             f"{MIN_QUALITY_FOR_SLEEP_SCORE}"
         )
 
@@ -565,7 +565,7 @@ def _quality(
         weight = QUALITY_WEIGHTS[name]
         if value is None:
             components[name] = {"value": None, "weight": weight, "available": False}
-            notes.append(f"{name} unavailable; its weight was renormalized")
+            notes.append(f"{name} is unavailable, so the other components share its weight")
         else:
             components[name] = {
                 "value": round(float(min(1.0, max(0.0, value))), 4),
