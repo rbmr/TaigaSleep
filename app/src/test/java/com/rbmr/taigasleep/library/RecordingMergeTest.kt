@@ -703,7 +703,7 @@ class RecordingMergeTest {
     assertEquals(1_792_938_601_000L, parseApiDate("2026-10-25T14:30:01Z"))
     assertEquals(1_792_938_601_250L, parseApiDate("2026-10-25T14:30:01.250Z"))
     assertEquals(1_792_938_601_000L, parseApiDate("2026-10-25T16:30:01+02:00"))
-    assertTrue(formatRecordingDate(parseApiDate("2026-10-25T14:00:00Z")) != "—")
+    assertTrue(formatRecordingDate(parseApiDate("2026-10-25T14:00:00Z")) != "-")
   }
 
   @Test

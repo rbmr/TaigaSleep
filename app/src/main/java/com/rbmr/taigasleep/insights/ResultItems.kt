@@ -73,7 +73,7 @@ fun formatItemValue(kind: MetricValueKind, value: Double?): String? {
 }
 
 fun formatSeconds(seconds: Double): String {
-  if (!seconds.isFinite() || seconds < 0) return "—"
+  if (!seconds.isFinite() || seconds < 0) return "-"
   val total = seconds.roundToInt()
   val hours = total / 3600
   val minutes = (total % 3600) / 60

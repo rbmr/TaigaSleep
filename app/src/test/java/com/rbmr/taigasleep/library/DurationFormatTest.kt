@@ -13,8 +13,8 @@ class DurationFormatTest {
 
   @Test
   fun noDurationAtAllIsShownAsADash() {
-    assertEquals("—", formatDuration(0))
-    assertEquals("—", formatDuration(-1))
+    assertEquals("-", formatDuration(0))
+    assertEquals("-", formatDuration(-1))
   }
 
   @Test

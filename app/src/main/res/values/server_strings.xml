@@ -7,7 +7,7 @@
   <string name="server_page_server_body">The address Taiga uploads recordings to.</string>
   <string name="server_page_account_body">The email and password Taiga logs in with.</string>
   <string name="server_page_status_body">Whether Taiga can reach the server and is logged in.</string>
-  <string name="server_progress">Page %1$d of %2$d: %3$s</string>
+  <string name="server_progress">Page %1$d of %2$d · %3$s</string>
   <string name="server_previous_page">Previous</string>
   <string name="server_next_page">Next</string>
 
@@ -38,10 +38,10 @@
 
   <string name="server_logout">Log out</string>
   <string name="server_logout_title">Log out of the server?</string>
-  <string name="server_logout_body">Taiga logs out on this phone only; other devices stay logged in. Recordings stay on the phone and finish normally.</string>
+  <string name="server_logout_body">Taiga logs out on this phone only. Other devices stay logged in. Recordings stay on the phone and finish normally.</string>
   <string name="server_logout_confirm">Log out</string>
 
-  <!-- The settings row summary; the Status page has its own wording. -->
+  <!-- The settings row summary. The Status page has its own wording. -->
   <string name="server_state_login_needed_short">Login needed</string>
   <string name="server_state_unreachable_short">Server unreachable</string>
 
@@ -63,7 +63,7 @@
   <string name="server_login_prompt">Server login needed</string>
   <string name="server_login_prompt_action">Log in</string>
 
-  <!-- Settings → Server → Access tokens -->
+  <!--  -->
   <string name="tokens_title">Access tokens</string>
   <string name="tokens_body">Read-only tokens for an assistant or a script of your own. They can read your recordings, analyses and results and cannot change anything.</string>
   <string name="tokens_name_label">Name</string>

@@ -393,19 +393,19 @@ private fun String.toAnalysisStatus(): AnalysisStatus =
 fun parseApiDate(value: String): Long = parseServerTime(value)?.toEpochMilli() ?: 0
 
 fun formatRecordingDate(ms: Long): String =
-    if (ms <= 0) "—"
+    if (ms <= 0) "-"
     else SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(ms))
 
 fun formatRecordingDateAndTime(ms: Long): String =
-    if (ms <= 0) "—"
+    if (ms <= 0) "-"
     else SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault()).format(Date(ms))
 
 /** The clock time of a recording, e.g. `23:12`. */
 fun formatRecordingTime(ms: Long): String =
-    if (ms <= 0) "—" else SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
+    if (ms <= 0) "-" else SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
 
 fun formatDuration(ms: Long): String {
-  if (ms <= 0) return "—"
+  if (ms <= 0) return "-"
   val totalSeconds = ms / 1000
   if (totalSeconds < 60) return "${totalSeconds}s"
   val totalMinutes = totalSeconds / 60

@@ -36,7 +36,7 @@ fun formatNightHeader(
 }
 
 private fun clockTime(ms: Long, locale: Locale, zone: TimeZone): String =
-    if (ms <= 0) "—"
+    if (ms <= 0) "-"
     else SimpleDateFormat("HH:mm", locale).apply { timeZone = zone }.format(Date(ms))
 
 /** A length as the app writes it: `1 h 35 min`, `45 min` or `30 s` for a short stage. */

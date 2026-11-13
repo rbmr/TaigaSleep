@@ -13,15 +13,15 @@
   <string name="rec_notification_storage_error">Cannot save</string>
   <string name="rec_notification_storage_low">Storage almost full</string>
 
-  <string name="rec_error_not_ready">Recording was not started: the phone would stop Taiga in the background. Set up preventing shutdown first.</string>
-  <string name="rec_error_no_sensor">Recording was not started: no tracker selected.</string>
-  <string name="rec_error_storage">Recording was not started: could not create the recording on this phone.</string>
-  <string name="rec_error_space">Recording was not started: the phone does not have enough free space for a recording with these streams.</string>
-  <string name="rec_error_mode">Recording was not started: this tracker cannot record with the chosen streams.</string>
-  <string name="rec_error_fetch_missing">Could not fetch the recording: it is no longer waiting on this phone.</string>
+  <string name="rec_error_not_ready">Recording was not started. The phone would stop Taiga in the background. Set up preventing shutdown first.</string>
+  <string name="rec_error_no_sensor">Recording was not started. No tracker is selected.</string>
+  <string name="rec_error_storage">Recording was not started. The recording could not be created on this phone.</string>
+  <string name="rec_error_space">Recording was not started. The phone does not have enough free space for the chosen data.</string>
+  <string name="rec_error_mode">Recording was not started. This tracker cannot record the chosen data.</string>
+  <string name="rec_error_fetch_missing">Could not fetch the recording. It is no longer waiting on this phone.</string>
   <string name="rec_error_fetch_failed">Could not reach the tracker. Keep it nearby and try again.</string>
-  <string name="rec_error_fetch_recovery">Could not fetch the recording: the phone could not clean up after the last attempt. Keep the tracker nearby and try again.</string>
-  <string name="rec_error_foreground">Recording ended: the phone did not allow it to keep running in the background.</string>
+  <string name="rec_error_fetch_recovery">Could not fetch the recording. The phone could not clean up after the last attempt. Keep the tracker nearby and try again.</string>
+  <string name="rec_error_foreground">Recording ended. The phone did not allow it to keep running in the background.</string>
 
   <string name="rec_battery">Battery %1$d%%</string>
   <string name="rec_connection_connected">Connected</string>
@@ -72,9 +72,9 @@
   <string name="rec_active_link_lost_title">Tracker link lost</string>
   <string name="rec_active_link_lost_body">Taiga keeps trying to reconnect. No data is recorded until the link is back.</string>
   <string name="rec_active_off_body_title">No contact</string>
-  <string name="rec_active_off_body_body">No contact for %1$s. The other streams are still recorded.</string>
+  <string name="rec_active_off_body_body">No contact for %1$s. The other data is still recorded.</string>
   <string name="rec_active_ecg_poor_title">Poor ECG signal</string>
-  <string name="rec_active_ecg_poor_body">The ECG is pinned at the tracker\'s limits. Check that the tracker is fitted snugly and has good contact.</string>
+  <string name="rec_active_ecg_poor_body">The ECG signal is at the tracker\'s limits. Check that the tracker is fitted snugly and has good contact.</string>
   <string name="rec_active_battery_low_title">Tracker battery low</string>
   <string name="rec_active_battery_low_body">%1$d%% left.</string>
   <string name="rec_active_storage_error_title">Writing to the phone failed</string>
