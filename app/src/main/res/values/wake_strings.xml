@@ -3,8 +3,8 @@
   <string name="wake_title">Smart alarm</string>
   <string name="wake_enable">Enabled</string>
   <string name="wake_start">Start time</string>
-  <string name="wake_length">Window</string>
-  <string name="wake_minutes">%1$d min</string>
+  <string name="wake_length">Window in minutes</string>
+  <string name="wake_minutes">%1$d</string>
   <string name="wake_trigger_hr">Wake on a rise in heart rate</string>
   <string name="wake_trigger_movement">Wake on movement</string>
   <string name="wake_trigger_none">Choose at least one signal, otherwise the alarm only rings at the end of the window.</string>
