@@ -1,4 +1,4 @@
-package com.rbmr.taigasleep.ui.settings
+package com.rbmr.taigasleep.ui.components
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

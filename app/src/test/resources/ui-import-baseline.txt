@@ -17,6 +17,7 @@ components/PreviewTheme.kt 0
 components/RecordingCharts.kt 2
 components/ReorderableColumn.kt 0
 components/SegmentedProgress.kt 0
+components/Separator.kt 0
 components/StatTile.kt 0
 components/Status.kt 0
 components/StatusPill.kt 0

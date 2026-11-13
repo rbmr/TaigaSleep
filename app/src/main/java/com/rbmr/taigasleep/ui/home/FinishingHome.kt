@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.ui.home
 
+import com.rbmr.taigasleep.ui.components.joinParts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -135,7 +136,10 @@ private fun fetchText(finishing: FinishingState, stepState: StepState): String? 
   }
   val entry = stringResource(R.string.rec_finishing_fetch_entry, fetch.entry, fetch.entries)
   return if (fetch.samples > 0) {
-    "$entry · " + pluralStringResource(R.plurals.rec_finishing_samples, fetch.samples, fetch.samples)
+    joinParts(
+        entry,
+        pluralStringResource(R.plurals.rec_finishing_samples, fetch.samples, fetch.samples),
+    )
   } else {
     entry
   }

@@ -166,7 +166,7 @@ fun ScoreRing(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
       Text(
-          text = score?.roundToInt()?.toString() ?: "—",
+          text = score?.roundToInt()?.toString() ?: "-",
           style = MaterialTheme.typography.headlineSmall,
           color = ink,
       )
@@ -789,7 +789,7 @@ fun StageBreakdown(
 }
 
 private fun clock(ms: Long): String =
-    if (ms <= 0) "—"
+    if (ms <= 0) "-"
     else SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
 
 @Preview(name = "Light", widthDp = 360)

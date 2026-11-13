@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.ui.settings
 
+import com.rbmr.taigasleep.ui.components.joinParts
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -226,6 +227,3 @@ private fun createdLabel(stamp: String): String =
         }
         .getOrDefault(stamp)
 
-/** The present parts joined by " · "; null when none is present, never a trailing separator. */
-internal fun joinParts(vararg parts: String?): String? =
-    parts.filterNotNull().filter { it.isNotBlank() }.joinToString(" · ").ifEmpty { null }

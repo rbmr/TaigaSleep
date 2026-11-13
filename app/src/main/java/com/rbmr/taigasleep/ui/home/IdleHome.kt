@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.ui.home
 
+import com.rbmr.taigasleep.ui.components.joinParts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -189,5 +190,5 @@ private fun streamsText(config: StartConfig): String {
             else R.string.rec_mode_summary_stream
         )
   }
-  return parts.joinToString(" · ")
+  return joinParts(parts).orEmpty()
 }

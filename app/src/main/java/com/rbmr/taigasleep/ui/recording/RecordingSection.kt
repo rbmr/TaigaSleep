@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.ui.recording
 
+import com.rbmr.taigasleep.ui.components.joinParts
 import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -207,7 +208,7 @@ private fun streamsText(streams: List<Int>): String =
     if (streams.isEmpty()) {
       stringResource(R.string.night_value_none)
     } else {
-      streams.map { streamLabel(it) }.joinToString(stringResource(R.string.night_list_separator))
+      joinParts(streams.map { streamLabel(it) }).orEmpty()
     }
 
 @Composable

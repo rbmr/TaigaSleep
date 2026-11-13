@@ -249,7 +249,7 @@ private fun RecordingRow(item: RecordingView, onOpen: () -> Unit) {
         if (pill == null) {
           Column(horizontalAlignment = Alignment.End) {
             Text(
-                text = item.sleepScore?.roundToInt()?.toString() ?: "—",
+                text = item.sleepScore?.roundToInt()?.toString() ?: "-",
                 style = MaterialTheme.taiga.text.section,
             )
             Text(
