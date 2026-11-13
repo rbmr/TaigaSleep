@@ -124,7 +124,7 @@ fun AccessTokensScreen(onBack: () -> Unit) {
                     ),
                 style = MaterialTheme.taiga.text.meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                modifier = Modifier.padding(MaterialTheme.taiga.space.m),
             )
           } else {
             state.tokens.forEachIndexed { index, token ->
@@ -201,7 +201,13 @@ fun AccessTokensScreen(onBack: () -> Unit) {
 private fun TokenRow(token: AccessTokenDto, onRevoke: () -> Unit) {
   ListRow(
       title = token.name,
-      subtitle = stringResource(R.string.tokens_row, token.hint, createdLabel(token.created)),
+      subtitle =
+          joinParts(
+              token.hint.takeIf { it.isNotBlank() }?.let { stringResource(R.string.tokens_row_ends, it) },
+              createdLabel(token.created)
+                  .takeIf { it.isNotBlank() }
+                  ?.let { stringResource(R.string.tokens_row_created, it) },
+          ),
       trailing =
           ListRowTrailing.Action(
               label = stringResource(R.string.tokens_revoke),
@@ -219,3 +225,7 @@ private fun createdLabel(stamp: String): String =
               .format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
         }
         .getOrDefault(stamp)
+
+/** The present parts joined by " · "; null when none is present, never a trailing separator. */
+internal fun joinParts(vararg parts: String?): String? =
+    parts.filterNotNull().filter { it.isNotBlank() }.joinToString(" · ").ifEmpty { null }

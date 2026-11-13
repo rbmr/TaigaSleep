@@ -1,16 +1,10 @@
 package com.rbmr.taigasleep.ui.settings
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,12 +13,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.R
@@ -33,11 +24,10 @@ import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.insights.AlgorithmNames
 import com.rbmr.taigasleep.insights.compareVersions
 import com.rbmr.taigasleep.insights.effectiveOrder
-import com.rbmr.taigasleep.insights.movePreference
 import com.rbmr.taigasleep.ui.components.InfoContent
 import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.ListRowTrailing
-import com.rbmr.taigasleep.ui.components.Pressable
+import com.rbmr.taigasleep.ui.components.ReorderableColumn
 import com.rbmr.taigasleep.ui.components.Section
 import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.TaigaCard
@@ -98,10 +88,8 @@ fun AnalysisScreen(onBack: () -> Unit) {
       installedById[id]?.name?.ifBlank { AlgorithmNames.display(id) } ?: AlgorithmNames.display(id)
 
   // A move saves at once; ids the server did not list stay behind the ones it did.
-  fun move(id: String, delta: Int) {
-    store.setPreferenceOrder(
-        movePreference(orderIds, id, delta) + settings.preferenceOrder.filter { it !in orderIds }
-    )
+  fun save(order: List<String>) {
+    store.setPreferenceOrder(order + settings.preferenceOrder.filter { it !in orderIds })
   }
 
   TaigaScreen(title = stringResource(R.string.settings_analysis_title), onBack = onBack) {
@@ -128,56 +116,17 @@ fun AnalysisScreen(onBack: () -> Unit) {
         } else if (orderIds.isEmpty()) {
           Hint(stringResource(R.string.settings_analysis_order_empty))
         } else {
-          orderIds.forEachIndexed { index, id ->
-            if (index > 0) SettingsDivider()
-            ListRow(
-                title = nameOf(id),
-                trailing =
-                    ListRowTrailing.Controls {
-                      MoveButton(
-                          icon = Icons.Outlined.KeyboardArrowUp,
-                          label = stringResource(R.string.settings_analysis_order_up),
-                          enabled = index > 0,
-                          onClick = { move(id, -1) },
-                      )
-                      MoveButton(
-                          icon = Icons.Outlined.KeyboardArrowDown,
-                          label = stringResource(R.string.settings_analysis_order_down),
-                          enabled = index < orderIds.lastIndex,
-                          onClick = { move(id, 1) },
-                      )
-                    },
-            )
+          ReorderableColumn(items = orderIds, key = { it }, onReorder = ::save) { id, index, handle ->
+            Column {
+              if (index > 0) SettingsDivider()
+              ListRow(
+                  title = nameOf(id),
+                  trailing = ListRowTrailing.Controls { handle() },
+              )
+            }
           }
         }
       }
-    }
-  }
-}
-
-/** One arrow of the order list: 48 dp of touch target around a small icon. */
-@Composable
-private fun MoveButton(
-    icon: ImageVector,
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-  Pressable(
-      onClick = onClick,
-      shape = CircleShape,
-      enabled = enabled,
-      role = Role.Button,
-      onClickLabel = label,
-  ) {
-    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-      Icon(
-          imageVector = icon,
-          contentDescription = label,
-          tint =
-              if (enabled) MaterialTheme.colorScheme.onSurface
-              else MaterialTheme.taiga.disabled,
-      )
     }
   }
 }
@@ -189,6 +138,6 @@ private fun Hint(text: String, failed: Boolean = false) {
       text = text,
       style = MaterialTheme.taiga.text.meta,
       color = if (failed) MaterialTheme.taiga.bad else MaterialTheme.colorScheme.onSurfaceVariant,
-      modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+      modifier = Modifier.fillMaxWidth().padding(all = MaterialTheme.taiga.space.m),
   )
 }

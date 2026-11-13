@@ -11,7 +11,7 @@
   <string name="server_previous_page">Previous</string>
   <string name="server_next_page">Next</string>
 
-  <string name="server_url_label">Server URL</string>
+  <string name="server_url_label">Server address</string>
   <string name="server_url_placeholder">https://sleep.example.com</string>
   <string name="server_check_server">Check server</string>
   <string name="server_retry">Retry</string>
@@ -45,7 +45,7 @@
   <string name="server_state_login_needed_short">Login needed</string>
   <string name="server_state_unreachable_short">Server unreachable</string>
 
-  <string name="server_error_invalid_url">This server URL is not a valid URL. Use the full address, for example https://sleep.example.com.</string>
+  <string name="server_error_invalid_url">This is not a valid server address. Use the full address, for example https://sleep.example.com.</string>
   <string name="server_error_unknown_host">The server address could not be found. Check the URL for spelling mistakes.</string>
   <string name="server_error_insecure_url">Plain HTTP is only allowed on a local or private network. Use HTTPS for any other address.</string>
   <string name="server_error_missing_credentials">Enter the email and password.</string>
@@ -58,7 +58,7 @@
   <string name="server_error_api_server_old">The server is older than this app. Update the server.</string>
   <string name="server_error_api_app_old">This app is older than the server. Update the app.</string>
   <string name="server_error_http">The server answered with error %1$d.</string>
-  <string name="server_error_malformed">The server sent an unexpected response.</string>
+  <string name="server_error_malformed">The server sent a response the app could not read.</string>
 
   <string name="server_login_prompt">Server login needed</string>
   <string name="server_login_prompt_action">Log in</string>
@@ -72,9 +72,10 @@
   <string name="tokens_empty">No access tokens yet.</string>
   <string name="tokens_loading">Loading…</string>
   <string name="tokens_no_account">Connect the server and log in to create an access token.</string>
-  <string name="tokens_row">Ends in %1$s · created %2$s</string>
+  <string name="tokens_row_ends">Ends in %1$s</string>
+  <string name="tokens_row_created">Created %1$s</string>
   <string name="tokens_created_title">Token created</string>
-  <string name="tokens_created_body">Copy this token now. It is shown once, because the server keeps only a hash of it.</string>
+  <string name="tokens_created_body">This token is only shown once. Copy it now and keep it somewhere safe.</string>
   <string name="tokens_copy">Copy token</string>
   <string name="tokens_copied">Copied</string>
   <string name="tokens_done">Done</string>

@@ -49,12 +49,13 @@
   <string name="settings_value_manual">Manual</string>
   <string name="settings_analysis_auto_title">Analyze automatically</string>
   <string name="settings_analysis_order_title">Preferred method order</string>
-  <string name="settings_analysis_order_body">Move the method you prefer to the top. Analyses you start yourself ignore this order.</string>
+  <string name="settings_analysis_order_body">Drag the method you prefer to the top. Analyses you start yourself ignore this order.</string>
   <string name="settings_analysis_order_loading">Loading installed methods…</string>
   <string name="settings_analysis_order_error">Could not load the installed methods. The saved order is shown.</string>
   <string name="settings_analysis_order_empty">No methods are installed on this server.</string>
-  <string name="settings_analysis_order_up">Move up</string>
-  <string name="settings_analysis_order_down">Move down</string>
+  <string name="reorder_move_up">Move up</string>
+  <string name="reorder_move_down">Move down</string>
+  <string name="reorder_drag_handle">Drag to reorder</string>
   <string name="settings_group_app">App</string>
   <string name="settings_prevent_title">Preventing shutdown</string>
   <string name="settings_server_title">Server</string>
@@ -71,7 +72,7 @@
   <string name="personal_not_set">Not set</string>
   <string name="personal_date_of_birth_title">Date of birth</string>
   <string name="personal_sex_title">Biological sex</string>
-  <string name="personal_sex_body">SleepECG uses it as a model feature. Choose male or female; leave it empty if you prefer not to say.</string>
+  <string name="personal_body">Some methods use this to estimate your sleep stages more accurately. Leave it empty if you prefer not to say.</string>
   <string name="personal_sex_male">Male</string>
   <string name="personal_sex_female">Female</string>
   <string name="personal_weight_title">Weight</string>

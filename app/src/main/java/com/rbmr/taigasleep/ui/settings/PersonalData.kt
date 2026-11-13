@@ -64,7 +64,7 @@ private const val MIN_WEIGHT_KG = 1.0
 private const val MAX_WEIGHT_KG = 500.0
 
 /**
- * Settings → Personal details. The optional values SleepECG uses as model features, kept on the
+ * Settings → Personal details. Optional values that some analysis methods use, kept on the
  * phone. A field can always be left empty or cleared, and the page has room for more fields.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -213,7 +213,22 @@ private fun DateOfBirthDialog(
         }
       },
   ) {
-    DatePicker(state = state)
+    DatePicker(
+        state = state,
+        title = {
+          Text(
+              text = stringResource(R.string.personal_body),
+              style = MaterialTheme.taiga.text.body,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier =
+                  Modifier.padding(
+                      start = MaterialTheme.taiga.space.l,
+                      end = MaterialTheme.taiga.space.l,
+                      top = MaterialTheme.taiga.space.m,
+                  ),
+          )
+        },
+    )
   }
 }
 
@@ -230,7 +245,7 @@ private fun SexDialog(current: Sex?, onSave: (Sex?) -> Unit, onDismiss: () -> Un
       text = {
         Column {
           Text(
-              text = stringResource(R.string.personal_sex_body),
+              text = stringResource(R.string.personal_body),
               style = MaterialTheme.taiga.text.body,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
               modifier = Modifier.padding(bottom = MaterialTheme.taiga.space.s),
@@ -243,7 +258,7 @@ private fun SexDialog(current: Sex?, onSave: (Sex?) -> Unit, onDismiss: () -> Un
                           onSave(sex)
                           onDismiss()
                         }
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = MaterialTheme.taiga.space.s),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
               RadioButton(selected = current == sex, onClick = null)
@@ -289,23 +304,31 @@ private fun WeightDialog(current: Double?, onSave: (Double?) -> Unit, onDismiss:
         )
       },
       text = {
-        OutlinedTextField(
-            value = text,
-            onValueChange = {
-              text = it
-              invalid = false
-            },
-            label = { Text(stringResource(R.string.personal_weight_label)) },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            isError = invalid,
-            supportingText =
-                if (invalid) {
-                  { Text(stringResource(R.string.personal_weight_invalid)) }
-                } else {
-                  null
-                },
-            singleLine = true,
-        )
+        Column {
+          Text(
+              text = stringResource(R.string.personal_body),
+              style = MaterialTheme.taiga.text.body,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.padding(bottom = MaterialTheme.taiga.space.m),
+          )
+          OutlinedTextField(
+              value = text,
+              onValueChange = {
+                text = it
+                invalid = false
+              },
+              label = { Text(stringResource(R.string.personal_weight_label)) },
+              keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+              isError = invalid,
+              supportingText =
+                  if (invalid) {
+                    { Text(stringResource(R.string.personal_weight_invalid)) }
+                  } else {
+                    null
+                  },
+              singleLine = true,
+          )
+        }
       },
       confirmButton = {
         TextButton(
@@ -364,7 +387,7 @@ private fun TimeOfDayDialog(
         tonalElevation = 6.dp,
     ) {
       Column(
-          modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState()),
+          modifier = Modifier.padding(MaterialTheme.taiga.space.l).verticalScroll(rememberScrollState()),
       ) {
         Text(text = title, style = MaterialTheme.taiga.text.section)
         Spacer(Modifier.height(MaterialTheme.taiga.space.m))

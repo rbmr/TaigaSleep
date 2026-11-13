@@ -23,7 +23,6 @@
   <string name="g_preview_note">Debug preview device</string>
   <string name="g_not_my_os">Not my OS</string>
   <string name="g_pick_os_title">Choose your OS</string>
-  <string name="g_i_have_done_this">I have done this</string>
 
   <!-- Summary -->
   <string name="g_verdict_ready">Ready to record</string>

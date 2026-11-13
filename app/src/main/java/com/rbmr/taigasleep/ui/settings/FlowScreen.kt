@@ -253,7 +253,7 @@ private fun Intro(match: DeviceMatch, flow: Flow, preview: Boolean, onPick: (Flo
                             onPick(option)
                             picking = false
                           }
-                          .padding(vertical = 10.dp),
+                          .padding(vertical = MaterialTheme.taiga.space.s),
                   verticalAlignment = Alignment.CenterVertically,
               ) {
                 RadioButton(selected = option.id == flow.id, onClick = null)
@@ -309,17 +309,40 @@ private fun StepPage(step: Step, ok: Boolean, onToggle: (Boolean) -> Unit) {
         onClick = { GuidanceActions.open(context, helper.action) },
     )
   }
-  // Manual steps: ticking the row flips the same OK / NOT YET state a device check would set.
+  // Manual steps are answered by the user; a device check reports its own state.
   if (step.check == null) {
-    TaigaCard(contentPadding = PaddingValues(0.dp)) {
-      ListRow(
-          title = stringResource(R.string.g_i_have_done_this),
-          trailing = ListRowTrailing.Checkbox(ok),
-          onClick = { onToggle(!ok) },
+    Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.s)) {
+      AnswerButton(
+          text = stringResource(R.string.g_state_ok),
+          selected = ok,
+          onClick = { onToggle(true) },
+          modifier = Modifier.weight(1f),
+      )
+      AnswerButton(
+          text = stringResource(R.string.g_state_not_yet),
+          selected = !ok,
+          onClick = { onToggle(false) },
+          modifier = Modifier.weight(1f),
       )
     }
+  } else {
+    StatePill(ok)
   }
-  StatePill(ok)
+}
+
+/** One of the two answers of a manual step; the chosen one is filled. */
+@Composable
+private fun AnswerButton(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  if (selected) {
+    PrimaryButton(text = text, onClick = onClick, modifier = modifier, size = ButtonSize.Large)
+  } else {
+    SecondaryButton(text = text, onClick = onClick, modifier = modifier, size = ButtonSize.Large)
+  }
 }
 
 // The OK / NOT YET state, the same pill for device checks and manual confirmation.

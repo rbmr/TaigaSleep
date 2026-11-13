@@ -3,8 +3,8 @@
   <string name="settings_auto_upload_wifi">Only on Wi-Fi</string>
   <string name="settings_auto_upload_charging">Only while charging</string>
   <string name="settings_upload_compress_title">Compress uploads</string>
-  <string name="uploads_raw_title">Raw data on this phone after upload</string>
-  <string name="uploads_raw_body">Raw streams are removed from this phone only after the server confirms the upload. The metadata, the analysis and the server copy stay, so the recording remains in History and the raw data can be downloaded again.</string>
+  <string name="uploads_raw_title">Keep raw data</string>
+  <string name="uploads_raw_body">Raw data is the full recording stored on this phone. After a recording is uploaded and the server has confirmed it, the raw data is deleted from this phone once the time you choose has passed. The recording stays in History with its analysis, and the raw data can be downloaded again.</string>
   <string name="raw_retention_keep_all">Keep all</string>
   <string name="raw_retention_keep_none">Keep none</string>
   <string name="raw_retention_days_5">Keep 5 days</string>
