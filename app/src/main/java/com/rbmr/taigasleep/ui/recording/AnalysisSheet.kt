@@ -28,7 +28,6 @@ import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.insights.AlgorithmNames
 import com.rbmr.taigasleep.insights.stageLabelRes
 import com.rbmr.taigasleep.library.Analysis
-import com.rbmr.taigasleep.library.AnalysisOrigin
 import com.rbmr.taigasleep.library.AnalysisStatus
 import com.rbmr.taigasleep.ui.components.ChoiceButton
 import com.rbmr.taigasleep.ui.components.InfoContent
@@ -115,7 +114,13 @@ internal fun AnalysisSheet(
           }
         }
       }
-      Section(title = stringResource(R.string.night_analysis_run_heading)) {
+      Section(
+          title =
+              stringResource(
+                  if (runs.isEmpty()) R.string.night_analysis_run_first_heading
+                  else R.string.night_analysis_run_heading
+              )
+      ) {
         when {
           loading -> {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -191,7 +196,6 @@ private fun AnalysisRunRow(
           displayName
         }
       }
-  val manual = run.origin == AnalysisOrigin.MANUAL
   val trailing: ListRowTrailing =
       when (run.status) {
         AnalysisStatus.DONE ->
@@ -210,7 +214,6 @@ private fun AnalysisRunRow(
   val done = run.status == AnalysisStatus.DONE
   ListRow(
       title = title,
-      subtitle = if (manual) stringResource(R.string.night_analysis_manual) else null,
       value =
           run.sleepScore?.takeIf { done }?.let {
             stringResource(R.string.night_analysis_score, it.roundToInt())

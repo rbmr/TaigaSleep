@@ -113,7 +113,6 @@
   <string name="night_analysis">Analysis</string>
   <string name="night_analysis_choose">Choose an analysis</string>
   <string name="night_analysis_change">Change</string>
-  <string name="night_analysis_manual">Manual</string>
   <string name="night_analysis_method_info">About this method</string>
   <string name="night_analysis_name_version">%1$s %2$s</string>
   <string name="night_analysis_list_separator">", "</string>
@@ -155,6 +154,7 @@
   <string name="night_chart_bpm">%1$s bpm</string>
   <string name="night_analysis_done_heading">Done for this recording</string>
   <string name="night_analysis_run_heading">Run another method</string>
+  <string name="night_analysis_run_first_heading">Run a method</string>
   <string name="night_analysis_score">Score %1$d</string>
   <string name="night_analysis_analyzing">Analyzing…</string>
 

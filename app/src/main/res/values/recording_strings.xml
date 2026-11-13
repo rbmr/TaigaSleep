@@ -91,13 +91,14 @@
   <string name="rec_status_stalled">%1$s stalled</string>
   <string name="rec_status_reconnecting">Reconnecting</string>
   <string name="rec_status_on_tracker">Recording on tracker</string>
-  <string name="rec_stop">Stop</string>
   <string name="rec_stop_and_save">Stop and save</string>
   <string name="rec_force_stop">Force stop</string>
   <string name="rec_discard">Discard</string>
   <string name="rec_stop_title">Stop recording?</string>
-  <string name="rec_stop_body">The recording is saved on this phone. If automatic upload is on, it is uploaded in the background.</string>
-  <string name="rec_stop_body_on_device">The recording is fetched from the tracker and saved on this phone. If automatic upload is on, it is uploaded in the background.</string>
+  <string name="rec_stop_body">The recording is saved on this phone. You can upload it from History.</string>
+  <string name="rec_stop_body_auto_upload">The recording is saved on this phone and uploaded when the conditions you chose are met.</string>
+  <string name="rec_stop_body_on_device">The recording is fetched from the tracker and saved on this phone. You can upload it from History.</string>
+  <string name="rec_stop_body_on_device_auto_upload">The recording is fetched from the tracker and saved on this phone, then uploaded when the conditions you chose are met.</string>
   <string name="rec_force_stop_title">Force stop?</string>
   <string name="rec_force_stop_body">Force stop ends the recording right away, without waiting for the tracker. What is already on this phone is kept.</string>
   <string name="rec_force_stop_body_on_device">Force stop ends the recording without fetching it from the tracker. Only what is already on this phone is kept.</string>

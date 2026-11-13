@@ -192,19 +192,21 @@ data class RecordingDetailUiState(
 }
 
 /**
- * Whether the screen draws the score card. A night whose analysis finished draws it, and so does a
- * night whose analysis the server has queued or running, because a result is coming. A night that is
- * only on the phone, still uploading, or whose upload or analysis failed has no result coming: its
- * status card says what it is, and a card promising a result above it would contradict it.
+ * Whether the screen draws the score card: only for a night with a finished analysis (or its
+ * result in hand). While the first analysis is still queued or running there is nothing to
+ * summarise, and an empty card would claim a result; the status card says what is going on. The
+ * same goes for a night that is only on the phone, uploading, or whose upload or analysis failed.
  */
 internal fun showsScoreCard(status: RecordingStatus, hasResult: Boolean): Boolean =
-    hasResult ||
-        status == RecordingStatus.READY ||
-        status == RecordingStatus.PROCESSING
+    hasResult || status == RecordingStatus.READY
 
-/** Whether the analysis button sits above the sections: only for a recording that has analyses. */
+/**
+ * Whether the analysis button ("Analyzed with ...") sits above the sections. It states which
+ * finished analysis is shown, so it needs one: a night whose first analysis is still running has
+ * none. A night with a finished analysis keeps it while another one runs. After a failed analysis
+ * the button is the way to choose another method.
+ */
 internal fun showsAnalysisChoice(state: RecordingDetailUiState): Boolean =
     state.remoteId != null &&
         (state.status == RecordingStatus.READY ||
-            state.status == RecordingStatus.PROCESSING ||
             (state.status == RecordingStatus.FAILED && state.failure == UploadFailure.ANALYSIS))

@@ -1,6 +1,9 @@
 package com.rbmr.taigasleep.ui.recording
 
+import com.rbmr.taigasleep.library.BackupState
 import com.rbmr.taigasleep.library.RecordingStatus
+import com.rbmr.taigasleep.library.RecordingView
+import com.rbmr.taigasleep.sync.UploadFailure
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,9 +14,10 @@ import org.junit.Test
  */
 class ScoreCardVisibilityTest {
   @Test
-  fun aNightWithoutAResultShowsTheCardOnlyWhileTheServerAnalysesIt() {
-    // The night is on the server and its analysis is queued or running: its result is coming.
-    assertTrue(showsScoreCard(RecordingStatus.PROCESSING, hasResult = false))
+  fun aNightWithoutAResultShowsTheCardOnlyWhenItsAnalysisFinished() {
+    // The first analysis is queued or running: there is nothing to summarise yet.
+    assertFalse(showsScoreCard(RecordingStatus.PROCESSING, hasResult = false))
+    assertFalse(showsScoreCard(RecordingStatus.NOT_ANALYZED, hasResult = false))
     // The library knows the analysis finished, even when its payload is not read yet.
     assertTrue(showsScoreCard(RecordingStatus.READY, hasResult = false))
 
@@ -32,4 +36,39 @@ class ScoreCardVisibilityTest {
       assertTrue(showsScoreCard(status, hasResult = true))
     }
   }
+
+  @Test
+  fun theAnalysisButtonNeedsAFinishedAnalysis() {
+    fun state(status: RecordingStatus, failure: UploadFailure? = null) =
+        RecordingDetailUiState(recording = viewOf(status, failure))
+
+    assertTrue(showsAnalysisChoice(state(RecordingStatus.READY)))
+    assertTrue(showsAnalysisChoice(state(RecordingStatus.FAILED, UploadFailure.ANALYSIS)))
+    // The first analysis is still running: it has not analysed anything yet.
+    assertFalse(showsAnalysisChoice(state(RecordingStatus.PROCESSING)))
+    assertFalse(showsAnalysisChoice(state(RecordingStatus.NOT_ANALYZED)))
+    assertFalse(showsAnalysisChoice(state(RecordingStatus.FAILED, UploadFailure.UPLOAD)))
+  }
+
+  private fun viewOf(status: RecordingStatus, failure: UploadFailure?) =
+      RecordingView(
+          key = "r1",
+          localId = null,
+          remoteId = "r1",
+          startUtcMs = 1_790_000_000_000,
+          endUtcMs = 1_790_003_600_000,
+          durationMs = 3_600_000,
+          device = "Tracker",
+          status = status,
+          progress = 0f,
+          failure = failure,
+          errorDetail = null,
+          warning = null,
+          analyses = emptyList(),
+          selectedAnalysisId = null,
+          backup = BackupState(),
+          local = null,
+          remote = null,
+          resultDownloaded = false,
+      )
 }

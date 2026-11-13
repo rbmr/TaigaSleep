@@ -21,7 +21,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
@@ -124,7 +126,11 @@ private fun RecordingHeader(status: CaptureStatus) {
       )
   val locale = LocalLocale.current.platformLocale
   val since = SimpleDateFormat("HH:mm", locale).format(Date(status.startUtcMs))
-  Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.xs)) {
+  Column(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalAlignment = Alignment.CenterHorizontally,
+      verticalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.xs),
+  ) {
     PulsingLabel(
         text =
             stringResource(
@@ -132,10 +138,11 @@ private fun RecordingHeader(status: CaptureStatus) {
                 else R.string.rec_active_title
             )
     )
-    Text(text = elapsed, style = MaterialTheme.taiga.text.hero)
+    Text(text = elapsed, style = MaterialTheme.taiga.text.hero, textAlign = TextAlign.Center)
     Text(
         text = stringResource(R.string.rec_active_since, since, status.sensorName.orEmpty()),
         style = MaterialTheme.taiga.text.meta,
+        textAlign = TextAlign.Center,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
   }
@@ -163,6 +170,7 @@ private fun PulsingLabel(text: String) {
       text = text,
       style = MaterialTheme.taiga.text.section,
       color = MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+      textAlign = TextAlign.Center,
   )
 }
 
@@ -224,6 +232,15 @@ internal fun FetchPendingHome(state: HomeUiState.FetchPending, onFetchAgain: () 
   }
 }
 
+/** What stopping does with the data in this mode, and whether the recording is then uploaded. */
+internal fun stopBody(onDevice: Boolean, autoUpload: Boolean): Int =
+    when {
+      onDevice && autoUpload -> R.string.rec_stop_body_on_device_auto_upload
+      onDevice -> R.string.rec_stop_body_on_device
+      autoUpload -> R.string.rec_stop_body_auto_upload
+      else -> R.string.rec_stop_body
+    }
+
 /**
  * The confirmation that stands between a tap and ending the recording. Each text says what happens
  * to the data in this mode, and the stop one says where the recording goes next.
@@ -232,6 +249,7 @@ internal fun FetchPendingHome(state: HomeUiState.FetchPending, onFetchAgain: () 
 internal fun StopConfirmDialog(
     action: StopAction,
     onDevice: Boolean,
+    autoUpload: Boolean,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
@@ -240,8 +258,8 @@ internal fun StopConfirmDialog(
         StopAction.STOP ->
             Triple(
                 R.string.rec_stop_title,
-                if (onDevice) R.string.rec_stop_body_on_device else R.string.rec_stop_body,
-                R.string.rec_stop,
+                stopBody(onDevice = onDevice, autoUpload = autoUpload),
+                R.string.rec_stop_and_save,
             )
         StopAction.FORCE_STOP ->
             Triple(

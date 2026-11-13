@@ -12,7 +12,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
@@ -57,7 +59,11 @@ internal fun FinishingHome(
         modifier = Modifier.fillMaxWidth().padding(horizontal = space.m).padding(bottom = space.l),
         verticalArrangement = Arrangement.spacedBy(space.m),
     ) {
-      Column(verticalArrangement = Arrangement.spacedBy(space.xs)) {
+      Column(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.spacedBy(space.xs),
+      ) {
         Text(
             text =
                 stringResource(
@@ -65,6 +71,7 @@ internal fun FinishingHome(
                     else R.string.rec_finishing_title
                 ),
             style = MaterialTheme.taiga.text.screenTitle,
+            textAlign = TextAlign.Center,
         )
         Text(
             text =
@@ -74,6 +81,7 @@ internal fun FinishingHome(
                 ),
             style = MaterialTheme.taiga.text.meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
       }
       TaigaCard {
