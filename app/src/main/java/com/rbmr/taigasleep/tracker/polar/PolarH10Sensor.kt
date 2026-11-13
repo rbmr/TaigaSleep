@@ -140,7 +140,7 @@ private object PolarSdk {
  * therefore stream or record on the strap; anything else has to stream.
  */
 internal fun polarRecordingModes(config: StreamConfig): Set<RecordingMode> =
-    if (config.ecg || config.acc) setOf(RecordingMode.STREAM)
+    if (config.ecg || config.acc || !config.hr) setOf(RecordingMode.STREAM)
     else setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE)
 
 /** A Polar H10 over BLE: HR (with RR), ECG at 130 Hz and ACC at 50 Hz, ±8 G, raw SDK values. */
@@ -457,7 +457,7 @@ class PolarH10Sensor(
 
   private fun maybeBeginOnDevice(force: Boolean = false) {
     val cfg = onDeviceWanted ?: return
-    if (cfg.ecg || cfg.acc) return
+    if (cfg.ecg || cfg.acc || !cfg.hr) return
     if (onDeviceActive) return
     if (_connection.value != ConnectionState.CONNECTED) return
     if (PolarBleSdkFeature.FEATURE_POLAR_H10_EXERCISE_RECORDING !in ready && !force) return
@@ -564,7 +564,7 @@ class PolarH10Sensor(
       }
       return
     }
-    startHr(l)
+    if (cfg.hr) startHr(l)
     if (cfg.ecg) startEcg(l)
     if (cfg.acc) startAcc(l)
   }

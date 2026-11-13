@@ -2,6 +2,8 @@ package com.rbmr.taigasleep.ui.home
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
@@ -67,23 +69,39 @@ internal fun RecordingCard(status: CaptureStatus) {
             style = MaterialTheme.taiga.text.body,
         )
       } else {
-        Row(horizontalArrangement = Arrangement.spacedBy(colors.space.s)) {
-          HeartChip(state)
-          if (status.config?.ecg == true) {
-            StreamChip(
-                label = stringResource(R.string.rec_active_ecg),
-                stream = state.streams[RecordingState.StreamKind.ECG],
-                poor = state.quality.ecg == RecordingState.EcgQuality.POOR,
-            )
-          }
-          if (status.config?.acc == true) {
-            StreamChip(
-                label = stringResource(R.string.rec_active_acc),
-                stream = state.streams[RecordingState.StreamKind.ACC],
-            )
-          }
-        }
+        StreamChips(status)
       }
+    }
+  }
+}
+
+/**
+ * One chip per chosen kind of data, in a fixed order. Every state has a visible chip, so the card
+ * never shows a gap between waiting and ok, and the chips keep one height; they only wrap when a
+ * problem makes the labels longer.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StreamChips(status: CaptureStatus) {
+  val state = status.state
+  val config = status.config
+  FlowRow(
+      horizontalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.s),
+      verticalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.s),
+  ) {
+    if (config?.hr != false) HeartChip(state)
+    if (config?.ecg == true) {
+      StreamChip(
+          label = stringResource(R.string.rec_active_ecg),
+          stream = state.streams[RecordingState.StreamKind.ECG],
+          poor = state.quality.ecg == RecordingState.EcgQuality.POOR,
+      )
+    }
+    if (config?.acc == true) {
+      StreamChip(
+          label = stringResource(R.string.rec_active_acc),
+          stream = state.streams[RecordingState.StreamKind.ACC],
+      )
     }
   }
 }
@@ -93,11 +111,17 @@ internal fun RecordingCard(status: CaptureStatus) {
 private fun HeartChip(state: RecordingState) {
   val offBody = state.contact.state == RecordingState.ContactState.OFF_BODY
   val bpm = state.heart.bpm
+  val stalled = state.streams[RecordingState.StreamKind.HR]?.status == RecordingState.StreamStatus.STALE
   when {
     offBody ->
         StatusPill(
             state = StatusPillState.Warn,
             label = stringResource(R.string.rec_active_no_contact),
+        )
+    stalled ->
+        StatusPill(
+            state = StatusPillState.Warn,
+            label = stringResource(R.string.rec_status_stalled, stringResource(R.string.rec_active_hr)),
         )
     bpm != null ->
         StatusPill(
@@ -106,8 +130,8 @@ private fun HeartChip(state: RecordingState) {
         )
     else ->
         StatusPill(
-            state = StatusPillState.Neutral,
-            label = stringResource(R.string.rec_active_none),
+            state = StatusPillState.Checking,
+            label = stringResource(R.string.rec_active_hr),
         )
   }
 }
@@ -119,14 +143,13 @@ private fun StreamChip(
     stream: RecordingState.Stream?,
     poor: Boolean = false,
 ) {
-  if (stream == null) return
   val (pill, text) =
       when {
-        stream.status == RecordingState.StreamStatus.STALE ->
+        stream?.status == RecordingState.StreamStatus.STALE ->
             StatusPillState.Warn to stringResource(R.string.rec_status_stalled, label)
         poor -> StatusPillState.Warn to stringResource(R.string.rec_status_poor, label)
-        stream.status == RecordingState.StreamStatus.WAITING ->
-            StatusPillState.Neutral to stringResource(R.string.rec_status_waiting, label)
+        stream == null || stream.status == RecordingState.StreamStatus.WAITING ->
+            StatusPillState.Checking to label
         else -> StatusPillState.Ok to stringResource(R.string.rec_status_ok, label)
       }
   StatusPill(state = pill, label = text)

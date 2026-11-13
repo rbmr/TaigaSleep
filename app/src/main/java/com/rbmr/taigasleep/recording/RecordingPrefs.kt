@@ -41,7 +41,12 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
             }
             .apply()
 
-  /** ECG and ACC are remembered per device; both default to on. */
+  /** The streams are remembered per device; all default to on. */
+  fun hrEnabled(sensorId: String) = prefs.getBoolean("hr_$sensorId", true)
+
+  fun setHrEnabled(sensorId: String, on: Boolean) =
+      prefs.edit().putBoolean("hr_$sensorId", on).apply()
+
   fun ecgEnabled(sensorId: String) = prefs.getBoolean("ecg_$sensorId", true)
 
   fun accEnabled(sensorId: String) = prefs.getBoolean("acc_$sensorId", true)
@@ -63,6 +68,7 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
   fun wakeWindow(sensorId: String): WakeWindow? =
       window(
           prefs.getInt("wake_start_$sensorId", -1),
+          prefs.getInt("wake_len_$sensorId", -1),
           prefs.getInt("wake_end_$sensorId", -1),
           prefs.getBoolean("wake_hr_$sensorId", true),
           prefs.getBoolean("wake_move_$sensorId", false),
@@ -72,12 +78,14 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
       prefs.edit {
         if (window == null) {
           remove("wake_start_$sensorId")
+          remove("wake_len_$sensorId")
           remove("wake_end_$sensorId")
           remove("wake_hr_$sensorId")
           remove("wake_move_$sensorId")
         } else {
           putInt("wake_start_$sensorId", window.startMinute)
-          putInt("wake_end_$sensorId", window.endMinute)
+          putInt("wake_len_$sensorId", window.lengthMinutes)
+          remove("wake_end_$sensorId")
           putBoolean("wake_hr_$sensorId", window.heartRate)
           putBoolean("wake_move_$sensorId", window.movement)
         }
@@ -93,6 +101,7 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
     val window =
         window(
             prefs.getInt(KEY_WAKE_START, -1),
+            prefs.getInt(KEY_WAKE_LEN, -1),
             prefs.getInt(KEY_WAKE_END, -1),
             prefs.getBoolean(KEY_WAKE_HR, true),
             prefs.getBoolean(KEY_WAKE_MOVE, false),
@@ -107,7 +116,8 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
       prefs.edit {
         putString(KEY_WAKE_RECORDING, armed.recordingId)
         putInt(KEY_WAKE_START, armed.window.startMinute)
-        putInt(KEY_WAKE_END, armed.window.endMinute)
+        putInt(KEY_WAKE_LEN, armed.window.lengthMinutes)
+        remove(KEY_WAKE_END)
         putBoolean(KEY_WAKE_HR, armed.window.heartRate)
         putBoolean(KEY_WAKE_MOVE, armed.window.movement)
         putLong(KEY_WAKE_START_MS, armed.startUtcMs)
@@ -118,6 +128,7 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
       prefs.edit {
         remove(KEY_WAKE_RECORDING)
         remove(KEY_WAKE_START)
+        remove(KEY_WAKE_LEN)
         remove(KEY_WAKE_END)
         remove(KEY_WAKE_HR)
         remove(KEY_WAKE_MOVE)
@@ -125,14 +136,22 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
         remove(KEY_WAKE_END_MS)
       }
 
-  /** A stored window, or null when the stored times are not a window this version understands. */
-  private fun window(startMinute: Int, endMinute: Int, heartRate: Boolean, movement: Boolean) =
-      if (startMinute in WakeWindow.MINUTES_OF_DAY &&
-          endMinute in WakeWindow.MINUTES_OF_DAY &&
-          startMinute != endMinute) {
-        WakeWindow(startMinute, endMinute, heartRate, movement)
-      } else {
-        null
+  /**
+   * A stored window, or null when what is stored is not a window this version understands. Windows
+   * saved before they had a length hold an end time instead; it is converted to a length here.
+   */
+  private fun window(
+      startMinute: Int,
+      lengthMinutes: Int,
+      legacyEndMinute: Int,
+      heartRate: Boolean,
+      movement: Boolean,
+  ): WakeWindow? =
+      when {
+        startMinute !in WakeWindow.MINUTES_OF_DAY -> null
+        lengthMinutes in WakeWindow.LENGTHS ->
+            WakeWindow(startMinute, lengthMinutes, heartRate, movement)
+        else -> WakeWindow.between(startMinute, legacyEndMinute, heartRate, movement)
       }
 
   companion object {
@@ -143,6 +162,7 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
     private const val KEY_SENSOR_NAME = "sensor_name"
     private const val KEY_WAKE_RECORDING = "wake_recording"
     private const val KEY_WAKE_START = "wake_start"
+    private const val KEY_WAKE_LEN = "wake_len"
     private const val KEY_WAKE_END = "wake_end"
     private const val KEY_WAKE_HR = "wake_hr"
     private const val KEY_WAKE_MOVE = "wake_move"

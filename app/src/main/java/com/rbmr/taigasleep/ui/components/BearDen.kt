@@ -52,20 +52,17 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** How tall a den header is, and how much of it the ground takes below the horizon. */
-enum class DenSize(val height: Dp, val ground: Dp) {
-  /** The full header of Home before a recording. */
-  Header(height = 264.dp, ground = 14.dp),
-  /** The smaller header while a recording runs and while it is finished. */
-  Compact(height = 180.dp, ground = 12.dp),
-}
+/** The den header's height: the same on every screen, so nothing moves when the state changes. */
+private val DenHeight = 222.dp
+
+/** How much of the header the ground takes below the horizon. */
+private val DenGround = 13.dp
 
 /** The widest the arch's own view may be drawn, so sky remains beside it on a phone screen. */
 private val DenWidth = 260.dp
@@ -93,7 +90,6 @@ enum class DenTapEffect {
 @Composable
 fun BearDen(
     modifier: Modifier = Modifier,
-    size: DenSize = DenSize.Header,
     variant: LogoVariant = LogoVariant.Sleeping,
     glow: Boolean = false,
     tapEffect: DenTapEffect = DenTapEffect.None,
@@ -171,9 +167,9 @@ fun BearDen(
         Modifier
       }
 
-  Canvas(modifier.fillMaxWidth().height(size.height).then(tap).then(described)) {
+  Canvas(modifier.fillMaxWidth().height(DenHeight).then(tap).then(described)) {
     val side = 24.dp.toPx()
-    val ground = size.ground.toPx()
+    val ground = DenGround.toPx()
     // The horizon sits near the bottom of the header: only a thin strip of ground lies below it.
     val horizon = this.size.height - ground
     val sky = (horizon - statusBarTop).coerceAtLeast(1f)
@@ -525,8 +521,8 @@ private fun lerp(start: Float, end: Float, fraction: Float): Float =
 private fun BearDenPreview() {
   TaigaTheme {
     Column {
-      BearDen(modifier = Modifier.fillMaxWidth(), size = DenSize.Header)
-      BearDen(modifier = Modifier.fillMaxWidth(), size = DenSize.Compact, glow = true)
+      BearDen(modifier = Modifier.fillMaxWidth())
+      BearDen(modifier = Modifier.fillMaxWidth(), glow = true)
     }
   }
 }

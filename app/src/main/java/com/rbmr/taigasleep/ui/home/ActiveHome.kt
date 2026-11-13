@@ -32,7 +32,6 @@ import com.rbmr.taigasleep.ui.components.BearDen
 import com.rbmr.taigasleep.ui.components.ButtonSize
 import com.rbmr.taigasleep.ui.components.ConfirmDialog
 import com.rbmr.taigasleep.ui.components.ConfirmDialogStyle
-import com.rbmr.taigasleep.ui.components.DenSize
 import com.rbmr.taigasleep.ui.components.DenTapEffect
 import com.rbmr.taigasleep.ui.components.DestructiveButton
 import com.rbmr.taigasleep.ui.components.LogoVariant
@@ -70,7 +69,6 @@ internal fun ActiveHome(
               .verticalScroll(rememberScrollState())
   ) {
     BearDen(
-        size = DenSize.Compact,
         variant = LogoVariant.Sleeping,
         glow = true,
         tapEffect = DenTapEffect.ForceField,
@@ -179,7 +177,6 @@ internal fun FetchPendingHome(state: HomeUiState.FetchPending, onFetchAgain: () 
               .verticalScroll(rememberScrollState())
   ) {
     BearDen(
-        size = DenSize.Compact,
         variant = LogoVariant.Sleeping,
         contentDescription = stringResource(R.string.home_logo_sleeping),
     )

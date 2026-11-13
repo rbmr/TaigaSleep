@@ -58,6 +58,10 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
 
           override fun savedConfig(sensor: SleepSensor): StartConfig = configOf(sensor, prefs)
 
+          override fun setHr(sensorId: String, on: Boolean) {
+            prefs.setHrEnabled(sensorId, on)
+          }
+
           override fun setEcg(sensorId: String, on: Boolean) {
             prefs.setEcgEnabled(sensorId, on)
           }
@@ -74,7 +78,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
             prefs.setWakeWindow(
                 sensorId,
                 wake?.let {
-                  WakeWindow(it.startMinute, it.endMinute, it.heartRate, it.movement)
+                  WakeWindow(it.startMinute, it.lengthMinutes, it.heartRate, it.movement)
                 },
             )
           }
@@ -85,7 +89,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
           override fun start(config: StartConfig) {
             val sensor = sensors.sensor.value ?: return
             RecordingRepository.setIdle()
-            val streams = StreamConfig(ecg = config.streams.ecg, acc = config.streams.acc)
+            val streams = StreamConfig(ecg = config.streams.ecg, acc = config.streams.acc, hr = config.streams.hr)
             RecordingService.start(app, sensor, streams, config.mode)
           }
 
@@ -133,10 +137,11 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
   private fun configOf(sensor: SleepSensor, prefs: RecordingPrefs): StartConfig {
     val streams =
         Streams(
+            hr = prefs.hrEnabled(sensor.id),
             ecg = sensor.capabilities.ecg && prefs.ecgEnabled(sensor.id),
             acc = sensor.capabilities.acc && prefs.accEnabled(sensor.id),
         )
-    val modes = sensor.recordingModes(StreamConfig(ecg = streams.ecg, acc = streams.acc))
+    val modes = sensor.recordingModes(StreamConfig(ecg = streams.ecg, acc = streams.acc, hr = streams.hr))
     val saved = prefs.mode(sensor.id)
     val mode =
         when {
@@ -153,7 +158,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
         offeredModes = modes + sensor.recordingModes(StreamConfig(ecg = false, acc = false)),
         wake =
             prefs.wakeWindow(sensor.id)?.let {
-              WakeChoice(it.startMinute, it.endMinute, it.heartRate, it.movement)
+              WakeChoice(it.startMinute, it.lengthMinutes, it.heartRate, it.movement)
             },
     )
   }

@@ -29,12 +29,13 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.ui.theme.taiga
 
-/** The five states a pill can report. */
+/** The six states a pill can report. [Checking] is the quiet grey pill with a spinner. */
 enum class StatusPillState {
   Ok,
   Warn,
   Bad,
   Busy,
+  Checking,
   Neutral,
 }
 
@@ -45,6 +46,7 @@ private val StatusPillState.icon: ImageVector?
         StatusPillState.Warn -> Icons.Outlined.WarningAmber
         StatusPillState.Bad -> Icons.Outlined.ErrorOutline
         StatusPillState.Busy,
+        StatusPillState.Checking,
         StatusPillState.Neutral -> null
       }
 
@@ -67,6 +69,7 @@ fun StatusPill(
         StatusPillState.Warn -> colors.warnContainer
         StatusPillState.Bad -> colors.badContainer
         StatusPillState.Busy -> scheme.primaryContainer
+        StatusPillState.Checking,
         StatusPillState.Neutral -> scheme.surfaceVariant
       }
   val ink =
@@ -75,6 +78,7 @@ fun StatusPill(
         StatusPillState.Warn -> colors.warn
         StatusPillState.Bad -> colors.bad
         StatusPillState.Busy -> scheme.primary
+        StatusPillState.Checking,
         StatusPillState.Neutral -> scheme.onSurfaceVariant
       }
   val pill: @Composable () -> Unit = {
@@ -84,7 +88,7 @@ fun StatusPill(
           verticalAlignment = Alignment.CenterVertically,
           horizontalArrangement = Arrangement.spacedBy(4.dp),
       ) {
-        if (state == StatusPillState.Busy) {
+        if (state == StatusPillState.Busy || state == StatusPillState.Checking) {
           CircularProgressIndicator(
               modifier = Modifier.size(14.dp),
               color = ink,

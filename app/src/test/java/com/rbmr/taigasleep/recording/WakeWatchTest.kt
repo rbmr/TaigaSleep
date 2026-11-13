@@ -21,7 +21,7 @@ class WakeWatchTest {
 
   @Test
   fun `a heart rate rise inside the window rings once`() {
-    val watch = watch(WakeWindow(6 * 60 + 30, 7 * 60, heartRate = true))
+    val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = true))
     hr(watch, start - 30 * MINUTE, start + 5 * MINUTE - 1_000, 60)
     hr(watch, start + 5 * MINUTE, start + 10 * MINUTE, 72)
 
@@ -30,7 +30,7 @@ class WakeWatchTest {
 
   @Test
   fun `a rise before the window is not a rise inside it`() {
-    val watch = watch(WakeWindow(6 * 60 + 30, 7 * 60, heartRate = true))
+    val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = true))
     hr(watch, start - 30 * MINUTE, start - 10 * MINUTE - 1_000, 60)
     hr(watch, start - 10 * MINUTE, start - 1_000, 80)
     hr(watch, start, end, 60)
@@ -40,7 +40,7 @@ class WakeWatchTest {
 
   @Test
   fun `movement that keeps up for a minute rings once`() {
-    val watch = watch(WakeWindow(6 * 60 + 30, 7 * 60, heartRate = false, movement = true))
+    val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = false, movement = true))
     acc(watch, start, start + 2 * MINUTE, mg = 1_010)
     acc(watch, start + 2 * MINUTE, start + 5 * MINUTE, mg = 1_500)
 
@@ -49,7 +49,7 @@ class WakeWatchTest {
 
   @Test
   fun `a window without a chosen signal never rings`() {
-    val watch = watch(WakeWindow(6 * 60 + 30, 7 * 60, heartRate = false, movement = false))
+    val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = false, movement = false))
     hr(watch, start - 30 * MINUTE, start + 5 * MINUTE - 1_000, 60)
     hr(watch, start + 5 * MINUTE, start + 10 * MINUTE, 90)
     acc(watch, start, start + 5 * MINUTE, mg = 1_500)

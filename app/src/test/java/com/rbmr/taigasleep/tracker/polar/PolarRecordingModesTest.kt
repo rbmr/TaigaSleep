@@ -25,4 +25,12 @@ class PolarRecordingModesTest {
         polarRecordingModes(StreamConfig(ecg = false, acc = true)),
     )
   }
+
+  @Test
+  fun withoutHeartRateTheDataHasToStream() {
+    assertEquals(
+        setOf(RecordingMode.STREAM),
+        polarRecordingModes(StreamConfig(ecg = true, acc = false, hr = false)),
+    )
+  }
 }

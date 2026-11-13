@@ -72,7 +72,12 @@ class SimulatedSensor(
   }
 
   override fun recordingModes(config: StreamConfig): Set<RecordingMode> =
-      setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE)
+      // Like a real tracker, the stored recording is heart rate; the rest of the data streams.
+      if (config.hr) {
+        setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE)
+      } else {
+        setOf(RecordingMode.STREAM)
+      }
 
   // Next batch due, in elapsed-realtime ns; 0 means "start from the next pump".
   private var hrDue = 0L
@@ -218,6 +223,10 @@ class SimulatedSensor(
     // Phone clock offset to elapsed time, so batches carry consistent timestamps.
     val phoneMinusElapsed = clock.phoneNs() - clock.elapsedNs()
     while (hrDue <= nowNs) {
+      if (!c.hr) {
+        hrDue += HR_PERIOD_NS
+        continue
+      }
       val stamp = stamp(hrDue, phoneMinusElapsed)
       val sample = nextHr()
       if (onDevice) currentEntry?.rrMs?.addAll(sample.rrMs.toList()) else l.onHr(stamp, sample)

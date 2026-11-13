@@ -3,16 +3,15 @@
   <string name="rec_notification_title">Recording</string>
   <string name="rec_notification_device">Tracker</string>
   <string name="rec_notification_starting">Starting…</string>
-  <string name="rec_notification_connected">%1$s connected</string>
-  <string name="rec_notification_reconnecting">%1$s lost, reconnecting</string>
-  <string name="rec_notification_disconnected">%1$s disconnected</string>
-  <string name="rec_notification_off_body">%1$s · no contact for %2$s</string>
-  <string name="rec_notification_stalled">%1$s · %2$s not receiving data</string>
-  <string name="rec_notification_ecg_poor">%1$s · poor ECG signal</string>
-  <string name="rec_notification_battery_low">%1$s · battery %2$d%%</string>
-  <string name="rec_notification_storage_error">%1$s · writing to the phone failed</string>
-  <string name="rec_notification_storage_low">%1$s · phone storage almost full</string>
-  <string name="rec_notification_rates">%1$s · %2$s</string>
+  <string name="rec_notification_text">%1$s · %2$s</string>
+  <string name="rec_notification_connected">Connected</string>
+  <string name="rec_notification_no_connection">No connection</string>
+  <string name="rec_notification_no_hr">No heart-rate signal</string>
+  <string name="rec_notification_no_data">No data</string>
+  <string name="rec_notification_ecg_poor">Poor ECG signal</string>
+  <string name="rec_notification_battery_low">Battery low</string>
+  <string name="rec_notification_storage_error">Cannot save</string>
+  <string name="rec_notification_storage_low">Storage almost full</string>
 
   <string name="rec_error_not_ready">Recording was not started: the phone would stop Taiga in the background. Set up preventing shutdown first.</string>
   <string name="rec_error_no_sensor">Recording was not started: no tracker selected.</string>
@@ -42,8 +41,11 @@
   <string name="rec_done">Done</string>
   <string name="home_headline_ready">Ready for tonight</string>
   <string name="home_headline_connect">Connect your tracker</string>
+  <string name="home_headline_data">Choose what to record</string>
   <string name="home_headline_one_step">One step left</string>
   <string name="home_action_connect">Connect tracker</string>
+  <string name="home_action_data">Choose data</string>
+  <string name="rec_config_none">Nothing selected</string>
   <string name="home_action_guard">Set up preventing shutdown</string>
   <string name="home_pill_done">Done</string>
   <string name="home_pill_needed">Needed</string>
@@ -58,7 +60,6 @@
   <string name="rec_permission_denied">Bluetooth permission is needed to find and connect your tracker.</string>
 
   <string name="rec_config_hr">Heart rate and beat intervals</string>
-  <string name="rec_config_hr_note">Always on</string>
   <string name="rec_config_ecg">ECG (130 Hz)</string>
   <string name="rec_config_acc">Movement (50 Hz)</string>
 
@@ -66,7 +67,6 @@
   <string name="rec_active_stopping">Stopping…</string>
   <string name="rec_active_hr">Heart rate</string>
   <string name="rec_active_hr_value">%1$d bpm</string>
-  <string name="rec_active_none">–</string>
   <string name="rec_active_stream_stalled_title">%1$s not receiving data</string>
   <string name="rec_active_stream_stalled_body">Last sample %1$s ago.</string>
   <string name="rec_active_link_lost_title">Tracker link lost</string>
@@ -89,7 +89,6 @@
   <string name="rec_status_ok">%1$s ok</string>
   <string name="rec_status_poor">%1$s poor</string>
   <string name="rec_status_stalled">%1$s stalled</string>
-  <string name="rec_status_waiting">%1$s waiting</string>
   <string name="rec_status_reconnecting">Reconnecting</string>
   <string name="rec_status_on_tracker">Recording on tracker</string>
   <string name="rec_stop">Stop</string>

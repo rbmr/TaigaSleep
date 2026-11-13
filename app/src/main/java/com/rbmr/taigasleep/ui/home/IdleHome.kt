@@ -24,7 +24,6 @@ import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.ui.components.BearDen
 import com.rbmr.taigasleep.ui.components.ButtonSize
-import com.rbmr.taigasleep.ui.components.DenSize
 import com.rbmr.taigasleep.ui.components.DenTapEffect
 import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.ListRowTrailing
@@ -51,16 +50,19 @@ internal fun IdleHome(
 ) {
   val space = MaterialTheme.taiga.space
   val connected = view.tracker?.connection == ConnectionState.CONNECTED
+  val needsData = connected && view.config?.canStart == false
   val needsGuard = view.guard == HomeState.NEEDS_SETTINGS
   val headline =
       when {
         !connected -> R.string.home_headline_connect
+        needsData -> R.string.home_headline_data
         needsGuard -> R.string.home_headline_one_step
         else -> R.string.home_headline_ready
       }
   val (actionLabel, action) =
       when {
         !connected -> R.string.home_action_connect to onSelectTracker
+        needsData -> R.string.home_action_data to onDataSettings
         needsGuard -> R.string.home_action_guard to onGuard
         else -> R.string.home_start to onStart
       }
@@ -75,7 +77,6 @@ internal fun IdleHome(
               .verticalScroll(rememberScrollState())
   ) {
     BearDen(
-        size = DenSize.Header,
         variant = LogoVariant.Sleeping,
         tapEffect = DenTapEffect.Wake,
         contentDescription = stringResource(R.string.home_logo_sleeping),
@@ -176,7 +177,9 @@ private fun ChecklistCard(
 /** The chosen streams and mode as one line, e.g. `Heart rate · ECG · Streaming`. */
 @Composable
 private fun streamsText(config: StartConfig): String {
-  val parts = mutableListOf(stringResource(R.string.rec_active_hr))
+  if (!config.streams.any) return stringResource(R.string.rec_config_none)
+  val parts = mutableListOf<String>()
+  if (config.streams.hr) parts += stringResource(R.string.rec_active_hr)
   if (config.streams.ecg) parts += stringResource(R.string.rec_active_ecg)
   if (config.streams.acc) parts += stringResource(R.string.rec_active_acc)
   if (config.offeredModes.size > 1) {

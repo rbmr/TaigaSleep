@@ -1,16 +1,16 @@
 <resources>
-  <!-- The wake-up window, set before a live recording. -->
-  <string name="wake_title">Wake-up window</string>
-  <string name="wake_enable">Wake me up</string>
-  <string name="wake_off_note">Off. The recording does not wake you.</string>
-  <string name="wake_on_note">Taiga wakes you inside this window when your heart rate or movement rises for a minute, and at the end of it if nothing does.</string>
-  <string name="wake_from">From</string>
-  <string name="wake_to">To</string>
+  <!-- The smart alarm, set before a live recording. -->
+  <string name="wake_title">Smart alarm</string>
+  <string name="wake_enable">Enabled</string>
+  <string name="wake_start">Start time</string>
+  <string name="wake_length">Window</string>
+  <string name="wake_minutes">%1$d min</string>
   <string name="wake_trigger_hr">Wake on a rise in heart rate</string>
   <string name="wake_trigger_movement">Wake on movement</string>
   <string name="wake_trigger_none">Choose at least one signal, otherwise the alarm only rings at the end of the window.</string>
-  <string name="wake_trigger_movement_off">Turn on movement in the streams to use it.</string>
-  <string name="wake_on_device_note">A recording the tracker stores itself sends nothing to the phone, so a wake-up window cannot be used.</string>
+  <string name="wake_trigger_movement_off">Turn on movement in the data to record to use it.</string>
+  <string name="wake_trigger_hr_off">Turn on heart rate in the data to record to use it.</string>
+  <string name="wake_on_device_note">Not available when the tracker stores the recording itself.</string>
   <string name="wake_time">%1$02d:%2$02d</string>
 
   <!-- The alarm itself. -->

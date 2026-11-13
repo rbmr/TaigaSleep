@@ -18,7 +18,6 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.recording.FinishingState
 import com.rbmr.taigasleep.ui.components.BearDen
 import com.rbmr.taigasleep.ui.components.ButtonSize
-import com.rbmr.taigasleep.ui.components.DenSize
 import com.rbmr.taigasleep.ui.components.LogoVariant
 import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.SecondaryButton
@@ -50,9 +49,8 @@ internal fun FinishingHome(
               .verticalScroll(rememberScrollState())
   ) {
     BearDen(
-        size = DenSize.Compact,
-        variant = LogoVariant.Sleeping,
-        contentDescription = stringResource(R.string.home_logo_sleeping),
+        variant = LogoVariant.Awake,
+        contentDescription = stringResource(R.string.home_logo_awake),
     )
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = space.m).padding(bottom = space.l),

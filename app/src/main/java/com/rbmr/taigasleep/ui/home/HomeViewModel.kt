@@ -36,6 +36,8 @@ interface HomeWork {
   /** The remembered configuration of this tracker: its streams, the modes they allow and the choice. */
   fun savedConfig(sensor: SleepSensor): StartConfig
 
+  fun setHr(sensorId: String, on: Boolean)
+
   fun setEcg(sensorId: String, on: Boolean)
 
   fun setAcc(sensorId: String, on: Boolean)
@@ -136,6 +138,8 @@ class HomeViewModel(
     emit()
   }
 
+  fun setHr(on: Boolean) = updateConfig { work.setHr(it.id, on) }
+
   fun setEcg(on: Boolean) = updateConfig { work.setEcg(it.id, on) }
 
   fun setAcc(on: Boolean) = updateConfig { work.setAcc(it.id, on) }
@@ -194,7 +198,7 @@ class HomeViewModel(
 
   /** Start the recording with the chosen configuration. */
   fun start() {
-    val config = config ?: return
+    val config = config?.takeIf { it.canStart } ?: return
     work.start(config)
   }
 

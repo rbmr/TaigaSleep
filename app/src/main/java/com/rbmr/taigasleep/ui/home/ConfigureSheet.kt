@@ -9,7 +9,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimeInput
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -22,12 +22,13 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.ListRowTrailing
+import com.rbmr.taigasleep.ui.components.SegmentedControl
 import com.rbmr.taigasleep.ui.components.TaigaSheet
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
  * The configuration sheet, in up to three sections: the data to record, the recording mode and the
- * wake-up window. A section appears only when the connected tracker offers a choice in it. Every
+ * smart alarm. A section appears only when the connected tracker offers a choice in it. Every
  * choice is stored as it is made.
  *
  * Rows fill the sheet width and carry their own 16 dp inset, so headings and notes use the same
@@ -36,6 +37,7 @@ import com.rbmr.taigasleep.ui.theme.taiga
 @Composable
 internal fun ConfigureSheet(
     config: StartConfig,
+    onHr: (Boolean) -> Unit,
     onEcg: (Boolean) -> Unit,
     onAcc: (Boolean) -> Unit,
     onMode: (RecordingMode) -> Unit,
@@ -50,7 +52,7 @@ internal fun ConfigureSheet(
                 .padding(bottom = space.l),
         verticalArrangement = Arrangement.spacedBy(space.l),
     ) {
-      if (config.canRecordEcg || config.canRecordAcc) DataSection(config, onEcg, onAcc)
+      DataSection(config, onHr, onEcg, onAcc)
       if (config.offeredModes.size > 1) ModeSection(config, onMode)
       if (RecordingMode.STREAM in config.offeredModes) WakeSection(config, onWake)
     }
@@ -96,15 +98,21 @@ private fun SwitchRow(
 }
 
 @Composable
-private fun DataSection(config: StartConfig, onEcg: (Boolean) -> Unit, onAcc: (Boolean) -> Unit) {
+private fun DataSection(
+    config: StartConfig,
+    onHr: (Boolean) -> Unit,
+    onEcg: (Boolean) -> Unit,
+    onAcc: (Boolean) -> Unit,
+) {
   Column {
     SectionTitle(stringResource(R.string.rec_data_title))
+    // A recording the tracker stores itself keeps heart rate only, so it cannot be turned off there.
     SwitchRow(
         title = stringResource(R.string.rec_config_hr),
-        checked = true,
-        enabled = false,
-        subtitle = stringResource(R.string.rec_config_hr_note),
-    ) {}
+        checked = config.streams.hr,
+        enabled = !config.onTracker,
+        onChange = onHr,
+    )
     if (config.canRecordEcg) {
       SwitchRow(stringResource(R.string.rec_config_ecg), config.streams.ecg, onChange = onEcg)
     }
@@ -152,8 +160,9 @@ private fun ModeRow(label: String, selected: Boolean, enabled: Boolean, onSelect
 }
 
 /**
- * The wake-up window: off until the user turns it on, and not usable for a recording the tracker
- * stores itself, because nothing streams to the phone then.
+ * The smart alarm: off until the user turns it on, and not usable for a recording the tracker
+ * stores itself, because nothing streams to the phone then. It opens at a time and stays open for a
+ * number of minutes, so moving it takes one field.
  */
 @Composable
 private fun WakeSection(config: StartConfig, onWake: (WakeChoice?) -> Unit) {
@@ -165,30 +174,26 @@ private fun WakeSection(config: StartConfig, onWake: (WakeChoice?) -> Unit) {
         title = stringResource(R.string.wake_enable),
         checked = wake != null,
         enabled = !onTracker,
-        subtitle =
-            stringResource(
-                when {
-                  onTracker -> R.string.wake_on_device_note
-                  wake == null -> R.string.wake_off_note
-                  else -> R.string.wake_on_note
-                }
-            ),
+        subtitle = if (onTracker) stringResource(R.string.wake_on_device_note) else null,
     ) {
       onWake(if (wake == null) DEFAULT_WAKE else null)
     }
     if (wake != null) {
-      TimeRow(stringResource(R.string.wake_from), wake.startMinute) { picked ->
-        if (picked != wake.endMinute) onWake(wake.copy(startMinute = picked))
+      TimeRow(stringResource(R.string.wake_start), wake.startMinute) { picked ->
+        onWake(wake.copy(startMinute = picked))
       }
-      TimeRow(stringResource(R.string.wake_to), wake.endMinute) { picked ->
-        if (picked != wake.startMinute) onWake(wake.copy(endMinute = picked))
-      }
-      SwitchRow(stringResource(R.string.wake_trigger_hr), wake.heartRate) {
+      LengthRow(wake.lengthMinutes) { onWake(wake.copy(lengthMinutes = it)) }
+      SwitchRow(
+          title = stringResource(R.string.wake_trigger_hr),
+          checked = wake.heartRate && config.streams.hr,
+          enabled = config.streams.hr,
+          subtitle = if (config.streams.hr) null else stringResource(R.string.wake_trigger_hr_off),
+      ) {
         onWake(wake.copy(heartRate = it))
       }
       SwitchRow(
           title = stringResource(R.string.wake_trigger_movement),
-          checked = wake.movement,
+          checked = wake.movement && config.streams.acc,
           enabled = config.streams.acc,
           subtitle =
               if (config.streams.acc) null else stringResource(R.string.wake_trigger_movement_off),
@@ -200,7 +205,27 @@ private fun WakeSection(config: StartConfig, onWake: (WakeChoice?) -> Unit) {
   }
 }
 
-/** A time of day the window starts or ends at; the picker is one dialog and one value. */
+/** How long the window stays open: one choice out of a few lengths, the current one included. */
+@Composable
+private fun LengthRow(minutes: Int, onChange: (Int) -> Unit) {
+  val space = MaterialTheme.taiga.space
+  val lengths = (WakeChoice.LENGTH_CHOICES + minutes).distinct().sorted()
+  Column(
+      modifier = Modifier.padding(horizontal = space.m, vertical = space.xs),
+      verticalArrangement = Arrangement.spacedBy(space.xs),
+  ) {
+    Text(text = stringResource(R.string.wake_length), style = MaterialTheme.taiga.text.body)
+    SegmentedControl(
+        options = lengths.map { stringResource(R.string.wake_minutes, it) },
+        selectedIndex = lengths.indexOf(minutes),
+        onSelect = { onChange(lengths[it]) },
+        modifier = Modifier.fillMaxWidth(),
+        fillWidth = true,
+    )
+  }
+}
+
+/** The time of day the window opens at; the picker is one dialog and one value. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TimeRow(label: String, minute: Int, onChange: (Int) -> Unit) {
@@ -220,7 +245,7 @@ private fun TimeRow(label: String, minute: Int, onChange: (Int) -> Unit) {
         )
     AlertDialog(
         onDismissRequest = { editing = false },
-        text = { TimeInput(state = state) },
+        text = { TimePicker(state = state) },
         confirmButton = {
           TextButton(
               onClick = {
@@ -231,9 +256,13 @@ private fun TimeRow(label: String, minute: Int, onChange: (Int) -> Unit) {
             Text(stringResource(R.string.rec_done))
           }
         },
+        dismissButton = {
+          TextButton(onClick = { editing = false }) { Text(stringResource(R.string.action_cancel)) }
+        },
     )
   }
 }
 
-/** Turning the window on starts from a time most people wake at; the user moves it from there. */
-private val DEFAULT_WAKE = WakeChoice(startMinute = 6 * 60 + 30, endMinute = 7 * 60)
+/** Turning the alarm on starts from a time most people wake at; the user moves it from there. */
+private val DEFAULT_WAKE =
+    WakeChoice(startMinute = 6 * 60 + 30, lengthMinutes = WakeChoice.DEFAULT_LENGTH)

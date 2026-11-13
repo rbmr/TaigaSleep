@@ -8,8 +8,12 @@ import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
 
-/** The streams the user chose. Heart rate is always recorded. */
-data class Streams(val ecg: Boolean = false, val acc: Boolean = false)
+/** The data the user chose to record. */
+data class Streams(val ecg: Boolean = false, val acc: Boolean = false, val hr: Boolean = true) {
+  /** True when at least one kind of data is on; a recording needs one. */
+  val any: Boolean
+    get() = hr || ecg || acc
+}
 
 /**
  * The wake-up window the user set for tonight, as the screen holds it: local minutes of day and the
@@ -18,13 +22,20 @@ data class Streams(val ecg: Boolean = false, val acc: Boolean = false)
  */
 data class WakeChoice(
     val startMinute: Int,
-    val endMinute: Int,
+    val lengthMinutes: Int,
     val heartRate: Boolean = true,
     val movement: Boolean = false,
 ) {
   /** True when a signal may wake the user before the end of the window. */
   val triggers: Boolean
     get() = heartRate || movement
+
+  companion object {
+    /** The window lengths the screen offers, in minutes. */
+    val LENGTH_CHOICES = listOf(10, 20, 30, 45, 60)
+
+    const val DEFAULT_LENGTH = 30
+  }
 }
 
 /**
@@ -46,6 +57,10 @@ data class StartConfig(
   /** The tracker stores the recording itself instead of streaming it to the phone. */
   val onTracker: Boolean
     get() = mode == RecordingMode.ON_DEVICE
+
+  /** Something is on, so the recording can start; otherwise the next step is to choose data. */
+  val canStart: Boolean
+    get() = streams.any
 }
 
 /** The connected tracker as the screen shows it: who it is, whether it is here, and its battery. */
