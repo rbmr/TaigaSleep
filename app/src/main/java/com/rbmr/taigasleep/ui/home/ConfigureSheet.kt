@@ -33,7 +33,6 @@ import com.rbmr.taigasleep.ui.theme.taiga
  * Rows fill the sheet width and carry their own 16 dp inset, so headings and notes use the same
  * inset and every text starts on one edge.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ConfigureSheet(
     config: StartConfig,
