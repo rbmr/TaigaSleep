@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.ui.components
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -20,6 +21,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,25 +59,31 @@ private class DragState<T>(private val key: (T) -> Any, private val scope: Corou
   var live by mutableStateOf<List<T>>(emptyList())
   var dragged by mutableStateOf<Any?>(null)
   var rowHeight by mutableFloatStateOf(0f)
-  val offset = Animatable(0f)
+
+  /** How far the held row is from its slot. Plain state: every drag event reads the last one. */
+  var offset by mutableFloatStateOf(0f)
+    private set
 
   fun start(id: Any) {
-    scope.launch { offset.snapTo(0f) }
+    offset = 0f
     dragged = id
   }
 
   fun drag(id: Any, deltaY: Float) {
     val current = live.indexOfFirst { key(it) == id }
-    val total = offset.value + deltaY
+    if (current < 0) return
+    val total = offset + deltaY
     val target = reorderTarget(current, total, rowHeight, live.size)
     live = moveItem(live, current, target)
     // The row now sits in a new slot, so the offset is relative to that slot.
-    scope.launch { offset.snapTo(total - (target - current) * rowHeight) }
+    offset = total - (target - current) * rowHeight
   }
 
   fun drop(saved: List<T>, onReorder: (List<T>) -> Unit) {
     scope.launch {
-      offset.animateTo(0f, spring(stiffness = Spring.StiffnessMedium))
+      animate(offset, 0f, animationSpec = spring(stiffness = Spring.StiffnessMedium)) { value, _ ->
+        offset = value
+      }
       dragged = null
       if (live != saved) onReorder(live)
     }
@@ -83,7 +91,7 @@ private class DragState<T>(private val key: (T) -> Any, private val scope: Corou
 
   fun cancel(saved: List<T>) {
     scope.launch {
-      offset.animateTo(0f)
+      animate(offset, 0f) { value, _ -> offset = value }
       dragged = null
       live = saved
     }
@@ -104,6 +112,9 @@ fun <T> ReorderableColumn(
     row: @Composable (item: T, index: Int, dragHandle: @Composable () -> Unit) -> Unit,
 ) {
   val scope = rememberCoroutineScope()
+  // The drag gesture outlives recompositions, so it must read the latest list and callback.
+  val latestItems by rememberUpdatedState(items)
+  val latestOnReorder by rememberUpdatedState(onReorder)
   val state = remember { DragState(key, scope) }
   // The order shown while a drag is under way; the saved order changes once, on drop.
   if (state.dragged == null && state.live != items) state.live = items
@@ -118,8 +129,8 @@ fun <T> ReorderableColumn(
             index = index,
             lastIndex = items.lastIndex,
             onMove = { to -> onReorder(moveItem(items, index, to)) },
-            onDrop = { state.drop(items, onReorder) },
-            onCancel = { state.cancel(items) },
+            onDrop = { state.drop(latestItems, latestOnReorder) },
+            onCancel = { state.cancel(latestItems) },
         ) { handle ->
           row(item, index, handle)
         }
@@ -166,7 +177,7 @@ private fun <T> ReorderableRow(
       modifier =
           Modifier.zIndex(if (isDragged) 1f else 0f)
               .onSizeChanged { if (isDragged || state.rowHeight == 0f) state.rowHeight = it.height.toFloat() }
-              .graphicsLayer { translationY = if (isDragged) state.offset.value else slide.value }
+              .graphicsLayer { translationY = if (isDragged) state.offset else slide.value }
               .then(lifted)
               .semantics {
                 customActions =
@@ -197,6 +208,7 @@ private fun <T> Modifier.dragging(
     onCancel: () -> Unit,
 ): Modifier =
     pointerInput(id) {
+      // The gesture block is not restarted on recomposition: always call the current callbacks.
       detectDragGestures(
           onDragStart = { state.start(id) },
           onDrag = { change, amount ->

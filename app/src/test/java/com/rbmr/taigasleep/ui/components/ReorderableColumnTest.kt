@@ -14,6 +14,34 @@ class ReorderableColumnTest {
   }
 
   @Test
+  fun `dragging down moves the first and a middle row to the last slot`() {
+    val order = listOf("a", "b", "c", "d")
+    val first = reorderTarget(from = 0, offset = 320f, rowHeight = 100f, count = 4)
+    val middle = reorderTarget(from = 1, offset = 210f, rowHeight = 100f, count = 4)
+
+    assertEquals(3, first)
+    assertEquals(listOf("b", "c", "d", "a"), moveItem(order, 0, first))
+    assertEquals(3, middle)
+    assertEquals(listOf("a", "c", "d", "b"), moveItem(order, 1, middle))
+  }
+
+  @Test
+  fun `dragging down one row at a time lands each row in turn`() {
+    var order = listOf("a", "b", "c")
+    var offset = 0f
+    // A held row dragged in small steps: after each step the offset is relative to its new slot.
+    repeat(25) {
+      val current = order.indexOf("a")
+      val total = offset + 10f
+      val target = reorderTarget(current, total, rowHeight = 100f, count = 3)
+      order = moveItem(order, current, target)
+      offset = total - (target - current) * 100f
+    }
+
+    assertEquals(listOf("b", "c", "a"), order)
+  }
+
+  @Test
   fun `a drag stops at the first and the last row`() {
     assertEquals(0, reorderTarget(from = 1, offset = -900f, rowHeight = 100f, count = 4))
     assertEquals(3, reorderTarget(from = 1, offset = 900f, rowHeight = 100f, count = 4))

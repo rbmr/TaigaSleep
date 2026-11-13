@@ -30,7 +30,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -280,7 +279,7 @@ fun ListRow(
                   tint = MaterialTheme.colorScheme.onSurfaceVariant,
               )
           is ListRowTrailing.Switch ->
-              Switch(checked = trailing.checked, onCheckedChange = null, enabled = enabled)
+              TaigaSwitch(checked = trailing.checked, onCheckedChange = null, enabled = enabled)
           is ListRowTrailing.Radio ->
               RadioButton(selected = trailing.selected, onClick = null, enabled = enabled)
           is ListRowTrailing.Checkbox ->

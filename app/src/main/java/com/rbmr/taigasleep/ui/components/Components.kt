@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -44,6 +46,34 @@ fun TaigaCard(
 @Composable
 fun SettingsDivider() {
   HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+/**
+ * The one switch of the app. Off reads as a working switch that is off: an outlined track with a
+ * visible border and a mid-grey thumb. A disabled switch keeps the faded Material colours, so the
+ * two never look alike. The theme's own outline is a pale divider tone, so the off colours come
+ * from onSurfaceVariant instead.
+ */
+@Composable
+fun TaigaSwitch(
+    checked: Boolean,
+    onCheckedChange: ((Boolean) -> Unit)?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+  val off = MaterialTheme.colorScheme.onSurfaceVariant
+  Switch(
+      checked = checked,
+      onCheckedChange = onCheckedChange,
+      modifier = modifier,
+      enabled = enabled,
+      colors =
+          SwitchDefaults.colors(
+              uncheckedThumbColor = off,
+              uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+              uncheckedBorderColor = off,
+          ),
+  )
 }
 
 @Preview(name = "Light")
