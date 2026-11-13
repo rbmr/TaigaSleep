@@ -42,8 +42,8 @@ internal fun InfoSheetContent(info: InfoContent, modifier: Modifier = Modifier) 
               .fillMaxWidth()
               .verticalScroll(rememberScrollState())
               .navigationBarsPadding()
-              .padding(horizontal = 24.dp)
-              .padding(bottom = 24.dp),
+              .padding(horizontal = MaterialTheme.taiga.space.m)
+              .padding(bottom = MaterialTheme.taiga.space.l),
       verticalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.s),
   ) {
     Text(text = info.title, style = MaterialTheme.taiga.text.section)

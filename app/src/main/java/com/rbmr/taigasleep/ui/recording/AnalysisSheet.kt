@@ -93,7 +93,7 @@ internal fun AnalysisSheet(
             Modifier.fillMaxWidth()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = space.l)
+                .padding(horizontal = space.m)
                 .padding(bottom = space.l),
         verticalArrangement = Arrangement.spacedBy(space.l),
     ) {

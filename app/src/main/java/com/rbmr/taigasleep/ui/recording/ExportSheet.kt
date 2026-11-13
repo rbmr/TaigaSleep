@@ -43,7 +43,7 @@ internal fun ExportSheet(
         modifier =
             Modifier.fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = space.l)
+                .padding(horizontal = space.m)
                 .padding(bottom = space.l),
         verticalArrangement = Arrangement.spacedBy(space.m),
     ) {
