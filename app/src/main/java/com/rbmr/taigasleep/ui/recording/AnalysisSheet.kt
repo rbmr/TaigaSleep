@@ -6,18 +6,18 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -32,12 +32,14 @@ import com.rbmr.taigasleep.library.AnalysisOrigin
 import com.rbmr.taigasleep.library.AnalysisStatus
 import com.rbmr.taigasleep.ui.components.ChoiceButton
 import com.rbmr.taigasleep.ui.components.InfoContent
+import com.rbmr.taigasleep.ui.components.InfoSheet
 import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.ListRowTrailing
 import com.rbmr.taigasleep.ui.components.Section
 import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.components.TaigaSheet
 import com.rbmr.taigasleep.ui.components.TertiaryButton
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
@@ -68,10 +70,9 @@ internal fun AnalysisChoiceButton(run: AnalysisDto?, onOpenAnalysis: () -> Unit)
 }
 
 /**
- * The analyses of this recording and the methods that can run on it next. The link that explains
- * how the methods differ is only there when the server describes at least one of them.
+ * The analyses of this recording and the methods that can run on it next. Tapping a method opens
+ * its own description; the Run button starts it.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AnalysisSheet(
     runs: List<Analysis>,
@@ -85,14 +86,17 @@ internal fun AnalysisSheet(
     onDismiss: () -> Unit,
 ) {
   val space = MaterialTheme.taiga.space
-  val described = algorithms.filter { it.description.isNotBlank() }
-  val differ = stringResource(R.string.night_analysis_differ)
-  ModalBottomSheet(onDismissRequest = onDismiss) {
+  var described by remember { mutableStateOf<AlgorithmDto?>(null) }
+  described?.let { algorithm ->
+    InfoSheet(
+        info = InfoContent(algorithmName(algorithm), algorithm.description),
+        onDismiss = { described = null },
+    )
+  }
+  TaigaSheet(onDismiss = onDismiss) {
     Column(
         modifier =
             Modifier.fillMaxWidth()
-                .navigationBarsPadding()
-                .verticalScroll(rememberScrollState())
                 .padding(horizontal = space.m)
                 .padding(bottom = space.l),
         verticalArrangement = Arrangement.spacedBy(space.l),
@@ -111,15 +115,7 @@ internal fun AnalysisSheet(
           }
         }
       }
-      Section(
-          title = stringResource(R.string.night_analysis_run_heading),
-          info =
-              if (described.isEmpty()) {
-                null
-              } else {
-                InfoContent(differ, methodDescriptions(described))
-              },
-      ) {
+      Section(title = stringResource(R.string.night_analysis_run_heading)) {
         when {
           loading -> {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -152,7 +148,12 @@ internal fun AnalysisSheet(
               TaigaCard(contentPadding = PaddingValues(0.dp)) {
                 available.forEachIndexed { index, algorithm ->
                   if (index > 0) SettingsDivider()
-                  AlgorithmRow(algorithm = algorithm, busy = busy, onRun = onRun)
+                  AlgorithmRow(
+                      algorithm = algorithm,
+                      busy = busy,
+                      onRun = onRun,
+                      onInfo = { described = algorithm },
+                  )
                 }
               }
             }
@@ -162,20 +163,6 @@ internal fun AnalysisSheet(
       TertiaryButton(text = stringResource(R.string.night_sheet_close), onClick = onDismiss)
     }
   }
-}
-
-/** One line per installed method: its name and version, then the description from the server. */
-@Composable
-private fun methodDescriptions(algorithms: List<AlgorithmDto>): String {
-  val lines =
-      algorithms.map { algorithm ->
-        stringResource(
-            R.string.night_analysis_method_description,
-            algorithmName(algorithm),
-            algorithm.description,
-        )
-      }
-  return lines.joinToString("\n\n")
 }
 
 @Composable
@@ -240,7 +227,12 @@ private fun AnalysisRunRow(
 
 /** One method that can run on this recording next. */
 @Composable
-private fun AlgorithmRow(algorithm: AlgorithmDto, busy: Boolean, onRun: (String) -> Unit) {
+private fun AlgorithmRow(
+    algorithm: AlgorithmDto,
+    busy: Boolean,
+    onRun: (String) -> Unit,
+    onInfo: () -> Unit,
+) {
   ListRow(
       title = algorithmName(algorithm),
       subtitle =
@@ -259,5 +251,7 @@ private fun AlgorithmRow(algorithm: AlgorithmDto, busy: Boolean, onRun: (String)
               onClick = { onRun(algorithm.id) },
               enabled = !busy,
           ),
+      onClick = if (algorithm.description.isBlank()) null else onInfo,
+      onClickLabel = stringResource(R.string.night_analysis_method_info),
   )
 }

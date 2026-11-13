@@ -42,7 +42,6 @@ fun RecordingDetailScreen(
   val state by viewModel.state.collectAsStateWithLifecycle()
 
   var showSleepScore by rememberSaveable { mutableStateOf(false) }
-  var showScoreExplanation by rememberSaveable { mutableStateOf(false) }
   var fullscreenChart by rememberSaveable { mutableStateOf<String?>(null) }
   var showAnalysis by rememberSaveable { mutableStateOf(false) }
   var showExport by rememberSaveable { mutableStateOf(false) }
@@ -86,7 +85,6 @@ fun RecordingDetailScreen(
           viewModel.loadAlgorithms()
         },
         onOpenScore = { showSleepScore = true },
-        onExplainScore = { showScoreExplanation = true },
         onExpand = { fullscreenChart = it },
         onExport = { showExport = true },
         onDownloadRaw = viewModel::downloadRaw,
@@ -99,14 +97,12 @@ fun RecordingDetailScreen(
   RecordingOverlays(
       state = state,
       showSleepScore = showSleepScore,
-      showScoreExplanation = showScoreExplanation,
       fullscreenChart = fullscreenChart,
       showAnalysis = showAnalysis,
       showExport = showExport,
       showDelete = showDelete,
       showRawDelete = showRawDelete,
       onDismissSleepScore = { showSleepScore = false },
-      onDismissScoreExplanation = { showScoreExplanation = false },
       onDismissChart = { fullscreenChart = null },
       onDismissAnalysis = { showAnalysis = false },
       onSelectAnalysis = { id ->

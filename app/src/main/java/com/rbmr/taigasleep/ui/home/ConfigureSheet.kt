@@ -3,14 +3,10 @@ package com.rbmr.taigasleep.ui.home
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimeInput
@@ -26,6 +22,7 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.ListRowTrailing
+import com.rbmr.taigasleep.ui.components.TaigaSheet
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
@@ -47,13 +44,10 @@ internal fun ConfigureSheet(
     onDismiss: () -> Unit,
 ) {
   val space = MaterialTheme.taiga.space
-  ModalBottomSheet(onDismissRequest = onDismiss) {
+  TaigaSheet(onDismiss = onDismiss) {
     Column(
         modifier =
             Modifier.fillMaxWidth()
-                // The sheet grows with the wake-up window; a small screen scrolls instead.
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
                 .padding(bottom = space.l),
         verticalArrangement = Arrangement.spacedBy(space.l),
     ) {

@@ -19,6 +19,7 @@
 
   <string name="trends_range_days">%1$d days</string>
   <string name="trends_more_nights">More recordings are needed to show a trend.</string>
+  <string name="trends_no_value">No data</string>
   <string name="trends_group_sleep">Sleep</string>
   <string name="trends_group_heart">Heart</string>
   <string name="trends_schedule_title">Sleep schedule</string>

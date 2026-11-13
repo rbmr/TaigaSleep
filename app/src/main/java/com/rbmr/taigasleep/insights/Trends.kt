@@ -60,7 +60,7 @@ data class TrendNight(
     val localId: String?,
     val remoteId: String?,
     val analysisId: String?,
-    /** The local date of the recording's end, which is the wake-up date. */
+    /** The night's date: the local date of the evening the recording started in, see [nightDate]. */
     val date: LocalDate,
     val startMinuteOfDay: Int,
     val endMinuteOfDay: Int,
@@ -104,9 +104,9 @@ data class ScheduleTrend(val bedtime: ClockAverage?, val wake: ClockAverage?) {
 
 /** Everything the trends screen draws, computed once for a range and a set of recordings. */
 data class Trends(
-    /** The calendar days of the range, oldest first, so a day without a night keeps its slot. */
+    /** The night dates of the range, oldest first, so a day without a night keeps its slot. */
     val days: List<LocalDate>,
-    /** One entry per day: the night that ends that day, or null. */
+    /** One entry per day: the night of that date, or null. */
     val nights: List<TrendNight?>,
     val schedule: ScheduleTrend,
     val totalSleep: TrendAverage,
@@ -124,10 +124,20 @@ data class Trends(
 )
 
 /**
- * Assign every recording to the local date it ended, keep the range, and derive the values and
- * averages the charts show. Two recordings that end on one date become the longer one. Only nights
- * with a value, at least three hours of recording and a data quality of 50 or more are averaged;
- * poor-data nights are still kept in [Trends.nights] so the chart can draw them faintly.
+ * The date a recording's night belongs to: the local date of the evening it started in. A start
+ * before noon belongs to the previous date, so a recording that starts at 00:39 on 18 October is
+ * the night of 17 October, like one that started at 23:10 on the 17th.
+ */
+fun nightDate(startUtcMs: Long, zone: ZoneId): LocalDate =
+    Instant.ofEpochMilli(startUtcMs).atZone(zone).toLocalDateTime().minusHours(12).toLocalDate()
+
+/**
+ * Assign every recording to its night (see [nightDate]), keep the range, and derive the values
+ * and averages the charts show. The range ends with the last night that can be over: the night of
+ * yesterday, or of [today] when a recording of that night exists (one that started after noon).
+ * Two recordings of one night become the one with an analysis, and of those the longer one. Only
+ * nights with a value, at least three hours of recording and a data quality of 50 or more are
+ * averaged; poor-data nights are still kept in [Trends.nights] so the chart can draw them faintly.
  */
 fun trendsFor(
     recordings: List<TrendRecording>,
@@ -138,15 +148,16 @@ fun trendsFor(
     usualWakeTime: LocalTime? = null,
 ): Trends {
   val size = rangeDays.coerceAtLeast(1)
-  val days = List(size) { index -> today.minusDays((size - 1 - index).toLong()) }
+  val valid =
+      recordings.filter { it.startUtcMs > 0 && it.endUtcMs > it.startUtcMs }
+  val dated = valid.map { it to nightDate(it.startUtcMs, zone) }
+  val last = if (dated.any { it.second == today }) today else today.minusDays(1)
+  val days = List(size) { index -> last.minusDays((size - 1 - index).toLong()) }
   val chosen = mutableMapOf<LocalDate, TrendRecording>()
-  for (recording in recordings) {
-    if (recording.startUtcMs <= 0 || recording.endUtcMs <= recording.startUtcMs) continue
-    val end = Instant.ofEpochMilli(recording.endUtcMs).atZone(zone)
-    val date = end.toLocalDate()
+  for ((recording, date) in dated) {
     if (date !in days) continue
     val existing = chosen[date]
-    if (existing == null || isLonger(recording, existing)) chosen[date] = recording
+    if (existing == null || isBetter(recording, existing)) chosen[date] = recording
   }
   val byDate = chosen.mapValues { (date, recording) -> trendNight(recording, date, zone) }
 
@@ -218,8 +229,14 @@ private fun TrendRecording.value(id: String): Double? = items[id]?.takeIf { it.i
 private fun minuteOfDay(utcMs: Long, zone: ZoneId): Int =
     (Instant.ofEpochMilli(utcMs).atZone(zone).toLocalTime().toSecondOfDay() / 60)
 
-/** The longest recording of a date wins; a tie keeps the one that ended later. */
-private fun isLonger(candidate: TrendRecording, existing: TrendRecording): Boolean {
+/**
+ * Which of two recordings of one night is drawn: one with analysis values beats one without, then
+ * the longer one wins, and a tie keeps the one that ended later.
+ */
+private fun isBetter(candidate: TrendRecording, existing: TrendRecording): Boolean {
+  if (candidate.items.isNotEmpty() != existing.items.isNotEmpty()) {
+    return candidate.items.isNotEmpty()
+  }
   val candidateSeconds = candidate.endUtcMs - candidate.startUtcMs
   val existingSeconds = existing.endUtcMs - existing.startUtcMs
   return if (candidateSeconds != existingSeconds) candidateSeconds > existingSeconds

@@ -6,9 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Sensors
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -19,6 +17,7 @@ import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.ui.components.DestructiveButton
 import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.ListRowTrailing
+import com.rbmr.taigasleep.ui.components.TaigaSheet
 import com.rbmr.taigasleep.ui.components.SecondaryButton
 import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.theme.taiga
@@ -27,7 +26,6 @@ import com.rbmr.taigasleep.ui.theme.taiga
  * The tracker picker: what is in range, a button to look again, and Disconnect while a tracker is
  * connected, because the sheet is now the one place a tracker is chosen or left.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SensorPickerSheet(
     picker: SensorPicker,
@@ -38,7 +36,7 @@ internal fun SensorPickerSheet(
     onDismiss: () -> Unit,
 ) {
   val space = MaterialTheme.taiga.space
-  ModalBottomSheet(onDismissRequest = onDismiss) {
+  TaigaSheet(onDismiss = onDismiss) {
     Column(
         modifier =
             Modifier.fillMaxWidth()

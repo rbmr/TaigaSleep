@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
+import com.rbmr.taigasleep.library.streams
+import kotlin.coroutines.cancellation.CancellationException
 import com.rbmr.taigasleep.recording.ExportContents
 import com.rbmr.taigasleep.recording.ExportProgress
 import com.rbmr.taigasleep.recording.ExportResult
@@ -56,6 +58,9 @@ interface RecordingWork {
 
   /** The streams the recording holds on this phone, as [StreamId] values; empty when it has none. */
   fun rawStreams(localId: String): List<Int>
+
+  /** The streams the server's copy of the recording holds; empty when it cannot be read now. */
+  suspend fun remoteStreams(remoteId: String): List<Int>
 }
 
 /**
@@ -128,6 +133,16 @@ class RecordingDetailFactory(
 
           override fun rawStreams(localId: String): List<Int> =
               RecordingMeta.read(store.dir(localId))?.config?.streams().orEmpty()
+
+          override suspend fun remoteStreams(remoteId: String): List<Int> =
+              try {
+                app.appContainer.remoteRepository.api()?.getRecording(remoteId)?.streams()
+                    .orEmpty()
+              } catch (e: CancellationException) {
+                throw e
+              } catch (_: Exception) {
+                emptyList()
+              }
         }
     return RecordingDetailViewModel(
         key = localId ?: remoteId?.let { "remote-$it" } ?: analysisId ?: "recording",

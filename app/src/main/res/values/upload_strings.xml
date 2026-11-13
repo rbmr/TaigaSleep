@@ -37,9 +37,7 @@
   <string name="night_delete_title">Delete this recording?</string>
   <string name="night_delete_body">This removes the recording and its analysis from this phone, and deletes the server copy. If the server is offline, the deletion is retried later.</string>
   <string name="night_delete_confirm">Delete</string>
-  <string name="night_discard_title">Discard this recording?</string>
-  <string name="night_discard_body">This recording has not been uploaded. Discarding removes it and its local analysis from this phone.</string>
-  <string name="night_discard_confirm">Discard</string>
+  <string name="night_delete_local_body">This recording has not been uploaded. Deleting removes it and its analysis from this phone, and it cannot be recovered.</string>
   <string name="night_raw_restore_failed">Could not download the raw data.</string>
   <string name="night_error_detail">%1$s: %2$s</string>
   <string name="night_details_started">Started</string>
@@ -109,12 +107,14 @@
   <string name="night_upload_other_account_title">Upload to this account?</string>
   <string name="night_upload_other_account_body">This recording is already uploaded to another account. Upload it to %1$s with the account %2$s as well?</string>
   <string name="night_upload_other_account_confirm">Upload</string>
-  <string name="night_warnings">Warnings</string>
+  <string name="night_notes">Notes</string>
+  <string name="night_notes_row">Notes (%1$d)</string>
   <string name="night_analyzed_with_algorithm">Analyzed with %1$s</string>
   <string name="night_analysis">Analysis</string>
   <string name="night_analysis_choose">Choose an analysis</string>
   <string name="night_analysis_change">Change</string>
   <string name="night_analysis_manual">Manual</string>
+  <string name="night_analysis_method_info">About this method</string>
   <string name="night_analysis_name_version">%1$s %2$s</string>
   <string name="night_analysis_list_separator">", "</string>
   <string name="night_analysis_loading">Loading methods…</string>
@@ -138,8 +138,6 @@
   <string name="night_heart_rate_no_series">This saved result has no heart-rate curve. Run the analysis again to see one.</string>
   <string name="night_device_unknown">Unknown tracker</string>
   <string name="night_value_none">—</string>
-  <string name="night_sleep_score_experimental">Experimental</string>
-  <string name="night_sleep_score_experimental_body">Sleep stages come from a model that has not been checked against sleep-lab measurements on this tracker. How the score changes from recording to recording is more meaningful than the absolute number.</string>
   <string name="night_sleep_score_not_enough_data">No sleep score: not enough good data</string>
 
   <string name="night_recording_meta">%2$s – %3$s · %1$s</string>
@@ -150,8 +148,7 @@
   <string name="night_details_on_phone">On this phone</string>
   <string name="night_details_uploaded">Uploaded</string>
   <string name="night_export_open">Export…</string>
-  <string name="night_delete_recording">Delete recording</string>
-  <string name="night_discard_recording">Discard recording</string>
+  <string name="night_delete_recording">Delete</string>
   <string name="night_sleep_stages_info">Each 30-second interval of the recording is scored as Awake, REM, Light or Deep by the method, or left Unscored when it cannot be scored. The chart places the stages in time, the bar shows the whole recording and the list gives the time spent in each stage.</string>
   <string name="night_heart_rate_info">The mean heart rate of every 30-second interval of the recording. A gap is an interval without a valid sample; the lowest and the highest value come from the samples themselves.</string>
   <string name="night_movement_info">Movement comes from the tracker\'s accelerometer. The index is the share of 30-second intervals that moved more than the method\'s threshold.</string>
@@ -159,8 +156,6 @@
   <string name="night_chart_bpm">%1$s bpm</string>
   <string name="night_analysis_done_heading">Done for this recording</string>
   <string name="night_analysis_run_heading">Run another method</string>
-  <string name="night_analysis_differ">How the methods differ</string>
-  <string name="night_analysis_method_description">%1$s: %2$s</string>
   <string name="night_analysis_score">Score %1$d</string>
   <string name="night_analysis_analyzing">Analyzing…</string>
 

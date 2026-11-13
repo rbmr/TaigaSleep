@@ -101,7 +101,10 @@ class RecordingDetailViewModel(
         val changed = status != lastStatus
         lastStatus = status
         _state.update { it.copy(connected = status is RemoteStatus.Connected) }
-        if (changed) load()
+        if (changed) {
+          readRemoteStreams()
+          load()
+        }
       }
     }
   }
@@ -461,7 +464,22 @@ class RecordingDetailViewModel(
     val id = _state.value.local?.id ?: localId
     val size = if (id == null) 0L else work.rawSize(id)
     val streams = if (id == null) emptyList() else work.rawStreams(id)
-    _state.update { it.copy(rawSizeBytes = size, rawStreams = streams) }
+    _state.update { it.copy(rawSizeBytes = size, rawStreams = streams.ifEmpty { it.rawStreams }) }
+    if (streams.isEmpty()) readRemoteStreams()
+  }
+
+  /**
+   * The phone has no meta for this recording (it is only on the server, or its file cannot be
+   * read), so the streams come from the server's copy.
+   */
+  private fun readRemoteStreams() {
+    if (_state.value.rawStreams.isNotEmpty()) return
+    scope.launch {
+      val server = _state.value.remoteId ?: remoteId ?: return@launch
+      if (!_state.value.connected) return@launch
+      val streams = work.remoteStreams(server)
+      if (streams.isNotEmpty()) _state.update { it.copy(rawStreams = streams) }
+    }
   }
 
   private fun recordingIn(list: List<RecordingView>): RecordingView? =

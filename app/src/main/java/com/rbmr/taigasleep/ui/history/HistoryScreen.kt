@@ -97,7 +97,6 @@ fun HistoryScreen(
     Box(Modifier.weight(1f).fillMaxWidth()) {
       if (trends) {
         TrendsScreen(
-            onOpenRecording = onOpenRecording,
             modifier = Modifier.fillMaxSize(),
             bottomPadding = SwitcherClearance,
         )

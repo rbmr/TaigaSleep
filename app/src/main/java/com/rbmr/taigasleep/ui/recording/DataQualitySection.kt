@@ -2,17 +2,26 @@ package com.rbmr.taigasleep.ui.recording
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.ui.components.InfoContent
 import com.rbmr.taigasleep.ui.components.Section
 import com.rbmr.taigasleep.ui.components.ShareBar
-import com.rbmr.taigasleep.ui.components.StatusBanner
-import com.rbmr.taigasleep.ui.components.StatusKind
+import com.rbmr.taigasleep.ui.components.ListRow
+import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.components.TaigaSheet
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
 
@@ -31,6 +40,27 @@ internal fun DataQualityStatsSection(analysis: AnalysisResultDto) {
               "\n\n" +
               stringResource(R.string.night_quality_formula),
       )
+  var showNotes by rememberSaveable { mutableStateOf(false) }
+  if (showNotes) {
+    TaigaSheet(onDismiss = { showNotes = false }) {
+      Column(
+          modifier = Modifier.padding(horizontal = space.m).padding(bottom = space.l),
+          verticalArrangement = Arrangement.spacedBy(space.s),
+      ) {
+        Text(
+            text = stringResource(R.string.night_notes),
+            style = MaterialTheme.taiga.text.section,
+        )
+        analysis.warnings.forEach { note ->
+          Text(
+              text = note,
+              style = MaterialTheme.taiga.text.body,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+    }
+  }
   Section(title = title, info = info) {
     Column(verticalArrangement = Arrangement.spacedBy(space.m)) {
       val score = analysis.items.firstOrNull { it.id == "data_quality" }
@@ -51,11 +81,12 @@ internal fun DataQualityStatsSection(analysis: AnalysisResultDto) {
       val items = numberItems(analysis.items, "quality")
       if (items.isNotEmpty()) MetricGrid(items = items)
       if (analysis.warnings.isNotEmpty()) {
-        StatusBanner(
-            kind = StatusKind.Warn,
-            title = stringResource(R.string.night_warnings),
-            details = analysis.warnings,
-        )
+        TaigaCard(contentPadding = PaddingValues(0.dp)) {
+          ListRow(
+              title = stringResource(R.string.night_notes_row, analysis.warnings.size),
+              onClick = { showNotes = true },
+          )
+        }
       }
     }
   }

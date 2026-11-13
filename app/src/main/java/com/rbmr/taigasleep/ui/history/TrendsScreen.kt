@@ -47,7 +47,6 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun TrendsScreen(
-    onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
     modifier: Modifier = Modifier,
     bottomPadding: Dp = MaterialTheme.taiga.space.m,
 ) {
@@ -59,7 +58,6 @@ fun TrendsScreen(
   TrendsContent(
       state = state,
       onRangeChange = viewModel::setRange,
-      onOpenRecording = onOpenRecording,
       modifier = modifier,
       bottomPadding = bottomPadding,
   )
@@ -69,15 +67,11 @@ fun TrendsScreen(
 fun TrendsContent(
     state: TrendsUiState,
     onRangeChange: (Int) -> Unit,
-    onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
     modifier: Modifier = Modifier,
     bottomPadding: Dp = MaterialTheme.taiga.space.m,
 ) {
   val space = MaterialTheme.taiga.space
   val data = state.data
-  val open: (TrendNight) -> Unit = { night ->
-    onOpenRecording(night.localId, night.remoteId, night.analysisId)
-  }
   LazyColumn(
       modifier.fillMaxWidth(),
       contentPadding = PaddingValues(bottom = bottomPadding),
@@ -87,18 +81,18 @@ fun TrendsContent(
     item {
       Section(title = stringResource(R.string.trends_group_sleep)) {
         Column(verticalArrangement = Arrangement.spacedBy(space.m)) {
-          ScoreChart(data, onOpen = open)
-          TotalSleepChart(data, onOpen = open)
-          ScheduleChart(data, onOpen = open)
-          EfficiencyChart(data, onOpen = open)
+          ScoreChart(data)
+          TotalSleepChart(data)
+          ScheduleChart(data)
+          EfficiencyChart(data)
         }
       }
     }
     item {
       Section(title = stringResource(R.string.trends_group_heart)) {
         Column(verticalArrangement = Arrangement.spacedBy(space.m)) {
-          HeartRateChart(data, onOpen = open)
-          HrvChart(data, onOpen = open)
+          HeartRateChart(data)
+          HrvChart(data)
         }
       }
     }
@@ -120,7 +114,7 @@ private fun RangeChips(rangeDays: Int, onRangeChange: (Int) -> Unit) {
 }
 
 @Composable
-private fun ScoreChart(data: Trends, onOpen: (TrendNight) -> Unit) {
+private fun ScoreChart(data: Trends) {
   val title = stringResource(R.string.trends_score_title)
   val average = data.score
   val points = data.points { it.score }
@@ -131,7 +125,6 @@ private fun ScoreChart(data: Trends, onOpen: (TrendNight) -> Unit) {
       kind = TrendChartKind.Line(listOf(TrendSeries(averageLabel(), points, averageColor()))),
       summary = listOf(TrendSummary(averageLabel(), value.toString())),
       description = stringResource(R.string.trends_description_whole, title, value, average.nights),
-      onOpen = onOpen,
       emptyMessage = moreRecordings(average.enough),
       axisFormat = ::trendWhole,
       steps = WholeSteps,
@@ -139,7 +132,7 @@ private fun ScoreChart(data: Trends, onOpen: (TrendNight) -> Unit) {
 }
 
 @Composable
-private fun TotalSleepChart(data: Trends, onOpen: (TrendNight) -> Unit) {
+private fun TotalSleepChart(data: Trends) {
   val title = stringResource(R.string.trends_total_sleep_title)
   val average = data.totalSleep
   val points = data.points { totalSleepHours(it.totalSleepSeconds) }
@@ -155,7 +148,6 @@ private fun TotalSleepChart(data: Trends, onOpen: (TrendNight) -> Unit) {
           ),
       summary = listOf(TrendSummary(averageLabel(), formatSeconds(value))),
       description = stringResource(R.string.trends_description_time, title, formatSeconds(value), average.nights),
-      onOpen = onOpen,
       emptyMessage = moreRecordings(average.enough),
       references =
           listOfNotNull(
@@ -166,6 +158,7 @@ private fun TotalSleepChart(data: Trends, onOpen: (TrendNight) -> Unit) {
                 )
               }
           ),
+      valueFormat = { formatSeconds(it * 3600.0) },
       topLabel = { "$it h" },
       steps = HourSteps,
       minStep = 1.0,
@@ -173,7 +166,7 @@ private fun TotalSleepChart(data: Trends, onOpen: (TrendNight) -> Unit) {
 }
 
 @Composable
-private fun ScheduleChart(data: Trends, onOpen: (TrendNight) -> Unit) {
+private fun ScheduleChart(data: Trends) {
   val title = stringResource(R.string.trends_schedule_title)
   val bedtime = data.schedule.bedtime
   val wake = data.schedule.wake
@@ -214,7 +207,6 @@ private fun ScheduleChart(data: Trends, onOpen: (TrendNight) -> Unit) {
       kind = TrendChartKind.FloatingBars(spans),
       summary = summary,
       description = description,
-      onOpen = onOpen,
       emptyMessage = moreRecordings(enough),
       references =
           listOfNotNull(
@@ -238,7 +230,7 @@ private fun ScheduleChart(data: Trends, onOpen: (TrendNight) -> Unit) {
 }
 
 @Composable
-private fun EfficiencyChart(data: Trends, onOpen: (TrendNight) -> Unit) {
+private fun EfficiencyChart(data: Trends) {
   val title = stringResource(R.string.trends_efficiency_title)
   val average = data.efficiency
   val points = data.points { it.efficiency }
@@ -250,16 +242,16 @@ private fun EfficiencyChart(data: Trends, onOpen: (TrendNight) -> Unit) {
       summary = listOf(TrendSummary(averageLabel(), "$value%")),
       description =
           stringResource(R.string.trends_description_percent, title, value, average.nights),
-      onOpen = onOpen,
       emptyMessage = moreRecordings(average.enough),
       axisFormat = ::trendWhole,
+      valueFormat = { "${it.roundToInt()}%" },
       topLabel = { "$it%" },
       steps = WholeSteps,
   )
 }
 
 @Composable
-private fun HeartRateChart(data: Trends, onOpen: (TrendNight) -> Unit) {
+private fun HeartRateChart(data: Trends) {
   val title = stringResource(R.string.trends_heart_rate_title)
   val minimum = data.heartRateMin
   val mean = data.heartRateMean
@@ -292,16 +284,16 @@ private fun HeartRateChart(data: Trends, onOpen: (TrendNight) -> Unit) {
               lowest,
               nights,
           ),
-      onOpen = onOpen,
       emptyMessage = moreRecordings(minimum.enough && mean.enough),
       axisFormat = ::trendWhole,
+      valueFormat = { "${it.roundToInt()} bpm" },
       topLabel = { "$it bpm" },
       steps = WholeSteps,
   )
 }
 
 @Composable
-private fun HrvChart(data: Trends, onOpen: (TrendNight) -> Unit) {
+private fun HrvChart(data: Trends) {
   val title = stringResource(R.string.trends_hrv_title)
   val average = data.hrv
   val points = data.points { it.hrvRmssdMs }
@@ -312,9 +304,9 @@ private fun HrvChart(data: Trends, onOpen: (TrendNight) -> Unit) {
       kind = TrendChartKind.Line(listOf(TrendSeries(averageLabel(), points, averageColor()))),
       summary = listOf(TrendSummary(averageLabel(), "$value ms")),
       description = stringResource(R.string.trends_description_hrv, title, value, average.nights),
-      onOpen = onOpen,
       emptyMessage = moreRecordings(average.enough),
       axisFormat = ::trendWhole,
+      valueFormat = { "${it.roundToInt()} ms" },
       topLabel = { "$it ms" },
       steps = WholeSteps,
   )

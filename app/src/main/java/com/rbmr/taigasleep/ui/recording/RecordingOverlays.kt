@@ -8,8 +8,6 @@ import com.rbmr.taigasleep.ui.components.ChartFullscreenDialog
 import com.rbmr.taigasleep.ui.components.ConfirmDialog
 import com.rbmr.taigasleep.ui.components.ConfirmDialogStyle
 import com.rbmr.taigasleep.ui.components.HeartRateChart
-import com.rbmr.taigasleep.ui.components.InfoContent
-import com.rbmr.taigasleep.ui.components.InfoSheet
 import com.rbmr.taigasleep.ui.components.SleepStagesChart
 
 /** Every sheet and dialog of the recording screen, drawn over the body it belongs to. */
@@ -17,14 +15,12 @@ import com.rbmr.taigasleep.ui.components.SleepStagesChart
 internal fun RecordingOverlays(
     state: RecordingDetailUiState,
     showSleepScore: Boolean,
-    showScoreExplanation: Boolean,
     fullscreenChart: String?,
     showAnalysis: Boolean,
     showExport: Boolean,
     showDelete: Boolean,
     showRawDelete: Boolean,
     onDismissSleepScore: () -> Unit,
-    onDismissScoreExplanation: () -> Unit,
     onDismissChart: () -> Unit,
     onDismissAnalysis: () -> Unit,
     onSelectAnalysis: (String) -> Unit,
@@ -63,16 +59,6 @@ internal fun RecordingOverlays(
         item = result?.items?.firstOrNull { it.id == "sleep_quality" },
         state = result?.let(::sleepScoreCardState),
         onDismiss = onDismissSleepScore,
-    )
-  }
-  if (showScoreExplanation) {
-    InfoSheet(
-        info =
-            InfoContent(
-                title = stringResource(R.string.night_sleep_score_experimental),
-                body = stringResource(R.string.night_sleep_score_experimental_body),
-            ),
-        onDismiss = onDismissScoreExplanation,
     )
   }
   fullscreenChart?.let { chart ->
@@ -138,18 +124,12 @@ internal fun RecordingOverlays(
   if (showDelete) {
     val uploaded = state.remoteId != null
     ConfirmDialog(
-        title =
-            stringResource(
-                if (uploaded) R.string.night_delete_title else R.string.night_discard_title
-            ),
+        title = stringResource(R.string.night_delete_title),
         body =
             stringResource(
-                if (uploaded) R.string.night_delete_body else R.string.night_discard_body
+                if (uploaded) R.string.night_delete_body else R.string.night_delete_local_body
             ),
-        confirmLabel =
-            stringResource(
-                if (uploaded) R.string.night_delete_confirm else R.string.night_discard_confirm
-            ),
+        confirmLabel = stringResource(R.string.night_delete_confirm),
         onConfirm = onConfirmDelete,
         onDismiss = onDismissDelete,
         style = ConfirmDialogStyle.Destructive,

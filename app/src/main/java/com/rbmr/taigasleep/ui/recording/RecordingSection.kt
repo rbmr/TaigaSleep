@@ -147,11 +147,7 @@ internal fun RecordingSection(
             modifier = Modifier.weight(1f),
         )
         DestructiveButton(
-            text =
-                stringResource(
-                    if (uploaded) R.string.night_delete_recording
-                    else R.string.night_discard_recording
-                ),
+            text = stringResource(R.string.night_delete_recording),
             onClick = onDelete,
             enabled = !state.exportBusy,
             modifier = Modifier.weight(1f),

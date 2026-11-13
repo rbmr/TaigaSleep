@@ -5,16 +5,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -28,16 +23,16 @@ import com.rbmr.taigasleep.insights.SleepScoreCardState
 import com.rbmr.taigasleep.insights.SleepScoreUnavailableReason
 import com.rbmr.taigasleep.insights.formatItemValue
 import com.rbmr.taigasleep.insights.metricSpec
-import com.rbmr.taigasleep.ui.components.InfoPill
 import com.rbmr.taigasleep.ui.components.LabeledValue
 import com.rbmr.taigasleep.ui.components.Pressable
 import com.rbmr.taigasleep.ui.components.ScoreRing
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.components.TaigaSheet
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
 
 /** The values repeated beside the ring; every one of them is shown in its own section below. */
-private val SummaryItemIds = listOf("total_sleep_s", "hr_mean_bpm", "data_quality")
+private val SummaryItemIds = listOf("total_sleep_s", "hr_mean_bpm", "sleep_efficiency")
 
 /**
  * The head of the recording: the sleep score as a ring, and beside it the figures the sections
@@ -48,7 +43,6 @@ internal fun RecordingSummary(
     items: List<ResultItemDto>,
     score: Double?,
     onOpenScore: () -> Unit,
-    onExplainScore: () -> Unit,
 ) {
   val space = MaterialTheme.taiga.space
   val scoreLabel = stringResource(R.string.night_sleep_score)
@@ -69,12 +63,6 @@ internal fun RecordingSummary(
         ) {
           ScoreRing(score = score, label = scoreLabel)
         }
-        if (items.isNotEmpty()) {
-          InfoPill(
-              label = stringResource(R.string.night_sleep_score_experimental),
-              onClick = onExplainScore,
-          )
-        }
       }
       Column(
           modifier = Modifier.weight(1f),
@@ -90,14 +78,10 @@ internal fun RecordingSummary(
   }
 }
 
-/** A summary figure in the unit the item carries; the data quality score reads as `86 / 100`. */
+/** A summary figure in the unit the item carries. */
 @Composable
 private fun summaryValue(item: ResultItemDto): String? =
-    if (item.kind == "score") {
-      item.value?.let { stringResource(R.string.night_data_quality_score, it.roundToInt()) }
-    } else {
-      item.metricSpec()?.let { spec -> formatItemValue(spec.kind, spec.itemValue) }
-    }
+    item.metricSpec()?.let { spec -> formatItemValue(spec.kind, spec.itemValue) }
 
 /** The reason the result has no sleep score, instead of the number the sheet would show. */
 @Composable
@@ -110,7 +94,6 @@ private fun sleepScoreUnavailableText(reason: SleepScoreUnavailableReason): Stri
     }
 
 /** The sleep score and what it is made of, or the reason there is no score. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SleepScoreSheet(
     item: ResultItemDto?,
@@ -118,12 +101,10 @@ internal fun SleepScoreSheet(
     onDismiss: () -> Unit,
 ) {
   val space = MaterialTheme.taiga.space
-  ModalBottomSheet(onDismissRequest = onDismiss) {
+  TaigaSheet(onDismiss = onDismiss) {
     Column(
         modifier =
             Modifier.fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
                 .padding(horizontal = space.l)
                 .padding(bottom = space.l),
         verticalArrangement = Arrangement.spacedBy(space.m),

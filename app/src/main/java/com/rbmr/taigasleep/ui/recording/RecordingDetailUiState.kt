@@ -201,3 +201,10 @@ internal fun showsScoreCard(status: RecordingStatus, hasResult: Boolean): Boolea
     hasResult ||
         status == RecordingStatus.READY ||
         status == RecordingStatus.PROCESSING
+
+/** Whether the analysis button sits above the sections: only for a recording that has analyses. */
+internal fun showsAnalysisChoice(state: RecordingDetailUiState): Boolean =
+    state.remoteId != null &&
+        (state.status == RecordingStatus.READY ||
+            state.status == RecordingStatus.PROCESSING ||
+            (state.status == RecordingStatus.FAILED && state.failure == UploadFailure.ANALYSIS))

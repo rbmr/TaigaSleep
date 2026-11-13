@@ -212,7 +212,7 @@ private fun StatusPillPreview() {
       StatusPill(StatusPillState.Neutral, "Not set")
     }
     StatusPill(StatusPillState.Neutral, "Open", onClick = {})
-    InfoPill(label = "Experimental", onClick = {})
+    InfoPill(label = "Details", onClick = {})
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       ChoiceChip(label = "7 days", selected = true, onClick = {})
       ChoiceChip(label = "14 days", selected = false, onClick = {})

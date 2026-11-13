@@ -23,6 +23,7 @@ components/StatusPill.kt 0
 components/StepList.kt 0
 components/TaigaBottomBar.kt 0
 components/TaigaLogo.kt 0
+components/TaigaSheet.kt 0
 components/TrendsCharts.kt 0
 history/HistoryScreen.kt 1
 history/TrendsScreen.kt 0

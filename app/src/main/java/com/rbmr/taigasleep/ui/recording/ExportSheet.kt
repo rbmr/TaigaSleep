@@ -4,11 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -21,13 +18,13 @@ import com.rbmr.taigasleep.ui.components.ListRowTrailing
 import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.components.TaigaSheet
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
  * What the export holds. Nothing is prepared until the archive is asked for; the export itself
  * runs on the screen behind this sheet.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ExportSheet(
     state: RecordingDetailUiState,
@@ -38,11 +35,10 @@ internal fun ExportSheet(
     onDismiss: () -> Unit,
 ) {
   val space = MaterialTheme.taiga.space
-  ModalBottomSheet(onDismissRequest = onDismiss) {
+  TaigaSheet(onDismiss = onDismiss) {
     Column(
         modifier =
             Modifier.fillMaxWidth()
-                .navigationBarsPadding()
                 .padding(horizontal = space.m)
                 .padding(bottom = space.l),
         verticalArrangement = Arrangement.spacedBy(space.m),

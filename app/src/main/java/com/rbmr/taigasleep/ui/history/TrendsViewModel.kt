@@ -6,27 +6,31 @@ import androidx.lifecycle.ViewModelProvider
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.insights.TrendRanges
+import com.rbmr.taigasleep.insights.nightDate
 import com.rbmr.taigasleep.insights.TrendRecording
 import com.rbmr.taigasleep.insights.Trends
 import com.rbmr.taigasleep.insights.trendsFor
 import com.rbmr.taigasleep.library.RecordingSource
+import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.library.RecordingView
 import com.rbmr.taigasleep.profile.PersonalData
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
 /** What the Trends view draws: the chosen range and the computed nights of its calendar days. */
@@ -48,9 +52,15 @@ class TrendsViewModel(
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
   private val range = MutableStateFlow(TrendRanges.first())
 
+  /** Counts the results that were read from the server, so the trends are computed again. */
+  private val fetched = MutableStateFlow(0)
+
+  /** Recordings whose result is being read from the server or was read already. */
+  private val fetching = ConcurrentHashMap.newKeySet<String>()
+
   @OptIn(ExperimentalCoroutinesApi::class)
   val state: StateFlow<TrendsUiState> =
-      combine(library.recordings, personalData, range) { recordings, profile, days ->
+      combine(library.recordings, personalData, range, fetched) { recordings, profile, days, _ ->
             Triple(recordings, profile, days)
           }
           .mapLatest { (recordings, profile, days) ->
@@ -80,18 +90,19 @@ class TrendsViewModel(
       days: Int,
   ): TrendsUiState {
     val today = LocalDate.now(zone)
-    val first = today.minusDays((days - 1).toLong())
+    // The range ends today or yesterday, see trendsFor; one more day keeps either window whole.
+    val first = today.minusDays(days.toLong())
     // The library's list is the source: a night that only exists on the server is a night too, and
-    // its saved result is read from the cache. Nothing here talks to the server. The night being
-    // recorded has no end yet, so it is not drawn.
-    val nights =
-        recordings
-            .filterNot { it.isRecording }
-            .mapNotNull { view ->
-              val date = view.wakeDate(zone)
-              if (date == null || date.isBefore(first) || date.isAfter(today)) null
-              else trendRecording(view, itemsOf(library.cachedResult(view.key, view.analysisId)))
-            }
+    // its saved result is read from the cache. The night being recorded has no end yet, so it is
+    // not drawn.
+    val inRange =
+        recordings.filterNot { it.isRecording }.filter { view ->
+          val date = nightDate(view.startUtcMs, zone)
+          view.trendEndUtcMs() > view.startUtcMs && date >= first && date <= today
+        }
+    val cached = inRange.map { view -> view to library.cachedResult(view.key, view.analysisId) }
+    fetchMissingResults(cached)
+    val nights = cached.map { (view, result) -> trendRecording(view, itemsOf(result)) }
     return TrendsUiState(
         rangeDays = days,
         data =
@@ -106,11 +117,29 @@ class TrendsViewModel(
     )
   }
 
-  /** The local date of the end, which is the wake-up date. */
-  private fun RecordingView.wakeDate(zone: ZoneId): LocalDate? =
-      trendEndUtcMs().takeIf { it > startUtcMs }?.let {
-        Instant.ofEpochMilli(it).atZone(zone).toLocalDate()
+  /**
+   * A night that is analysed on the server but whose result was never opened on this phone has no
+   * values to draw. Its result is read once in the background and the trends are computed again.
+   */
+  private fun fetchMissingResults(nights: List<Pair<RecordingView, AnalysisDto?>>) {
+    val missing =
+        nights
+            .filter { (view, result) ->
+              result == null &&
+                  view.remoteId != null &&
+                  view.status == RecordingStatus.READY &&
+                  fetching.add(view.key)
+            }
+            .map { it.first }
+    if (missing.isEmpty()) return
+    scope.launch {
+      for (view in missing) {
+        val read = withContext(io) { library.refreshRecording(view.key, view.remoteId, view.analysisId) }
+        // A failed read is tried again the next time the trends are computed.
+        if (read.isSuccess) fetched.update { it + 1 } else fetching.remove(view.key)
       }
+    }
+  }
 
   /** The numbers a cached payload carries, by item id; the charts need nothing else from it. */
   private fun itemsOf(analysis: AnalysisDto?): Map<String, Double> =

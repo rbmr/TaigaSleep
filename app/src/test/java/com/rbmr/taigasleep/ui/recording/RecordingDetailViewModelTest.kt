@@ -98,6 +98,7 @@ private class FakeWork : RecordingWork {
   val calls = mutableListOf<String>()
   var rawSize = 2048L
   var rawStreams = listOf(StreamId.HR, StreamId.ACC)
+  var remoteStreams: List<Int> = emptyList()
   var share: Result<Unit> = Result.success(Unit)
   var restore: Result<Unit> = Result.success(Unit)
   var deleteRaw: RawActionResult = RawActionResult.Done
@@ -123,6 +124,8 @@ private class FakeWork : RecordingWork {
   }
 
   override suspend fun uploadedElsewhere(localId: String): Boolean = elsewhere
+
+  override suspend fun remoteStreams(remoteId: String): List<Int> = remoteStreams
 
   override fun uploadTarget(): UploadTarget? = target
 
@@ -802,5 +805,15 @@ class RecordingDetailViewModelTest {
 
     assertEquals(0L, model.state.value.rawSizeBytes)
     assertTrue(model.state.value.rawStreams.isEmpty())
+  }
+
+  @Test
+  fun `a night without a local copy shows the streams of the server copy`() {
+    work.remoteStreams = listOf(StreamId.HR, StreamId.ECG)
+    val model = viewModel(localId = null)
+
+    model.refresh()
+
+    assertEquals(listOf(StreamId.HR, StreamId.ECG), model.state.value.rawStreams)
   }
 }

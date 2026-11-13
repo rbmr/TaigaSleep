@@ -3,7 +3,8 @@ package com.rbmr.taigasleep.ui.components
 import android.content.res.Configuration
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,6 +42,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.insights.TrendNight
 import com.rbmr.taigasleep.insights.clockMinuteOfNightMinute
 import com.rbmr.taigasleep.ui.theme.taiga
@@ -103,10 +106,20 @@ fun trendClock(minuteOfDay: Int): String {
  * [max] are the data's own bounds; the axis is widened to the ticks that cover them and the raw
  * bounds are not added as labels of their own.
  */
-data class TrendAxis(val min: Double, val max: Double, val ticks: List<Pair<Float, String>>) {
+data class TrendAxis(
+    val min: Double,
+    val max: Double,
+    val ticks: List<Pair<Float, String>>,
+    /** The smallest value is at the top, as on a clock that runs down the page. */
+    val inverted: Boolean = false,
+) {
   /** Where [value] sits from the top of the plot, 0 at the top and 1 at the bottom. */
   fun fraction(value: Double): Float =
-      if (max <= min) 0.5f else ((max - value) / (max - min)).toFloat()
+      when {
+        max <= min -> 0.5f
+        inverted -> ((value - min) / (max - min)).toFloat()
+        else -> ((max - value) / (max - min)).toFloat()
+      }
 }
 
 /** The round steps the metric axes use, times a power of ten. */
@@ -133,6 +146,7 @@ fun trendAxis(
     format: (Double) -> String,
     steps: DoubleArray = MetricSteps,
     minStep: Double = 0.0,
+    inverted: Boolean = false,
 ): TrendAxis {
   val lowValue = if (min.isFinite()) min else 0.0
   val highValue = if (max.isFinite()) max else lowValue
@@ -151,13 +165,15 @@ fun trendAxis(
   var axisMax = ceil(high / step) * step
   // A span narrower than the round steps still gets three labels instead of two.
   while (tickCount(axisMin, axisMax, step) < 3) axisMax += step
+  val axis = TrendAxis(axisMin, axisMax, emptyList(), inverted)
   val ticks = mutableListOf<Pair<Float, String>>()
-  var value = axisMax
-  while (value >= axisMin - step * 1e-6) {
-    ticks += ((axisMax - value) / (axisMax - axisMin)).toFloat() to format(value)
-    value -= step
+  // The first tick is the one at the top of the plot.
+  var value = if (inverted) axisMin else axisMax
+  while (value >= axisMin - step * 1e-6 && value <= axisMax + step * 1e-6) {
+    ticks += axis.fraction(value) to format(value)
+    value += if (inverted) step else -step
   }
-  return TrendAxis(axisMin, axisMax, ticks)
+  return axis.copy(ticks = ticks)
 }
 
 /** The smallest step from [steps] times a power of ten that gives an axis of at most five ticks. */
@@ -235,7 +251,9 @@ private data class TrendPlot(
  *
  * The y axis is labelled with its round values and the unit on the top label; the grid is dashed at
  * the top and the middle; the x axis names the first, middle and last date. Reference lines are thin
- * and dotted, so they never read as data. Tapping a point opens its recording.
+ * and dotted, so they never read as data. Touching or dragging over the chart shows a crosshair
+ * and the date with the value or values of that day, like the charts of a recording. Nothing opens
+ * on a tap.
  */
 @Composable
 fun TrendChart(
@@ -244,11 +262,11 @@ fun TrendChart(
     kind: TrendChartKind,
     summary: List<TrendSummary>,
     description: String,
-    onOpen: (TrendNight) -> Unit,
     modifier: Modifier = Modifier,
     emptyMessage: String? = null,
     references: List<TrendReference> = emptyList(),
     axisFormat: (Double) -> String = ::trendNumber,
+    valueFormat: (Double) -> String = axisFormat,
     topLabel: ((String) -> String)? = null,
     steps: DoubleArray = MetricSteps,
     minStep: Double = 0.0,
@@ -282,7 +300,7 @@ fun TrendChart(
             references = references,
             description = description,
             topLabel = topLabel,
-            onOpen = onOpen,
+            valueFormat = valueFormat,
             large = false,
             modifier = Modifier.fillMaxWidth().padding(top = space.s).height(ChartHeight),
         )
@@ -303,7 +321,7 @@ fun TrendChart(
             references = references,
             description = description,
             topLabel = topLabel,
-            onOpen = onOpen,
+            valueFormat = valueFormat,
             large = true,
             modifier = Modifier.weight(1f).fillMaxWidth().padding(top = space.s),
         )
@@ -335,16 +353,30 @@ private fun trendChartAxis(
   if (values.isEmpty()) return null
   val covered = values + references.map { it.value }
   val low = if (kind is TrendChartKind.Bars) 0.0 else covered.min()
-  return trendAxis(low, covered.max(), format, steps, minStep)
+  // A clock axis reads like the day does: earlier at the top, later below.
+  return trendAxis(low, covered.max(), format, steps, minStep, inverted = kind is TrendChartKind.FloatingBars)
 }
 
-/** The recording a tap at [index] opens, or null when that day has no mark. */
-private fun TrendChartKind.nightAt(index: Int): TrendNight? =
+/** The lines of the tooltip for the day at [index]: its values, or none when the day has no mark. */
+private fun TrendChartKind.valueLines(
+    index: Int,
+    valueFormat: (Double) -> String,
+): List<String> =
     when (this) {
-      is TrendChartKind.Line ->
-          series.firstNotNullOfOrNull { series -> series.points.getOrNull(index)?.night }
-      is TrendChartKind.Bars -> points.getOrNull(index)?.night
-      is TrendChartKind.FloatingBars -> spans.getOrNull(index)?.night
+      is TrendChartKind.Line -> {
+        val named = series.size > 1
+        series.mapNotNull { line ->
+          line.points.getOrNull(index)?.let { point ->
+            val value = valueFormat(point.value)
+            if (named) "${line.label}: $value" else value
+          }
+        }
+      }
+      is TrendChartKind.Bars -> listOfNotNull(points.getOrNull(index)?.let { valueFormat(it.value) })
+      is TrendChartKind.FloatingBars ->
+          listOfNotNull(
+              spans.getOrNull(index)?.let { "${valueFormat(it.start)} – ${valueFormat(it.end)}" }
+          )
     }
 
 @Composable
@@ -430,8 +462,9 @@ private fun DrawScope.dotEffect(): PathEffect =
     )
 
 /**
- * The frame and the marks of a trend chart. The labels stay clear of the plot, and a tap opens the
- * recording of the column it lands on.
+ * The frame and the marks of a trend chart. The labels stay clear of the plot. Touching or
+ * dragging selects the day under the finger: a crosshair marks its column and a tooltip gives the
+ * date and its values.
  */
 @Composable
 private fun TrendPlotCanvas(
@@ -441,7 +474,7 @@ private fun TrendPlotCanvas(
     references: List<TrendReference>,
     description: String,
     topLabel: ((String) -> String)?,
-    onOpen: (TrendNight) -> Unit,
+    valueFormat: (Double) -> String,
     large: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -459,8 +492,8 @@ private fun TrendPlotCanvas(
   val markColor = MaterialTheme.colorScheme.primary
   val referenceColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
   val labels = dayLabels(days)
-  val currentKind by rememberUpdatedState(kind)
-  val currentOpen by rememberUpdatedState(onOpen)
+  var selected by remember { mutableStateOf<Int?>(null) }
+  val selectedColor = MaterialTheme.colorScheme.primary
 
   Box(modifier) {
     Canvas(
@@ -469,14 +502,21 @@ private fun TrendPlotCanvas(
                 days,
                 leftPx,
             ) {
-              detectTapGestures { position ->
-                if (days.isEmpty() || position.x < leftPx) return@detectTapGestures
-                val plotWidth = (size.width - leftPx).coerceAtLeast(1f)
-                val index =
-                    ((position.x - leftPx) / plotWidth * days.size)
-                        .toInt()
-                        .coerceIn(0, days.lastIndex)
-                currentKind.nightAt(index)?.let(currentOpen)
+              awaitEachGesture {
+                fun indexAt(x: Float): Int {
+                  val width = (size.width.toFloat() - leftPx).coerceAtLeast(1f)
+                  return (((x - leftPx) / width) * days.size).toInt().coerceIn(0, days.lastIndex)
+                }
+
+                val down = awaitFirstDown(requireUnconsumed = false)
+                if (days.isEmpty() || down.position.x < leftPx) return@awaitEachGesture
+                selected = indexAt(down.position.x)
+                var event = awaitPointerEvent()
+                while (event.changes.any { it.pressed }) {
+                  event.changes.lastOrNull()?.let { selected = indexAt(it.position.x) }
+                  event = awaitPointerEvent()
+                }
+                selected = null
               }
             }
     ) {
@@ -582,6 +622,11 @@ private fun TrendPlotCanvas(
           1.dp.toPx(),
       )
 
+      selected?.takeIf { it < days.size }?.let { index ->
+        val x = plot.column(index, days.size)
+        drawLine(selectedColor, Offset(x, plot.top), Offset(x, plot.top + plot.height), 1.5.dp.toPx())
+      }
+
       paint.textAlign = Paint.Align.RIGHT
       for ((tickIndex, tick) in axis.ticks.withIndex()) {
         val label =
@@ -594,8 +639,21 @@ private fun TrendPlotCanvas(
         )
       }
     }
+    val index = selected
+    if (index != null && index < days.size) {
+      val lines = kind.valueLines(index, valueFormat)
+      ChartTooltip(
+          time = days[index].format(tooltipDate()),
+          value = lines.joinToString("\n").ifEmpty { stringResource(R.string.trends_no_value) },
+          fraction = (index + 0.5f) / days.size,
+          labelWidth = leftLabelWidth,
+      )
+    }
   }
 }
+
+private fun tooltipDate(): DateTimeFormatter =
+    DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())
 
 /** One line with a point per recording; a day without a value leaves a gap in the line. */
 private fun DrawScope.drawTrendLine(
@@ -735,7 +793,6 @@ private fun TrendChartPreview() {
             ),
         summary = listOf(TrendSummary("Average", "74")),
         description = "Sleep score over seven recordings",
-        onOpen = {},
         axisFormat = ::trendWhole,
     )
     TrendChart(
@@ -751,7 +808,6 @@ private fun TrendChartPreview() {
             ),
         summary = listOf(TrendSummary("Average", "7h 6m")),
         description = "Total sleep over seven recordings",
-        onOpen = {},
         references = listOf(TrendReference("Intended", 7.5)),
         topLabel = { "$it h" },
         steps = HourSteps,
@@ -770,7 +826,6 @@ private fun TrendChartPreview() {
                 TrendSummary("Average wake time", "07:04"),
             ),
         description = "Sleep schedule over seven recordings",
-        onOpen = {},
         references =
             listOf(
                 TrendReference("Usual bedtime", 400.0),

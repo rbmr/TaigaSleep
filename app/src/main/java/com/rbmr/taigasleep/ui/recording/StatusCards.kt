@@ -17,8 +17,6 @@ import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.ProgressTrack
 import com.rbmr.taigasleep.ui.components.ProgressTrackState
 import com.rbmr.taigasleep.ui.components.SecondaryButton
-import com.rbmr.taigasleep.ui.components.StatusBanner
-import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.theme.taiga
 
@@ -111,8 +109,7 @@ internal fun LazyListScope.statusCards(
     }
     state.status == RecordingStatus.FAILED -> {
       item {
-        StatusBanner(
-            kind = StatusKind.Bad,
+        StatusCard(
             title =
                 stringResource(
                     if (state.failure == UploadFailure.ANALYSIS) R.string.night_analysis_failed_title
@@ -121,32 +118,30 @@ internal fun LazyListScope.statusCards(
             body =
                 state.errorDetail?.takeIf { it.isNotBlank() }
                     ?: stringResource(R.string.night_analysis_failed_body),
-            actions = {
-              when {
-                state.failure == UploadFailure.LOGIN && !state.connected ->
-                    PrimaryButton(
-                        text = stringResource(R.string.history_action_login),
-                        onClick = onLogin,
-                        modifier = Modifier.weight(1f),
-                    )
-                state.failure == UploadFailure.ANALYSIS || state.local != null ->
-                    PrimaryButton(
-                        text = stringResource(R.string.night_retry),
-                        onClick = {
-                          if (state.failure == UploadFailure.ANALYSIS) onRetryAnalysis()
-                          else onUpload()
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                else ->
-                    SecondaryButton(
-                        text = stringResource(R.string.night_check_again),
-                        onClick = onRefresh,
-                        modifier = Modifier.weight(1f),
-                    )
-              }
-            },
-        )
+            failed = true,
+        ) {
+          when {
+            state.failure == UploadFailure.LOGIN && !state.connected ->
+                PrimaryButton(
+                    text = stringResource(R.string.history_action_login),
+                    onClick = onLogin,
+                    size = ButtonSize.Regular,
+                )
+            state.failure == UploadFailure.ANALYSIS || state.local != null ->
+                PrimaryButton(
+                    text = stringResource(R.string.night_retry),
+                    onClick = {
+                      if (state.failure == UploadFailure.ANALYSIS) onRetryAnalysis() else onUpload()
+                    },
+                    size = ButtonSize.Regular,
+                )
+            else ->
+                SecondaryButton(
+                    text = stringResource(R.string.night_check_again),
+                    onClick = onRefresh,
+                )
+          }
+        }
       }
     }
     state.local != null -> {
@@ -175,12 +170,17 @@ internal fun LazyListScope.statusCards(
 private fun StatusCard(
     title: String,
     body: String,
+    failed: Boolean = false,
     content: @Composable () -> Unit,
 ) {
   val space = MaterialTheme.taiga.space
   TaigaCard {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(space.s)) {
-      Text(text = title, style = MaterialTheme.taiga.text.section)
+      Text(
+          text = title,
+          style = MaterialTheme.taiga.text.section,
+          color = if (failed) MaterialTheme.taiga.bad else MaterialTheme.colorScheme.onSurface,
+      )
       Text(
           text = body,
           style = MaterialTheme.taiga.text.body,

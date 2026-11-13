@@ -49,7 +49,6 @@ internal fun RecordingBody(
     onLogin: () -> Unit,
     onOpenAnalysis: () -> Unit,
     onOpenScore: () -> Unit,
-    onExplainScore: () -> Unit,
     onExpand: (String) -> Unit,
     onExport: () -> Unit,
     onDownloadRaw: () -> Unit,
@@ -83,12 +82,12 @@ internal fun RecordingBody(
               score =
                   (analysis?.let(::sleepScoreCardState) as? SleepScoreCardState.Scored)?.score,
               onOpenScore = { if (analysis != null) onOpenScore() },
-              onExplainScore = onExplainScore,
           )
         }
       }
-      // A recording with no analysis has its own card with the same button.
-      if (state.remoteId != null && state.status != RecordingStatus.NOT_ANALYZED) {
+      // The choice is for a recording that has an analysis or is getting one. An upload in
+      // progress, a failed upload and a recording without an analysis have a status card instead.
+      if (showsAnalysisChoice(state)) {
         item { AnalysisChoiceButton(run = run, onOpenAnalysis = onOpenAnalysis) }
       }
       when {
@@ -241,3 +240,4 @@ private fun SkeletonBlock(
           .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
   )
 }
+
