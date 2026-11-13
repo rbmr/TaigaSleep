@@ -29,7 +29,7 @@
   <string name="rec_connection_disconnected">Not connected</string>
   <string name="rec_disconnect">Disconnect</string>
   <string name="home_tracker_title">Tracker</string>
-  <string name="home_tracker_hint">Wake it and keep it near</string>
+  <string name="home_tracker_hint">Switch it on and keep it nearby</string>
   <string name="rec_data_settings">Data to record</string>
   <string name="rec_data_title">Data to record</string>
   <string name="rec_mode_title">Recording mode</string>
@@ -52,7 +52,7 @@
   <string name="rec_scan_title">Select your tracker</string>
   <string name="rec_sheet_connected">%1$s is connected</string>
   <string name="rec_scan_searching">Searching for trackers…</string>
-  <string name="rec_scan_none">No tracker found yet. Wake it and keep it near, then scan again.</string>
+  <string name="rec_scan_none">No tracker found yet. Switch it on, keep it nearby and scan again.</string>
   <string name="rec_scan_again">Scan again</string>
   <string name="rec_permission_denied">Bluetooth permission is needed to find and connect your tracker.</string>
 
