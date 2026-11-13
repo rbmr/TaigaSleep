@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
@@ -180,9 +181,12 @@ fun TertiaryButton(
 }
 
 /**
- * A compact switch between a few views, such as Recordings | Trends. The chosen segment is filled;
- * every segment is a [Pressable], so its touch target is 48 dp while the visible control stays
- * smaller. With [fillWidth] the segments share the whole width, as in a settings row.
+ * A compact switch between a few views, such as Recordings | Trends. The chosen segment is filled
+ * and exactly covers its part of the track: it has the track's height and the track's shape, so
+ * no track shows around it and it sits flush with the outer edge at either end. Every segment is
+ * a [Pressable], so its touch target is 48 dp while the visible control is [SEGMENT_HEIGHT]. With
+ * [fillWidth] the segments share the whole width, as in a settings row. A [floating] control casts a
+ * shadow, for one that sits over scrolling content.
  */
 @Composable
 fun SegmentedControl(
@@ -191,32 +195,39 @@ fun SegmentedControl(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
     fillWidth: Boolean = false,
+    floating: Boolean = false,
 ) {
+  // The 48 dp box is the touch target; the track inside it is SEGMENT_HEIGHT tall and has no
+  // padding of its own, so the selected segment (same height, same shape) covers it exactly.
+  val shape = CircleShape
   Box(modifier.height(48.dp), contentAlignment = Alignment.Center) {
     Box(
-        modifier =
-            Modifier.matchParentSize()
-                .padding(vertical = MaterialTheme.taiga.space.xs)
-                .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+        Modifier.matchParentSize()
+            .padding(vertical = (48.dp - SEGMENT_HEIGHT) / 2)
+            .then(if (floating) Modifier.shadow(6.dp, shape) else Modifier)
+            .background(MaterialTheme.colorScheme.surfaceVariant, shape)
     )
-    Row(Modifier.fillMaxHeight().then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)) {
+    Row(
+        Modifier.fillMaxHeight().then(if (fillWidth) Modifier.fillMaxWidth() else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
       options.forEachIndexed { index, option ->
         val selected = index == selectedIndex
         Pressable(
             onClick = { onSelect(index) },
-            modifier =
-                Modifier.fillMaxHeight().then(if (fillWidth) Modifier.weight(1f) else Modifier),
-            shape = CircleShape,
+            modifier = if (fillWidth) Modifier.weight(1f) else Modifier,
+            shape = shape,
             role = Role.Tab,
             onClickLabel = option,
         ) {
           Box(
               modifier =
-                  Modifier.height(34.dp)
+                  Modifier.then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
+                      .height(SEGMENT_HEIGHT)
                       .background(
                           color =
                               if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-                          shape = CircleShape,
+                          shape = shape,
                       )
                       .padding(horizontal = MaterialTheme.taiga.space.m),
               contentAlignment = Alignment.Center,
@@ -235,6 +246,9 @@ fun SegmentedControl(
     }
   }
 }
+
+/** The visible height of a [SegmentedControl]: track and selected segment alike. */
+private val SEGMENT_HEIGHT = 40.dp
 
 /**
  * A full-width outlined control that names what is chosen on the left, with [emphasis] drawn in the
