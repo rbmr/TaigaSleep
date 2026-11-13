@@ -24,7 +24,9 @@ enum class UploadPhase {
   QUEUED,
   /** Bytes are moving; [UploadRecord.progress] is between 0 and 1. */
   UPLOADING,
-  /** The upload is complete and the analysis has been requested. */
+  /** The upload is complete and no analysis has been requested for it. */
+  UPLOADED,
+  /** The upload is complete and an analysis has been requested. */
   PROCESSING,
   /** A result is available. */
   DONE,
@@ -85,6 +87,7 @@ internal fun UploadRecord.uploadConfirmedAt(): Long? {
   if (confirmedOnServer) return finishedAt()
   // Records written before the confirmation was recorded on its own.
   return when (phase) {
+    UploadPhase.UPLOADED,
     UploadPhase.PROCESSING,
     UploadPhase.DONE -> finishedAt()
     // A failed analysis leaves the upload itself complete; the run says the rest.
@@ -197,6 +200,24 @@ class UploadStore internal constructor(
           uploadedAtMs = it.uploadedAtMs ?: confirmedAt,
           confirmedOnServer = true,
           updatedAtMs = confirmedAt,
+      )
+    }
+  }
+
+  /** The server has every byte and no analysis was requested, so none is expected. */
+  suspend fun markUploaded(id: String, account: String? = null) {
+    val confirmedAt = now()
+    update(id, account) {
+      it.copy(
+          phase = UploadPhase.UPLOADED,
+          onServer = true,
+          progress = 1f,
+          failure = null,
+          errorDetail = null,
+          warning = null,
+          updatedAtMs = confirmedAt,
+          uploadedAtMs = it.uploadedAtMs ?: confirmedAt,
+          confirmedOnServer = true,
       )
     }
   }

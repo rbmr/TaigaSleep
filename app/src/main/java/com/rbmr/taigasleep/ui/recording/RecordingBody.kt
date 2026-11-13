@@ -28,6 +28,7 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.insights.SleepScoreCardState
 import com.rbmr.taigasleep.insights.sleepScoreCardState
+import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.ui.components.SecondaryButton
 import com.rbmr.taigasleep.ui.components.StatusBanner
 import com.rbmr.taigasleep.ui.components.StatusKind
@@ -86,7 +87,8 @@ internal fun RecordingBody(
           )
         }
       }
-      if (state.remoteId != null) {
+      // A recording with no analysis has its own card with the same button.
+      if (state.remoteId != null && state.status != RecordingStatus.NOT_ANALYZED) {
         item { AnalysisChoiceButton(run = run, onOpenAnalysis = onOpenAnalysis) }
       }
       when {
@@ -99,6 +101,7 @@ internal fun RecordingBody(
                 onRefresh = onRefresh,
                 onRetryAnalysis = onRetryAnalysis,
                 onLogin = onLogin,
+                onOpenAnalysis = onOpenAnalysis,
             )
       }
     }

@@ -220,12 +220,43 @@ class RecordingMergeTest {
   }
 
   @Test
-  fun anUploadedNightWithoutAResultIsProcessing() {
+  fun anUploadedNightWithNoAnalysisAtAllIsNotAnalyzed() {
     val remote = summaries(RecordingSummaryDto(recording = recording(), analyses = emptyList()))
 
     val night = buildRecordings(listOf(local), libraryEntries(remote, localIds = phoneIds)).single()
 
+    assertEquals(RecordingStatus.NOT_ANALYZED, night.status)
+  }
+
+  @Test
+  fun anUploadedNightWithAnAnalysisRequestedButNotListedYetIsProcessing() {
+    val record = UploadRecord(id = "local", onServer = true, phase = UploadPhase.PROCESSING)
+    val remote = summaries(RecordingSummaryDto(recording = recording(), analyses = emptyList()))
+
+    val night =
+        buildRecordings(
+                listOf(local),
+                libraryEntries(remote, records = mapOf("local" to record), localIds = phoneIds),
+            )
+            .single()
+
     assertEquals(RecordingStatus.PROCESSING, night.status)
+  }
+
+  @Test
+  fun anUploadedNightStoredAsUploadedWithNoAnalysisIsNotAnalyzed() {
+    val record = UploadRecord(id = "local", onServer = true, phase = UploadPhase.UPLOADED)
+    val remote = summaries(RecordingSummaryDto(recording = recording(), analyses = emptyList()))
+
+    val night =
+        buildRecordings(
+                listOf(local),
+                libraryEntries(remote, records = mapOf("local" to record), localIds = phoneIds),
+            )
+            .single()
+
+    assertEquals(RecordingStatus.NOT_ANALYZED, night.status)
+    assertEquals(BackupPhase.BACKED_UP, night.backup.phase)
   }
 
   @Test

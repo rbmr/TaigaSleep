@@ -23,8 +23,8 @@ import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
- * The one card a recording that is not ready gets: processing, uploading, failed or only on the
- * phone. Each state names the one action that makes sense for it.
+ * The one card a recording that is not ready gets: processing, not analyzed, uploading, failed or
+ * only on the phone. Each state names the one action that makes sense for it.
  */
 internal fun LazyListScope.statusCards(
     state: RecordingDetailUiState,
@@ -32,6 +32,7 @@ internal fun LazyListScope.statusCards(
     onRefresh: () -> Unit,
     onRetryAnalysis: () -> Unit,
     onLogin: () -> Unit,
+    onOpenAnalysis: () -> Unit,
 ) {
   when {
     state.status == RecordingStatus.PROCESSING -> {
@@ -45,6 +46,20 @@ internal fun LazyListScope.statusCards(
               description = stringResource(R.string.night_processing_title),
           )
           SecondaryButton(text = stringResource(R.string.night_check_again), onClick = onRefresh)
+        }
+      }
+    }
+    state.status == RecordingStatus.NOT_ANALYZED -> {
+      item {
+        StatusCard(
+            title = stringResource(R.string.night_not_analyzed_title),
+            body = stringResource(R.string.night_not_analyzed_body),
+        ) {
+          PrimaryButton(
+              text = stringResource(R.string.night_choose_analysis),
+              onClick = onOpenAnalysis,
+              size = ButtonSize.Regular,
+          )
         }
       }
     }

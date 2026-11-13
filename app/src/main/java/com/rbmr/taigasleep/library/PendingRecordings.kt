@@ -16,9 +16,9 @@ internal data class PendingRecording(
  * stored per recording key. A recording on the server is pending when
  *
  * - one of its runs is queued or running;
- * - its stored sync state still says processing while the server lists a run: it may have
- *   finished or failed while the app was closed. A recording uploaded with automatic analysis off has
- *   no run and is left alone;
+ * - its stored sync state still says processing: a run it lists may have finished or failed
+ *   while the app was closed, and a recording with no run is not waiting for one, which the read
+ *   settles. A recording uploaded with automatic analysis off is never stored as processing;
  * - the run it shows succeeded and its result is not on this phone yet.
  *
  * A recording the server has not sealed is still uploading and is not read.
@@ -36,12 +36,8 @@ internal fun pendingRecordings(
             it.status == AnalysisStatus.QUEUED || it.status == AnalysisStatus.RUNNING
           }
       // A run the server lists may have changed while the app was closed. A recording the list does not
-      // reach is read by its own id, because the app no longer remembers the run it asked for. A
-      // recording in the list with no run has no analysis to settle, which is what automatic analysis
-      // off leaves behind, and is not read again.
-      val unsettled =
-          record?.phase == UploadPhase.PROCESSING &&
-              (recording.analyses.isNotEmpty() || recording.remote == null)
+      // reach is read by its own id, because the app no longer remembers the run it asked for.
+      val unsettled = record?.phase == UploadPhase.PROCESSING
       val unfetched = recording.isDone && !recording.resultDownloaded
       if (working || unsettled || unfetched) {
         PendingRecording(recording.key, recordingId, recording.analysisId)

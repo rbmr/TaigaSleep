@@ -137,18 +137,17 @@ class PendingRecordingsTest {
   }
 
   @Test
-  fun `a night stored as processing with nothing to settle is left alone`() {
-    // The analysis was never requested, or the server no longer lists one: a read would only
-    // repeat what the list already says.
+  fun `a night stored as processing that the server lists no run for is read to settle it`() {
+    // The analysis was never requested, or the server no longer lists one: the read ends the wait.
     val result =
         pending(listOf(summary(emptyList())), record(phase = UploadPhase.PROCESSING))
 
-    assertTrue(result.isEmpty())
+    assertEquals(listOf("remote-r1"), result.map { it.key })
   }
 
   @Test
   fun `a night uploaded with automatic analysis off is not read again and again`() {
-    val result = pending(listOf(summary(emptyList())), record(phase = UploadPhase.PROCESSING))
+    val result = pending(listOf(summary(emptyList())), record(phase = UploadPhase.UPLOADED))
 
     assertTrue(result.isEmpty())
   }

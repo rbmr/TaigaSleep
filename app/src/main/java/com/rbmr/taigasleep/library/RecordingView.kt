@@ -29,8 +29,10 @@ enum class RecordingStatus {
   QUEUED,
   /** Bytes are moving; see [RecordingView.progress]. */
   UPLOADING,
-  /** The recording is on the server and an analysis is queued, running or not requested yet. */
+  /** The recording is on the server and an analysis is queued, running or being requested. */
   PROCESSING,
+  /** The recording is on the server and no analysis exists for it. */
+  NOT_ANALYZED,
   /** At least one analysis finished and can be shown. */
   READY,
   /** The upload or the last analysis failed. */
@@ -259,11 +261,13 @@ private fun buildRecording(
       backup.detail
           ?: failedRun?.error?.takeIf { it.isNotBlank() }
           ?: analysisFailure?.errorDetail
+  // The app asked for an analysis that the server's list does not show yet.
+  val analysisRequested = record?.phase == UploadPhase.PROCESSING
   val status =
       if (backup.phase == BackupPhase.BACKED_UP && analysisFailure != null) {
         RecordingStatus.FAILED
       } else {
-        deriveStatus(local, backup, runs, remoteSession)
+        deriveStatus(local, backup, runs, remoteSession, analysisRequested)
       }
   return RecordingView(
       key = key,
@@ -294,6 +298,7 @@ private fun deriveStatus(
     backup: BackupState,
     runs: List<Analysis>,
     remote: RecordingDto?,
+    analysisRequested: Boolean,
 ): RecordingStatus {
   if (local?.state == RecordingPhase.RECORDING) return RecordingStatus.RECORDING
   return when (backup.phase) {
@@ -303,22 +308,23 @@ private fun deriveStatus(
     BackupPhase.NOT_BACKED_UP ->
         when {
           remote == null -> RecordingStatus.LOCAL_ONLY
-          remote.complete -> deriveFromRuns(runs)
+          remote.complete -> deriveFromRuns(runs, analysisRequested)
           // The recording exists on the server but is not sealed yet: its files are still moving.
           else -> RecordingStatus.UPLOADING
         }
-    BackupPhase.BACKED_UP -> deriveFromRuns(runs)
+    BackupPhase.BACKED_UP -> deriveFromRuns(runs, analysisRequested)
   }
 }
 
-private fun deriveFromRuns(runs: List<Analysis>): RecordingStatus =
+internal fun deriveFromRuns(runs: List<Analysis>, analysisRequested: Boolean): RecordingStatus =
     when {
       runs.any { it.status == AnalysisStatus.DONE } -> RecordingStatus.READY
       runs.any { it.status == AnalysisStatus.QUEUED || it.status == AnalysisStatus.RUNNING } ->
           RecordingStatus.PROCESSING
       runs.any { it.status == AnalysisStatus.FAILED } -> RecordingStatus.FAILED
-      // The upload is done; the analysis has either not been requested yet or is about to be.
-      else -> RecordingStatus.PROCESSING
+      // No run exists: it is on its way only when the app has just asked for one.
+      analysisRequested -> RecordingStatus.PROCESSING
+      else -> RecordingStatus.NOT_ANALYZED
     }
 
 private fun backupFromRemote(remote: RecordingDto?): BackupState =
@@ -416,7 +422,10 @@ fun formatDuration(ms: Long): String {
  * phase for display; the recording view then treats the phone and the server as two copies.
  */
 internal fun UploadRecord.hasServerCopy(): Boolean =
-    onServer || phase == UploadPhase.PROCESSING || phase == UploadPhase.DONE
+    onServer ||
+        phase == UploadPhase.UPLOADED ||
+        phase == UploadPhase.PROCESSING ||
+        phase == UploadPhase.DONE
 
 internal fun UploadRecord.backupState(): BackupState =
     when (phase) {
@@ -430,6 +439,7 @@ internal fun UploadRecord.backupState(): BackupState =
               failure = failure,
               detail = errorDetail,
           )
+      UploadPhase.UPLOADED,
       UploadPhase.PROCESSING,
       UploadPhase.DONE ->
           BackupState(

@@ -24,6 +24,7 @@
   <string name="history_queued">Waiting to upload</string>
   <string name="history_uploading">Uploading %1$d%%</string>
   <string name="history_processing">Analyzing</string>
+  <string name="history_not_analyzed">Not analyzed</string>
   <string name="history_status_upload_failed">Upload failed</string>
   <string name="history_status_analysis_failed">Analysis failed</string>
   <string name="history_status_login">Login needed</string>
@@ -93,6 +94,9 @@
   <string name="night_retry_upload">Retry upload</string>
   <string name="night_processing_title">Analysis is on the way</string>
   <string name="night_processing_body">The recording is uploaded. The server is analyzing it, and the result will appear here.</string>
+  <string name="night_not_analyzed_title">Not analyzed yet</string>
+  <string name="night_not_analyzed_body">Choose a method to analyze this recording.</string>
+  <string name="night_choose_analysis">Choose an analysis</string>
   <string name="night_check_again">Check again</string>
   <string name="night_analysis_failed_title">Analysis failed</string>
   <string name="night_upload_failed_title">Upload failed</string>

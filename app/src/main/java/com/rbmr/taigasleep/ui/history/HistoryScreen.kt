@@ -296,6 +296,8 @@ private fun rowPill(item: RecordingView): RowPill? =
           )
       RecordingStatus.PROCESSING ->
           RowPill(stringResource(R.string.history_processing), StatusPillState.Busy)
+      RecordingStatus.NOT_ANALYZED ->
+          RowPill(stringResource(R.string.history_not_analyzed), StatusPillState.Neutral)
       RecordingStatus.FAILED ->
           when (item.failure) {
             UploadFailure.ANALYSIS ->

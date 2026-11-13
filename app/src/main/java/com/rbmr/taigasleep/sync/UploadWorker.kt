@@ -219,7 +219,8 @@ class UploadWorker(
             RawRetention.enforce(context)
             return Result.failure()
           }
-      store.markProcessing(localId, account)
+      // Only a requested analysis is awaited; with automatic analysis off nothing was requested.
+      if (started != null) store.markProcessing(localId, account) else store.markUploaded(localId, account)
       // The server has the bytes now, so an immediate or overdue cleanup may run.
       RawRetention.enforce(context)
       // The recording stays in the processing state and nothing waits for it: while the app is open the

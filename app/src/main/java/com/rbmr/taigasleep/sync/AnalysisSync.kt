@@ -24,7 +24,7 @@ class RecordingSnapshot(
  *
  * The analysis a recording shows is [chooseAnalysis]. A succeeded one has its full result saved in the
  * [ResultCache] and the recording becomes done; a failed one marks the recording failed; one that is queued
- * or running leaves it processing. A recording whose analysis is gone (deleted, or replaced by a retry
+ * or running leaves it processing; none at all leaves it uploaded and not analyzed. A recording whose analysis is gone (deleted, or replaced by a retry
  * under a new id) follows what the recording lists now.
  */
 class AnalysisSync(
@@ -76,8 +76,11 @@ class AnalysisSync(
 
     when {
       shown == null -> {
-        // A sealed recording without an analysis is waiting for one to be requested.
-        if (recording.complete) store.markProcessing(key, account = account)
+        // A sealed recording that was waiting for an analysis the server does not have is not
+        // waiting for one any more: none is queued, so nothing is on the way.
+        if (recording.complete && store.record(key, account)?.phase == UploadPhase.PROCESSING) {
+          store.markUploaded(key, account = account)
+        }
       }
       shown.isSucceeded -> {
         // A result never changes once it succeeded, so one already on this phone is not saved again.
