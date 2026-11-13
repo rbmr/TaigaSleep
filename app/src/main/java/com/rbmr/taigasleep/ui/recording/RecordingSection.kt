@@ -15,7 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.library.formatLength
+import com.rbmr.taigasleep.insights.formatDuration
 import com.rbmr.taigasleep.library.formatRecordingDateAndTime
 import com.rbmr.taigasleep.recording.store.StreamId
 import com.rbmr.taigasleep.ui.components.ButtonSize
@@ -72,7 +72,7 @@ internal fun RecordingSection(
         SettingsDivider()
         ListRow(
             title = stringResource(R.string.night_details_duration),
-            value = formatLength(state.durationMs),
+            value = formatDuration(state.durationMs),
             trailing = ListRowTrailing.None,
         )
         SettingsDivider()

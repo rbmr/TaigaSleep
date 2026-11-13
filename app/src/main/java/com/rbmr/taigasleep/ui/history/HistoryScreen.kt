@@ -35,7 +35,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.library.RecordingView
-import com.rbmr.taigasleep.library.formatDuration
+import com.rbmr.taigasleep.insights.formatDuration
 import com.rbmr.taigasleep.library.formatRecordingDate
 import com.rbmr.taigasleep.library.formatRecordingTime
 import com.rbmr.taigasleep.sync.UploadFailure

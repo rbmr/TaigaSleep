@@ -5,6 +5,7 @@ import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.insights.StagerPreference
+import com.rbmr.taigasleep.insights.nightDate
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.sync.LibraryEntry
@@ -13,6 +14,8 @@ import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.recordingIdOf
 import java.text.SimpleDateFormat
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
 
@@ -392,9 +395,16 @@ private fun String.toAnalysisStatus(): AnalysisStatus =
 /** A server time in epoch milliseconds (see [parseServerTime]); unparseable is 0. */
 fun parseApiDate(value: String): Long = parseServerTime(value)?.toEpochMilli() ?: 0
 
-fun formatRecordingDate(ms: Long): String =
+/**
+ * The date a recording is filed under, e.g. `Sat 7 Nov`: the night it belongs to (see
+ * [nightDate]), so a recording started just after midnight is dated by the evening before, the
+ * same as in Trends.
+ */
+fun formatRecordingDate(ms: Long, zone: ZoneId = ZoneId.systemDefault()): String =
     if (ms <= 0) "-"
-    else SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(ms))
+    else
+        nightDate(ms, zone)
+            .format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))
 
 fun formatRecordingDateAndTime(ms: Long): String =
     if (ms <= 0) "-"
@@ -403,19 +413,6 @@ fun formatRecordingDateAndTime(ms: Long): String =
 /** The clock time of a recording, e.g. `23:12`. */
 fun formatRecordingTime(ms: Long): String =
     if (ms <= 0) "-" else SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
-
-fun formatDuration(ms: Long): String {
-  if (ms <= 0) return "-"
-  val totalSeconds = ms / 1000
-  if (totalSeconds < 60) return "${totalSeconds}s"
-  val totalMinutes = totalSeconds / 60
-  val hours = totalMinutes / 60
-  val minutes = totalMinutes % 60
-  return when {
-    hours > 0 && minutes > 0 -> "${hours}h ${minutes}m"
-    else -> if (hours > 0) "${hours}h" else "${minutes}m"
-  }
-}
 
 /**
  * Where the bytes are according to the sync store. This is the only place that reads the upload

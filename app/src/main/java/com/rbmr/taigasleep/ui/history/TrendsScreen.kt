@@ -17,11 +17,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.insights.formatDuration
 import com.rbmr.taigasleep.insights.TrendNight
 import com.rbmr.taigasleep.insights.TrendRanges
 import com.rbmr.taigasleep.insights.Trends
 import com.rbmr.taigasleep.insights.clockMinuteOfNightMinute
-import com.rbmr.taigasleep.insights.formatSeconds
 import com.rbmr.taigasleep.insights.nightMinuteOfDay
 import com.rbmr.taigasleep.ui.components.ChoiceChip
 import com.rbmr.taigasleep.ui.components.ClockSteps
@@ -40,6 +40,7 @@ import com.rbmr.taigasleep.ui.components.trendClock
 import com.rbmr.taigasleep.ui.components.trendWhole
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 /**
  * The Trends side of History: the range chips and two groups of charts. It draws only what its
@@ -146,8 +147,8 @@ private fun TotalSleepChart(data: Trends) {
               points = points,
               average = totalSleepHours(average.value),
           ),
-      summary = listOf(TrendSummary(averageLabel(), formatSeconds(value))),
-      description = stringResource(R.string.trends_description_time, title, formatSeconds(value), average.nights),
+      summary = listOf(TrendSummary(averageLabel(), formatDuration((value * 1000).roundToLong()))),
+      description = stringResource(R.string.trends_description_time, title, formatDuration((value * 1000).roundToLong()), average.nights),
       emptyMessage = moreRecordings(average.enough),
       references =
           listOfNotNull(
@@ -158,7 +159,7 @@ private fun TotalSleepChart(data: Trends) {
                 )
               }
           ),
-      valueFormat = { formatSeconds(it * 3600.0) },
+      valueFormat = { formatDuration((it * 3_600_000).roundToLong()) },
       topLabel = { "$it h" },
       steps = HourSteps,
       minStep = 1.0,

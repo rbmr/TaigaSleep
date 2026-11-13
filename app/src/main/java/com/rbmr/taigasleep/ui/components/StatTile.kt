@@ -136,9 +136,9 @@ private fun StatTilePreview() {
       )
       StatTile(label = "Data quality", value = "86 / 100", modifier = Modifier.weight(1f))
     }
-    StatTile(label = "Time asleep", value = "7 h 52 min", caption = "of 8 h 12 min")
+    StatTile(label = "Time asleep", value = "7h 52m", caption = "of 8h 12m")
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-      LabeledValue("Total asleep", "7 h 52 min")
+      LabeledValue("Total asleep", "7h 52m")
       LabeledValue("Data quality", "86 / 100")
     }
   }

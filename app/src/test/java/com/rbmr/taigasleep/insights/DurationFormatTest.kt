@@ -1,4 +1,4 @@
-package com.rbmr.taigasleep.library
+package com.rbmr.taigasleep.insights
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -12,9 +12,9 @@ class DurationFormatTest {
   }
 
   @Test
-  fun noDurationAtAllIsShownAsADash() {
-    assertEquals("-", formatDuration(0))
-    assertEquals("-", formatDuration(-1))
+  fun noDurationAtAllIsZeroSeconds() {
+    assertEquals("0s", formatDuration(0))
+    assertEquals("0s", formatDuration(-1))
   }
 
   @Test
@@ -23,5 +23,8 @@ class DurationFormatTest {
     assertEquals("1m", formatDuration(61_000))
     assertEquals("1h", formatDuration(3_600_000))
     assertEquals("1h 5m", formatDuration(3_900_000))
+    assertEquals("7h 26m", formatDuration(26_760_000))
+    assertEquals("8h 30m", formatDuration(30_600_000))
+    assertEquals("45m", formatDuration(2_700_000))
   }
 }

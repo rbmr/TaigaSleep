@@ -78,7 +78,7 @@ import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.insights.applicableStages
 import com.rbmr.taigasleep.insights.stageLabelRes
 import com.rbmr.taigasleep.insights.stageSeconds
-import com.rbmr.taigasleep.library.formatLength
+import com.rbmr.taigasleep.insights.formatDuration
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.serialization.json.JsonObject
 import java.text.SimpleDateFormat
@@ -776,7 +776,7 @@ fun StageBreakdown(
             style = MaterialTheme.taiga.text.body,
             modifier = Modifier.weight(1f),
         )
-        Text(text = formatLength(seconds * 1000L), style = MaterialTheme.taiga.text.body)
+        Text(text = formatDuration(seconds * 1000L), style = MaterialTheme.taiga.text.body)
         Spacer(Modifier.width(space.m))
         Text(
             text = "${share}%",

@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.library
 import java.time.Instant
 import java.util.Locale
 import java.util.TimeZone
+import com.rbmr.taigasleep.insights.formatDuration
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -28,7 +29,7 @@ class NightHeaderFormatTest {
             zone = zone,
         )
 
-    assertEquals("Polar H10 · 23:12–07:05 · 7 h 53 min", line)
+    assertEquals("Polar H10 · 23:12–07:05 · 7h 53m", line)
   }
 
   @Test
@@ -51,9 +52,9 @@ class NightHeaderFormatTest {
 
   @Test
   fun aLengthDropsTheEmptyPartAndKeepsTheSecondsOfAShortStage() {
-    assertEquals("7 h 52 min", formatLength(7 * 3_600_000L + 52 * 60_000L))
-    assertEquals("2 h", formatLength(2 * 3_600_000L))
-    assertEquals("45 min", formatLength(45 * 60_000L))
-    assertEquals("30 s", formatLength(30_000L))
+    assertEquals("7h 52m", formatDuration(7 * 3_600_000L + 52 * 60_000L))
+    assertEquals("2h", formatDuration(2 * 3_600_000L))
+    assertEquals("45m", formatDuration(45 * 60_000L))
+    assertEquals("30s", formatDuration(30_000L))
   }
 }
