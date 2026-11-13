@@ -89,7 +89,7 @@
   <string name="about_group_project">Project</string>
   <string name="about_title">About</string>
   <string name="about_version">Version %1$s</string>
-  <string name="about_description">An open-source sleep tracker that works with Polar heart-rate trackers. Taiga records overnight data locally on your phone and can upload it to your own server for sleep staging and history.</string>
+  <string name="about_description">An open-source sleep tracker that works with Bluetooth heart-rate trackers. Taiga records overnight data locally on your phone and can upload it to your own server for sleep staging and history.</string>
   <string name="about_source_title">Source code</string>
   <string name="about_source_subtitle">github.com/rbmr/TaigaSleep</string>
   <string name="about_license_title">License</string>

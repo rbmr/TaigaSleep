@@ -7,6 +7,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.unit.sp
 import com.rbmr.taigasleep.R
 
@@ -43,6 +44,8 @@ internal fun taigaStyle(
         lineHeight = lineHeight.sp,
         letterSpacing = letterSpacing.sp,
         fontFeatureSettings = TABULAR,
+        // Paragraph breaking balances the lines, so copy never ends on a lone short word.
+        lineBreak = LineBreak.Paragraph.copy(strategy = LineBreak.Strategy.Balanced),
     )
 
 val TaigaTypography =
