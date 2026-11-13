@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.ui
 
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -170,7 +171,8 @@ fun TaigaApp(
         ) { padding ->
           HorizontalPager(
               state = pagerState,
-              modifier = Modifier.padding(padding).fillMaxSize(),
+              // The bottom bar already sits above the navigation bar, so a tab never adds that inset again.
+              modifier = Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize(),
           ) { page ->
             when (page) {
               0 ->

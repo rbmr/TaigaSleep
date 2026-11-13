@@ -124,7 +124,11 @@ private fun RecordingsList(
     modifier: Modifier = Modifier,
 ) {
   val space = MaterialTheme.taiga.space
-  LazyColumn(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(space.m)) {
+  LazyColumn(
+      modifier.fillMaxWidth(),
+      contentPadding = PaddingValues(bottom = space.l),
+      verticalArrangement = Arrangement.spacedBy(space.m),
+  ) {
     val warning = state.serverWarning
     if (warning != null) {
       item {

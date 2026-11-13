@@ -92,7 +92,9 @@ fun TaigaScreen(
                   .then(scrolling)
                   .navigationBarsPadding()
                   .padding(horizontal = space.m)
-                  .padding(bottom = space.l),
+                  // A screen that scrolls its own list gives that list the bottom space instead,
+                  // so the list runs to the edge rather than stopping above an empty band.
+                  .padding(bottom = if (scrollable) space.l else 0.dp),
           verticalArrangement = Arrangement.spacedBy(space.m),
       ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

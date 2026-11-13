@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.ui.history
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -73,7 +74,11 @@ fun TrendsContent(
   val open: (TrendNight) -> Unit = { night ->
     onOpenRecording(night.localId, night.remoteId, night.analysisId)
   }
-  LazyColumn(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(space.m)) {
+  LazyColumn(
+      modifier.fillMaxWidth(),
+      contentPadding = PaddingValues(bottom = space.l),
+      verticalArrangement = Arrangement.spacedBy(space.m),
+  ) {
     item { RangeChips(rangeDays = state.rangeDays, onRangeChange = onRangeChange) }
     item {
       Section(title = stringResource(R.string.trends_group_sleep)) {
