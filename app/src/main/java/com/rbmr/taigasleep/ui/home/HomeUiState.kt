@@ -42,7 +42,11 @@ data class StartConfig(
     val offeredModes: Set<RecordingMode> = modes,
     /** The wake-up window set for this tracker, or null when it is off (the default). */
     val wake: WakeChoice? = null,
-)
+) {
+  /** The tracker stores the recording itself instead of streaming it to the phone. */
+  val onTracker: Boolean
+    get() = mode == RecordingMode.ON_DEVICE
+}
 
 /** The connected tracker as the screen shows it: who it is, whether it is here, and its battery. */
 data class TrackerView(

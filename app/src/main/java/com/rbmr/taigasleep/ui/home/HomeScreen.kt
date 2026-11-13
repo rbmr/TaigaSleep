@@ -160,7 +160,7 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
     )
   }
   (state as? HomeUiState.Configure)?.let { configured ->
-    DataSheet(
+    ConfigureSheet(
         config = configured.config,
         onEcg = viewModel::setEcg,
         onAcc = viewModel::setAcc,

@@ -152,10 +152,10 @@ private fun ChecklistCard(
             ),
         onClick = onSelectTracker,
     )
-    if (config != null && (config.canRecordEcg || config.canRecordAcc)) {
+    if (config != null) {
       SettingsDivider()
       ListRow(
-          title = stringResource(R.string.rec_data_settings),
+          title = stringResource(R.string.rec_configure_title),
           icon = Icons.AutoMirrored.Outlined.List,
           subtitle = streamsText(config),
           onClick = onDataSettings,
@@ -173,11 +173,18 @@ private fun ChecklistCard(
   }
 }
 
-/** The chosen streams as one line, e.g. `Heart rate · ECG · Movement`. */
+/** The chosen streams and mode as one line, e.g. `Heart rate · ECG · Streaming`. */
 @Composable
 private fun streamsText(config: StartConfig): String {
   val parts = mutableListOf(stringResource(R.string.rec_active_hr))
   if (config.streams.ecg) parts += stringResource(R.string.rec_active_ecg)
   if (config.streams.acc) parts += stringResource(R.string.rec_active_acc)
+  if (config.offeredModes.size > 1) {
+    parts +=
+        stringResource(
+            if (config.onTracker) R.string.rec_mode_summary_on_device
+            else R.string.rec_mode_summary_stream
+        )
+  }
   return parts.joinToString(" · ")
 }

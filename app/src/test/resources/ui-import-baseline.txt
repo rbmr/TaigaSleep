@@ -26,7 +26,7 @@ components/TrendsCharts.kt 0
 history/HistoryScreen.kt 1
 history/TrendsScreen.kt 0
 home/ActiveHome.kt 3
-home/DataSheet.kt 1
+home/ConfigureSheet.kt 1
 home/FinishingHome.kt 1
 home/HomeFactory.kt 12
 home/HomeScreen.kt 3
