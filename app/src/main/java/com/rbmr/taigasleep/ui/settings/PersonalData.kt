@@ -113,17 +113,6 @@ fun PersonalDataScreen(onBack: () -> Unit) {
           onClick = { showWakeTime = true },
       )
     }
-    TaigaCard {
-      Text(
-          text = stringResource(R.string.personal_privacy_title),
-          style = MaterialTheme.taiga.text.row,
-      )
-      Spacer(Modifier.height(MaterialTheme.taiga.space.s))
-      Text(
-          text = stringResource(R.string.personal_privacy_body),
-          style = MaterialTheme.taiga.text.body,
-      )
-    }
   }
 
   if (showDate) {

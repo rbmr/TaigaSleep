@@ -108,16 +108,14 @@ fun SettingsScreen(
         }
       }
     }
-    TaigaCard(contentPadding = PaddingValues(0.dp)) {
-      ListRow(
-          title = stringResource(R.string.settings_personal_title),
-          value = personalSetValue(personalData),
-          onClick = onPersonalClick,
-      )
-    }
-    Spacer(Modifier.height(MaterialTheme.taiga.space.s))
     Section(title = stringResource(R.string.settings_group_app)) {
       TaigaCard(contentPadding = PaddingValues(0.dp)) {
+        ListRow(
+            title = stringResource(R.string.settings_personal_title),
+            value = personalSetValue(personalData),
+            onClick = onPersonalClick,
+        )
+        SettingsDivider()
         ListRow(
             title = stringResource(R.string.settings_appearance_title),
             trailing = ListRowTrailing.None,

@@ -83,8 +83,6 @@
   <string name="personal_save">Save</string>
   <string name="personal_remove">Remove</string>
   <string name="personal_cancel">Cancel</string>
-  <string name="personal_privacy_title">Privacy</string>
-  <string name="personal_privacy_body">These details stay on this phone. A SleepECG analysis request sends only your age on the date of the recording, your sex and your weight; the date of birth itself is never sent or logged. They are stored with that analysis on your server. Only SleepECG uses them: wav2sleep and baseline ignore them. Leaving a field empty is fine, and SleepECG then masks the feature it cannot use and says so in the result.</string>
 
   <string name="about_group_project">Project</string>
   <string name="about_title">About</string>
