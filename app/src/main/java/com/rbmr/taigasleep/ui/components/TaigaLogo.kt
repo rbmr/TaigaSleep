@@ -167,6 +167,8 @@ private const val CLOSED_EYES =
 
 internal val archPath = PathParser().parsePathString(ARCH).toPath()
 
+internal val bearOutlinePath = PathParser().parsePathString(BEAR).toPath()
+
 internal val sleepingBearPath =
     PathParser().parsePathString(BEAR + CLOSED_EYES).toPath().apply {
       fillType = PathFillType.EvenOdd
