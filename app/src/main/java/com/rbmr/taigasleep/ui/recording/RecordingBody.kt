@@ -88,7 +88,7 @@ internal fun RecordingBody(
       // The choice is for a recording that has an analysis or is getting one. An upload in
       // progress, a failed upload and a recording without an analysis have a status card instead.
       if (showsAnalysisChoice(state)) {
-        item { AnalysisChoiceButton(run = run, onOpenAnalysis = onOpenAnalysis) }
+        item { AnalysisChoiceButton(run = run.takeIf { processed }, onOpenAnalysis = onOpenAnalysis) }
       }
       when {
         processed && analysis != null ->

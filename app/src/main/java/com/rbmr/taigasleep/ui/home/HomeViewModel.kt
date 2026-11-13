@@ -12,10 +12,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -81,6 +83,8 @@ class HomeViewModel(
     private val work: HomeWork,
     private val sensor: StateFlow<SleepSensor?>,
     private val status: StateFlow<CaptureStatus>,
+    /** Whether a saved recording is uploaded by itself; the stop confirmation says which. */
+    val autoUpload: Flow<Boolean> = emptyFlow(),
     dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : ViewModel() {
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)

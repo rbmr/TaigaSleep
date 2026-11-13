@@ -1,5 +1,7 @@
 package com.rbmr.taigasleep.ui.home
 
+import com.rbmr.taigasleep.sync.UploadSettings
+import kotlinx.coroutines.flow.map
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -130,7 +132,12 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
             sensors.select(app, found)
           }
         }
-    return HomeViewModel(work, sensors.sensor, RecordingRepository.status) as T
+    return HomeViewModel(
+        work,
+        sensors.sensor,
+        RecordingRepository.status,
+        UploadSettings.get(app).autoUpload.map { it.enabled },
+    ) as T
   }
 
   /** The configuration step: the remembered streams, the modes they allow and the chosen mode. */

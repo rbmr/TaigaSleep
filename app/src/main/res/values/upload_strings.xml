@@ -152,7 +152,7 @@
   <string name="night_movement_info">Movement comes from the tracker\'s accelerometer. The index is the share of 30-second intervals that moved more than the method\'s threshold.</string>
   <string name="night_quality_weight">weight %1$d%%</string>
   <string name="night_chart_bpm">%1$s bpm</string>
-  <string name="night_analysis_done_heading">Done for this recording</string>
+  <string name="night_analysis_done_heading">For this recording</string>
   <string name="night_analysis_run_heading">Run another method</string>
   <string name="night_analysis_run_first_heading">Run a method</string>
   <string name="night_analysis_score">Score %1$d</string>

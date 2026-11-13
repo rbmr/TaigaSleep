@@ -16,7 +16,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.rbmr.taigasleep.sync.UploadSettings
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.debug.DebugTools
 import com.rbmr.taigasleep.debug.GuidancePreviewPicker
@@ -73,7 +72,7 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
   val viewModel: HomeViewModel = viewModel(factory = factory)
   val state by viewModel.state.collectAsStateWithLifecycle()
   val guidanceStore = remember { GuidanceStore(context) }
-  val autoUpload by remember { UploadSettings.get(context) }.autoUpload.collectAsStateWithLifecycle()
+  val autoUpload by viewModel.autoUpload.collectAsStateWithLifecycle(initialValue = false)
 
   var confirm by remember { mutableStateOf<StopAction?>(null) }
   var showPreviewPicker by remember { mutableStateOf(false) }
@@ -185,7 +184,7 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
     StopConfirmDialog(
         action = action,
         onDevice = (state as? HomeUiState.Recording)?.onDevice == true,
-        autoUpload = autoUpload.enabled,
+        autoUpload = autoUpload,
         onDismiss = { confirm = null },
         onConfirm = {
           confirm = null

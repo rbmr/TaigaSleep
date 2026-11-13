@@ -47,7 +47,7 @@ class ScoreCardVisibilityTest {
     // The first analysis is still running: it has not analysed anything yet.
     assertFalse(showsAnalysisChoice(state(RecordingStatus.PROCESSING)))
     assertFalse(showsAnalysisChoice(state(RecordingStatus.NOT_ANALYZED)))
-    assertFalse(showsAnalysisChoice(state(RecordingStatus.FAILED, UploadFailure.UPLOAD)))
+    assertFalse(showsAnalysisChoice(state(RecordingStatus.FAILED, UploadFailure.NETWORK)))
   }
 
   private fun viewOf(status: RecordingStatus, failure: UploadFailure?) =

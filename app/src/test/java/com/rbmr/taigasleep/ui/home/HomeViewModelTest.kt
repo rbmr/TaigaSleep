@@ -373,7 +373,7 @@ class HomeViewModelTest {
   private val status = MutableStateFlow(CaptureStatus())
 
   private fun viewModel(): HomeViewModel =
-      HomeViewModel(work, sensor, status, Dispatchers.Unconfined)
+      HomeViewModel(work, sensor, status, dispatcher = Dispatchers.Unconfined)
 
   @Test
   fun `the screen starts without a tracker`() {
