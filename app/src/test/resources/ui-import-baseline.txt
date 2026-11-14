@@ -31,7 +31,7 @@ history/TrendsScreen.kt 0
 home/ActiveHome.kt 3
 home/ConfigureSheet.kt 1
 home/FinishingHome.kt 1
-home/HomeFactory.kt 12
+home/HomeFactory.kt 13
 home/HomeScreen.kt 3
 home/HomeUiState.kt 7
 home/IdleHome.kt 2
