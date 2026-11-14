@@ -3,7 +3,6 @@ package com.rbmr.taigasleep.recording
 import android.app.AlarmManager
 import android.content.Context
 import android.content.Intent
-import com.rbmr.taigasleep.MainActivity
 import com.rbmr.taigasleep.tracker.RecordingMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -40,7 +39,7 @@ class WakeAlarmTest {
     assertEquals(END_MS, scheduled.triggerAtMs)
     val clock = scheduled.alarmClockInfo!!
     assertEquals(END_MS, clock.triggerTime)
-    assertNotNull("an alarm clock carries the screen it opens", clock.showIntent)
+    assertNotNull("an alarm clock carries the app it opens", clock.showIntent)
 
     WakeAlarm.cancelEnd(context)
     assertTrue(shadowOf(alarms).scheduledAlarms.isEmpty())
@@ -71,8 +70,6 @@ class WakeAlarmTest {
     override fun onRecordingFinished(context: Context, recordingId: String) = Unit
 
     override fun onFetchCompleted(context: Context, recordingId: String) = Unit
-
-    override fun wakeAlarmScreen(context: Context): Intent = Intent(context, MainActivity::class.java)
   }
 
   private companion object {

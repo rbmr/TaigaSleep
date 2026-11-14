@@ -187,7 +187,7 @@ class RecordingService : Service(), RecordingHost {
 
   override fun disarmWake() = WakeAlarm.disarm(this)
 
-  override fun fireWakeAlarm() = WakeAlarm.fire(this)
+  override fun fireWakeAlarm(reason: WakeReason) = WakeAlarm.fire(this, reason)
 
   override var activeSessionId: String?
     get() = prefs.activeSessionId

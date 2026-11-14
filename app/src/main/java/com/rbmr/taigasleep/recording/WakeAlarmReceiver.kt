@@ -20,7 +20,7 @@ class WakeAlarmReceiver : BroadcastReceiver() {
     Diagnostics.log("wake_alarm", mapOf("source" to "window_end"))
     // The window is spent: nothing arms it again for this recording.
     RecordingPrefs.get(context).clearArmedWake()
-    WakeAlarm.fire(context)
+    WakeAlarm.fire(context, WakeReason.WINDOW_END)
   }
 
   companion object {
