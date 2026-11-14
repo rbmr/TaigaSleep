@@ -15,11 +15,7 @@ class WakeAlarmReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     when (intent.action) {
       ACTION_DISMISS -> WakeAlarm.dismiss(context)
-      // The same stop action the app's Stop button sends, so the recording finishes normally.
-      ACTION_STOP -> {
-        WakeAlarm.dismiss(context)
-        RecordingService.send(context, RecordingService.ACTION_STOP)
-      }
+      ACTION_STOP -> WakeAlarm.stopRecording(context)
       else -> {
         Diagnostics.log("wake_alarm", mapOf("source" to "window_end"))
         // The window is spent: nothing arms it again for this recording.

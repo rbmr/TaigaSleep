@@ -11,7 +11,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.WindowCompat
-import com.rbmr.taigasleep.recording.RecordingService
 import com.rbmr.taigasleep.recording.WakeAlarm
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 
@@ -38,15 +37,14 @@ class AlarmActivity : ComponentActivity() {
       isAppearanceLightNavigationBars = false
     }
     ring()
-    val reason = WakeAlarm.reason(intent)
-    val actions = WakeAlarm.actions(this)
-    val recordingRunning = WakeAlarm.recordingRunning(this)
+    val screen = WakeAlarm.screenOf(this, intent)
     setContent {
       TaigaTheme(darkTheme = true) {
         AlarmScreen(
-            reason = reason,
-            actions = actions,
-            recordingRunning = recordingRunning,
+            reason = screen.reason,
+            details = screen.details,
+            showStop = screen.stop,
+            showDismiss = screen.dismiss,
             onStop = ::stopRecording,
             onDismiss = ::dismiss,
         )
@@ -100,10 +98,9 @@ class AlarmActivity : ComponentActivity() {
     vibrator = null
   }
 
-  /** Stop the alarm and end the recording through the same action the app's Stop button sends. */
+  /** Stop stops the alarm and ends the recording. */
   private fun stopRecording() {
-    WakeAlarm.dismiss(this)
-    RecordingService.send(this, RecordingService.ACTION_STOP)
+    WakeAlarm.stopRecording(this)
     stopRinging()
     finish()
   }

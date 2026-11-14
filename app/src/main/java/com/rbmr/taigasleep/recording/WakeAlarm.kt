@@ -140,6 +140,19 @@ object WakeAlarm {
   fun reason(intent: Intent): WakeReason =
       WakeReason.fromWire(intent.getStringExtra(EXTRA_WAKE_REASON))
 
+  /** What the alarm screen opened by [intent] shows now. */
+  fun screenOf(context: Context, intent: Intent): WakeScreen =
+      wakeScreen(reason(intent), actions(context), recordingRunning(context))
+
+  /**
+   * Stops the alarm and ends the recording, through the same action the app's Stop button sends, so
+   * the recording finishes the normal way.
+   */
+  fun stopRecording(context: Context) {
+    dismiss(context)
+    RecordingService.send(context, RecordingService.ACTION_STOP)
+  }
+
   /** The user dismissed the alarm; the recording is untouched and the window is spent. */
   fun dismiss(context: Context) {
     context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)

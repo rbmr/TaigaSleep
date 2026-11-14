@@ -49,7 +49,7 @@ import com.rbmr.taigasleep.ui.settings.PersonalDataScreen
 import com.rbmr.taigasleep.ui.settings.RemoteScreen
 import com.rbmr.taigasleep.ui.settings.SettingsScreen
 import com.rbmr.taigasleep.ui.settings.UploadsScreen
-import com.rbmr.taigasleep.ui.settings.WakeAlarmScreen
+import com.rbmr.taigasleep.ui.settings.SmartAlarmSettingsScreen
 import com.rbmr.taigasleep.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
 
@@ -84,7 +84,7 @@ fun TaigaApp(
   var showPersonal by rememberSaveable { mutableStateOf(false) }
   var showUploads by rememberSaveable { mutableStateOf(false) }
   var showAnalysis by rememberSaveable { mutableStateOf(false) }
-  var showWakeAlarm by rememberSaveable { mutableStateOf(false) }
+  var showSmartAlarm by rememberSaveable { mutableStateOf(false) }
   var detailLocal by rememberSaveable { mutableStateOf<String?>(null) }
   var detailRemote by rememberSaveable { mutableStateOf<String?>(null) }
   var detailAnalysis by rememberSaveable { mutableStateOf<String?>(null) }
@@ -135,7 +135,7 @@ fun TaigaApp(
     showPersonal -> PersonalDataScreen(onBack = { showPersonal = false })
     showUploads -> UploadsScreen(onBack = { showUploads = false })
     showAnalysis -> AnalysisScreen(onBack = { showAnalysis = false })
-    showWakeAlarm -> WakeAlarmScreen(onBack = { showWakeAlarm = false })
+    showSmartAlarm -> SmartAlarmSettingsScreen(onBack = { showSmartAlarm = false })
     detailLocal != null || detailRemote != null ->
         RecordingDetailScreen(
             localId = detailLocal,
@@ -207,7 +207,7 @@ fun TaigaApp(
                       onPersonalClick = { showPersonal = true },
                       onUploadsClick = { showUploads = true },
                       onAnalysisClick = { showAnalysis = true },
-                      onWakeAlarmClick = { showWakeAlarm = true },
+                      onSmartAlarmClick = { showSmartAlarm = true },
                   )
             }
           }

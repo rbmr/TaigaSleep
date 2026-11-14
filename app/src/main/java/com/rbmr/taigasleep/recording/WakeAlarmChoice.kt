@@ -1,10 +1,13 @@
 package com.rbmr.taigasleep.recording
 
+import androidx.annotation.StringRes
+import com.rbmr.taigasleep.R
+
 /** What the alarm does with the running recording when it rings. A global setting, [OPTIONAL]. */
-enum class EndRecordingOnAlarm(val wire: String) {
-  ALWAYS("always"),
-  OPTIONAL("optional"),
-  NEVER("never");
+enum class EndRecordingOnAlarm(val wire: String, @StringRes val label: Int) {
+  ALWAYS("always", R.string.wake_end_always),
+  OPTIONAL("optional", R.string.wake_end_optional),
+  NEVER("never", R.string.wake_end_never);
 
   companion object {
     fun fromWire(value: String?): EndRecordingOnAlarm =
@@ -35,3 +38,31 @@ fun wakeAlarmActions(
           listOf(WakeAlarmAction.STOP, WakeAlarmAction.DISMISS)
       else -> listOf(WakeAlarmAction.DISMISS)
     }
+
+/**
+ * What the alarm screen shows: why it rang, what its buttons do with the recording, and which
+ * buttons it has. Without a recording there is nothing to explain, so [details] is null.
+ */
+data class WakeScreen(
+    @StringRes val reason: Int,
+    @StringRes val details: Int?,
+    val stop: Boolean,
+    val dismiss: Boolean,
+)
+
+fun wakeScreen(
+    reason: WakeReason,
+    actions: List<WakeAlarmAction>,
+    recordingRunning: Boolean,
+): WakeScreen {
+  val stop = WakeAlarmAction.STOP in actions
+  val dismiss = WakeAlarmAction.DISMISS in actions
+  val details =
+      when {
+        stop && dismiss -> R.string.wake_screen_offer_both
+        stop -> R.string.wake_screen_stop_ends
+        recordingRunning -> R.string.wake_screen_dismiss_running
+        else -> null
+      }
+  return WakeScreen(reason.text, details, stop, dismiss)
+}

@@ -10,10 +10,9 @@
   <string name="wake_trigger_none">Choose at least one signal. Without one, the alarm rings only at the end of the window.</string>
   <string name="wake_time">%1$02d:%2$02d</string>
 
-  <!-- The setting that chooses what the alarm does with the recording. -->
-  <string name="settings_wake_alarm_title">Wake-up alarm</string>
-  <string name="settings_wake_alarm_group">When the alarm rings</string>
-  <string name="settings_wake_alarm_body">Choose what the alarm does with the recording. Always ends the recording. Optional offers Stop and Dismiss. Never stops only the alarm.</string>
+  <!-- Settings → Smart alarm: whether the ringing alarm ends the recording. -->
+  <string name="settings_wake_end_group">End the recording when the alarm rings</string>
+  <string name="settings_wake_end_body">With Always, the alarm has one button, Stop. It stops the alarm and ends the recording.\n\nWith Optional, it has Stop and Dismiss. Dismiss stops only the alarm and the recording goes on.\n\nWith Never, it has one button, Dismiss.</string>
   <string name="wake_end_always">Always</string>
   <string name="wake_end_optional">Optional</string>
   <string name="wake_end_never">Never</string>
@@ -23,12 +22,11 @@
   <string name="wake_channel_screen">Wake-up alarm (screen)</string>
   <string name="wake_notification_title">Time to wake up</string>
   <string name="wake_reason_signal">Taiga Sleep\'s smart alarm is ringing because you showed signs of waking up.</string>
-  <string name="wake_reason_end">Taiga Sleep\'s smart alarm is ringing because the wake-up window has ended.</string>
+  <string name="wake_reason_end">Taiga Sleep\'s smart alarm is ringing because the end of your alarm window was reached.</string>
   <string name="wake_action_stop">Stop</string>
   <string name="wake_action_dismiss">Dismiss</string>
   <string name="wake_screen_heading">Good morning.</string>
   <string name="wake_screen_stop_ends">Stop ends your recording.</string>
   <string name="wake_screen_offer_both">Stop ends your recording. Dismiss leaves it running.</string>
   <string name="wake_screen_dismiss_running">Dismiss stops the alarm and leaves your recording running.</string>
-  <string name="wake_screen_dismiss_only">Dismiss stops the alarm.</string>
 </resources>
