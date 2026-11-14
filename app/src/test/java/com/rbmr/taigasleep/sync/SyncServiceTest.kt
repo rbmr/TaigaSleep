@@ -36,49 +36,22 @@ class SyncServiceTest {
       SyncService(environment, CoroutineScope(Dispatchers.Unconfined))
 
   @Test
-  fun `a finished recording is marked local and then queued`() {
+  fun `a finished recording is marked local and then caught up`() {
     val environment = FakeEnvironment()
 
     service(environment).onRecordingFinished("r1")
 
-    assertEquals(listOf("markLocal r1", "enqueueAuto r1"), environment.calls)
+    assertEquals(listOf("markLocal r1", "catchUp RECORDING_SAVED r1"), environment.calls)
   }
 
   @Test
-  fun `a finished recording with automatic upload off is only marked local`() {
-    val environment = FakeEnvironment().apply { autoUpload = AutoUploadSettings(enabled = false) }
-
-    service(environment).onRecordingFinished("r1")
-
-    assertEquals(listOf("markLocal r1"), environment.calls)
-  }
-
-  @Test
-  fun `a finished recording without a login is not queued`() {
-    val environment = FakeEnvironment().apply { hasSession = false }
-
-    service(environment).onRecordingFinished("r1")
-
-    assertEquals(listOf("markLocal r1"), environment.calls)
-  }
-
-  @Test
-  fun `a finished recording whose files are gone is not queued`() {
-    val environment = FakeEnvironment().apply { files = false }
-
-    service(environment).onRecordingFinished("r1")
-
-    assertEquals(listOf("markLocal r1"), environment.calls)
-  }
-
-  @Test
-  fun `a recording that already has sync state keeps it and is queued`() {
+  fun `a recording that already has sync state keeps it and is caught up`() {
     val environment = FakeEnvironment()
     environment.state["r1"] = UploadRecord(id = "r1", phase = UploadPhase.QUEUED)
 
     service(environment).onRecordingFinished("r1")
 
-    assertEquals(listOf("enqueueAuto r1"), environment.calls)
+    assertEquals(listOf("catchUp RECORDING_SAVED r1"), environment.calls)
   }
 
   @Test
@@ -98,19 +71,33 @@ class SyncServiceTest {
 
     service(environment).onFetchCompleted("r1")
 
-    assertEquals(listOf("cancelUploads r1", "markLocal r1", "enqueueAuto r1"), environment.calls)
+    assertEquals(
+        listOf("cancelUploads r1", "markLocal r1", "catchUp RECORDING_SAVED r1"),
+        environment.calls,
+    )
     assertEquals(UploadPhase.LOCAL, environment.state.getValue("r1").phase)
     assertFalse(environment.state.getValue("r1").onServer)
   }
 
   @Test
-  fun `a completed fetch without automatic upload only starts the state over`() {
-    val environment = FakeEnvironment().apply { autoUpload = AutoUploadSettings(enabled = false) }
-    environment.state["r1"] = UploadRecord(id = "r1", onServer = true, phase = UploadPhase.DONE)
+  fun `the start schedules the safety net, watches the triggers and catches up`() {
+    val environment = FakeEnvironment()
 
-    service(environment).onFetchCompleted("r1")
+    service(environment).start()
 
-    assertEquals(listOf("cancelUploads r1", "markLocal r1"), environment.calls)
+    assertEquals(
+        listOf("schedulePeriodicCatchUp", "watchTriggers", "catchUp APP_START null"),
+        environment.calls,
+    )
+  }
+
+  @Test
+  fun `the worker catch-up passes its reason and recording on`() = runBlocking {
+    val environment = FakeEnvironment()
+
+    service(environment).catchUp(CatchUpReason.UPLOAD_FINISHED, "r1")
+
+    assertEquals(listOf("catchUp UPLOAD_FINISHED r1"), environment.calls)
   }
 
   @Test
@@ -206,7 +193,7 @@ class SyncServiceTest {
 
     service(environment).reconcileAll()
 
-    assertEquals(listOf("resumePendingDeletes", "reconcileUploads"), environment.calls)
+    assertEquals(listOf("resumePendingDeletes", "catchUp APP_RESUME null"), environment.calls)
   }
 
   @Test
@@ -302,8 +289,6 @@ class SyncServiceTest {
 
     override val records: StateFlow<Map<String, UploadRecord>> = stateFlow
 
-    override var autoUpload = AutoUploadSettings()
-    override var hasSession = true
     var files = true
     var client: TaigaClient? = null
     var streams = RecordingConfig(hr = true, ecg = false, acc = false)
@@ -351,10 +336,6 @@ class SyncServiceTest {
 
     override suspend fun startDate(id: String): LocalDate? = startedOn
 
-    override suspend fun enqueueAuto(id: String) {
-      calls += "enqueueAuto $id"
-    }
-
     override suspend fun enqueueManual(id: String) {
       calls += "enqueueManual $id"
     }
@@ -371,12 +352,16 @@ class SyncServiceTest {
       calls += "resumePendingDeletes"
     }
 
-    override suspend fun reconcileUploads() {
-      calls += "reconcileUploads"
+    override suspend fun catchUp(reason: CatchUpReason, only: String?) {
+      calls += "catchUp $reason $only"
     }
 
-    override suspend fun rescheduleAll() {
-      calls += "rescheduleAll"
+    override fun schedulePeriodicCatchUp() {
+      calls += "schedulePeriodicCatchUp"
+    }
+
+    override fun watchTriggers(scope: CoroutineScope) {
+      calls += "watchTriggers"
     }
 
     override suspend fun deleteRecording(localId: String?, remoteId: String?) {

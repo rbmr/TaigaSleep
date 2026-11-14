@@ -11,12 +11,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import com.rbmr.taigasleep.appContainer
-import com.rbmr.taigasleep.recording.RecordingService
-import com.rbmr.taigasleep.recording.store.RecordingPhase
-import com.rbmr.taigasleep.recording.store.RecordingStore
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * Owns the WorkManager queue. Uploads resume from the stored size of each file on the server, so
@@ -42,19 +37,41 @@ internal object UploadScheduler {
     enqueue(context, localId, account, UploadConditions.manual(), manual = true, ExistingWorkPolicy.REPLACE)
   }
 
-  suspend fun enqueueAuto(context: Context, localId: String) {
+  /**
+   * Queue the automatic upload of one night. The work is unique per recording, so queueing a night
+   * that is already queued or running changes nothing, unless [replace] asks for the conditions as
+   * they are now. A manual upload in flight is never touched.
+   */
+  suspend fun queueAuto(context: Context, localId: String, replace: Boolean) {
     val settings = UploadSettings.get(context).autoUpload.value
     if (!settings.enabled) return
     val account = context.appContainer.remoteRepository.accountKey ?: return
+    if (isManualUploadActive(context, localId)) return
     val store = context.appContainer.uploadStore
     val record = store.record(localId, account)
-    if (record?.phase == UploadPhase.DONE) return
-    if (record?.phase == UploadPhase.FAILED) return // let the user decide; retry is explicit
-    if (record?.failure == UploadFailure.RECORDING) store.markQueued(localId, account = account)
-    if (record?.phase == UploadPhase.LOCAL || record == null) {
+    // A failed or never queued night shows as waiting again; one that is waiting or moving keeps its state.
+    if (record == null || record.phase == UploadPhase.LOCAL || record.phase == UploadPhase.FAILED) {
       store.markQueued(localId, account = account)
     }
-    enqueue(context, localId, account, UploadConditions.automatic(settings), manual = false, ExistingWorkPolicy.KEEP)
+    val policy = if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP
+    enqueue(context, localId, account, UploadConditions.automatic(settings), manual = false, policy)
+  }
+
+  /**
+   * The automatic upload was switched off: its queued and running work stops and the nights show as
+   * on this phone only again. A manual upload carries on.
+   */
+  suspend fun stopAuto(context: Context) {
+    val store = context.appContainer.uploadStore
+    val manager = WorkManager.getInstance(context)
+    for (recording in context.appContainer.recordingStore.list()) {
+      if (isManualUploadActive(context, recording.id)) continue
+      manager.cancelUniqueWork("upload-${recording.id}")
+      val record = store.record(recording.id) ?: continue
+      if (record.phase == UploadPhase.QUEUED || record.phase == UploadPhase.UPLOADING) {
+        store.markLocal(recording.id)
+      }
+    }
   }
 
   fun cancelRecordingWork(context: Context, localId: String) {
@@ -105,77 +122,6 @@ internal object UploadScheduler {
     }
   }
 
-  /** After an automatic-upload checkbox changes, apply it to the queued uploads. */
-  suspend fun rescheduleAll(context: Context) {
-    val local = context.appContainer.recordingStore.list()
-    val manager = WorkManager.getInstance(context)
-    val store = context.appContainer.uploadStore
-    val settings = UploadSettings.get(context).autoUpload.value
-    // A manual upload is not governed by these settings; it keeps running as it was queued.
-    val manual = local.filter { isManualUploadActive(context, it.id) }.map { it.id }.toSet()
-    local.filter { it.id !in manual }.forEach { recording ->
-      manager.cancelUniqueWork("upload-${recording.id}")
-      if (store.record(recording.id)?.phase == UploadPhase.UPLOADING) {
-        store.markQueued(recording.id)
-      }
-    }
-    val account = context.appContainer.remoteRepository.accountKey ?: return
-    local.forEach { recording ->
-      if (recording.id in manual) return@forEach
-      // A recording that is not finished is never queued: the service enqueues it when it ends.
-      if (recording.state.unfinished) return@forEach
-      // A recording that is processing is on the server already; its result comes from the live stream.
-      if (store.record(recording.id, account)?.phase == UploadPhase.PROCESSING) return@forEach
-      if (settings.enabled) enqueueAuto(context, recording.id)
-    }
-  }
-
-  /**
-   * Called on app resume. It never starts bytes for an active recording and never retries a
-   * permanent failure automatically. An upload the phone left at its end without the server's
-   * word is asked about first, so a confirmation cannot stay missing.
-   */
-  suspend fun reconcile(context: Context) =
-      withContext(Dispatchers.IO) {
-        val remote = context.appContainer.remoteRepository
-        val session = remote.session() ?: return@withContext
-        val settings = UploadSettings.get(context).autoUpload.value
-        val store = context.appContainer.uploadStore
-        for (recording in context.appContainer.recordingStore.list()) {
-          // A recording waiting for its tracker copy stays out of the queue: the completed fetch
-          // queues it as a new upload, with every sample in the files.
-          if (recording.state == RecordingPhase.FETCH_PENDING) continue
-          if (recording.state == RecordingPhase.RECORDING &&
-              RecordingService.running) {
-            continue
-          }
-          val record = store.record(recording.id, session.account)
-          // An upload that reached its end without the server's word is not counted yet: only the
-          // server can say whether the recording is complete, so ask before the queue decides.
-          if (record != null && record.awaitsUploadConfirmation()) {
-            confirmUploadOnServer(session.api, recording.id, store, session.account)
-          }
-          when (record?.phase) {
-            // Results are not polled: a processing recording is refreshed by the live sync.
-            UploadPhase.DONE,
-            UploadPhase.UPLOADED,
-            UploadPhase.FAILED,
-            UploadPhase.PROCESSING -> Unit
-            UploadPhase.LOCAL,
-            UploadPhase.QUEUED,
-            UploadPhase.UPLOADING,
-            null ->
-                if (settings.enabled) {
-                  enqueueAuto(context, recording.id)
-                } else if (record?.phase == UploadPhase.UPLOADING &&
-                    !isUploadWorkActive(context, recording.id)) {
-                  // Only an upload nothing is running is stale; a manual one in flight stays.
-                  store.markQueued(recording.id, account = session.account)
-                }
-          }
-        }
-      }
-
   private fun enqueue(
       context: Context,
       localId: String,
@@ -204,10 +150,6 @@ internal object UploadScheduler {
     WorkManager.getInstance(context)
         .enqueueUniqueWork("upload-$localId", policy, request)
   }
-
-  /** Whether an upload worker for this recording is queued or running. */
-  private fun isUploadWorkActive(context: Context, localId: String): Boolean =
-      activeUploadWork(context, localId).isNotEmpty()
 
   /** Whether the upload queued or running for this recording was requested by the user. */
   private fun isManualUploadActive(context: Context, localId: String): Boolean =

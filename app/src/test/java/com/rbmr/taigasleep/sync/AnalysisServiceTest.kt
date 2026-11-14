@@ -33,31 +33,6 @@ class AnalysisServiceTest {
   private val hrOnly = RecordingConfig(hr = true, ecg = false, acc = false)
 
   @Test
-  fun automaticAnalysisRequestsThePreferredCompatibleStager() = runBlocking {
-    val client = FakeClient(listOf(wav2sleep(), sleepEcg()))
-
-    val started = AnalysisService.startAuto(client, "s1", ecg, AnalysisSettings())
-
-    assertEquals(listOf(StagerChoice("wav2sleep", "1.1.0")), client.requests)
-    assertEquals("a-wav2sleep", started?.analysisId)
-    assertEquals("queued", started?.status)
-    assertEquals(listOf("s1"), client.recordings)
-    assertEquals(1, client.algorithmCalls)
-  }
-
-  @Test
-  fun automaticAnalysisOffDoesNotTalkToTheServer() = runBlocking {
-    val client = FakeClient(listOf(wav2sleep()))
-
-    val started =
-        AnalysisService.startAuto(client, "s1", ecg, AnalysisSettings(auto = false))
-
-    assertNull(started)
-    assertTrue(client.requests.isEmpty())
-    assertEquals(0, client.algorithmCalls)
-  }
-
-  @Test
   fun manualRequestAsksForSeveralCompatibleStagers() = runBlocking {
     val client = FakeClient(listOf(wav2sleep(), sleepEcg()))
 

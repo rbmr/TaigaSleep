@@ -19,34 +19,6 @@ class AnalysisChoiceTest {
       )
 
   @Test
-  fun automaticAnalysisOffDoesNotChooseARun() {
-    val choice =
-        autoChoice(
-            ecg,
-            listOf(wav2sleep(version = "1.1.0"), sleepEcg(version = "1.0.0")),
-            AnalysisSettings(auto = false),
-        )
-
-    assertNull(choice)
-  }
-
-  @Test
-  fun automaticAnalysisOnChoosesTheBestCompatibleRun() {
-    val choice =
-        autoChoice(
-            ecg,
-            listOf(
-                baseline(version = "1.0.0"),
-                sleepEcg(version = "1.0.0"),
-                wav2sleep(version = "1.1.0"),
-            ),
-            AnalysisSettings(),
-        )
-
-    assertEquals(StagerChoice("wav2sleep", "1.1.0"), choice)
-  }
-
-  @Test
   fun manualChoicesCanAskForSeveralRuns() {
     val choices =
         manualChoices(

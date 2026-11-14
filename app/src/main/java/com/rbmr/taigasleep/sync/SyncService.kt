@@ -40,32 +40,44 @@ class SyncService internal constructor(
   val records: StateFlow<Map<String, UploadRecord>> = environment.records
 
   /**
-   * A recording just ended. It always gets a durable sync state; it is queued only when automatic
-   * upload is on, the account is logged in and its files are on this phone.
+   * The app started: do everything that is due, and from now on do it again whenever a switch, the
+   * server or the account changes, and every few hours. Called once per process.
+   */
+  fun start() {
+    environment.schedulePeriodicCatchUp()
+    environment.watchTriggers(scope)
+    scope.launch { environment.catchUp(CatchUpReason.APP_START, null) }
+  }
+
+  /**
+   * Do the automatic upload and analysis work that is due; [only] limits it to one recording.
+   * The caller waits for it, which is what a worker needs; the callers that must not wait use
+   * [start] or the events below.
+   */
+  internal suspend fun catchUp(reason: CatchUpReason, only: String? = null) =
+      environment.catchUp(reason, only)
+
+  /**
+   * A recording just ended. It always gets a durable sync state, and the automatic upload looks
+   * at it: whether it goes is that catch-up's decision.
    */
   fun onRecordingFinished(id: String) {
     scope.launch {
       if (environment.record(id) == null) environment.markLocal(id)
-      if (!environment.autoUpload.enabled) return@launch
-      if (!environment.hasSession) return@launch
-      if (!environment.hasRecording(id)) return@launch
-      environment.enqueueAuto(id)
+      environment.catchUp(CatchUpReason.RECORDING_SAVED, id)
     }
   }
 
   /**
    * The last of a recording arrived from the tracker. Nothing queued for it before can be trusted:
-   * its files grew, so the sync state starts again and the whole recording is queued as a new
+   * its files grew, so the sync state starts again and the whole recording is uploaded as a new
    * upload, which the server takes the same way as the first one.
    */
   fun onFetchCompleted(id: String) {
     scope.launch {
       environment.cancelUploads(id)
       environment.markLocal(id)
-      if (!environment.autoUpload.enabled) return@launch
-      if (!environment.hasSession) return@launch
-      if (!environment.hasRecording(id)) return@launch
-      environment.enqueueAuto(id)
+      environment.catchUp(CatchUpReason.RECORDING_SAVED, id)
     }
   }
 
@@ -169,10 +181,10 @@ class SyncService internal constructor(
     environment.markAnalysisFailed(id, detail, target)
   }
 
-  /** Restore the remote-delete queue and continue every upload that was interrupted. */
+  /** Restore the remote-delete queue, then do whatever automatic work is due. */
   suspend fun reconcileAll() {
     environment.resumePendingDeletes()
-    environment.reconcileUploads()
+    environment.catchUp(CatchUpReason.APP_RESUME, null)
   }
 
   /**
@@ -229,10 +241,5 @@ class SyncService internal constructor(
     val session =
         environment.session() ?: return Result.failure(IllegalStateException("login required"))
     return environment.installedAlgorithms(session.api)
-  }
-
-  /** After the automatic-upload settings change, apply them to the queued uploads. */
-  fun rescheduleAll() {
-    scope.launch { environment.rescheduleAll() }
   }
 }

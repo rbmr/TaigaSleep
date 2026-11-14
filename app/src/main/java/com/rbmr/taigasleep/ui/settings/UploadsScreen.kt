@@ -62,7 +62,6 @@ fun UploadsScreen(onBack: () -> Unit) {
           trailing = ListRowTrailing.Switch(autoUpload.enabled),
           onClick = {
             uploadSettings.setEnabled(!autoUpload.enabled)
-            sync.rescheduleAll()
           },
       )
       if (autoUpload.enabled) {
@@ -77,8 +76,7 @@ fun UploadsScreen(onBack: () -> Unit) {
               selected = autoUpload.wifiOnly,
               onClick = {
                 uploadSettings.setWifiOnly(!autoUpload.wifiOnly)
-                sync.rescheduleAll()
-              },
+                  },
               role = Role.Checkbox,
           )
           ChoiceChip(
@@ -86,8 +84,7 @@ fun UploadsScreen(onBack: () -> Unit) {
               selected = autoUpload.chargingOnly,
               onClick = {
                 uploadSettings.setChargingOnly(!autoUpload.chargingOnly)
-                sync.rescheduleAll()
-              },
+                  },
               role = Role.Checkbox,
           )
         }

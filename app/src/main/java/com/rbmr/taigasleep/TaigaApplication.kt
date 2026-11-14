@@ -12,7 +12,6 @@ import com.rbmr.taigasleep.guard.Readiness
 import com.rbmr.taigasleep.guard.ReadinessState
 import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.RecordingHooks
-import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.ui.alarm.AlarmActivity
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +37,9 @@ class TaigaApplication : Application() {
       // Apply the raw-retention setting to any recording whose cleanup time has passed.
       container.syncService.enforceRawRetention()
     }
+    // Automatic upload and analysis catch up on everything that is due now, again at every event
+    // that can make something due, and every few hours as a safety net.
+    container.syncService.start()
     container.scope.launch {
       // An export a share target may still be reading is kept for an hour, then removed.
       Exporter.cleanupOnStart(this@TaigaApplication)
