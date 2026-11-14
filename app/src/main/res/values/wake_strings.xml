@@ -11,7 +11,7 @@
   <string name="wake_time">%1$02d:%2$02d</string>
 
   <!-- Settings → Smart alarm: whether the ringing alarm ends the recording. -->
-  <string name="settings_wake_end_group">End the recording when the alarm rings</string>
+  <string name="settings_wake_end_group">End the recording</string>
   <string name="settings_wake_end_body">With Always, the alarm has one button, Stop. It stops the alarm and ends the recording.\n\nWith Optional, it has Stop and Dismiss. Dismiss stops only the alarm and the recording goes on.\n\nWith Never, it has one button, Dismiss.</string>
   <string name="wake_end_always">Always</string>
   <string name="wake_end_optional">Optional</string>
