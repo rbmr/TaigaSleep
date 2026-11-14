@@ -266,7 +266,9 @@ fun ListRow(
         Text(
             text = value,
             style = MaterialTheme.taiga.text.meta,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color =
+                if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.taiga.disabled,
         )
       }
       if (trailing != ListRowTrailing.None) {

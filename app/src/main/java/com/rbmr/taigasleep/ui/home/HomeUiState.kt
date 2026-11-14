@@ -39,19 +39,19 @@ data class WakeChoice(
 }
 
 /**
- * What the tracker will record and how: the configuration step of the start flow. The mode follows
- * from the tracker and the chosen streams, so both are part of the same answer.
+ * What the tracker will record and how: the configuration step of the start flow. Only the
+ * recording [mode] drives the rest. On the tracker the recording is heart rate only and the smart
+ * alarm is off; streaming to the phone uses the choices the user made for it. [streams] and [wake]
+ * are the effective values, the ones the recorder uses and the sheet shows.
  */
 data class StartConfig(
     val streams: Streams,
-    /** The modes this tracker offers for these streams, in the order it reports them. */
+    /** The modes this tracker offers; every one of them can always be chosen. */
     val modes: Set<RecordingMode>,
     val mode: RecordingMode,
     val canRecordEcg: Boolean,
     val canRecordAcc: Boolean,
-    /** Every mode the tracker offers for some configuration; a mode outside [modes] is greyed out. */
-    val offeredModes: Set<RecordingMode> = modes,
-    /** The wake-up window set for this tracker, or null when it is off (the default). */
+    /** The smart alarm window of a streamed recording, or null when it is off (the default). */
     val wake: WakeChoice? = null,
 ) {
   /** The tracker stores the recording itself instead of streaming it to the phone. */
@@ -61,7 +61,51 @@ data class StartConfig(
   /** Something is on, so the recording can start; otherwise the next step is to choose data. */
   val canStart: Boolean
     get() = streams.any
+
+  companion object {
+    /**
+     * The effective configuration for the user's stored choices. Heart rate is shared by both modes.
+     * The tracker keeps heart rate only and has no smart alarm, so those choices are not applied
+     * there, and not lost either: they stay stored and come back with the streaming mode.
+     */
+    fun resolve(
+        saved: SavedChoices,
+        modes: Set<RecordingMode>,
+        canRecordEcg: Boolean,
+        canRecordAcc: Boolean,
+    ): StartConfig {
+      val mode =
+          when {
+            saved.mode in modes -> saved.mode
+            RecordingMode.STREAM in modes -> RecordingMode.STREAM
+            else -> modes.firstOrNull() ?: RecordingMode.STREAM
+          }
+      val onTracker = mode == RecordingMode.ON_DEVICE
+      return StartConfig(
+          streams =
+              Streams(
+                  hr = saved.hr,
+                  ecg = !onTracker && canRecordEcg && saved.ecg,
+                  acc = !onTracker && canRecordAcc && saved.acc,
+              ),
+          modes = modes,
+          mode = mode,
+          canRecordEcg = canRecordEcg,
+          canRecordAcc = canRecordAcc,
+          wake = saved.wake.takeIf { !onTracker },
+      )
+    }
+  }
 }
+
+/** What the user chose, stored as it was made: the streaming choices survive the other mode. */
+data class SavedChoices(
+    val hr: Boolean,
+    val ecg: Boolean,
+    val acc: Boolean,
+    val mode: RecordingMode,
+    val wake: WakeChoice?,
+)
 
 /** The connected tracker as the screen shows it: who it is, whether it is here, and its battery. */
 data class TrackerView(

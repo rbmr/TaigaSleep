@@ -6,6 +6,7 @@ TaigaApp.kt 4
 alarm/AlarmActivity.kt 1
 alarm/AlarmScreen.kt 0
 components/BearDen.kt 0
+components/BulletList.kt 0
 components/Buttons.kt 0
 components/ChartTooltip.kt 0
 components/Components.kt 0

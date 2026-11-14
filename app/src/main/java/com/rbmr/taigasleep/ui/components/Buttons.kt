@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
@@ -186,7 +187,7 @@ fun TertiaryButton(
  * no track shows around it and it sits flush with the outer edge at either end. Every segment is
  * a [Pressable], so its touch target is 48 dp while the visible control is [SEGMENT_HEIGHT]. With
  * [fillWidth] the segments share the whole width, as in a settings row. A [floating] control casts a
- * shadow, for one that sits over scrolling content.
+ * shadow, for one that sits over scrolling content. A disabled control is dimmed and ignores taps.
  */
 @Composable
 fun SegmentedControl(
@@ -196,11 +197,15 @@ fun SegmentedControl(
     modifier: Modifier = Modifier,
     fillWidth: Boolean = false,
     floating: Boolean = false,
+    enabled: Boolean = true,
 ) {
   // The 48 dp box is the touch target; the track inside it is SEGMENT_HEIGHT tall and has no
   // padding of its own, so the selected segment (same height, same shape) covers it exactly.
   val shape = CircleShape
-  Box(modifier.height(48.dp), contentAlignment = Alignment.Center) {
+  Box(
+      modifier.height(48.dp).then(if (enabled) Modifier else Modifier.alpha(0.38f)),
+      contentAlignment = Alignment.Center,
+  ) {
     Box(
         Modifier.matchParentSize()
             .padding(vertical = (48.dp - SEGMENT_HEIGHT) / 2)
@@ -217,6 +222,7 @@ fun SegmentedControl(
             onClick = { onSelect(index) },
             modifier = if (fillWidth) Modifier.weight(1f) else Modifier,
             shape = shape,
+            enabled = enabled,
             role = Role.Tab,
             onClickLabel = option,
         ) {

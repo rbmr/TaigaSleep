@@ -8,9 +8,6 @@
   <string name="wake_trigger_hr">Wake on a rise in heart rate</string>
   <string name="wake_trigger_movement">Wake on movement</string>
   <string name="wake_trigger_none">Choose at least one signal. Without one, the alarm rings only at the end of the window.</string>
-  <string name="wake_trigger_movement_off">Turn on movement in the data to record to use it.</string>
-  <string name="wake_trigger_hr_off">Turn on heart rate in the data to record to use it.</string>
-  <string name="wake_on_device_note">Not available when the tracker stores the recording itself.</string>
   <string name="wake_time">%1$02d:%2$02d</string>
 
   <!-- The alarm itself. -->

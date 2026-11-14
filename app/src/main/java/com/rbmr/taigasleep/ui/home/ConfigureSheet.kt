@@ -27,9 +27,10 @@ import com.rbmr.taigasleep.ui.components.TaigaSheet
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
- * The configuration sheet, in up to three sections: the data to record, the recording mode and the
+ * The configuration sheet, in up to three sections: the recording mode, the data to record and the
  * smart alarm. A section appears only when the connected tracker offers a choice in it. Every
- * choice is stored as it is made.
+ * choice is stored as it is made. Only the mode drives the others: rows never appear, disappear or
+ * move, they enable and disable, and the choices made for streaming come back with it.
  *
  * Rows fill the sheet width and carry their own 16 dp inset, so headings and notes use the same
  * inset and every text starts on one edge.
@@ -52,9 +53,9 @@ internal fun ConfigureSheet(
                 .padding(bottom = space.l),
         verticalArrangement = Arrangement.spacedBy(space.l),
     ) {
+      if (config.modes.size > 1) ModeSection(config, onMode)
       DataSection(config, onHr, onEcg, onAcc)
-      if (config.offeredModes.size > 1) ModeSection(config, onMode)
-      if (RecordingMode.STREAM in config.offeredModes) WakeSection(config, onWake)
+      if (RecordingMode.STREAM in config.modes) WakeSection(config, onWake)
     }
   }
 }
@@ -85,12 +86,10 @@ private fun SwitchRow(
     title: String,
     checked: Boolean,
     enabled: Boolean = true,
-    subtitle: String? = null,
     onChange: (Boolean) -> Unit,
 ) {
   ListRow(
       title = title,
-      subtitle = subtitle,
       trailing = ListRowTrailing.Switch(checked),
       enabled = enabled,
       onClick = { onChange(!checked) },
@@ -104,20 +103,16 @@ private fun DataSection(
     onEcg: (Boolean) -> Unit,
     onAcc: (Boolean) -> Unit,
 ) {
+  val streaming = !config.onTracker
   Column {
     SectionTitle(stringResource(R.string.rec_data_title))
-    // A recording the tracker stores itself keeps heart rate only, so it cannot be turned off there.
-    SwitchRow(
-        title = stringResource(R.string.rec_config_hr),
-        checked = config.streams.hr,
-        enabled = !config.onTracker,
-        onChange = onHr,
-    )
+    SwitchRow(stringResource(R.string.rec_config_hr), config.streams.hr, onChange = onHr)
+    // The tracker stores heart rate only, so the other data is off there and cannot be chosen.
     if (config.canRecordEcg) {
-      SwitchRow(stringResource(R.string.rec_config_ecg), config.streams.ecg, onChange = onEcg)
+      SwitchRow(stringResource(R.string.rec_config_ecg), config.streams.ecg, streaming, onEcg)
     }
     if (config.canRecordAcc) {
-      SwitchRow(stringResource(R.string.rec_config_acc), config.streams.acc, onChange = onAcc)
+      SwitchRow(stringResource(R.string.rec_config_acc), config.streams.acc, streaming, onAcc)
     }
   }
 }
@@ -130,14 +125,12 @@ private fun ModeSection(config: StartConfig, onMode: (RecordingMode) -> Unit) {
     ModeRow(
         label = stringResource(R.string.rec_mode_stream),
         selected = !onTracker,
-        enabled = RecordingMode.STREAM in config.modes,
     ) {
       onMode(RecordingMode.STREAM)
     }
     ModeRow(
         label = stringResource(R.string.rec_mode_on_device),
         selected = onTracker,
-        enabled = RecordingMode.ON_DEVICE in config.modes,
     ) {
       onMode(RecordingMode.ON_DEVICE)
     }
@@ -150,77 +143,80 @@ private fun ModeSection(config: StartConfig, onMode: (RecordingMode) -> Unit) {
 }
 
 @Composable
-private fun ModeRow(label: String, selected: Boolean, enabled: Boolean, onSelect: () -> Unit) {
+private fun ModeRow(label: String, selected: Boolean, onSelect: () -> Unit) {
   ListRow(
       title = label,
       trailing = ListRowTrailing.Radio(selected),
-      enabled = enabled,
       onClick = onSelect,
   )
 }
 
 /**
  * The smart alarm: off until the user turns it on, and not usable for a recording the tracker
- * stores itself, because nothing streams to the phone then. It opens at a time and stays open for a
- * number of minutes, so moving it takes one field.
+ * stores itself, because nothing streams to the phone then. Its rows are always there and are
+ * disabled until the alarm can be used. It opens at a time and stays open for a number of minutes,
+ * so moving it takes one field.
  */
 @Composable
 private fun WakeSection(config: StartConfig, onWake: (WakeChoice?) -> Unit) {
-  val onTracker = config.onTracker
-  val wake = config.wake?.takeIf { !onTracker }
+  val wake = config.wake
+  val shown = wake ?: DEFAULT_WAKE
+  val on = wake != null
   Column {
     SectionTitle(stringResource(R.string.wake_title))
     SwitchRow(
         title = stringResource(R.string.wake_enable),
-        checked = wake != null,
-        enabled = !onTracker,
-        subtitle = if (onTracker) stringResource(R.string.wake_on_device_note) else null,
+        checked = on,
+        enabled = !config.onTracker,
     ) {
-      onWake(if (wake == null) DEFAULT_WAKE else null)
+      onWake(if (on) null else DEFAULT_WAKE)
     }
-    if (wake != null) {
-      TimeRow(stringResource(R.string.wake_start), wake.startMinute) { picked ->
-        onWake(wake.copy(startMinute = picked))
-      }
-      LengthRow(wake.lengthMinutes) { onWake(wake.copy(lengthMinutes = it)) }
-      SwitchRow(
-          title = stringResource(R.string.wake_trigger_hr),
-          checked = wake.heartRate && config.streams.hr,
-          enabled = config.streams.hr,
-          subtitle = if (config.streams.hr) null else stringResource(R.string.wake_trigger_hr_off),
-      ) {
-        onWake(wake.copy(heartRate = it))
-      }
+    TimeRow(stringResource(R.string.wake_start), shown.startMinute, on) { picked ->
+      onWake(shown.copy(startMinute = picked))
+    }
+    LengthRow(shown.lengthMinutes, on) { onWake(shown.copy(lengthMinutes = it)) }
+    SwitchRow(
+        title = stringResource(R.string.wake_trigger_hr),
+        checked = on && shown.heartRate && config.streams.hr,
+        enabled = on && config.streams.hr,
+    ) {
+      onWake(shown.copy(heartRate = it))
+    }
+    if (config.canRecordAcc) {
       SwitchRow(
           title = stringResource(R.string.wake_trigger_movement),
-          checked = wake.movement && config.streams.acc,
-          enabled = config.streams.acc,
-          subtitle =
-              if (config.streams.acc) null else stringResource(R.string.wake_trigger_movement_off),
+          checked = on && shown.movement && config.streams.acc,
+          enabled = on && config.streams.acc,
       ) {
-        onWake(wake.copy(movement = it))
+        onWake(shown.copy(movement = it))
       }
-      if (!wake.triggers) SectionNote(stringResource(R.string.wake_trigger_none))
     }
+    if (on && !shown.triggers) SectionNote(stringResource(R.string.wake_trigger_none))
   }
 }
 
 /** How long the window stays open: one choice out of a few lengths, the current one included. */
 @Composable
-private fun LengthRow(minutes: Int, onChange: (Int) -> Unit) {
+private fun LengthRow(minutes: Int, enabled: Boolean, onChange: (Int) -> Unit) {
   val space = MaterialTheme.taiga.space
   val lengths = (WakeChoice.LENGTH_CHOICES + minutes).distinct().sorted()
   Column(
       modifier = Modifier.padding(horizontal = space.m, vertical = space.xs),
       verticalArrangement = Arrangement.spacedBy(space.xs),
   ) {
-    Text(text = stringResource(R.string.wake_length), style = MaterialTheme.taiga.text.body)
+    Text(
+        text = stringResource(R.string.wake_length),
+        style = MaterialTheme.taiga.text.row,
+        color =
+            if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.taiga.disabled,
+    )
     SegmentedControl(
         options = lengths.map { stringResource(R.string.wake_minutes, it) },
         selectedIndex = lengths.indexOf(minutes),
         onSelect = { onChange(lengths[it]) },
         modifier = Modifier.fillMaxWidth(),
         fillWidth = true,
+        enabled = enabled,
     )
   }
 }
@@ -228,12 +224,13 @@ private fun LengthRow(minutes: Int, onChange: (Int) -> Unit) {
 /** The time of day the window opens at; the picker is one dialog and one value. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimeRow(label: String, minute: Int, onChange: (Int) -> Unit) {
+private fun TimeRow(label: String, minute: Int, enabled: Boolean, onChange: (Int) -> Unit) {
   var editing by remember { mutableStateOf(false) }
   ListRow(
       title = label,
       value = stringResource(R.string.wake_time, minute / 60, minute % 60),
       trailing = ListRowTrailing.None,
+      enabled = enabled,
       onClick = { editing = true },
   )
   if (editing) {

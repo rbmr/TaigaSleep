@@ -183,7 +183,7 @@ private fun streamsText(config: StartConfig): String {
   if (config.streams.hr) parts += stringResource(R.string.rec_active_hr)
   if (config.streams.ecg) parts += stringResource(R.string.rec_active_ecg)
   if (config.streams.acc) parts += stringResource(R.string.rec_active_acc)
-  if (config.offeredModes.size > 1) {
+  if (config.modes.size > 1) {
     parts +=
         stringResource(
             if (config.onTracker) R.string.rec_mode_summary_on_device

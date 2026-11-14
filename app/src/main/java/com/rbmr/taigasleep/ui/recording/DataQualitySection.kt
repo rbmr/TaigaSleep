@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisResultDto
+import com.rbmr.taigasleep.ui.components.BulletList
 import com.rbmr.taigasleep.ui.components.InfoContent
 import com.rbmr.taigasleep.ui.components.Section
 import com.rbmr.taigasleep.ui.components.ShareBar
@@ -51,13 +52,7 @@ internal fun DataQualityStatsSection(analysis: AnalysisResultDto) {
             text = stringResource(R.string.night_notes),
             style = MaterialTheme.taiga.text.section,
         )
-        analysis.warnings.forEach { note ->
-          Text(
-              text = note,
-              style = MaterialTheme.taiga.text.body,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
+        BulletList(analysis.warnings)
       }
     }
   }
