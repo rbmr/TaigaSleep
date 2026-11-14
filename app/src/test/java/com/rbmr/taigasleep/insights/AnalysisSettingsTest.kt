@@ -38,15 +38,4 @@ class AnalysisSettingsTest {
         ),
     )
   }
-
-  @Test
-  fun movingAnAlgorithmStopsAtTheEndsAndIgnoresUnknownIds() {
-    val order = listOf("wav2sleep", "sleep-ecg", "baseline")
-
-    assertEquals(listOf("sleep-ecg", "wav2sleep", "baseline"), movePreference(order, "sleep-ecg", -1))
-    assertEquals(listOf("wav2sleep", "baseline", "sleep-ecg"), movePreference(order, "sleep-ecg", 1))
-    assertEquals(order, movePreference(order, "wav2sleep", -1))
-    assertEquals(order, movePreference(order, "baseline", 1))
-    assertEquals(order, movePreference(order, "missing", 1))
-  }
 }

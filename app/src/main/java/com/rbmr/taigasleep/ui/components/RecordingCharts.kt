@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -28,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,6 +45,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -56,10 +57,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -75,14 +76,15 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.HrSeriesDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.insights.applicableStages
-import com.rbmr.taigasleep.insights.formatSeconds
 import com.rbmr.taigasleep.insights.stageLabelRes
 import com.rbmr.taigasleep.insights.stageSeconds
+import com.rbmr.taigasleep.insights.formatDuration
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.serialization.json.JsonObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 enum class QualityBand {
@@ -113,16 +115,6 @@ fun qualityColor(band: QualityBand): Color =
     }
 
 @Composable
-private fun qualityContainer(band: QualityBand): Color =
-    when (band) {
-      QualityBand.EXCELLENT,
-      QualityBand.GOOD -> MaterialTheme.taiga.okContainer
-      QualityBand.FAIR -> MaterialTheme.taiga.warnContainer
-      QualityBand.POOR -> MaterialTheme.taiga.badContainer
-      QualityBand.NONE -> MaterialTheme.colorScheme.surfaceVariant
-    }
-
-@Composable
 fun stageColor(stage: String): Color =
     when (stage) {
       "wake" -> MaterialTheme.taiga.stageWake
@@ -133,32 +125,6 @@ fun stageColor(stage: String): Color =
       "unknown" -> MaterialTheme.colorScheme.outlineVariant
       else -> MaterialTheme.taiga.stageLight
     }
-
-@Composable
-fun ScoreBadge(
-    score: Double?,
-    label: String,
-    emptyLabel: String,
-    modifier: Modifier = Modifier,
-) {
-  val band = qualityBand(score)
-  Surface(
-      modifier = modifier,
-      shape = RoundedCornerShape(50),
-      color = qualityContainer(band),
-      contentColor = qualityColor(band),
-  ) {
-    Text(
-        text =
-            if (score == null) emptyLabel
-            else stringResource(R.string.history_score_badge, label, score.roundToInt()),
-        style = MaterialTheme.typography.labelLarge,
-        modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
-  }
-}
 
 @Composable
 fun ScoreRing(
@@ -200,7 +166,7 @@ fun ScoreRing(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
       Text(
-          text = score?.roundToInt()?.toString() ?: "—",
+          text = score?.roundToInt()?.toString() ?: "-",
           style = MaterialTheme.typography.headlineSmall,
           color = ink,
       )
@@ -223,6 +189,7 @@ fun ScoreRing(
 fun StageBar(
     segments: List<StageSegmentDto>,
     modifier: Modifier = Modifier,
+    height: Dp = 10.dp,
     description: String = stringResource(R.string.history_stage_bar_description),
 ) {
   val visible = segments.filter { it.count > 0 }
@@ -230,7 +197,7 @@ fun StageBar(
       modifier =
           modifier
               .fillMaxWidth()
-              .height(10.dp)
+              .height(height)
               .clip(RoundedCornerShape(50))
               .background(MaterialTheme.colorScheme.surfaceVariant)
               .semantics { contentDescription = description },
@@ -247,6 +214,29 @@ fun StageBar(
       }
     }
   }
+}
+
+/** The smallest y span a series axis gets, in the unit of the series, so flat data has room. */
+internal const val SERIES_MIN_SPAN = 10.0
+
+/**
+ * The y-axis of a series chart: the data's range inside a span of at least [SERIES_MIN_SPAN],
+ * centred on the data. A nearly flat series therefore spreads over a readable axis instead of
+ * collapsing onto one value.
+ */
+internal fun seriesAxis(low: Double, high: Double): ClosedFloatingPointRange<Double> {
+  val centre = (low + high) / 2
+  val span = max(high - low, SERIES_MIN_SPAN)
+  return (centre - span / 2)..(centre + span / 2)
+}
+
+/**
+ * The five tick values of [axis] from its top to its bottom, rounded to whole numbers. The axis is
+ * at least [SERIES_MIN_SPAN] wide, so no two labels of one axis can round to the same value.
+ */
+internal fun seriesAxisTicks(axis: ClosedFloatingPointRange<Double>): List<Int> {
+  val span = axis.endInclusive - axis.start
+  return (0..4).map { index -> (axis.endInclusive - span * index / 4.0).roundToInt() }
 }
 
 private data class HourTick(val timeMs: Long, val fraction: Float)
@@ -289,13 +279,46 @@ private fun epochTimeMs(startUnixMs: Long, totalSeconds: Long, pointCount: Int, 
   return startUnixMs + (index * epochMs).toLong()
 }
 
+/**
+ * The title line of a chart card with an optional trailing action. The card gives it no top
+ * padding: the title's own inset and the 48 dp action decide the line's height.
+ */
+@Composable
+fun ChartHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    trailing: @Composable () -> Unit = {},
+) {
+  val space = MaterialTheme.taiga.space
+  Row(
+      modifier = modifier.fillMaxWidth().padding(start = space.m, end = space.m),
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+        text = title,
+        style = MaterialTheme.taiga.text.row,
+        modifier = Modifier.weight(1f).padding(vertical = space.s),
+    )
+    trailing()
+  }
+}
+
 @Composable
 fun ChartExpandButton(onClick: () -> Unit) {
-  IconButton(onClick = onClick) {
-    Icon(
-        imageVector = Icons.Outlined.Fullscreen,
-        contentDescription = stringResource(R.string.night_chart_fullscreen),
-    )
+  // The glyph sits in a 48 dp target; pull the target out by its inset so the glyph lines up
+  // with the right edge of the content.
+  Pressable(
+      onClick = onClick,
+      shape = CircleShape,
+      role = Role.Button,
+      modifier = Modifier.offset(x = 12.dp),
+  ) {
+    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+      Icon(
+          imageVector = Icons.Outlined.Fullscreen,
+          contentDescription = stringResource(R.string.night_chart_fullscreen),
+      )
+    }
   }
 }
 
@@ -338,11 +361,13 @@ fun ChartFullscreenDialog(
               style = MaterialTheme.typography.titleLarge,
               modifier = Modifier.weight(1f),
           )
-          IconButton(onClick = onDismiss) {
-            Icon(
-                imageVector = Icons.Outlined.Close,
-                contentDescription = stringResource(R.string.night_chart_close_fullscreen),
-            )
+          Pressable(onClick = onDismiss, shape = CircleShape, role = Role.Button) {
+            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+              Icon(
+                  imageVector = Icons.Outlined.Close,
+                  contentDescription = stringResource(R.string.night_chart_close_fullscreen),
+              )
+            }
           }
         }
         content(Modifier.weight(1f).fillMaxWidth())
@@ -385,7 +410,7 @@ private fun TimeChart(
   val leftPx = with(density) { leftLabelWidth.toPx() }
   val topPx = with(density) { (if (large) 2.dp else 8.dp).toPx() }
   val bottomPx = with(density) { (if (large) 26.dp else 22.dp).toPx() }
-  val labelSp = if (large) 13.sp else 8.sp
+  val labelSp = if (large) 13.sp else 12.sp
   val gridColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f)
   val axisColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
   val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -431,10 +456,18 @@ private fun TimeChart(
             color = labelColor.toArgb()
             textSize = with(density) { labelSp.toPx() }
           }
+      // The lane lines and the grid are dashed, so they never read as data.
+      val dash = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx()))
 
       for (line in horizontalLines) {
         val y = plot.y(line)
-        drawLine(gridColor, Offset(plot.left, y), Offset(plot.left + plot.width, y), 1.dp.toPx())
+        drawLine(
+            color = gridColor,
+            start = Offset(plot.left, y),
+            end = Offset(plot.left + plot.width, y),
+            strokeWidth = 1.dp.toPx(),
+            pathEffect = dash,
+        )
       }
       if (ticks.isEmpty() && startUnixMs > 0) {
         labelPaint.textAlign = Paint.Align.LEFT
@@ -452,17 +485,32 @@ private fun TimeChart(
             labelPaint,
         )
       } else if (ticks.isNotEmpty()) {
+        // Every hour gets a grid line, but a label only when it clears the one before it, so
+        // a narrow chart names every second hour instead of printing labels over each other.
+        val gap = 8.dp.toPx()
+        var lastRight = Float.NEGATIVE_INFINITY
         for (tick in ticks) {
           val x = plot.x(tick.fraction)
           drawLine(gridColor, Offset(x, plot.top), Offset(x, plot.top + plot.height), 1.dp.toPx())
-          labelPaint.textAlign =
+          val text = clock(tick.timeMs)
+          val textWidth = labelPaint.measureText(text)
+          val align =
               when {
                 tick.fraction <= 0.02f -> Paint.Align.LEFT
                 tick.fraction >= 0.98f -> Paint.Align.RIGHT
                 else -> Paint.Align.CENTER
               }
+          val textLeft =
+              when (align) {
+                Paint.Align.LEFT -> x
+                Paint.Align.RIGHT -> x - textWidth
+                else -> x - textWidth / 2f
+              }
+          if (textLeft < lastRight + gap || textLeft + textWidth > size.width) continue
+          lastRight = textLeft + textWidth
+          labelPaint.textAlign = align
           drawContext.canvas.nativeCanvas.drawText(
-              clock(tick.timeMs),
+              text,
               x,
               plot.top + plot.height + labelPaint.textSize + 4.dp.toPx(),
               labelPaint,
@@ -562,7 +610,7 @@ fun SleepStagesChart(
       pointCount = total,
       yLabels = yLabels,
       horizontalLines = horizontalLines,
-      leftLabelWidth = if (fullscreen) 88.dp else 48.dp,
+      leftLabelWidth = if (fullscreen) 96.dp else 68.dp,
       description = description,
       valueAt = { index -> labels[stageAtEpoch(segments, index)] ?: unknownLabel },
       large = fullscreen,
@@ -643,10 +691,14 @@ fun HeartRateChart(
       )
   val line = MaterialTheme.taiga.chartHr
   val noValue = stringResource(R.string.night_chart_no_value)
+  // A flat series still gets a readable axis: at least 10 bpm, centred on the samples, with whole
+  // tick values that never repeat. The unit sits on the top label, so the others stay plain numbers.
+  val axis = seriesAxis(low, high)
   val yLabels =
-      (0..4).map { index ->
-        val fraction = index / 4f
-        fraction to (high - (high - low) * fraction).roundToInt().toString()
+      seriesAxisTicks(axis).mapIndexed { index, value ->
+        val label = value.toString()
+        (index / 4f) to
+            if (index == 0) stringResource(R.string.night_chart_bpm, label) else label
       }
   TimeChart(
       startUnixMs = series.start_unix_ms,
@@ -654,7 +706,7 @@ fun HeartRateChart(
       pointCount = series.count,
       yLabels = yLabels,
       horizontalLines = (0..4).map { it / 4f },
-      leftLabelWidth = if (fullscreen) 64.dp else 46.dp,
+      leftLabelWidth = if (fullscreen) 84.dp else 60.dp,
       description = description,
       valueAt = { index ->
         points.getOrNull(index)?.let { "${it.roundToInt()} bpm" } ?: noValue
@@ -664,10 +716,9 @@ fun HeartRateChart(
           if (fullscreen) modifier.fillMaxSize()
           else modifier.fillMaxWidth().height(chartHeight.dp),
   ) { plot, selected ->
-    val span = high - low
+    val span = axis.endInclusive - axis.start
     fun y(value: Double): Float =
-        if (span < 0.001) plot.y(0.5f)
-        else plot.y(((high - value) / span).toFloat())
+        plot.y(((axis.endInclusive - value) / span).toFloat())
     fun x(index: Int): Float =
         if (series.count <= 1) plot.x(0.5f)
         else plot.x(index.toFloat() / (series.count - 1).toFloat())
@@ -698,6 +749,10 @@ fun HeartRateChart(
   }
 }
 
+/**
+ * One row per stage of the timeline: its swatch, its name, how long it lasted and its share of the
+ * recording. The stacked bar above it shows the same timeline in order.
+ */
 @Composable
 fun StageBreakdown(
     segments: List<StageSegmentDto>,
@@ -705,42 +760,28 @@ fun StageBreakdown(
     modifier: Modifier = Modifier,
     capabilities: JsonObject? = null,
 ) {
+  val space = MaterialTheme.taiga.space
   val durations = stageSeconds(segments, epochSeconds)
   val total = durations.values.sum().coerceAtLeast(1)
   val stages = applicableStages(segments, capabilities)
-  Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+  Column(modifier, verticalArrangement = Arrangement.spacedBy(space.s)) {
     for (stage in stages) {
       val seconds = durations[stage] ?: 0L
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier.size(10.dp).background(stageColor(stage), CircleShape)
-        )
-        Spacer(Modifier.width(9.dp))
+      val share = (seconds.toDouble() / total.toDouble() * 100).roundToInt()
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).background(stageColor(stage), CircleShape))
+        Spacer(Modifier.width(space.s))
         Text(
             text = stringResource(stageLabelRes(stage)),
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.taiga.text.body,
             modifier = Modifier.weight(1f),
         )
+        Text(text = formatDuration(seconds * 1000L), style = MaterialTheme.taiga.text.body)
+        Spacer(Modifier.width(space.m))
         Text(
-            text = formatSeconds(seconds.toDouble()),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Spacer(Modifier.width(10.dp))
-        Text(
-            text = "${(seconds.toDouble() / total.toDouble() * 100).roundToInt()}%",
-            style = MaterialTheme.typography.bodySmall,
+            text = "${share}%",
+            style = MaterialTheme.taiga.text.meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(38.dp),
-        )
-      }
-      Box(
-          Modifier.fillMaxWidth().padding(start = 19.dp).height(4.dp)
-              .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
-      ) {
-        Box(
-            Modifier.fillMaxWidth((seconds.toFloat() / total.toFloat()).coerceIn(0f, 1f))
-                .fillMaxHeight()
-                .background(stageColor(stage), RoundedCornerShape(50))
         )
       }
     }
@@ -748,7 +789,7 @@ fun StageBreakdown(
 }
 
 private fun clock(ms: Long): String =
-    if (ms <= 0) "—"
+    if (ms <= 0) "-"
     else SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
 
 @Preview(name = "Light", widthDp = 360)
@@ -766,7 +807,6 @@ private fun RecordingChartsPreview() {
       )
   PreviewTheme {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-      ScoreBadge(82.0, "Sleep score", "No sleep score")
       ScoreRing(82.0, "Sleep score", size = 72)
     }
     StageBar(segments)

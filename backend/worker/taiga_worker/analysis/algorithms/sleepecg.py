@@ -53,9 +53,8 @@ INFO = AlgorithmInfo(
     version="1.1.0",
     name="SleepECG",
     description=(
-        "RR/ECG heartbeat-based stager from SleepECG. The bundled classifiers "
-        "distinguish Wake/REM/NREM or Wake/Sleep; deep sleep is never invented. "
-        "Experimental; not clinically validated."
+        "Uses the time between heartbeats to estimate awake, REM and light sleep. "
+        "It does not tell deep sleep apart from light sleep."
     ),
     license="BSD-3-Clause",
     citation=(
@@ -289,7 +288,7 @@ def _load_classifier(name: str):
     except Exception as exc:  # noqa: BLE001 - optional extra or broken install
         raise AnalysisError(
             "algorithm_unavailable",
-            "cannot import SleepECG/Keras/torch; install the worker's "
+            "cannot import SleepECG/Keras/torch. Install the worker's "
             "sleepecg extra. If the install is fine, raise TAIGA_JOB_MEMORY_MB "
             f"(SleepECG needs about 1.5 GiB of address space). Import error: "
             f"{type(exc).__name__}: {exc}",
@@ -498,7 +497,7 @@ def build_result(
     model_epochs = class_probs.shape[0]
     scored = min(canonical, model_epochs)
     if scored < 1:
-        raise AnalysisError("insufficient_beats", "SleepECG scored no epochs")
+        raise AnalysisError("insufficient_beats", "SleepECG scored no 30-second intervals")
 
     class_probs = class_probs[:scored]
     undefined = undefined[:scored]
@@ -531,13 +530,13 @@ def build_result(
     stageable = ~unknown
     stageable_epochs = int(np.count_nonzero(stageable))
     if stageable_epochs == 0:
-        raise AnalysisError("insufficient_data", "no 30 s epoch has usable RR/ECG contact")
+        raise AnalysisError("insufficient_data", "no 30-second interval has usable RR/ECG contact")
     if stageable_epochs < int(config["min_usable_epochs"]):
         needed = int(config["min_usable_epochs"]) * 30 / 60.0
         raise AnalysisError(
             "insufficient_data",
-            f"SleepECG needs at least {needed:g} min of usable beats; "
-            f"found {stageable_epochs * 30 / 60.0:g} min",
+            f"SleepECG needs at least {needed:g} min of usable beats. "
+            f"Found {stageable_epochs * 30 / 60.0:g} min",
         )
 
     smoothed = smooth_probabilities(
@@ -600,28 +599,28 @@ class SleepEcgStager(Stager):
 
         mode = classifier.stages_mode
         messages = [
-            f"classifier {config['classifier']} ({mode}); "
+            f"classifier {config['classifier']} ({mode}). "
             + (
-                "deep sleep is not distinguished"
+                "Deep sleep is not distinguished"
                 if mode == "wake-rem-nrem"
-                else "only wake and sleep are distinguished"
+                else "Only wake and sleep are distinguished"
             ),
             f"heartbeats from {beat_source.upper()} ({prepared.beats} beats)",
         ]
         if prepared.unknown_epochs:
             messages.append(
-                f"{prepared.artifact_epochs} epoch(s) have low beat/contact quality; "
+                f"{prepared.artifact_epochs} 30-second interval(s) have low beat or contact quality. "
                 f"{prepared.unknown_epochs} are unknown and the rest are artifacts"
             )
         if config["age"] is None or config["gender"] is None:
             messages.append(
-                "age/gender were not provided; SleepECG metadata features are masked "
-                "and its wake/sleep prior may be less reliable"
+                "age and gender were not provided. SleepECG ignores them "
+                "and its wake/sleep estimate may be less reliable"
             )
         if int(config["smooth_window_epochs"]) > 1:
             messages.append(
                 f"smoothed stage probabilities over {config['smooth_window_epochs']} "
-                f"epochs ({int(config['smooth_window_epochs']) * 30 / 60.0:g} min)"
+                f"intervals ({int(config['smooth_window_epochs']) * 30 / 60.0:g} min)"
             )
 
         from sleepecg import __version__ as sleepecg_version

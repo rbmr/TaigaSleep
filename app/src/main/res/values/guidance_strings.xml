@@ -13,7 +13,7 @@
   <string name="g_state_not_yet">Not yet</string>
 
   <!-- Intro -->
-  <string name="g_intro_body">Phones stop background apps to save battery. A sleep recording runs for hours with the screen off, so if the system stops Taiga at 3 am, that night is lost. A few minutes of setup makes this far less likely.</string>
+  <string name="g_intro_body">Phones stop background apps to save battery. A sleep recording runs for hours with the screen off, so if the system stops Taiga at 3 am, that recording is lost. A few minutes of setup makes this far less likely.</string>
   <string name="g_flow_oneplus">OxygenOS / ColorOS</string>
   <string name="g_flow_samsung">Samsung One UI</string>
   <string name="g_flow_generic">Generic Android</string>
@@ -23,7 +23,6 @@
   <string name="g_preview_note">Debug preview device</string>
   <string name="g_not_my_os">Not my OS</string>
   <string name="g_pick_os_title">Choose your OS</string>
-  <string name="g_i_have_done_this">I have done this</string>
 
   <!-- Summary -->
   <string name="g_verdict_ready">Ready to record</string>
@@ -47,7 +46,7 @@
   <string name="g_samsung_unrestricted_title">Set battery to Unrestricted</string>
   <string name="g_samsung_unrestricted_description">Restricted stops the recorder within about a minute, without any message.</string>
   <string name="g_samsung_sleeping_title">Keep Taiga out of sleeping apps</string>
-  <string name="g_samsung_sleeping_description">Samsung can put rarely used apps to sleep. Keeping Taiga out of that list is a cheap safety margin.</string>
+  <string name="g_samsung_sleeping_description">Samsung can put rarely used apps to sleep. Keeping Taiga off that list protects the recording.</string>
   <string name="g_samsung_sleeping_g1">Open Settings, then Battery, then Background usage limits.</string>
   <string name="g_samsung_sleeping_g2">Make sure Taiga Sleep is not under Sleeping apps or Deep sleeping apps.</string>
   <string name="g_samsung_sleeping_g3">Turn off Put unused apps to sleep.</string>
@@ -66,7 +65,7 @@
   <!-- Shared -->
   <string name="g_recents_title">Lock Taiga in recent apps</string>
   <string name="g_charge_title">Charge the phone overnight</string>
-  <string name="g_charge_description">Phones are much less aggressive about stopping apps while charging. It is the cheapest extra protection you have.</string>
+  <string name="g_charge_description">Phones stop apps less often while charging. This is an easy way to protect the recording.</string>
   <string name="g_charge_g1">Plug in the phone before you go to sleep.</string>
 
 </resources>

@@ -1,7 +1,6 @@
 package com.rbmr.taigasleep.sync
 
 import android.content.Context
-import com.rbmr.taigasleep.insights.AnalysisSettingsStore
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.rbmr.taigasleep.R
@@ -15,7 +14,6 @@ import com.rbmr.taigasleep.backend.TaigaNetworkException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.label
 import com.rbmr.taigasleep.backend.remoteErrorForCode
-import com.rbmr.taigasleep.profile.recordingStartDate
 import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.RecordingRecovery
 import com.rbmr.taigasleep.recording.RecordingService
@@ -200,31 +198,12 @@ class UploadWorker(
               cacheDir = File(context.filesDir, "upload-cache/$localId"),
           )
           .run()
-      val settings = AnalysisSettingsStore.of(context).settings.value
-      val started =
-          try {
-            AnalysisService.startAuto(
-                api,
-                localId,
-                meta.config,
-                settings,
-                context.appContainer.personalDataStore.data.value,
-                recordingStartDate(meta.startUtcMs, meta.timezone),
-            )
-          } catch (e: TaigaHttpException) {
-            // The bytes are safe on the server and only the analysis was refused, for example
-            // because no worker offers the algorithm yet. The retry asks for it again.
-            if (e.status != 422) throw e
-            store.markFailed(localId, UploadFailure.ANALYSIS, e.message, account)
-            RawRetention.enforce(context)
-            return Result.failure()
-          }
-      store.markProcessing(localId, account)
+      // The recording is on the server and nothing waits for it here: the analysis is the next
+      // catch-up's, which looks at what this recording has and asks for it only when it has none.
+      store.markUploaded(localId, account)
       // The server has the bytes now, so an immediate or overdue cleanup may run.
       RawRetention.enforce(context)
-      // The recording stays in the processing state and nothing waits for it: while the app is open the
-      // realtime stream reports the result, otherwise the next open reads it. With automatic analysis
-      // off (started is null) the recording is only stored and can be analysed manually.
+      context.appContainer.syncService.catchUp(CatchUpReason.UPLOAD_FINISHED, localId)
       Result.success()
     } catch (e: TaigaUnauthorizedException) {
       if (remote.accountKey == account) remote.logout()

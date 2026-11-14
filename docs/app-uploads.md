@@ -38,9 +38,42 @@ There are two stores, and one owner per fact:
 History and the night screen read the recordings from disk joined with those rows, in one
 query. See [`architecture.md`](architecture.md#analyses-and-results).
 
-## Automatic upload
+## Automatic upload and analysis
 
-Automatic upload is a master checkbox with two optional restrictions:
+Automatic upload and automatic analysis are the same kind of automation: a **catch-up**. Each one
+looks for all the work it has not done yet and does it, so neither depends on having seen an event.
+
+- **Upload**: every recording that is on this phone, finished (not recording and not still on the
+  tracker) and not uploaded to the active account is queued. A night whose upload failed is queued
+  again when waiting can fix it (network, login, version) and, for a server failure, after six
+  hours. A failure of the phone (a full disk) is left to the user.
+- **Analysis**: every recording the active account has, with no analysis at all, gets one with the
+  first installed method of the preferred order that the recording can feed. A night with a queued,
+  running or finished analysis gets nothing.
+
+A catch-up runs when:
+
+| Event | What is checked |
+| --- | --- |
+| A recording finishes and is saved | That recording, for upload |
+| An upload finishes | That recording, for analysis |
+| A switch is turned on or off, or Wi-Fi only or charging only changes | Everything |
+| The app process starts, or the app is opened | Everything |
+| The server connection comes back, or the account changes | Everything |
+| Every six hours (a periodic job) | Everything, as a safety net |
+
+A catch-up is idempotent. An upload is unique work per recording, so a night that is queued or
+running is not queued twice; the analysis check asks the server what the night has before it
+requests anything, so no analysis is requested twice. Catch-ups run one after the other, and a full
+one that is already waiting absorbs the next. Switching a setting off stops new automatic work and
+the queued automatic uploads; an upload or analysis the user started keeps running.
+
+A failed analysis is asked for again only when the failure was about the worker (a timeout, a lost
+lease), after six hours and at most twice. A failure the worker names with a code (not enough data,
+a missing stream, bad ECG) is about the recording and is not repeated; the night screen offers
+another algorithm.
+
+The upload settings:
 
 | Setting | Effect |
 | --- | --- |
@@ -109,8 +142,8 @@ or losing the network therefore does not restart a night from zero. The server's
 chunk limit is configuration, not part of the API; a `413` makes the uploader halve
 its chunks and continue.
 
-The upload worker ends as soon as the analysis has been requested, with the night in
-the processing state. Nothing polls and nothing runs in the background for a result.
+The upload worker ends once the upload is complete and the analysis check has run, with the
+night in the processing state when an analysis was requested. Nothing polls and nothing runs in the background for a result.
 While the app is on screen it keeps PocketBase's realtime stream (`GET /api/realtime`, see
 [`api.md`](api.md#realtime)) open:
 
@@ -160,7 +193,7 @@ data-quality value.
 ## Stager selection
 
 The app owns an ordered preference list (`wav2sleep`, `sleep-ecg`, `baseline`).
-After an upload it fetches the installed algorithms and their stream
+When the automatic analysis catches up it fetches the installed algorithms and their stream
 requirements from the backend, filters out those the recording cannot feed, and
 requests the first compatible id and version. wav2sleep is the default for
 recordings with ECG; SleepECG is the best HR-only option; `baseline` is the safe
@@ -169,11 +202,12 @@ itself, but the app always names the one it chose.
 
 **Settings → Analysis** controls the automatic flag and the preferred order.
 Both are app-wide, not per account. Automatic analysis is on by default; turning
-it off stores the night on the server without requesting a result. The order
+it off stores the night on the server without requesting a result, and turning it on analyses every
+uploaded night that has none. The order
 dialog lists the algorithms the server reports and lets the user move one up or
 down. When a preferred algorithm is not installed or cannot use the recording,
 the next compatible one is used; if none is reported, the built-in baseline is
-the fallback. A failed run is not replaced automatically: the analysis sheet
+the fallback. A run that failed for a lasting reason is not replaced automatically: the analysis sheet
 offers another algorithm or the existing retry. A manual request can ask for any
 compatible algorithm and ignores the automatic flag and order. The backend
 removes duplicates by algorithm, version and parameters.
@@ -194,8 +228,8 @@ The automatic flag and the ordered preference list live in Settings → Analysis
 - A recording that was killed mid-night is marked **interrupted** on the next app
   start and then uploads like any other finished night. A recording the phone still
   marks as live is not closed that way: the service resumes it instead.
-- A recording that is still live is never uploaded. The `RecordingService`
-  enqueues it when it finishes; uploading an open file would race the writer.
+- A recording that is still live is never uploaded. The catch-up that the finished
+  recording triggers queues it; uploading an open file would race the writer.
 - A recording in `fetch_pending` state is not finished either: part of the night is
   still on the tracker. It is not uploaded and its raw files are not cleaned up
   until the fetch completes; the recording is then queued as a new upload with

@@ -2,37 +2,29 @@ package com.rbmr.taigasleep.ui.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
@@ -49,18 +41,16 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.profile.PersonalData
 import com.rbmr.taigasleep.profile.Sex
+import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.SettingsDivider
-import com.rbmr.taigasleep.ui.components.SettingsGroup
-import com.rbmr.taigasleep.ui.components.SettingsRow
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.components.TaigaScreen
+import com.rbmr.taigasleep.ui.theme.taiga
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -74,8 +64,8 @@ private const val MIN_WEIGHT_KG = 1.0
 private const val MAX_WEIGHT_KG = 500.0
 
 /**
- * Settings → Personal data. The optional values SleepECG uses as model features, kept on the phone.
- * A field can always be left empty or cleared, and the page has room for more fields.
+ * Settings → Personal details. Optional values that some analysis methods use, kept on the
+ * phone. A field can always be left empty or cleared, and the page has room for more fields.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,78 +81,37 @@ fun PersonalDataScreen(onBack: () -> Unit) {
   var showBedtime by rememberSaveable { mutableStateOf(false) }
   var showWakeTime by rememberSaveable { mutableStateOf(false) }
 
-  Scaffold(
-      containerColor = MaterialTheme.colorScheme.background,
-      topBar = {
-        TopAppBar(
-            title = { Text(stringResource(R.string.personal_title)) },
-            colors =
-                TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                ),
-            navigationIcon = {
-              IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = stringResource(R.string.personal_back),
-                )
-              }
-            },
-        )
-      },
-  ) { padding ->
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-    ) {
-      item {
-        SettingsGroup(stringResource(R.string.personal_group)) {
-          SettingsRow(
-              title = stringResource(R.string.personal_date_of_birth_title),
-              subtitle = dateOfBirthLabel(data),
-              onClick = { showDate = true },
-          )
-          SettingsDivider()
-          SettingsRow(
-              title = stringResource(R.string.personal_sex_title),
-              subtitle = sexLabel(data.sex),
-              onClick = { showSex = true },
-          )
-          SettingsDivider()
-          SettingsRow(
-              title = stringResource(R.string.personal_weight_title),
-              subtitle = weightLabel(data),
-              onClick = { showWeight = true },
-          )
-          SettingsDivider()
-          SettingsRow(
-              title = stringResource(R.string.personal_usual_bedtime_title),
-              subtitle = timeLabel(data.usualBedtime),
-              onClick = { showBedtime = true },
-          )
-          SettingsDivider()
-          SettingsRow(
-              title = stringResource(R.string.personal_usual_wake_time_title),
-              subtitle = timeLabel(data.usualWakeTime),
-              onClick = { showWakeTime = true },
-          )
-        }
-      }
-      item {
-        TaigaCard {
-          Text(
-              text = stringResource(R.string.personal_privacy_title),
-              style = MaterialTheme.typography.titleLarge,
-          )
-          Spacer(Modifier.height(8.dp))
-          Text(
-              text = stringResource(R.string.personal_privacy_body),
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
-      }
+  TaigaScreen(title = stringResource(R.string.personal_title), onBack = onBack) {
+    TaigaCard(contentPadding = PaddingValues(0.dp)) {
+      ListRow(
+          title = stringResource(R.string.personal_date_of_birth_title),
+          value = dateOfBirthLabel(data),
+          onClick = { showDate = true },
+      )
+      SettingsDivider()
+      ListRow(
+          title = stringResource(R.string.personal_sex_title),
+          value = sexLabel(data.sex),
+          onClick = { showSex = true },
+      )
+      SettingsDivider()
+      ListRow(
+          title = stringResource(R.string.personal_weight_title),
+          value = weightLabel(data),
+          onClick = { showWeight = true },
+      )
+      SettingsDivider()
+      ListRow(
+          title = stringResource(R.string.personal_usual_bedtime_title),
+          value = timeLabel(data.usualBedtime),
+          onClick = { showBedtime = true },
+      )
+      SettingsDivider()
+      ListRow(
+          title = stringResource(R.string.personal_usual_wake_time_title),
+          value = timeLabel(data.usualWakeTime),
+          onClick = { showWakeTime = true },
+      )
     }
   }
 
@@ -264,7 +213,22 @@ private fun DateOfBirthDialog(
         }
       },
   ) {
-    DatePicker(state = state)
+    DatePicker(
+        state = state,
+        title = {
+          Text(
+              text = stringResource(R.string.personal_body),
+              style = MaterialTheme.taiga.text.body,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier =
+                  Modifier.padding(
+                      start = MaterialTheme.taiga.space.l,
+                      end = MaterialTheme.taiga.space.l,
+                      top = MaterialTheme.taiga.space.m,
+                  ),
+          )
+        },
+    )
   }
 }
 
@@ -272,14 +236,19 @@ private fun DateOfBirthDialog(
 private fun SexDialog(current: Sex?, onSave: (Sex?) -> Unit, onDismiss: () -> Unit) {
   AlertDialog(
       onDismissRequest = onDismiss,
-      title = { Text(stringResource(R.string.personal_sex_title)) },
+      title = {
+        Text(
+            text = stringResource(R.string.personal_sex_title),
+            style = MaterialTheme.taiga.text.section,
+        )
+      },
       text = {
         Column {
           Text(
-              text = stringResource(R.string.personal_sex_body),
-              style = MaterialTheme.typography.bodySmall,
+              text = stringResource(R.string.personal_body),
+              style = MaterialTheme.taiga.text.body,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.padding(bottom = 8.dp),
+              modifier = Modifier.padding(bottom = MaterialTheme.taiga.space.s),
           )
           Sex.entries.forEach { sex ->
             Row(
@@ -289,12 +258,15 @@ private fun SexDialog(current: Sex?, onSave: (Sex?) -> Unit, onDismiss: () -> Un
                           onSave(sex)
                           onDismiss()
                         }
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = MaterialTheme.taiga.space.s),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
               RadioButton(selected = current == sex, onClick = null)
-              Spacer(Modifier.width(8.dp))
-              Text(stringResource(sexLabelRes(sex)))
+              Spacer(Modifier.width(MaterialTheme.taiga.space.s))
+              Text(
+                  text = stringResource(sexLabelRes(sex)),
+                  style = MaterialTheme.taiga.text.body,
+              )
             }
           }
         }
@@ -325,25 +297,38 @@ private fun WeightDialog(current: Double?, onSave: (Double?) -> Unit, onDismiss:
 
   AlertDialog(
       onDismissRequest = onDismiss,
-      title = { Text(stringResource(R.string.personal_weight_title)) },
-      text = {
-        OutlinedTextField(
-            value = text,
-            onValueChange = {
-              text = it
-              invalid = false
-            },
-            label = { Text(stringResource(R.string.personal_weight_label)) },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            isError = invalid,
-            supportingText =
-                if (invalid) {
-                  { Text(stringResource(R.string.personal_weight_invalid)) }
-                } else {
-                  null
-                },
-            singleLine = true,
+      title = {
+        Text(
+            text = stringResource(R.string.personal_weight_title),
+            style = MaterialTheme.taiga.text.section,
         )
+      },
+      text = {
+        Column {
+          Text(
+              text = stringResource(R.string.personal_body),
+              style = MaterialTheme.taiga.text.body,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.padding(bottom = MaterialTheme.taiga.space.m),
+          )
+          OutlinedTextField(
+              value = text,
+              onValueChange = {
+                text = it
+                invalid = false
+              },
+              label = { Text(stringResource(R.string.personal_weight_label)) },
+              keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+              isError = invalid,
+              supportingText =
+                  if (invalid) {
+                    { Text(stringResource(R.string.personal_weight_invalid)) }
+                  } else {
+                    null
+                  },
+              singleLine = true,
+          )
+        }
       },
       confirmButton = {
         TextButton(
@@ -397,17 +382,17 @@ private fun TimeOfDayDialog(
 
   Dialog(onDismissRequest = onDismiss) {
     Surface(
-        shape = RoundedCornerShape(28.dp),
+        shape = MaterialTheme.taiga.shape.card,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
     ) {
       Column(
-          modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState()),
+          modifier = Modifier.padding(MaterialTheme.taiga.space.l).verticalScroll(rememberScrollState()),
       ) {
-        Text(text = title, style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(12.dp))
+        Text(text = title, style = MaterialTheme.taiga.text.section)
+        Spacer(Modifier.height(MaterialTheme.taiga.space.m))
         TimePicker(state = state)
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(MaterialTheme.taiga.space.s))
         Row(verticalAlignment = Alignment.CenterVertically) {
           TextButton(
               onClick = {

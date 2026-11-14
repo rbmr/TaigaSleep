@@ -152,7 +152,7 @@ class RecordingControlTest {
     val store = store()
     val dir = open(store)
     val nowMs = clock.phoneNs / 1_000_000
-    val window = WakeWindow(6 * 60 + 30, 7 * 60)
+    val window = WakeWindow(6 * 60 + 30, 30)
     val host =
         FakeHost(FakeSensor()).apply {
           activeSessionId = ID

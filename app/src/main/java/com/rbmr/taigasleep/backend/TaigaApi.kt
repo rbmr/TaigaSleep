@@ -458,6 +458,10 @@ data class RecordingDto(
     val stored_bytes: Long = 0,
     val created: String = "",
     val updated: String = "",
+    /** The recording's meta.json as uploaded; the record list leaves it out when it can. */
+    val meta: JsonObject? = null,
+    /** The stored files by name, with their encoding and sizes. */
+    val files: JsonObject? = null,
 )
 
 /** One page of PocketBase's record list. */

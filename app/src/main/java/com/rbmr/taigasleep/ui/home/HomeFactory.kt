@@ -1,5 +1,7 @@
 package com.rbmr.taigasleep.ui.home
 
+import com.rbmr.taigasleep.sync.UploadSettings
+import kotlinx.coroutines.flow.map
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -58,6 +60,10 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
 
           override fun savedConfig(sensor: SleepSensor): StartConfig = configOf(sensor, prefs)
 
+          override fun setHr(sensorId: String, on: Boolean) {
+            prefs.setHrEnabled(sensorId, on)
+          }
+
           override fun setEcg(sensorId: String, on: Boolean) {
             prefs.setEcgEnabled(sensorId, on)
           }
@@ -74,7 +80,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
             prefs.setWakeWindow(
                 sensorId,
                 wake?.let {
-                  WakeWindow(it.startMinute, it.endMinute, it.heartRate, it.movement)
+                  WakeWindow(it.startMinute, it.lengthMinutes, it.heartRate, it.movement)
                 },
             )
           }
@@ -85,7 +91,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
           override fun start(config: StartConfig) {
             val sensor = sensors.sensor.value ?: return
             RecordingRepository.setIdle()
-            val streams = StreamConfig(ecg = config.streams.ecg, acc = config.streams.acc)
+            val streams = StreamConfig(ecg = config.streams.ecg, acc = config.streams.acc, hr = config.streams.hr)
             RecordingService.start(app, sensor, streams, config.mode)
           }
 
@@ -126,35 +132,30 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
             sensors.select(app, found)
           }
         }
-    return HomeViewModel(work, sensors.sensor, RecordingRepository.status) as T
+    return HomeViewModel(
+        work,
+        sensors.sensor,
+        RecordingRepository.status,
+        UploadSettings.get(app).autoUpload.map { it.enabled },
+    ) as T
   }
 
-  /** The configuration step: the remembered streams, the modes they allow and the chosen mode. */
-  private fun configOf(sensor: SleepSensor, prefs: RecordingPrefs): StartConfig {
-    val streams =
-        Streams(
-            ecg = sensor.capabilities.ecg && prefs.ecgEnabled(sensor.id),
-            acc = sensor.capabilities.acc && prefs.accEnabled(sensor.id),
-        )
-    val modes = sensor.recordingModes(StreamConfig(ecg = streams.ecg, acc = streams.acc))
-    val saved = prefs.mode(sensor.id)
-    val mode =
-        when {
-          saved in modes -> saved
-          RecordingMode.STREAM in modes -> RecordingMode.STREAM
-          else -> modes.firstOrNull() ?: RecordingMode.STREAM
-        }
-    return StartConfig(
-        streams = streams,
-        modes = modes,
-        mode = mode,
-        canRecordEcg = sensor.capabilities.ecg,
-        canRecordAcc = sensor.capabilities.acc,
-        offeredModes = modes + sensor.recordingModes(StreamConfig(ecg = false, acc = false)),
-        wake =
-            prefs.wakeWindow(sensor.id)?.let {
-              WakeChoice(it.startMinute, it.endMinute, it.heartRate, it.movement)
-            },
-    )
-  }
+  /** The configuration step: the stored choices, resolved for the stored mode. */
+  private fun configOf(sensor: SleepSensor, prefs: RecordingPrefs): StartConfig =
+      StartConfig.resolve(
+          saved =
+              SavedChoices(
+                  hr = prefs.hrEnabled(sensor.id),
+                  ecg = prefs.ecgEnabled(sensor.id),
+                  acc = prefs.accEnabled(sensor.id),
+                  mode = prefs.mode(sensor.id),
+                  wake =
+                      prefs.wakeWindow(sensor.id)?.let {
+                        WakeChoice(it.startMinute, it.lengthMinutes, it.heartRate, it.movement)
+                      },
+              ),
+          modes = sensor.recordingModes(StreamConfig(ecg = false, acc = false)),
+          canRecordEcg = sensor.capabilities.ecg,
+          canRecordAcc = sensor.capabilities.acc,
+      )
 }

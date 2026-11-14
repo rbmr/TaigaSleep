@@ -12,10 +12,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -35,6 +37,8 @@ interface HomeWork {
 
   /** The remembered configuration of this tracker: its streams, the modes they allow and the choice. */
   fun savedConfig(sensor: SleepSensor): StartConfig
+
+  fun setHr(sensorId: String, on: Boolean)
 
   fun setEcg(sensorId: String, on: Boolean)
 
@@ -79,6 +83,8 @@ class HomeViewModel(
     private val work: HomeWork,
     private val sensor: StateFlow<SleepSensor?>,
     private val status: StateFlow<CaptureStatus>,
+    /** Whether a saved recording is uploaded by itself; the stop confirmation says which. */
+    val autoUpload: Flow<Boolean> = emptyFlow(),
     dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : ViewModel() {
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -135,6 +141,8 @@ class HomeViewModel(
     configuring = false
     emit()
   }
+
+  fun setHr(on: Boolean) = updateConfig { work.setHr(it.id, on) }
 
   fun setEcg(on: Boolean) = updateConfig { work.setEcg(it.id, on) }
 
@@ -194,7 +202,7 @@ class HomeViewModel(
 
   /** Start the recording with the chosen configuration. */
   fun start() {
-    val config = config ?: return
+    val config = config?.takeIf { it.canStart } ?: return
     work.start(config)
   }
 

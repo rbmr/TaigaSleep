@@ -5,6 +5,7 @@ import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -63,26 +64,13 @@ fun ResultItemDto.metricSpec(): MetricSpec? {
 fun formatItemValue(kind: MetricValueKind, value: Double?): String? {
   val number = value ?: return null
   return when (kind) {
-    MetricValueKind.DURATION -> formatSeconds(number)
+    MetricValueKind.DURATION ->
+        if (number.isFinite() && number >= 0) formatDuration((number * 1000).roundToLong()) else "-"
     MetricValueKind.PERCENT -> "${number.roundToInt()}%"
     MetricValueKind.BPM -> "${number.roundToInt()} bpm"
     MetricValueKind.MILLISECONDS -> "${number.roundToInt()} ms"
     MetricValueKind.COUNT -> number.roundToInt().toString()
     MetricValueKind.GRAMS -> String.format(Locale.US, "%.2f g", number)
-  }
-}
-
-fun formatSeconds(seconds: Double): String {
-  if (!seconds.isFinite() || seconds < 0) return "—"
-  val total = seconds.roundToInt()
-  val hours = total / 3600
-  val minutes = (total % 3600) / 60
-  val remainder = total % 60
-  return when {
-    hours > 0 && minutes > 0 -> "${hours}h ${minutes}m"
-    hours > 0 -> "${hours}h"
-    minutes > 0 -> "${minutes}m"
-    else -> "${remainder}s"
   }
 }
 

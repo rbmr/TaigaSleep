@@ -65,6 +65,7 @@ class RecordingDetailViewModel(
   private var lastStatus: RemoteStatus? = null
   private var lastSelected: String? = null
   private var lastDownloaded = false
+  private var lastHasRaw: Boolean? = null
   private var observedRecording = false
   /** The user changed what to export, so the default is no longer applied to a recording that arrives. */
   private var contentsChosen = false
@@ -87,8 +88,11 @@ class RecordingDetailViewModel(
         }
         if (recording != null) {
           followSelectedResult(recording)
-          // The raw files appear and go behind the sheet, so its size follows the recording.
-          if (_state.value.showDetails) readRawSize()
+          // The raw files appear and go as the retention policy runs, so their facts follow them.
+          if (recording.hasRaw != lastHasRaw) {
+            lastHasRaw = recording.hasRaw
+            readLocalFacts()
+          }
         }
       }
     }
@@ -97,13 +101,19 @@ class RecordingDetailViewModel(
         val changed = status != lastStatus
         lastStatus = status
         _state.update { it.copy(connected = status is RemoteStatus.Connected) }
-        if (changed) load()
+        if (changed) {
+          readRemoteStreams()
+          load()
+        }
       }
     }
   }
 
-  /** The screen was shown: read the recording and its result now. */
-  fun refresh() = load()
+  /** The screen was shown: read the recording, its result and what the phone holds now. */
+  fun refresh() {
+    readLocalFacts()
+    load()
+  }
 
   fun upload() {
     val id = _state.value.local?.id ?: localId ?: return
@@ -227,12 +237,12 @@ class RecordingDetailViewModel(
       val shared =
           when {
             !_state.value.canExport ->
-                Result.failure(IllegalStateException("no copy of this night is available"))
+                Result.failure(IllegalStateException("no copy of this recording is available"))
             _state.value.exportNeedsRestore ->
                 restoreThenShare(id, _state.value.remoteId, contents)
             else -> share(id, contents)
           }
-      finish(shared, closeOnSuccess = true)
+      finish(shared)
     }
   }
 
@@ -246,7 +256,7 @@ class RecordingDetailViewModel(
     }
     scope.launch {
       _state.update { it.copy(exportPhase = ExportPhase.DOWNLOADING, exportProgress = 0f) }
-      finish(work.restoreRaw(id, server) { progress(it) }, closeOnSuccess = false)
+      finish(work.restoreRaw(id, server) { progress(it) })
     }
   }
 
@@ -260,10 +270,10 @@ class RecordingDetailViewModel(
         RawActionResult.NothingToDelete -> load()
         RawActionResult.NotUploaded,
         RawActionResult.Recording -> {
-          _state.update { it.copy(showDetails = false, actionError = texts.rawNotUploaded) }
+          _state.update { it.copy(actionError = texts.rawNotUploaded) }
         }
         is RawActionResult.Failed -> {
-          _state.update { it.copy(showDetails = false, actionError = texts.rawDeleteFailed) }
+          _state.update { it.copy(actionError = texts.rawDeleteFailed) }
         }
       }
     }
@@ -271,18 +281,8 @@ class RecordingDetailViewModel(
 
   /** Delete the recording everywhere it exists, then leave the screen. */
   fun delete() {
-    _state.update { it.copy(showDetails = false) }
     work.delete(_state.value.local?.id ?: localId, _state.value.remoteId ?: remoteId)
     _state.update { it.copy(closeRequested = true) }
-  }
-
-  fun openDetails() {
-    _state.update { it.copy(showDetails = true) }
-    readRawSize()
-  }
-
-  fun closeDetails() {
-    _state.update { it.copy(showDetails = false) }
   }
 
   /** The login screen was shown for a request this screen asked for. */
@@ -421,17 +421,13 @@ class RecordingDetailViewModel(
     return all.map { ExportResult(analysisExportName(it.id), exportJson.encodeToString(it)) }
   }
 
-  /**
-   * An export or a download finished. A failure keeps its message on the list and closes the sheet;
-   * a successful export closes it too, while a download leaves it open to show the new size.
-   */
-  private fun finish(result: Result<*>, closeOnSuccess: Boolean) {
+  /** An export or a download finished. A failure keeps its message on the screen. */
+  private fun finish(result: Result<*>) {
     _state.update { it.copy(exportBusy = false, exportPhase = null, exportProgress = null) }
     if (result.isFailure) {
-      _state.update { it.copy(showDetails = false, actionError = restoreFailure(result)) }
+      _state.update { it.copy(actionError = restoreFailure(result)) }
       return
     }
-    if (closeOnSuccess) _state.update { it.copy(showDetails = false) }
     load()
   }
 
@@ -460,11 +456,30 @@ class RecordingDetailViewModel(
     }
   }
 
-  /** Bytes the raw files take on this phone now, which a download or a delete can change. */
-  private fun readRawSize() {
+  /**
+   * What the phone holds of this recording now: the size of its raw files and the streams in them.
+   * A download, a delete and the retention policy all change them.
+   */
+  private fun readLocalFacts() {
     val id = _state.value.local?.id ?: localId
     val size = if (id == null) 0L else work.rawSize(id)
-    _state.update { it.copy(rawSizeBytes = size) }
+    val streams = if (id == null) emptyList() else work.rawStreams(id)
+    _state.update { it.copy(rawSizeBytes = size, rawStreams = streams.ifEmpty { it.rawStreams }) }
+    if (streams.isEmpty()) readRemoteStreams()
+  }
+
+  /**
+   * The phone has no meta for this recording (it is only on the server, or its file cannot be
+   * read), so the streams come from the server's copy.
+   */
+  private fun readRemoteStreams() {
+    if (_state.value.rawStreams.isNotEmpty()) return
+    scope.launch {
+      val server = _state.value.remoteId ?: remoteId ?: return@launch
+      if (!_state.value.connected) return@launch
+      val streams = work.remoteStreams(server)
+      if (streams.isNotEmpty()) _state.update { it.copy(rawStreams = streams) }
+    }
   }
 
   private fun recordingIn(list: List<RecordingView>): RecordingView? =

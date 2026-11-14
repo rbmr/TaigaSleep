@@ -47,7 +47,7 @@ fun TaigaLogo(
     contentDescription: String? = null,
 ) {
   val colors = MaterialTheme.taiga
-  val bear = if (variant == LogoVariant.Awake) colors.bearAwake else colors.bear
+  val bear = colors.bear
   val body = if (variant == LogoVariant.Awake) awakeBearPath else sleepingBearPath
   val aurora = listOf(colors.auroraStart, colors.auroraEnd)
   val semantics =
@@ -92,15 +92,15 @@ fun TaigaLogo(
   }
 }
 
-private const val VIEW_WIDTH = 208.32f
-private const val VIEW_HEIGHT = 124.32f
-private const val ARCH_STROKE = 10f
-private const val ARCH_LEFT = 16.16f
-private const val ARCH_RIGHT = 194.16f
-private const val ARCH_TOP = 16.16f
-private const val ARCH_BOTTOM = 108.16f
+internal const val VIEW_WIDTH = 208.32f
+internal const val VIEW_HEIGHT = 124.32f
+internal const val ARCH_STROKE = 10f
+internal const val ARCH_LEFT = 16.16f
+internal const val ARCH_RIGHT = 194.16f
+internal const val ARCH_TOP = 16.16f
+internal const val ARCH_BOTTOM = 108.16f
 // The glow box in the design is 260 x 150 against a 170-wide bear.
-private const val GLOW_FLATTENING = 150f / 260f
+internal const val GLOW_FLATTENING = 150f / 260f
 
 private const val ARCH = "M16.16 108.16H28.5C57 -14.51 153.32 -14.51 181.82 108.16H194.16"
 
@@ -165,14 +165,16 @@ private const val CLOSED_EYES =
     "L90.54 89.77L90.45 89.73L89.95 89.46L89.87 89.41L89.37 89.1L89.29 89.05L88.79 88.7" +
     "L88.73 88.65L88.23 88.25L88.17 88.2L87.67 87.77L87.62 87.72L87.12 87.24Z"
 
-private val archPath = PathParser().parsePathString(ARCH).toPath()
+internal val archPath = PathParser().parsePathString(ARCH).toPath()
 
-private val sleepingBearPath =
+internal val bearOutlinePath = PathParser().parsePathString(BEAR).toPath()
+
+internal val sleepingBearPath =
     PathParser().parsePathString(BEAR + CLOSED_EYES).toPath().apply {
       fillType = PathFillType.EvenOdd
     }
 
-private val awakeBearPath =
+internal val awakeBearPath =
     Path().apply {
       fillType = PathFillType.EvenOdd
       addPath(PathParser().parsePathString(BEAR).toPath())

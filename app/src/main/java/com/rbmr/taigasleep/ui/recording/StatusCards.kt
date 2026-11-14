@@ -1,28 +1,28 @@
 package com.rbmr.taigasleep.ui.recording
 
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.ui.components.ButtonSize
 import com.rbmr.taigasleep.ui.components.PrimaryButton
+import com.rbmr.taigasleep.ui.components.ProgressTrack
+import com.rbmr.taigasleep.ui.components.ProgressTrackState
 import com.rbmr.taigasleep.ui.components.SecondaryButton
-import com.rbmr.taigasleep.ui.components.StatusBanner
-import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
- * The one card a recording that is not ready gets: processing, uploading, failed or only on the phone.
- * Each state names the one action that makes sense for it.
+ * The one card a recording that is not ready gets: processing, not analyzed, uploading, failed or
+ * only on the phone. Each state names the one action that makes sense for it.
  */
 internal fun LazyListScope.statusCards(
     state: RecordingDetailUiState,
@@ -30,64 +30,72 @@ internal fun LazyListScope.statusCards(
     onRefresh: () -> Unit,
     onRetryAnalysis: () -> Unit,
     onLogin: () -> Unit,
+    onOpenAnalysis: () -> Unit,
 ) {
   when {
     state.status == RecordingStatus.PROCESSING -> {
       item {
-        TaigaCard {
-          Text(
-              text = stringResource(R.string.night_processing_title),
-              style = MaterialTheme.typography.titleLarge,
+        StatusCard(
+            title = stringResource(R.string.night_processing_title),
+            body = stringResource(R.string.night_processing_body),
+        ) {
+          ProgressTrack(
+              state = ProgressTrackState.Indeterminate,
+              description = stringResource(R.string.night_processing_title),
           )
-          Spacer(Modifier.height(6.dp))
-          Text(
-              text = stringResource(R.string.night_processing_body),
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          Spacer(Modifier.height(12.dp))
-          LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-          Spacer(Modifier.height(12.dp))
-          SecondaryButton(
-              text = stringResource(R.string.night_check_again),
-              onClick = onRefresh,
+          SecondaryButton(text = stringResource(R.string.night_check_again), onClick = onRefresh)
+        }
+      }
+    }
+    state.status == RecordingStatus.NOT_ANALYZED -> {
+      item {
+        StatusCard(
+            title = stringResource(R.string.night_not_analyzed_title),
+            body = stringResource(R.string.night_not_analyzed_body),
+        ) {
+          PrimaryButton(
+              text = stringResource(R.string.night_choose_analysis),
+              onClick = onOpenAnalysis,
+              size = ButtonSize.Regular,
           )
         }
       }
     }
     state.status == RecordingStatus.QUEUED || state.status == RecordingStatus.UPLOADING -> {
       item {
-        TaigaCard {
-          Text(
-              text = stringResource(R.string.night_uploading_title),
-              style = MaterialTheme.typography.titleLarge,
-          )
-          Spacer(Modifier.height(6.dp))
-          Text(
-              text =
-                  if (state.status == RecordingStatus.UPLOADING) {
-                    stringResource(
-                        R.string.night_uploading_progress_body,
-                        stringResource(
-                            R.string.night_uploading_progress,
-                            (state.progress * 100).toInt().coerceIn(0, 100),
-                        ),
-                        stringResource(R.string.night_uploading_body),
-                    )
+        val uploading = state.status == RecordingStatus.UPLOADING
+        val percent = (state.progress * 100).toInt().coerceIn(0, 100)
+        StatusCard(
+            title = stringResource(R.string.night_uploading_title),
+            body =
+                if (uploading) {
+                  stringResource(
+                      R.string.night_uploading_progress_body,
+                      stringResource(R.string.night_uploading_progress, percent),
+                      stringResource(R.string.night_uploading_body),
+                  )
+                } else {
+                  // A failed attempt that will be retried is not waiting for any setting.
+                  stringResource(
+                      if (state.failure != null) R.string.night_queued_retry_body
+                      else R.string.night_queued_body
+                  )
+                },
+        ) {
+          ProgressTrack(
+              state =
+                  if (uploading) {
+                    ProgressTrackState.Determinate(state.progress)
                   } else {
-                    stringResource(R.string.night_queued_body)
+                    ProgressTrackState.Indeterminate
                   },
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              description =
+                  if (uploading) {
+                    stringResource(R.string.night_uploading_progress, percent)
+                  } else {
+                    null
+                  },
           )
-          Spacer(Modifier.height(12.dp))
-          if (state.status == RecordingStatus.UPLOADING) {
-            LinearProgressIndicator(
-                progress = { state.progress },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(12.dp))
-          }
           SecondaryButton(
               text =
                   stringResource(
@@ -101,58 +109,51 @@ internal fun LazyListScope.statusCards(
     }
     state.status == RecordingStatus.FAILED -> {
       item {
-        StatusBanner(
-            kind = StatusKind.Bad,
+        StatusCard(
             title =
                 stringResource(
                     if (state.failure == UploadFailure.ANALYSIS) R.string.night_analysis_failed_title
                     else R.string.night_upload_failed_title
                 ),
             body =
-                state.errorDetail?.takeIf { it.isNotBlank() }
-                    ?: stringResource(R.string.night_analysis_failed_body),
-            actions = {
-              when {
-                state.failure == UploadFailure.LOGIN && !state.connected ->
-                    PrimaryButton(
-                        text = stringResource(R.string.history_action_login),
-                        onClick = onLogin,
-                        modifier = Modifier.weight(1f),
-                    )
-                state.failure == UploadFailure.ANALYSIS || state.local != null ->
-                    PrimaryButton(
-                        text = stringResource(R.string.night_retry),
-                        onClick = {
-                          if (state.failure == UploadFailure.ANALYSIS) onRetryAnalysis()
-                          else onUpload()
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                else ->
-                    SecondaryButton(
-                        text = stringResource(R.string.night_check_again),
-                        onClick = onRefresh,
-                        modifier = Modifier.weight(1f),
-                    )
-              }
-            },
-        )
+                if (state.failure == UploadFailure.ANALYSIS) {
+                  stringResource(analysisFailureText(state.errorDetail))
+                } else {
+                  state.errorDetail?.takeIf { it.isNotBlank() }
+                      ?: stringResource(R.string.night_analysis_failed_body)
+                },
+            failed = true,
+        ) {
+          when {
+            state.failure == UploadFailure.LOGIN && !state.connected ->
+                PrimaryButton(
+                    text = stringResource(R.string.history_action_login),
+                    onClick = onLogin,
+                    size = ButtonSize.Regular,
+                )
+            state.failure == UploadFailure.ANALYSIS || state.local != null ->
+                PrimaryButton(
+                    text = stringResource(R.string.night_retry),
+                    onClick = {
+                      if (state.failure == UploadFailure.ANALYSIS) onRetryAnalysis() else onUpload()
+                    },
+                    size = ButtonSize.Regular,
+                )
+            else ->
+                SecondaryButton(
+                    text = stringResource(R.string.night_check_again),
+                    onClick = onRefresh,
+                )
+          }
+        }
       }
     }
     state.local != null -> {
       item {
-        TaigaCard {
-          Text(
-              text = stringResource(R.string.night_local_only_title),
-              style = MaterialTheme.typography.titleLarge,
-          )
-          Spacer(Modifier.height(6.dp))
-          Text(
-              text = stringResource(R.string.night_local_only_body),
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          Spacer(Modifier.height(12.dp))
+        StatusCard(
+            title = stringResource(R.string.night_local_only_title),
+            body = stringResource(R.string.night_local_only_body),
+        ) {
           PrimaryButton(
               text =
                   stringResource(
@@ -164,6 +165,32 @@ internal fun LazyListScope.statusCards(
           )
         }
       }
+    }
+  }
+}
+
+/** One state of a recording: what it is, one line about it, and the action that moves it on. */
+@Composable
+private fun StatusCard(
+    title: String,
+    body: String,
+    failed: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+  val space = MaterialTheme.taiga.space
+  TaigaCard {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(space.s)) {
+      Text(
+          text = title,
+          style = MaterialTheme.taiga.text.section,
+          color = if (failed) MaterialTheme.taiga.bad else MaterialTheme.colorScheme.onSurface,
+      )
+      Text(
+          text = body,
+          style = MaterialTheme.taiga.text.body,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+      content()
     }
   }
 }

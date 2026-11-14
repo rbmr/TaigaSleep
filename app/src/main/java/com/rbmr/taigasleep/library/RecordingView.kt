@@ -5,6 +5,7 @@ import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.insights.StagerPreference
+import com.rbmr.taigasleep.insights.nightDate
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.sync.LibraryEntry
@@ -13,6 +14,8 @@ import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.recordingIdOf
 import java.text.SimpleDateFormat
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
 
@@ -29,8 +32,10 @@ enum class RecordingStatus {
   QUEUED,
   /** Bytes are moving; see [RecordingView.progress]. */
   UPLOADING,
-  /** The recording is on the server and an analysis is queued, running or not requested yet. */
+  /** The recording is on the server and an analysis is queued, running or being requested. */
   PROCESSING,
+  /** The recording is on the server and no analysis exists for it. */
+  NOT_ANALYZED,
   /** At least one analysis finished and can be shown. */
   READY,
   /** The upload or the last analysis failed. */
@@ -259,11 +264,13 @@ private fun buildRecording(
       backup.detail
           ?: failedRun?.error?.takeIf { it.isNotBlank() }
           ?: analysisFailure?.errorDetail
+  // The app asked for an analysis that the server's list does not show yet.
+  val analysisRequested = record?.phase == UploadPhase.PROCESSING
   val status =
       if (backup.phase == BackupPhase.BACKED_UP && analysisFailure != null) {
         RecordingStatus.FAILED
       } else {
-        deriveStatus(local, backup, runs, remoteSession)
+        deriveStatus(local, backup, runs, remoteSession, analysisRequested)
       }
   return RecordingView(
       key = key,
@@ -294,6 +301,7 @@ private fun deriveStatus(
     backup: BackupState,
     runs: List<Analysis>,
     remote: RecordingDto?,
+    analysisRequested: Boolean,
 ): RecordingStatus {
   if (local?.state == RecordingPhase.RECORDING) return RecordingStatus.RECORDING
   return when (backup.phase) {
@@ -303,22 +311,23 @@ private fun deriveStatus(
     BackupPhase.NOT_BACKED_UP ->
         when {
           remote == null -> RecordingStatus.LOCAL_ONLY
-          remote.complete -> deriveFromRuns(runs)
+          remote.complete -> deriveFromRuns(runs, analysisRequested)
           // The recording exists on the server but is not sealed yet: its files are still moving.
           else -> RecordingStatus.UPLOADING
         }
-    BackupPhase.BACKED_UP -> deriveFromRuns(runs)
+    BackupPhase.BACKED_UP -> deriveFromRuns(runs, analysisRequested)
   }
 }
 
-private fun deriveFromRuns(runs: List<Analysis>): RecordingStatus =
+internal fun deriveFromRuns(runs: List<Analysis>, analysisRequested: Boolean): RecordingStatus =
     when {
       runs.any { it.status == AnalysisStatus.DONE } -> RecordingStatus.READY
       runs.any { it.status == AnalysisStatus.QUEUED || it.status == AnalysisStatus.RUNNING } ->
           RecordingStatus.PROCESSING
       runs.any { it.status == AnalysisStatus.FAILED } -> RecordingStatus.FAILED
-      // The upload is done; the analysis has either not been requested yet or is about to be.
-      else -> RecordingStatus.PROCESSING
+      // No run exists: it is on its way only when the app has just asked for one.
+      analysisRequested -> RecordingStatus.PROCESSING
+      else -> RecordingStatus.NOT_ANALYZED
     }
 
 private fun backupFromRemote(remote: RecordingDto?): BackupState =
@@ -386,33 +395,34 @@ private fun String.toAnalysisStatus(): AnalysisStatus =
 /** A server time in epoch milliseconds (see [parseServerTime]); unparseable is 0. */
 fun parseApiDate(value: String): Long = parseServerTime(value)?.toEpochMilli() ?: 0
 
-fun formatRecordingDate(ms: Long): String =
-    if (ms <= 0) "—"
-    else SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(ms))
+/**
+ * The date a recording is filed under, e.g. `Sat 7 Nov`: the night it belongs to (see
+ * [nightDate]), so a recording started just after midnight is dated by the evening before, the
+ * same as in Trends.
+ */
+fun formatRecordingDate(ms: Long, zone: ZoneId = ZoneId.systemDefault()): String =
+    if (ms <= 0) "-"
+    else
+        nightDate(ms, zone)
+            .format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))
 
 fun formatRecordingDateAndTime(ms: Long): String =
-    if (ms <= 0) "—"
+    if (ms <= 0) "-"
     else SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault()).format(Date(ms))
 
-fun formatDuration(ms: Long): String {
-  if (ms <= 0) return "—"
-  val totalSeconds = ms / 1000
-  if (totalSeconds < 60) return "${totalSeconds}s"
-  val totalMinutes = totalSeconds / 60
-  val hours = totalMinutes / 60
-  val minutes = totalMinutes % 60
-  return when {
-    hours > 0 && minutes > 0 -> "${hours}h ${minutes}m"
-    else -> if (hours > 0) "${hours}h" else "${minutes}m"
-  }
-}
+/** The clock time of a recording, e.g. `23:12`. */
+fun formatRecordingTime(ms: Long): String =
+    if (ms <= 0) "-" else SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
 
 /**
  * Where the bytes are according to the sync store. This is the only place that reads the upload
  * phase for display; the recording view then treats the phone and the server as two copies.
  */
 internal fun UploadRecord.hasServerCopy(): Boolean =
-    onServer || phase == UploadPhase.PROCESSING || phase == UploadPhase.DONE
+    onServer ||
+        phase == UploadPhase.UPLOADED ||
+        phase == UploadPhase.PROCESSING ||
+        phase == UploadPhase.DONE
 
 internal fun UploadRecord.backupState(): BackupState =
     when (phase) {
@@ -426,6 +436,7 @@ internal fun UploadRecord.backupState(): BackupState =
               failure = failure,
               detail = errorDetail,
           )
+      UploadPhase.UPLOADED,
       UploadPhase.PROCESSING,
       UploadPhase.DONE ->
           BackupState(

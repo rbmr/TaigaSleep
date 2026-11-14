@@ -1,27 +1,20 @@
 package com.rbmr.taigasleep.ui.recording
 
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.ResultItemDto
-import com.rbmr.taigasleep.insights.MetricSpec
-import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.components.InfoContent
+import com.rbmr.taigasleep.ui.components.Section
 
 /** The movement numbers of the recording. */
 @Composable
-internal fun MovementStatsCard(items: List<ResultItemDto>, onMetric: (MetricSpec) -> Unit) {
-  TaigaCard {
-    Text(
-        text = stringResource(R.string.night_movement),
-        style = MaterialTheme.typography.titleLarge,
-    )
-    Spacer(Modifier.height(10.dp))
-    MetricGrid(items = items, onMetric = onMetric)
+internal fun MovementStatsSection(items: List<ResultItemDto>) {
+  val title = stringResource(R.string.night_movement)
+  Section(
+      title = title,
+      info = InfoContent(title, stringResource(R.string.night_movement_info)),
+  ) {
+    MetricGrid(items = items)
   }
 }

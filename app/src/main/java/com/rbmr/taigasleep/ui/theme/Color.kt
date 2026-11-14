@@ -33,13 +33,16 @@ class TaigaColors(
     val auroraStart: Color,
     val auroraEnd: Color,
     val bear: Color,
-    val bearAwake: Color,
     val stageWake: Color,
     val stageRem: Color,
     val stageLight: Color,
     val stageDeep: Color,
     // Heart-rate curve; deliberately outside the sleep-stage palette.
     val chartHr: Color,
+    // The non-colour tokens travel with the colours so `MaterialTheme.taiga` reaches all of them.
+    val text: TaigaText = TaigaText,
+    val space: TaigaSpacing = TaigaSpacing,
+    val shape: TaigaShapes = TaigaShapes,
 )
 
 val LightTaigaColors =
@@ -63,8 +66,7 @@ val LightTaigaColors =
         strong = Color(0xFFB7C9BF),
         auroraStart = Color(0xFF2FB89A),
         auroraEnd = Color(0xFF8E7CC3),
-        bear = Color(0xFF0E3B31),
-        bearAwake = Color(0xFF3A2A14),
+        bear = Color(0xFF111111),
         stageWake = Color(0xFFD99A4E),
         stageRem = Color(0xFF8E6AD8),
         stageLight = Color(0xFF5BA8E0),
@@ -93,8 +95,7 @@ val DarkTaigaColors =
         strong = Color(0xFF3A5249),
         auroraStart = Color(0xFF3DD6B0),
         auroraEnd = Color(0xFFA57BE8),
-        bear = Color(0xFFE6F0EA),
-        bearAwake = Color(0xFFF5E9D6),
+        bear = Color(0xFFFFFFFF),
         stageWake = Color(0xFFF2B35E),
         stageRem = Color(0xFFA57BE8),
         stageLight = Color(0xFF6FB7F2),

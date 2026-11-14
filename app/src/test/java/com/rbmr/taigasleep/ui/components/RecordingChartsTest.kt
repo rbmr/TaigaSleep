@@ -40,6 +40,31 @@ class RecordingChartsTest {
   }
 
   @Test
+  fun aFlatSeriesGetsAnAxisTenWideCentredOnIt() {
+    val axis = seriesAxis(61.0, 61.0)
+
+    assertEquals(10.0, axis.endInclusive - axis.start, 0.0001)
+    assertEquals(61.0, (axis.start + axis.endInclusive) / 2, 0.0001)
+  }
+
+  @Test
+  fun aFlatSeriesNeverRepeatsAnAxisLabel() {
+    val ticks = seriesAxisTicks(seriesAxis(61.0, 61.0))
+
+    assertEquals(ticks.size, ticks.toSet().size)
+    assertEquals(61, ticks[2])
+  }
+
+  @Test
+  fun aSeriesWiderThanTheMinimumKeepsItsOwnRange() {
+    val axis = seriesAxis(50.0, 90.0)
+
+    assertEquals(50.0, axis.start, 0.0001)
+    assertEquals(90.0, axis.endInclusive, 0.0001)
+    assertEquals(listOf(90, 80, 70, 60, 50), seriesAxisTicks(axis))
+  }
+
+  @Test
   fun aFirstValidPointStartsItsOwnRun() {
     val points = listOf<Double?>(60.0, 61.0, null, 58.0)
 

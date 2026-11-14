@@ -14,10 +14,10 @@ class WakeDecisionTest {
   private val start = Instant.parse("2026-11-10T06:30:00Z").toEpochMilli()
   private val end = start + 30 * MINUTE
   private val bounds = WakeBounds(start, end)
-  private val hrOnly = WakeWindow(startMinute = 6 * 60 + 30, endMinute = 7 * 60, heartRate = true)
+  private val hrOnly = WakeWindow(startMinute = 6 * 60 + 30, lengthMinutes = 30, heartRate = true)
   private val movementOnly =
-      WakeWindow(startMinute = 6 * 60 + 30, endMinute = 7 * 60, heartRate = false, movement = true)
-  private val both = WakeWindow(startMinute = 6 * 60 + 30, endMinute = 7 * 60, true, true)
+      WakeWindow(startMinute = 6 * 60 + 30, lengthMinutes = 30, heartRate = false, movement = true)
+  private val both = WakeWindow(startMinute = 6 * 60 + 30, lengthMinutes = 30, true, true)
 
   @Test
   fun `a heart rate rise sustained for a minute rings a minute after it starts`() {
@@ -57,7 +57,7 @@ class WakeDecisionTest {
     val hr = flat(start, start + 10 * MINUTE - 1_000, 60.0) + flat(start + 10 * MINUTE, start + 15 * MINUTE, 90.0)
 
     assertNull(WakeDecision.trigger(movementOnly, bounds, WakeSeries(hr = hr)))
-    assertNull(WakeDecision.trigger(WakeWindow(6 * 60 + 30, 7 * 60, false, false), bounds, WakeSeries(hr = hr)))
+    assertNull(WakeDecision.trigger(WakeWindow(6 * 60 + 30, 30, false, false), bounds, WakeSeries(hr = hr)))
   }
 
   @Test

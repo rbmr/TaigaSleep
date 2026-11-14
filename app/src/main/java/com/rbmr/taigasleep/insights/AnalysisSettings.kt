@@ -32,15 +32,6 @@ fun parsePreferenceOrder(raw: String?): List<String> =
 fun effectiveOrder(stored: List<String>, installed: Collection<String>): List<String> =
     stored.filter { it in installed } + installed.filter { it !in stored }
 
-/** Move one algorithm one step up or down, keeping the list stable at the ends. */
-fun movePreference(order: List<String>, id: String, delta: Int): List<String> {
-  val index = order.indexOf(id)
-  if (index < 0) return order
-  val target = (index + delta).coerceIn(0, order.lastIndex)
-  if (target == index) return order
-  return order.toMutableList().also { it.add(target, it.removeAt(index)) }
-}
-
 class AnalysisSettingsStore internal constructor(context: Context) {
   private val prefs =
       context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)

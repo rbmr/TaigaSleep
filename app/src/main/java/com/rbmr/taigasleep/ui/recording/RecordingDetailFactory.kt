@@ -5,11 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
+import com.rbmr.taigasleep.library.streams
+import kotlin.coroutines.cancellation.CancellationException
 import com.rbmr.taigasleep.recording.ExportContents
 import com.rbmr.taigasleep.recording.ExportProgress
 import com.rbmr.taigasleep.recording.ExportResult
 import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.RecordingRepository
+import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.RawActionResult
 import java.io.File
@@ -52,6 +55,12 @@ interface RecordingWork {
 
   /** Bytes of the raw streams that are on this phone. */
   fun rawSize(localId: String): Long
+
+  /** The streams the recording holds on this phone, as [StreamId] values; empty when it has none. */
+  fun rawStreams(localId: String): List<Int>
+
+  /** The streams the server's copy of the recording holds; empty when it cannot be read now. */
+  suspend fun remoteStreams(remoteId: String): List<Int>
 }
 
 /**
@@ -121,6 +130,19 @@ class RecordingDetailFactory(
 
           override fun rawSize(localId: String): Long =
               RecordingStore.RAW_FILES.sumOf { File(store.dir(localId), it).length() }
+
+          override fun rawStreams(localId: String): List<Int> =
+              RecordingMeta.read(store.dir(localId))?.config?.streams().orEmpty()
+
+          override suspend fun remoteStreams(remoteId: String): List<Int> =
+              try {
+                app.appContainer.remoteRepository.api()?.getRecording(remoteId)?.streams()
+                    .orEmpty()
+              } catch (e: CancellationException) {
+                throw e
+              } catch (_: Exception) {
+                emptyList()
+              }
         }
     return RecordingDetailViewModel(
         key = localId ?: remoteId?.let { "remote-$it" } ?: analysisId ?: "recording",

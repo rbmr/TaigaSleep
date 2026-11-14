@@ -32,24 +32,26 @@ class TrendsTest {
     )
   }
 
-  private fun goodNight(key: String, wakeDate: String, totalSleep: Double) =
+  /** A night of [night]: it starts that evening at 23:00 and ends the next morning at 07:00. */
+  private fun goodNight(key: String, night: String, totalSleep: Double) =
       recording(
           key,
-          "$wakeDate".let { date ->
-            LocalDate.parse(date).minusDays(1).toString() + "T23:00"
-          },
-          "${wakeDate}T07:00",
+          "${night}T23:00",
+          LocalDate.parse(night).plusDays(1).toString() + "T07:00",
           mapOf(
               TrendItems.TOTAL_SLEEP to totalSleep,
               TrendItems.DATA_QUALITY to 90.0,
           ),
       )
 
+  private fun millis(local: String) =
+      java.time.LocalDateTime.parse(local).atZone(zone).toInstant().toEpochMilli()
+
   private fun trends(recordings: List<TrendRecording>, range: Int = 7) =
       trendsFor(recordings, range, today, zone)
 
   @Test
-  fun `a night belongs to the local date it ended and keeps the day order`() {
+  fun `a night belongs to the evening it started in and keeps the day order`() {
     val result =
         trends(
             listOf(
@@ -60,13 +62,13 @@ class TrendsTest {
 
     assertEquals(
         listOf(
+            LocalDate.of(2026, 11, 3),
             LocalDate.of(2026, 11, 4),
             LocalDate.of(2026, 11, 5),
             LocalDate.of(2026, 11, 6),
             LocalDate.of(2026, 11, 7),
             LocalDate.of(2026, 11, 8),
             LocalDate.of(2026, 11, 9),
-            LocalDate.of(2026, 11, 10),
         ),
         result.days,
     )
@@ -77,7 +79,7 @@ class TrendsTest {
   }
 
   @Test
-  fun `two recordings ending on one date keep the longest`() {
+  fun `two recordings of one night keep the longest`() {
     val result =
         trends(
             listOf(
@@ -92,7 +94,7 @@ class TrendsTest {
   }
 
   @Test
-  fun `two equally long recordings on one date keep the one that ended later`() {
+  fun `two equally long recordings of one night keep the one that ended later`() {
     val result =
         trends(
             listOf(
@@ -105,19 +107,85 @@ class TrendsTest {
   }
 
   @Test
-  fun `a recording that ends after midnight belongs to the next date`() {
+  fun `a recording that ends after midnight belongs to the evening it started in`() {
     val result = trends(listOf(recording("midnight", "2026-11-09T22:00", "2026-11-10T00:30")))
 
     assertEquals("midnight", result.nights.last()?.key)
-    assertEquals(LocalDate.of(2026, 11, 10), result.nights.last()?.date)
+    assertEquals(LocalDate.of(2026, 11, 9), result.nights.last()?.date)
+  }
+
+  @Test
+  fun `a recording that starts after midnight belongs to the previous date`() {
+    val result = trends(listOf(recording("late", "2026-11-08T00:39", "2026-11-08T08:00")))
+
+    val night = result.nights.single { it != null }!!
+    assertEquals(LocalDate.of(2026, 11, 7), night.date)
+    assertEquals(night, result.nights[result.days.indexOf(LocalDate.of(2026, 11, 7))])
+  }
+
+  @Test
+  fun `starts before and after midnight of one evening are one night`() {
+    val result =
+        trends(
+            listOf(
+                recording("before", "2026-11-07T23:10", "2026-11-08T00:20"),
+                recording("after", "2026-11-08T00:39", "2026-11-08T07:30"),
+            )
+        )
+
+    val night = result.nights.single { it != null }!!
+    assertEquals("after", night.key)
+    assertEquals(LocalDate.of(2026, 11, 7), night.date)
+  }
+
+  @Test
+  fun `the night of noon belongs to the new date and one minute before to the old one`() {
+    assertEquals(LocalDate.of(2026, 11, 7), nightDate(millis("2026-11-08T11:59"), zone))
+    assertEquals(LocalDate.of(2026, 11, 8), nightDate(millis("2026-11-08T12:00"), zone))
+    assertEquals(LocalDate.of(2026, 11, 8), nightDate(millis("2026-11-08T23:59"), zone))
+  }
+
+  @Test
+  fun `the range ends with last night and a night of today extends it`() {
+    val last = trends(emptyList())
+    assertEquals(today.minusDays(1), last.days.last())
+
+    val afternoon = trends(listOf(recording("nap", "2026-11-10T13:00", "2026-11-10T15:00")))
+    assertEquals(today, afternoon.days.last())
+    assertEquals("nap", afternoon.nights.last()?.key)
+  }
+
+  @Test
+  fun `a night older than the range is left out`() {
+    val result = trends(listOf(recording("old", "2026-11-01T23:00", "2026-11-02T07:00")))
+
+    assertTrue(result.nights.all { it == null })
+  }
+
+  @Test
+  fun `a recording with an analysis beats a longer one without`() {
+    val result =
+        trends(
+            listOf(
+                recording("long", "2026-11-07T21:00", "2026-11-08T08:00"),
+                recording(
+                    "analyzed",
+                    "2026-11-07T23:00",
+                    "2026-11-08T05:00",
+                    mapOf(TrendItems.DATA_QUALITY to 90.0),
+                ),
+            )
+        )
+
+    assertEquals("analyzed", result.nights.single { it != null }?.key)
   }
 
   @Test
   fun `averages use only nights with a value, three hours and usable data`() {
     val recordings =
         listOf(
-            goodNight("good-1", "2026-11-06", 8.0 * 3600),
-            goodNight("good-2", "2026-11-07", 9.0 * 3600),
+            goodNight("good-1", "2026-11-05", 8.0 * 3600),
+            goodNight("good-2", "2026-11-06", 9.0 * 3600),
             // Two hours of recording: too short, however good the value.
             recording(
                 "short",
@@ -174,7 +242,7 @@ class TrendsTest {
                 ),
                 recording(
                     "after-midnight",
-                    "2026-11-07T00:30",
+                    "2026-11-08T00:30",
                     "2026-11-08T07:30",
                     mapOf(TrendItems.DATA_QUALITY to 90.0),
                 ),

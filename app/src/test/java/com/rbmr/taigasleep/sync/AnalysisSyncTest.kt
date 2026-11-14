@@ -182,12 +182,21 @@ class AnalysisSyncTest {
   }
 
   @Test
-  fun `a sealed recording without an analysis is processing without an id`() {
+  fun `a sealed recording that waited for an analysis the server does not have is not analyzed`() {
     runBlocking { store.markProcessing("r1") }
 
     refresh(FakeClient())
 
-    assertEquals(UploadPhase.PROCESSING, record("r1")?.phase)
+    assertEquals(UploadPhase.UPLOADED, record("r1")?.phase)
+  }
+
+  @Test
+  fun `a sealed recording nobody requested an analysis for stays as it is`() {
+    runBlocking { store.markUploaded("r1") }
+
+    refresh(FakeClient())
+
+    assertEquals(UploadPhase.UPLOADED, record("r1")?.phase)
   }
 
   @Test
@@ -238,13 +247,13 @@ class AnalysisSyncTest {
   }
 
   @Test
-  fun `a deleted analysis leaves the night waiting for a new one`() {
+  fun `a deleted analysis leaves the night not analyzed`() {
     runBlocking { store.markProcessing("r1") }
 
     val snapshot = refresh(FakeClient(listing = emptyList()), preferred = listOf("gone"))
 
     assertNull(snapshot.shown)
-    assertEquals(UploadPhase.PROCESSING, record("r1")?.phase)
+    assertEquals(UploadPhase.UPLOADED, record("r1")?.phase)
   }
 
   @Test

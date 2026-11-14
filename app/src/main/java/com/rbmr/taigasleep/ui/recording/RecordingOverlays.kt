@@ -1,14 +1,12 @@
 package com.rbmr.taigasleep.ui.recording
 
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.insights.MetricSpec
 import com.rbmr.taigasleep.insights.sleepScoreCardState
 import com.rbmr.taigasleep.ui.components.ChartFullscreenDialog
+import com.rbmr.taigasleep.ui.components.ConfirmDialog
+import com.rbmr.taigasleep.ui.components.ConfirmDialogStyle
 import com.rbmr.taigasleep.ui.components.HeartRateChart
 import com.rbmr.taigasleep.ui.components.SleepStagesChart
 
@@ -16,32 +14,24 @@ import com.rbmr.taigasleep.ui.components.SleepStagesChart
 @Composable
 internal fun RecordingOverlays(
     state: RecordingDetailUiState,
-    showQuality: Boolean,
     showSleepScore: Boolean,
-    showScoreExplanation: Boolean,
     fullscreenChart: String?,
-    metric: MetricSpec?,
     showAnalysis: Boolean,
+    showExport: Boolean,
     showDelete: Boolean,
     showRawDelete: Boolean,
-    onDismissQuality: () -> Unit,
     onDismissSleepScore: () -> Unit,
-    onDismissScoreExplanation: () -> Unit,
     onDismissChart: () -> Unit,
-    onDismissMetric: () -> Unit,
     onDismissAnalysis: () -> Unit,
     onSelectAnalysis: (String) -> Unit,
     onRunAnalysis: (String) -> Unit,
-    onCloseDetails: () -> Unit,
+    onDismissExport: () -> Unit,
     onExportRaw: (Boolean) -> Unit,
     onExportMetadata: (Boolean) -> Unit,
     onExportResults: (Boolean) -> Unit,
     onExport: () -> Unit,
-    onDownloadRaw: () -> Unit,
-    onRequestDeleteRaw: () -> Unit,
     onDismissDeleteRaw: () -> Unit,
     onConfirmDeleteRaw: () -> Unit,
-    onRequestDelete: () -> Unit,
     onDismissDelete: () -> Unit,
     onConfirmDelete: () -> Unit,
     onConfirmUploadElsewhere: () -> Unit,
@@ -50,54 +40,25 @@ internal fun RecordingOverlays(
   val result = state.result?.result
 
   state.uploadConfirmation?.let { target ->
-    AlertDialog(
-        onDismissRequest = onDismissUploadElsewhere,
-        title = { Text(stringResource(R.string.night_upload_other_account_title)) },
-        text = {
-          Text(
-              stringResource(
-                  R.string.night_upload_other_account_body,
-                  target.server,
-                  target.account,
-              )
-          )
-        },
-        confirmButton = {
-          TextButton(onClick = onConfirmUploadElsewhere) {
-            Text(stringResource(R.string.night_upload_other_account_confirm))
-          }
-        },
-        dismissButton = {
-          TextButton(onClick = onDismissUploadElsewhere) {
-            Text(stringResource(R.string.night_cancel))
-          }
-        },
+    ConfirmDialog(
+        title = stringResource(R.string.night_upload_other_account_title),
+        body =
+            stringResource(
+                R.string.night_upload_other_account_body,
+                target.server,
+                target.account,
+            ),
+        confirmLabel = stringResource(R.string.night_upload_other_account_confirm),
+        onConfirm = onConfirmUploadElsewhere,
+        onDismiss = onDismissUploadElsewhere,
     )
   }
 
-  if (showQuality) {
-    DataQualitySheet(
-        item = result?.items?.firstOrNull { it.id == "data_quality" },
-        onDismiss = onDismissQuality,
-    )
-  }
   if (showSleepScore) {
     SleepScoreSheet(
         item = result?.items?.firstOrNull { it.id == "sleep_quality" },
         state = result?.let(::sleepScoreCardState),
         onDismiss = onDismissSleepScore,
-    )
-  }
-  if (showScoreExplanation) {
-    AlertDialog(
-        onDismissRequest = onDismissScoreExplanation,
-        title = { Text(stringResource(R.string.night_sleep_score_experimental)) },
-        text = { Text(stringResource(R.string.night_sleep_score_experimental_body)) },
-        confirmButton = {
-          TextButton(onClick = onDismissScoreExplanation) {
-            Text(stringResource(R.string.night_sheet_close))
-          }
-        },
     )
   }
   fullscreenChart?.let { chart ->
@@ -126,7 +87,6 @@ internal fun RecordingOverlays(
       }
     }
   }
-  metric?.let { spec -> MetricSheet(spec = spec, onDismiss = onDismissMetric) }
 
   if (showAnalysis && state.recording != null) {
     AnalysisSheet(
@@ -141,68 +101,38 @@ internal fun RecordingOverlays(
         onDismiss = onDismissAnalysis,
     )
   }
-  if (state.showDetails) {
-    RecordingDetailsSheet(
+  if (showExport) {
+    ExportSheet(
         state = state,
-        onDismiss = onCloseDetails,
         onExportRaw = onExportRaw,
         onExportMetadata = onExportMetadata,
         onExportResults = onExportResults,
         onExport = onExport,
-        onDownloadRaw = onDownloadRaw,
-        onDeleteRaw = onRequestDeleteRaw,
-        onDelete = onRequestDelete,
+        onDismiss = onDismissExport,
     )
   }
   if (showRawDelete) {
-    AlertDialog(
-        onDismissRequest = onDismissDeleteRaw,
-        title = { Text(stringResource(R.string.night_raw_delete_title)) },
-        text = { Text(stringResource(R.string.night_raw_delete_body)) },
-        confirmButton = {
-          TextButton(onClick = onConfirmDeleteRaw) {
-            Text(stringResource(R.string.night_raw_delete_confirm))
-          }
-        },
-        dismissButton = {
-          TextButton(onClick = onDismissDeleteRaw) {
-            Text(stringResource(R.string.night_cancel))
-          }
-        },
+    ConfirmDialog(
+        title = stringResource(R.string.night_raw_delete_title),
+        body = stringResource(R.string.night_raw_delete_body),
+        confirmLabel = stringResource(R.string.night_raw_delete_confirm),
+        onConfirm = onConfirmDeleteRaw,
+        onDismiss = onDismissDeleteRaw,
+        style = ConfirmDialogStyle.Destructive,
     )
   }
   if (showDelete) {
     val uploaded = state.remoteId != null
-    AlertDialog(
-        onDismissRequest = onDismissDelete,
-        title = {
-          Text(
-              stringResource(
-                  if (uploaded) R.string.night_delete_title else R.string.night_discard_title
-              )
-          )
-        },
-        text = {
-          Text(
-              stringResource(
-                  if (uploaded) R.string.night_delete_body else R.string.night_discard_body
-              )
-          )
-        },
-        confirmButton = {
-          TextButton(onClick = onConfirmDelete) {
-            Text(
-                stringResource(
-                    if (uploaded) R.string.night_delete_confirm else R.string.night_discard_confirm
-                )
-            )
-          }
-        },
-        dismissButton = {
-          TextButton(onClick = onDismissDelete) {
-            Text(stringResource(R.string.night_cancel))
-          }
-        },
+    ConfirmDialog(
+        title = stringResource(R.string.night_delete_title),
+        body =
+            stringResource(
+                if (uploaded) R.string.night_delete_body else R.string.night_delete_local_body
+            ),
+        confirmLabel = stringResource(R.string.night_delete_confirm),
+        onConfirm = onConfirmDelete,
+        onDismiss = onDismissDelete,
+        style = ConfirmDialogStyle.Destructive,
     )
   }
 }

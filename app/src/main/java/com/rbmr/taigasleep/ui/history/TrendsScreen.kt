@@ -1,57 +1,55 @@
 package com.rbmr.taigasleep.ui.history
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.insights.formatDuration
 import com.rbmr.taigasleep.insights.TrendNight
 import com.rbmr.taigasleep.insights.TrendRanges
 import com.rbmr.taigasleep.insights.Trends
-import com.rbmr.taigasleep.insights.formatSeconds
-import com.rbmr.taigasleep.ui.components.ChartExpandButton
-import com.rbmr.taigasleep.ui.components.ChartFullscreenDialog
-import com.rbmr.taigasleep.ui.components.TaigaCard
-import com.rbmr.taigasleep.ui.components.TrendBarChart
-import com.rbmr.taigasleep.ui.components.TrendDoubleLineChart
-import com.rbmr.taigasleep.ui.components.TrendLineChart
+import com.rbmr.taigasleep.insights.clockMinuteOfNightMinute
+import com.rbmr.taigasleep.insights.nightMinuteOfDay
+import com.rbmr.taigasleep.ui.components.ChoiceChip
+import com.rbmr.taigasleep.ui.components.ClockSteps
+import com.rbmr.taigasleep.ui.components.HourSteps
+import com.rbmr.taigasleep.ui.components.Section
+import com.rbmr.taigasleep.ui.components.TrendChart
+import com.rbmr.taigasleep.ui.components.TrendChartKind
 import com.rbmr.taigasleep.ui.components.TrendPoint
-import com.rbmr.taigasleep.ui.components.TrendScheduleChart
-import com.rbmr.taigasleep.ui.components.hoursAxis
+import com.rbmr.taigasleep.ui.components.TrendReference
+import com.rbmr.taigasleep.ui.components.TrendSeries
+import com.rbmr.taigasleep.ui.components.TrendSpanPoint
+import com.rbmr.taigasleep.ui.components.TrendSummary
+import com.rbmr.taigasleep.ui.components.WholeSteps
 import com.rbmr.taigasleep.ui.components.totalSleepHours
 import com.rbmr.taigasleep.ui.components.trendClock
-import com.rbmr.taigasleep.ui.components.trendNumber
 import com.rbmr.taigasleep.ui.components.trendWhole
-import com.rbmr.taigasleep.ui.components.trendWholeOrDash
-import com.rbmr.taigasleep.ui.history.TrendsUiState
-import com.rbmr.taigasleep.ui.history.TrendsViewModel
+import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 /**
- * The Trends side of History: a range switch and one card per chart. It draws only what its state
- * holder computed from the recordings on this phone, so it needs no network.
+ * The Trends side of History: the range chips and two groups of charts. It draws only what its
+ * state holder computed from the recordings on this phone, so it needs no network.
  */
 @Composable
 fun TrendsScreen(
-    onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
+    modifier: Modifier = Modifier,
+    bottomPadding: Dp = MaterialTheme.taiga.space.m,
 ) {
   val context = LocalContext.current
   val factory = remember { TrendsViewModel.Factory(context) }
@@ -61,7 +59,8 @@ fun TrendsScreen(
   TrendsContent(
       state = state,
       onRangeChange = viewModel::setRange,
-      onOpenRecording = onOpenRecording,
+      modifier = modifier,
+      bottomPadding = bottomPadding,
   )
 }
 
@@ -69,404 +68,267 @@ fun TrendsScreen(
 fun TrendsContent(
     state: TrendsUiState,
     onRangeChange: (Int) -> Unit,
-    onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
+    modifier: Modifier = Modifier,
+    bottomPadding: Dp = MaterialTheme.taiga.space.m,
 ) {
+  val space = MaterialTheme.taiga.space
   val data = state.data
-  val open: (TrendNight) -> Unit = { night ->
-    onOpenRecording(night.localId, night.remoteId, night.analysisId)
-  }
-  Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-    RangeSwitch(rangeDays = state.rangeDays, onRangeChange = onRangeChange)
-    ScheduleCard(data, onOpen = open)
-    TotalSleepCard(data, onOpen = open)
-    ScoreCard(data, onOpen = open)
-    EfficiencyCard(data, onOpen = open)
-    HeartRateCard(data, onOpen = open)
-    HrvCard(data, onOpen = open)
-  }
-}
-
-@Composable
-private fun RangeSwitch(rangeDays: Int, onRangeChange: (Int) -> Unit) {
-  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-    for (days in TrendRanges) {
-      FilterChip(
-          selected = days == rangeDays,
-          onClick = { onRangeChange(days) },
-          label = { Text(stringResource(R.string.trends_range_days, days)) },
-      )
-    }
-  }
-}
-
-/**
- * One chart card. When the range has fewer than two nights to average, the chart is replaced by one
- * sentence; the expand action is only there when there is a chart to enlarge.
- */
-@Composable
-private fun TrendCard(
-    title: String,
-    description: String,
-    enough: Boolean,
-    chart: @Composable (large: Boolean, modifier: Modifier) -> Unit,
-    summary: @Composable ColumnScope.() -> Unit,
-) {
-  var expanded by rememberSaveable { mutableStateOf(false) }
-  TaigaCard {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Text(
-          text = title,
-          style = MaterialTheme.typography.titleMedium,
-          modifier = Modifier.weight(1f),
-      )
-      if (enough) {
-        ChartExpandButton(onClick = { expanded = true })
+  LazyColumn(
+      modifier.fillMaxWidth(),
+      contentPadding = PaddingValues(bottom = bottomPadding),
+      verticalArrangement = Arrangement.spacedBy(space.l),
+  ) {
+    item { RangeChips(rangeDays = state.rangeDays, onRangeChange = onRangeChange) }
+    item {
+      Section(title = stringResource(R.string.trends_group_sleep)) {
+        Column(verticalArrangement = Arrangement.spacedBy(space.m)) {
+          ScoreChart(data)
+          TotalSleepChart(data)
+          ScheduleChart(data)
+          EfficiencyChart(data)
+        }
       }
     }
-    Spacer(Modifier.height(8.dp))
-    if (enough) {
-      chart(false, Modifier)
-      Spacer(Modifier.height(10.dp))
-      summary()
-    } else {
-      Text(
-          text = stringResource(R.string.trends_more_nights),
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
+    item {
+      Section(title = stringResource(R.string.trends_group_heart)) {
+        Column(verticalArrangement = Arrangement.spacedBy(space.m)) {
+          HeartRateChart(data)
+          HrvChart(data)
+        }
+      }
     }
   }
-  if (expanded && enough) {
-    ChartFullscreenDialog(title = title, onDismiss = { expanded = false }) { modifier ->
-      chart(true, modifier)
+}
+
+/** The three ranges the charts can show; one is always chosen. */
+@Composable
+private fun RangeChips(rangeDays: Int, onRangeChange: (Int) -> Unit) {
+  Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.s)) {
+    for (days in TrendRanges) {
+      ChoiceChip(
+          label = stringResource(R.string.trends_range_days, days),
+          selected = days == rangeDays,
+          onClick = { onRangeChange(days) },
+      )
     }
   }
 }
 
 @Composable
-private fun ScheduleCard(data: Trends, onOpen: (TrendNight) -> Unit) {
+private fun ScoreChart(data: Trends) {
+  val title = stringResource(R.string.trends_score_title)
+  val average = data.score
+  val points = data.points { it.score }
+  val value = (average.value ?: 0.0).roundToInt()
+  TrendChart(
+      title = title,
+      days = data.days,
+      kind = TrendChartKind.Line(listOf(TrendSeries(averageLabel(), points, averageColor()))),
+      summary = listOf(TrendSummary(averageLabel(), value.toString())),
+      description = stringResource(R.string.trends_description_whole, title, value, average.nights),
+      emptyMessage = moreRecordings(average.enough),
+      axisFormat = ::trendWhole,
+      steps = WholeSteps,
+  )
+}
+
+@Composable
+private fun TotalSleepChart(data: Trends) {
+  val title = stringResource(R.string.trends_total_sleep_title)
+  val average = data.totalSleep
+  val points = data.points { totalSleepHours(it.totalSleepSeconds) }
+  val value = average.value ?: 0.0
+  val intended = data.intendedSleepMinutes
+  TrendChart(
+      title = title,
+      days = data.days,
+      kind =
+          TrendChartKind.Bars(
+              points = points,
+              average = totalSleepHours(average.value),
+          ),
+      summary = listOf(TrendSummary(averageLabel(), formatDuration((value * 1000).roundToLong()))),
+      description = stringResource(R.string.trends_description_time, title, formatDuration((value * 1000).roundToLong()), average.nights),
+      emptyMessage = moreRecordings(average.enough),
+      references =
+          listOfNotNull(
+              intended?.let {
+                TrendReference(
+                    label = stringResource(R.string.trends_reference_intended),
+                    value = it / 60.0,
+                )
+              }
+          ),
+      valueFormat = { formatDuration((it * 3_600_000).roundToLong()) },
+      topLabel = { "$it h" },
+      steps = HourSteps,
+      minStep = 1.0,
+  )
+}
+
+@Composable
+private fun ScheduleChart(data: Trends) {
   val title = stringResource(R.string.trends_schedule_title)
   val bedtime = data.schedule.bedtime
   val wake = data.schedule.wake
-  val nights = data.schedule.nights
   val enough = data.schedule.enough && bedtime != null && wake != null
+  val spans =
+      data.nights.map { night ->
+        night?.let {
+          TrendSpanPoint(
+              night = it,
+              start = nightMinuteOfDay(it.startMinuteOfDay).toDouble(),
+              end = nightMinuteOfDay(it.endMinuteOfDay).toDouble(),
+          )
+        }
+      }
+  val summary =
+      listOfNotNull(
+          bedtime?.let {
+            TrendSummary(stringResource(R.string.trends_summary_average_bedtime), trendClock(it.meanMinuteOfDay))
+          },
+          wake?.let {
+            TrendSummary(stringResource(R.string.trends_summary_average_wake), trendClock(it.meanMinuteOfDay))
+          },
+      )
   val description =
-      if (bedtime != null && wake != null) {
+      if (enough && bedtime != null && wake != null) {
         stringResource(
             R.string.trends_description_schedule,
             trendClock(bedtime.meanMinuteOfDay),
             trendClock(wake.meanMinuteOfDay),
-            nights,
+            data.schedule.nights,
         )
       } else {
         stringResource(R.string.trends_description_more, title)
       }
-  TrendCard(
+  TrendChart(
       title = title,
+      days = data.days,
+      kind = TrendChartKind.FloatingBars(spans),
+      summary = summary,
       description = description,
-      enough = enough,
-      chart = { large, modifier ->
-        TrendScheduleChart(
-            days = data.days,
-            nights = data.nights,
-            usualBedtimeMinutes = data.usualBedtimeMinutes,
-            usualWakeMinutes = data.usualWakeMinutes,
-            description = description,
-            tooltip = { night ->
-              stringResource(
-                  R.string.trends_schedule_tooltip,
-                  trendClock(night.startMinuteOfDay),
-                  trendClock(night.endMinuteOfDay),
-              )
-            },
-            onOpen = onOpen,
-            modifier = modifier,
-            large = large,
-        )
-      },
-      summary = {
-        if (bedtime != null && wake != null) {
-          Text(
-              text =
-                  stringResource(
-                      R.string.trends_schedule_summary,
-                      trendClock(bedtime.meanMinuteOfDay),
-                      trendClock(wake.meanMinuteOfDay),
-                  ),
-              style = MaterialTheme.typography.bodyMedium,
-          )
-          Text(
-              text =
-                  stringResource(
-                      R.string.trends_schedule_spread,
-                      bedtime.spreadMinutes,
-                      wake.spreadMinutes,
-                      nights,
-                  ),
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
-      },
+      emptyMessage = moreRecordings(enough),
+      references =
+          listOfNotNull(
+              data.usualBedtimeMinutes?.let {
+                TrendReference(
+                    label = stringResource(R.string.trends_reference_usual_bedtime),
+                    value = nightMinuteOfDay(it).toDouble(),
+                )
+              },
+              data.usualWakeMinutes?.let {
+                TrendReference(
+                    label = stringResource(R.string.trends_reference_usual_wake),
+                    value = nightMinuteOfDay(it).toDouble(),
+                )
+              },
+          ),
+      axisFormat = { trendClock(clockMinuteOfNightMinute(it.roundToInt())) },
+      steps = ClockSteps,
+      minStep = 60.0,
   )
 }
 
 @Composable
-private fun TotalSleepCard(data: Trends, onOpen: (TrendNight) -> Unit) {
-  val title = stringResource(R.string.trends_total_sleep_title)
-  val average = data.totalSleep
-  val points = data.points { totalSleepHours(it.totalSleepSeconds) }
-  val intendedHours = data.intendedSleepMinutes?.div(60.0)
-  val axis = hoursAxis(points.map { it?.value }, intendedHours)
-  val value = average.value ?: 0.0
-  val description =
-      stringResource(
-          R.string.trends_description_time,
-          title,
-          formatSeconds(value),
-          average.nights,
-      )
-  TrendCard(
-      title = title,
-      description = description,
-      enough = average.enough,
-      chart = { large, modifier ->
-        TrendBarChart(
-            days = data.days,
-            points = points,
-            axis = axis,
-            target = intendedHours,
-            targetLabel = data.intendedSleepMinutes?.let { formatSeconds(it * 60.0) },
-            description = description,
-            tooltip = { night -> formatSeconds(night.totalSleepSeconds ?: 0.0) },
-            onOpen = onOpen,
-            modifier = modifier,
-            large = large,
-        )
-      },
-      summary = {
-        Text(
-            text =
-                stringResource(
-                    R.string.trends_summary_time,
-                    formatSeconds(value),
-                    average.nights,
-                ),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-      },
-  )
-}
-
-@Composable
-private fun ScoreCard(data: Trends, onOpen: (TrendNight) -> Unit) {
-  val title = stringResource(R.string.trends_score_title)
-  val average = data.score
-  val points = data.points { it.score }
-  val description =
-      stringResource(
-          R.string.trends_description_whole,
-          title,
-          (average.value ?: 0.0).roundToInt(),
-          average.nights,
-      )
-  TrendCard(
-      title = title,
-      description = description,
-      enough = average.enough,
-      chart = { large, modifier ->
-        TrendLineChart(
-            days = data.days,
-            points = points,
-            min = 0.0,
-            max = 100.0,
-            yFormat = ::trendWhole,
-            description = description,
-            tooltip = { night -> trendWholeOrDash(night.score) },
-            onOpen = onOpen,
-            modifier = modifier,
-            large = large,
-        )
-      },
-      summary = {
-        Text(
-            text =
-                stringResource(
-                    R.string.trends_summary_whole,
-                    (average.value ?: 0.0).roundToInt(),
-                    average.nights,
-                ),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-      },
-  )
-}
-
-@Composable
-private fun EfficiencyCard(data: Trends, onOpen: (TrendNight) -> Unit) {
+private fun EfficiencyChart(data: Trends) {
   val title = stringResource(R.string.trends_efficiency_title)
   val average = data.efficiency
   val points = data.points { it.efficiency }
-  val (min, max) = valueRange(points)
-  val description =
-      stringResource(
-          R.string.trends_description_percent,
-          title,
-          (average.value ?: 0.0).roundToInt(),
-          average.nights,
-      )
-  TrendCard(
+  val value = (average.value ?: 0.0).roundToInt()
+  TrendChart(
       title = title,
-      description = description,
-      enough = average.enough,
-      chart = { large, modifier ->
-        TrendLineChart(
-            days = data.days,
-            points = points,
-            min = min,
-            max = max,
-            yFormat = { "${trendNumber(it)}%" },
-            description = description,
-            tooltip = { night ->
-              night.efficiency?.let { "${it.roundToInt()}%" } ?: "—"
-            },
-            onOpen = onOpen,
-            modifier = modifier,
-            large = large,
-        )
-      },
-      summary = {
-        Text(
-            text =
-                stringResource(
-                    R.string.trends_summary_percent,
-                    (average.value ?: 0.0).roundToInt(),
-                    average.nights,
-                ),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-      },
+      days = data.days,
+      kind = TrendChartKind.Line(listOf(TrendSeries(averageLabel(), points, averageColor()))),
+      summary = listOf(TrendSummary(averageLabel(), "$value%")),
+      description =
+          stringResource(R.string.trends_description_percent, title, value, average.nights),
+      emptyMessage = moreRecordings(average.enough),
+      axisFormat = ::trendWhole,
+      valueFormat = { "${it.roundToInt()}%" },
+      topLabel = { "$it%" },
+      steps = WholeSteps,
   )
 }
 
 @Composable
-private fun HeartRateCard(data: Trends, onOpen: (TrendNight) -> Unit) {
+private fun HeartRateChart(data: Trends) {
   val title = stringResource(R.string.trends_heart_rate_title)
   val minimum = data.heartRateMin
   val mean = data.heartRateMean
-  val minPoints = data.points { it.heartRateMinBpm }
+  val minimumPoints = data.points { it.heartRateMinBpm }
   val meanPoints = data.points { it.heartRateMeanBpm }
-  val (min, max) = valueRange(minPoints + meanPoints)
   val nights = minOf(minimum.nights, mean.nights)
-  val description =
-      stringResource(
-          R.string.trends_description_heart_rate,
-          title,
-          (minimum.value ?: 0.0).roundToInt(),
-          (mean.value ?: 0.0).roundToInt(),
-          nights,
-      )
-  TrendCard(
+  val average = (mean.value ?: 0.0).roundToInt()
+  val lowest = (minimum.value ?: 0.0).roundToInt()
+  val color = MaterialTheme.taiga.chartHr
+  TrendChart(
       title = title,
-      description = description,
-      enough = minimum.enough && mean.enough,
-      chart = { large, modifier ->
-        TrendDoubleLineChart(
-            days = data.days,
-            first = minPoints,
-            second = meanPoints,
-            firstLabel = stringResource(R.string.trends_legend_min),
-            secondLabel = stringResource(R.string.trends_legend_mean),
-            min = min,
-            max = max,
-            yFormat = { "${trendNumber(it)} bpm" },
-            description = description,
-            tooltip = { night ->
-              stringResource(
-                  R.string.trends_tooltip_heart_rate,
-                  trendWholeOrDash(night.heartRateMinBpm),
-                  trendWholeOrDash(night.heartRateMeanBpm),
+      days = data.days,
+      kind =
+          TrendChartKind.Line(
+              listOf(
+                  TrendSeries(averageLabel(), meanPoints, color),
+                  TrendSeries(lowestLabel(), minimumPoints, color, dashed = true),
               )
-            },
-            onOpen = onOpen,
-            modifier = modifier,
-            large = large,
-          )
-      },
-      summary = {
-        Text(
-            text =
-                stringResource(
-                    R.string.trends_summary_heart_rate,
-                    (minimum.value ?: 0.0).roundToInt(),
-                    (mean.value ?: 0.0).roundToInt(),
-                    nights,
-                ),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-      },
+          ),
+      summary =
+          listOf(
+              TrendSummary(averageLabel(), "$average bpm"),
+              TrendSummary(lowestLabel(), "$lowest bpm"),
+          ),
+      description =
+          stringResource(
+              R.string.trends_description_heart_rate,
+              title,
+              average,
+              lowest,
+              nights,
+          ),
+      emptyMessage = moreRecordings(minimum.enough && mean.enough),
+      axisFormat = ::trendWhole,
+      valueFormat = { "${it.roundToInt()} bpm" },
+      topLabel = { "$it bpm" },
+      steps = WholeSteps,
   )
 }
 
 @Composable
-private fun HrvCard(data: Trends, onOpen: (TrendNight) -> Unit) {
+private fun HrvChart(data: Trends) {
   val title = stringResource(R.string.trends_hrv_title)
   val average = data.hrv
   val points = data.points { it.hrvRmssdMs }
-  val (min, max) = valueRange(points)
-  val description =
-      stringResource(
-          R.string.trends_description_hrv,
-          title,
-          (average.value ?: 0.0).roundToInt(),
-          average.nights,
-      )
-  TrendCard(
+  val value = (average.value ?: 0.0).roundToInt()
+  TrendChart(
       title = title,
-      description = description,
-      enough = average.enough,
-      chart = { large, modifier ->
-        TrendLineChart(
-            days = data.days,
-            points = points,
-            min = min,
-            max = max,
-            yFormat = { "${trendNumber(it)} ms" },
-            description = description,
-            tooltip = { night ->
-              stringResource(
-                  R.string.trends_tooltip_hrv,
-                  (night.hrvRmssdMs ?: 0.0).roundToInt(),
-              )
-            },
-            onOpen = onOpen,
-            modifier = modifier,
-            large = large,
-        )
-      },
-      summary = {
-        Text(
-            text =
-                stringResource(
-                    R.string.trends_summary_hrv,
-                    (average.value ?: 0.0).roundToInt(),
-                    average.nights,
-                ),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-      },
+      days = data.days,
+      kind = TrendChartKind.Line(listOf(TrendSeries(averageLabel(), points, averageColor()))),
+      summary = listOf(TrendSummary(averageLabel(), "$value ms")),
+      description = stringResource(R.string.trends_description_hrv, title, value, average.nights),
+      emptyMessage = moreRecordings(average.enough),
+      axisFormat = ::trendWhole,
+      valueFormat = { "${it.roundToInt()} ms" },
+      topLabel = { "$it ms" },
+      steps = WholeSteps,
   )
 }
 
-/** One point per calendar day; a day without a night or without the value stays empty. */
+@Composable
+private fun averageLabel(): String = stringResource(R.string.trends_summary_average)
+
+@Composable
+private fun lowestLabel(): String = stringResource(R.string.trends_summary_lowest)
+
+@Composable
+private fun averageColor() = MaterialTheme.colorScheme.primary
+
+@Composable
+private fun moreRecordings(enough: Boolean): String? =
+    if (enough) null else stringResource(R.string.trends_more_nights)
+
+/** One point per calendar day; a day without a recording or without the value stays empty. */
 private fun Trends.points(value: (TrendNight) -> Double?): List<TrendPoint?> =
     nights.map { night ->
       if (night == null) null
       else value(night)?.let { TrendPoint(it, night.poorData, night) }
     }
-
-/** The data's own bounds; the shared axis widens them to evenly spaced round ticks. */
-private fun valueRange(points: List<TrendPoint?>): Pair<Double, Double> {
-  val values = points.mapNotNull { it?.value }
-  return (values.minOrNull() ?: 0.0) to (values.maxOrNull() ?: 1.0)
-}

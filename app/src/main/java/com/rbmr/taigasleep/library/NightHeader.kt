@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.library
 
+import com.rbmr.taigasleep.insights.formatDuration
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -30,22 +31,11 @@ fun formatNightHeader(
         tracker,
         start,
         clockTime(end, locale, zone),
-        nightLength(end - startUtcMs),
+        formatDuration(end - startUtcMs),
     )
   }
 }
 
 private fun clockTime(ms: Long, locale: Locale, zone: TimeZone): String =
-    if (ms <= 0) "—"
+    if (ms <= 0) "-"
     else SimpleDateFormat("HH:mm", locale).apply { timeZone = zone }.format(Date(ms))
-
-private fun nightLength(ms: Long): String {
-  val totalMinutes = (ms / 60_000).coerceAtLeast(0)
-  val hours = totalMinutes / 60
-  val minutes = totalMinutes % 60
-  return when {
-    hours > 0 && minutes > 0 -> "$hours h $minutes min"
-    hours > 0 -> "$hours h"
-    else -> "$minutes min"
-  }
-}

@@ -220,12 +220,43 @@ class RecordingMergeTest {
   }
 
   @Test
-  fun anUploadedNightWithoutAResultIsProcessing() {
+  fun anUploadedNightWithNoAnalysisAtAllIsNotAnalyzed() {
     val remote = summaries(RecordingSummaryDto(recording = recording(), analyses = emptyList()))
 
     val night = buildRecordings(listOf(local), libraryEntries(remote, localIds = phoneIds)).single()
 
+    assertEquals(RecordingStatus.NOT_ANALYZED, night.status)
+  }
+
+  @Test
+  fun anUploadedNightWithAnAnalysisRequestedButNotListedYetIsProcessing() {
+    val record = UploadRecord(id = "local", onServer = true, phase = UploadPhase.PROCESSING)
+    val remote = summaries(RecordingSummaryDto(recording = recording(), analyses = emptyList()))
+
+    val night =
+        buildRecordings(
+                listOf(local),
+                libraryEntries(remote, records = mapOf("local" to record), localIds = phoneIds),
+            )
+            .single()
+
     assertEquals(RecordingStatus.PROCESSING, night.status)
+  }
+
+  @Test
+  fun anUploadedNightStoredAsUploadedWithNoAnalysisIsNotAnalyzed() {
+    val record = UploadRecord(id = "local", onServer = true, phase = UploadPhase.UPLOADED)
+    val remote = summaries(RecordingSummaryDto(recording = recording(), analyses = emptyList()))
+
+    val night =
+        buildRecordings(
+                listOf(local),
+                libraryEntries(remote, records = mapOf("local" to record), localIds = phoneIds),
+            )
+            .single()
+
+    assertEquals(RecordingStatus.NOT_ANALYZED, night.status)
+    assertEquals(BackupPhase.BACKED_UP, night.backup.phase)
   }
 
   @Test
@@ -672,7 +703,7 @@ class RecordingMergeTest {
     assertEquals(1_792_938_601_000L, parseApiDate("2026-10-25T14:30:01Z"))
     assertEquals(1_792_938_601_250L, parseApiDate("2026-10-25T14:30:01.250Z"))
     assertEquals(1_792_938_601_000L, parseApiDate("2026-10-25T16:30:01+02:00"))
-    assertTrue(formatRecordingDate(parseApiDate("2026-10-25T14:00:00Z")) != "—")
+    assertTrue(formatRecordingDate(parseApiDate("2026-10-25T14:00:00Z")) != "-")
   }
 
   @Test

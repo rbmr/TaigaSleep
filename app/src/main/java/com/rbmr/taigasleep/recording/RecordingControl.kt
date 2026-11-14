@@ -38,6 +38,7 @@ data class StartRequest(
     val kind: SensorKind?,
     val sensorId: String?,
     val sensorName: String?,
+    val hr: Boolean = true,
     val ecg: Boolean,
     val acc: Boolean,
     val mode: RecordingMode?,
@@ -207,11 +208,12 @@ class RecordingControl(
         }
     val config =
         RecordingConfig(
+            hr = request.hr,
             ecg = request.ecg && sensor.capabilities.ecg,
             acc = request.acc && sensor.capabilities.acc,
         )
-    val modes = sensor.recordingModes(StreamConfig(config.ecg, config.acc))
-    if (modes.isEmpty()) {
+    val modes = sensor.recordingModes(StreamConfig(config.ecg, config.acc, config.hr))
+    if (modes.isEmpty() || !(config.hr || config.ecg || config.acc)) {
       leave(host.message(RecordingMessage.MODE))
       return
     }
@@ -283,7 +285,8 @@ class RecordingControl(
       nowUtcMs: Long,
   ): ArmedWake? {
     if (window == null || mode != RecordingMode.STREAM) return null
-    val chosen = window.copy(movement = window.movement && config.acc)
+    val chosen =
+        window.copy(heartRate = window.heartRate && config.hr, movement = window.movement && config.acc)
     val bounds = chosen.bounds(nowUtcMs)
     return ArmedWake(recordingId, chosen, bounds.startUtcMs, bounds.endUtcMs)
   }
@@ -395,7 +398,7 @@ class RecordingControl(
           state = monitor.state.value,
       )
     }
-    val streamConfig = StreamConfig(cfg.ecg, cfg.acc)
+    val streamConfig = StreamConfig(cfg.ecg, cfg.acc, cfg.hr)
     if (mode == RecordingMode.ON_DEVICE) {
       val tracker = sensor as? OnDeviceTracker
       if (tracker == null) {
@@ -914,7 +917,7 @@ class RecordingControl(
     if (live !== s) return
     val cfg = s.writer.meta.config
     try {
-      executeRecovery(step, s.sensor, StreamConfig(cfg.ecg, cfg.acc), s.fanout)
+      executeRecovery(step, s.sensor, StreamConfig(cfg.ecg, cfg.acc, cfg.hr), s.fanout)
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {

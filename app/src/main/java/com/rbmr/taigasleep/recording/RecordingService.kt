@@ -105,6 +105,7 @@ class RecordingService : Service(), RecordingHost {
           kind = SensorKind.fromWire(intent.getStringExtra(EXTRA_SENSOR_KIND)),
           sensorId = intent.getStringExtra(EXTRA_SENSOR_ID),
           sensorName = intent.getStringExtra(EXTRA_SENSOR_NAME),
+          hr = intent.getBooleanExtra(EXTRA_HR, true),
           ecg = intent.getBooleanExtra(EXTRA_ECG, false),
           acc = intent.getBooleanExtra(EXTRA_ACC, false),
           mode = RecordingMode.fromWire(intent.getStringExtra(EXTRA_MODE)),
@@ -254,65 +255,29 @@ class RecordingService : Service(), RecordingHost {
         .notify(NOTIFICATION_ID, notification(text, state.capture.startUtcMs))
   }
 
+  /** The tracker's name and one status; the notification's own timer shows the duration. */
   private fun notificationText(s: RecordingState): String {
     val name = s.capture.sensorName.ifBlank { getString(R.string.rec_notification_device) }
-    return when (s.overall.reason) {
-      RecordingState.Reason.STORAGE_ERROR ->
-          getString(R.string.rec_notification_storage_error, name)
-      RecordingState.Reason.STORAGE_LOW ->
-          getString(R.string.rec_notification_storage_low, name)
-      RecordingState.Reason.LINK_LOST ->
-          getString(
-              when (s.link.state) {
-                RecordingState.LinkState.CONNECTING -> R.string.rec_notification_reconnecting
-                else -> R.string.rec_notification_disconnected
-              },
-              name,
-          )
-      RecordingState.Reason.OFF_BODY ->
-          getString(
-              R.string.rec_notification_off_body,
-              name,
-              RecordingFormat.duration(s.contact.offBodyMs),
-          )
-      RecordingState.Reason.STREAM_STALE ->
-          getString(R.string.rec_notification_stalled, name, streamName(s))
-      RecordingState.Reason.ECG_POOR -> getString(R.string.rec_notification_ecg_poor, name)
-      RecordingState.Reason.BATTERY_LOW ->
-          getString(R.string.rec_notification_battery_low, name, s.power.percent ?: 0)
-      null -> {
-        val rates = rateText(s)
-        if (rates.isEmpty()) getString(R.string.rec_notification_connected, name)
-        else
-            getString(
-                R.string.rec_notification_rates,
-                getString(R.string.rec_notification_connected, name),
-                rates,
-            )
-      }
-    }
+    return getString(R.string.rec_notification_text, name, getString(notificationStatus(s)))
   }
 
-  /** The measured stream rates, with the same rounding the active screen uses. */
-  private fun rateText(s: RecordingState): String =
-      s.streams.values
-          .filter { it.kind != RecordingState.StreamKind.HR && it.rateHz != null }
-          .joinToString(" · ") { RecordingFormat.rate(streamLabel(it.kind), it.rateHz!!) }
-
-  private fun streamName(s: RecordingState): String =
-      streamLabel(
-          s.streams.values.firstOrNull { it.status == RecordingState.StreamStatus.STALE }?.kind
-              ?: RecordingState.StreamKind.HR
-      )
-
-  private fun streamLabel(kind: RecordingState.StreamKind): String =
-      getString(
-          when (kind) {
-            RecordingState.StreamKind.HR -> R.string.rec_active_hr
-            RecordingState.StreamKind.ECG -> R.string.rec_active_ecg
-            RecordingState.StreamKind.ACC -> R.string.rec_active_acc
-          }
-      )
+  private fun notificationStatus(s: RecordingState): Int =
+      when (s.overall.reason) {
+        RecordingState.Reason.STORAGE_ERROR -> R.string.rec_notification_storage_error
+        RecordingState.Reason.STORAGE_LOW -> R.string.rec_notification_storage_low
+        RecordingState.Reason.LINK_LOST -> R.string.rec_notification_no_connection
+        RecordingState.Reason.OFF_BODY -> R.string.rec_notification_no_hr
+        RecordingState.Reason.STREAM_STALE ->
+            if (s.streams.values.firstOrNull { it.status == RecordingState.StreamStatus.STALE }?.kind ==
+                RecordingState.StreamKind.HR) {
+              R.string.rec_notification_no_hr
+            } else {
+              R.string.rec_notification_no_data
+            }
+        RecordingState.Reason.ECG_POOR -> R.string.rec_notification_ecg_poor
+        RecordingState.Reason.BATTERY_LOW -> R.string.rec_notification_battery_low
+        null -> R.string.rec_notification_connected
+      }
 
   /** Returns false when the system refuses the foreground state; the recording cannot go on then. */
   private fun promote(n: Notification): Boolean =
@@ -370,6 +335,7 @@ class RecordingService : Service(), RecordingHost {
     private const val EXTRA_SENSOR_KIND = "sensor_kind"
     private const val EXTRA_SENSOR_ID = "sensor_id"
     private const val EXTRA_SENSOR_NAME = "sensor_name"
+    private const val EXTRA_HR = "hr"
     private const val EXTRA_ECG = "ecg"
     private const val EXTRA_ACC = "acc"
     private const val EXTRA_MODE = "mode"
@@ -394,6 +360,7 @@ class RecordingService : Service(), RecordingHost {
               .putExtra(EXTRA_SENSOR_KIND, sensor.kind.wire)
               .putExtra(EXTRA_SENSOR_ID, sensor.id)
               .putExtra(EXTRA_SENSOR_NAME, sensor.name)
+              .putExtra(EXTRA_HR, config.hr)
               .putExtra(EXTRA_ECG, config.ecg)
               .putExtra(EXTRA_ACC, config.acc)
               .putExtra(EXTRA_MODE, mode.wire)

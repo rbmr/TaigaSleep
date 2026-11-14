@@ -73,6 +73,11 @@ private class FakeWork : HomeWork {
   override fun savedConfig(sensor: SleepSensor) =
       StartConfig(streams, modes, mode, canEcg, canAcc)
 
+  override fun setHr(sensorId: String, on: Boolean) {
+    calls += "hr:$on"
+    streams = streams.copy(hr = on)
+  }
+
   override fun setEcg(sensorId: String, on: Boolean) {
     calls += "ecg:$on"
     streams = streams.copy(ecg = on)
@@ -368,7 +373,7 @@ class HomeViewModelTest {
   private val status = MutableStateFlow(CaptureStatus())
 
   private fun viewModel(): HomeViewModel =
-      HomeViewModel(work, sensor, status, Dispatchers.Unconfined)
+      HomeViewModel(work, sensor, status, dispatcher = Dispatchers.Unconfined)
 
   @Test
   fun `the screen starts without a tracker`() {
@@ -432,6 +437,31 @@ class HomeViewModelTest {
     model.start()
 
     assertEquals(listOf("start:STREAM:true:false"), work.calls.filter { it.startsWith("start") })
+  }
+
+  @Test
+  fun `a configuration with nothing to record does not start`() {
+    work.streams = Streams(ecg = false, acc = false, hr = false)
+    val model = viewModel()
+    sensor.value = FakeSensor()
+
+    model.start()
+
+    assertTrue(work.calls.none { it.startsWith("start") })
+  }
+
+  @Test
+  fun `heart rate is a choice like the other data`() {
+    val model = viewModel()
+    sensor.value = FakeSensor()
+
+    model.setHr(false)
+
+    assertTrue("hr:false" in work.calls)
+    assertEquals(
+        Streams(ecg = true, acc = false, hr = false),
+        (model.state.value as HomeUiState.ReadyToStart).config.streams,
+    )
   }
 
   @Test

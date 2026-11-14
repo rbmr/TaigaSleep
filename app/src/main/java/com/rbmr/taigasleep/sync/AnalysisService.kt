@@ -14,14 +14,6 @@ data class StartedAnalysis(
     val status: String,
 )
 
-/** The automatic choice is null when automatic analysis is off. */
-fun autoChoice(
-    config: RecordingConfig,
-    algorithms: List<AlgorithmDto>,
-    settings: AnalysisSettings,
-): StagerChoice? =
-    if (settings.auto) selectStager(config, algorithms, settings.preferenceOrder) else null
-
 /** Manual choices ignore the automatic setting and the configured order. */
 fun manualChoices(
     config: RecordingConfig,
@@ -37,20 +29,6 @@ fun manualChoices(
  * model features. An empty profile sends no parameters, and the other algorithms never get any.
  */
 internal object AnalysisService {
-  /** After an upload: request the preferred compatible stager, or nothing when auto is off. */
-  suspend fun startAuto(
-      client: TaigaClient,
-      recordingId: String,
-      config: RecordingConfig,
-      settings: AnalysisSettings,
-      personalData: PersonalData = PersonalData(),
-      startDate: LocalDate? = null,
-  ): StartedAnalysis? {
-    if (!settings.auto) return null
-    val choice = autoChoice(config, installed(client), settings) ?: return null
-    return request(client, recordingId, choice, personalData, startDate)
-  }
-
   /** A manual retry of a recording that has no analysis yet, regardless of the automatic setting. */
   suspend fun startPreferred(
       client: TaigaClient,

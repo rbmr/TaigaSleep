@@ -30,8 +30,8 @@ INFO = AlgorithmInfo(
     version="1.2.0",
     name="Baseline HR/ACC",
     description=(
-        "Deterministic heart-rate and movement reference stager that reports wake and "
-        "sleep only. Experimental; not clinically validated."
+        "Uses heart rate and movement to tell sleep from awake. "
+        "It does not tell sleep stages apart."
     ),
     license="GPL-3.0-or-later",
     citation=None,
@@ -114,11 +114,11 @@ class BaselineStager(Stager):
             night_median = float(np.median(valid_hr))
         else:
             night_median = float("nan")
-            warnings.append("no valid HR samples; all epochs are unknown")
+            warnings.append("no valid heart-rate samples, so every 30-second interval is unknown")
 
         has_acc = recording.acc is not None
         if not has_acc:
-            warnings.append("no ACC stream; movement rules are disabled")
+            warnings.append("no movement data, so the movement rules are turned off")
 
         stages: list[Stage] = []
         artifacts: list[bool] = []

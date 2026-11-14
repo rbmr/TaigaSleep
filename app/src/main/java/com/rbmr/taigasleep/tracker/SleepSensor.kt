@@ -50,8 +50,8 @@ data class SensorCapabilities(
     val firmware: Boolean = true,
 )
 
-/** Which streams to run. HR is always on. */
-data class StreamConfig(val ecg: Boolean, val acc: Boolean)
+/** Which streams to run. At least one is on; heart rate is on unless the user turned it off. */
+data class StreamConfig(val ecg: Boolean, val acc: Boolean, val hr: Boolean = true)
 
 /** A sensor seen while scanning. */
 data class FoundSensor(val kind: SensorKind, val id: String, val name: String, val rssi: Int)

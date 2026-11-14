@@ -4,11 +4,14 @@ import android.content.Context
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.RemoteSession
+import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.backend.TaigaClient
 import com.rbmr.taigasleep.profile.PersonalData
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import java.time.LocalDate
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 
 /**
  * What [SyncService] needs from the rest of the app: the per-recording state, the session and the
@@ -33,11 +36,6 @@ internal interface SyncEnvironment {
 
   suspend fun markManualAnalysis(id: String, analysisId: String, account: String? = null)
 
-  /** The automatic upload policy as it is right now. */
-  val autoUpload: AutoUploadSettings
-
-  val hasSession: Boolean
-
   /** The active account key, or null while logged out. */
   val account: String?
 
@@ -58,8 +56,6 @@ internal interface SyncEnvironment {
   /** The date the recording started on, or null when neither the phone nor the server list knows it. */
   suspend fun startDate(id: String): LocalDate?
 
-  suspend fun enqueueAuto(id: String)
-
   suspend fun enqueueManual(id: String)
 
   fun cancelUploads(id: String)
@@ -68,9 +64,14 @@ internal interface SyncEnvironment {
 
   suspend fun resumePendingDeletes()
 
-  suspend fun reconcileUploads()
+  /** Do the automatic upload and analysis work that is due ([only] limits it to one recording). */
+  suspend fun catchUp(reason: CatchUpReason, only: String?)
 
-  suspend fun rescheduleAll()
+  /** Keep the periodic catch-up that is the safety net of the events. */
+  fun schedulePeriodicCatchUp()
+
+  /** Run a catch-up whenever a switch, the server or the account changes. */
+  fun watchTriggers(scope: CoroutineScope)
 
   suspend fun deleteRecording(localId: String?, remoteId: String?)
 
@@ -132,12 +133,6 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
   override suspend fun markManualAnalysis(id: String, analysisId: String, account: String?) =
       state.markManualAnalysis(id, analysisId, account)
 
-  override val autoUpload: AutoUploadSettings
-    get() = settings.autoUpload.value
-
-  override val hasSession: Boolean
-    get() = remote.hasSession
-
   override val account: String?
     get() = remote.accountKey
 
@@ -153,8 +148,6 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
 
   override suspend fun startDate(id: String): LocalDate? = startDateOf(app, id)
 
-  override suspend fun enqueueAuto(id: String) = UploadScheduler.enqueueAuto(app, id)
-
   override suspend fun enqueueManual(id: String) = UploadScheduler.enqueueManual(app, id)
 
   override fun cancelUploads(id: String) = UploadScheduler.cancelRecordingWork(app, id)
@@ -163,9 +156,23 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
 
   override suspend fun resumePendingDeletes() = UploadScheduler.resumePendingDeletes(app)
 
-  override suspend fun reconcileUploads() = UploadScheduler.reconcile(app)
+  private val automation = Automation(AppAutomationEnvironment(app))
 
-  override suspend fun rescheduleAll() = UploadScheduler.rescheduleAll(app)
+  override suspend fun catchUp(reason: CatchUpReason, only: String?) =
+      automation.run(reason, only)
+
+  override fun schedulePeriodicCatchUp() = CatchUpWorker.schedule(app)
+
+  override fun watchTriggers(scope: CoroutineScope) {
+    automation.watch(
+        scope = scope,
+        uploadSettings = settings.autoUpload,
+        analysisAuto = app.appContainer.analysisSettingsStore.settings.map { it.auto },
+        accounts = remote.accounts,
+        connected = remote.status.map { it is RemoteStatus.Connected },
+        onTrigger = { catchUp(it, null) },
+    )
+  }
 
   override suspend fun deleteRecording(localId: String?, remoteId: String?) =
       RecordingDeleter.delete(app, localId, remoteId)

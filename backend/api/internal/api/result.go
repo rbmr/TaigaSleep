@@ -84,7 +84,7 @@ func parseResult(raw json.RawMessage) (resultEnvelope, error) {
 		covered += segment.Count
 	}
 	if covered != result.Stages.Count {
-		return result, fmt.Errorf("stage segments do not cover every epoch")
+		return result, fmt.Errorf("stage segments do not cover every 30-second interval")
 	}
 	if result.ContractVersion < 3 {
 		return result, fmt.Errorf("analysis result uses contract version %d, want 3", result.ContractVersion)

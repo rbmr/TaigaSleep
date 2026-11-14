@@ -22,11 +22,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/** A source that hands out the library's list and cached payloads and refuses every server call. */
+/** A source that hands out the library's list and cached payloads; only reading a recording works. */
 private class FakeRecordingSource(
     nights: List<RecordingView>,
-    private val results: Map<String, AnalysisDto> = emptyMap(),
+    results: Map<String, AnalysisDto> = emptyMap(),
 ) : RecordingSource {
+  private val cached = results.toMutableMap()
   override val recordings: MutableStateFlow<List<RecordingView>> = MutableStateFlow(nights)
   override val remoteStatus: MutableStateFlow<RemoteStatus> =
       MutableStateFlow<RemoteStatus>(RemoteStatus.NotConfigured)
@@ -37,14 +38,23 @@ private class FakeRecordingSource(
 
   override suspend fun cachedResult(key: String, analysisId: String?): AnalysisDto? {
     cachedKeys += key
-    return results[key]
+    return cached[key]
   }
+
+  /** The results a server read stores: reading a recording makes its result cached. */
+  val onServer = mutableMapOf<String, AnalysisDto>()
+  val refreshed = mutableListOf<String>()
 
   override suspend fun refreshRecording(
       key: String,
       remoteId: String?,
       analysisId: String?,
-  ): Result<AnalysisDto?> = refuse()
+  ): Result<AnalysisDto?> {
+    refreshed += key
+    val result = onServer[key] ?: return Result.failure(IllegalStateException("offline"))
+    cached[key] = result
+    return Result.success(result)
+  }
 
   override suspend fun compatibleAlgorithms(recording: RecordingView): Result<List<AlgorithmDto>> =
       refuse()
@@ -166,7 +176,7 @@ class TrendsViewModelTest {
 
     assertEquals("remote-key", drawn.key)
     assertNull(drawn.localId)
-    assertEquals(wake, drawn.date)
+    assertEquals(wake.minusDays(1), drawn.date)
     assertEquals(7.0 * 3600, drawn.totalSleepSeconds ?: 0.0, 0.001)
     assertEquals(7.0 * 3600, trends.totalSleep.value ?: 0.0, 0.001)
     assertEquals(listOf("remote-key"), source.cachedKeys)
@@ -196,8 +206,54 @@ class TrendsViewModelTest {
             .filterNotNull()
             .single()
 
-    assertEquals(wake, drawn.date)
+    assertEquals(wake.minusDays(1), drawn.date)
     assertEquals(7 * 60, drawn.endMinuteOfDay)
     assertEquals(8 * 3600L, drawn.durationSeconds)
+  }
+
+  @Test
+  fun `a server night whose result is not on the phone is read once and then drawn`() {
+    val night = LocalDate.now(zone).minusDays(2)
+    val start = at(night, "23:00")
+    val end = at(night.plusDays(1), "07:00")
+    val remoteOnly =
+        night(
+            key = "remote-key",
+            localId = null,
+            remoteId = "r1",
+            startUtcMs = start,
+            endUtcMs = end,
+            durationMs = end - start,
+            analysisId = "a1",
+        )
+    val source = FakeRecordingSource(listOf(remoteOnly))
+    source.onServer["remote-key"] =
+        analysis("a1", mapOf(TrendItems.TOTAL_SLEEP to 6.0 * 3600, TrendItems.DATA_QUALITY to 90.0))
+
+    val drawn = viewModel(source).state.value.data.nights.filterNotNull().single()
+
+    assertEquals(night, drawn.date)
+    assertEquals(6.0 * 3600, drawn.totalSleepSeconds ?: 0.0, 0.001)
+    assertEquals(listOf("remote-key"), source.refreshed)
+  }
+
+  @Test
+  fun `a recording that starts after midnight is drawn on the previous date`() {
+    val evening = LocalDate.now(zone).minusDays(3)
+    val start = at(evening.plusDays(1), "00:39")
+    val end = at(evening.plusDays(1), "07:30")
+    val late =
+        night(
+            key = "late",
+            localId = "late",
+            remoteId = null,
+            startUtcMs = start,
+            endUtcMs = end,
+            durationMs = end - start,
+        )
+
+    val drawn = viewModel(FakeRecordingSource(listOf(late))).state.value.data.nights.filterNotNull().single()
+
+    assertEquals(evening, drawn.date)
   }
 }

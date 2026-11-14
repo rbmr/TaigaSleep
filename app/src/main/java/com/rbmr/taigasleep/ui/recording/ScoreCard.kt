@@ -1,105 +1,89 @@
 package com.rbmr.taigasleep.ui.recording
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.ResultScoreComponentDto
 import com.rbmr.taigasleep.insights.SleepScoreCardState
 import com.rbmr.taigasleep.insights.SleepScoreUnavailableReason
+import com.rbmr.taigasleep.insights.formatItemValue
+import com.rbmr.taigasleep.insights.metricSpec
+import com.rbmr.taigasleep.ui.components.LabeledValue
+import com.rbmr.taigasleep.ui.components.Pressable
 import com.rbmr.taigasleep.ui.components.ScoreRing
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.components.TaigaSheet
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
 
-/** The head of the recording: whether it is processed, and its sleep score as a ring. */
+/** The values repeated beside the ring; every one of them is shown in its own section below. */
+private val SummaryItemIds = listOf("total_sleep_s", "hr_mean_bpm", "sleep_efficiency")
+
+/**
+ * The head of the recording: the sleep score as a ring, and beside it the figures the sections
+ * below explain. The score itself appears nowhere else on the screen.
+ */
 @Composable
-internal fun RecordingHeaderCard(
-    state: SleepScoreCardState?,
-    processed: Boolean,
-    onScoreClick: () -> Unit,
-    onExplainExperimental: () -> Unit,
+internal fun RecordingSummary(
+    items: List<ResultItemDto>,
+    score: Double?,
+    onOpenScore: () -> Unit,
 ) {
-  val score = (state as? SleepScoreCardState.Scored)?.score
-  TaigaCard(
-      modifier = if (processed) Modifier.clickable(onClick = onScoreClick) else Modifier
-  ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Column(Modifier.weight(1f)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          Text(
-              text =
-                  if (processed) stringResource(R.string.night_processed)
-                  else stringResource(R.string.night_not_processed),
-              style = MaterialTheme.typography.labelLarge,
-              color =
-                  if (processed) MaterialTheme.taiga.ok
-                  else MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          if (processed && score != null) {
-            Spacer(Modifier.width(8.dp))
-            ExperimentalLabel(onClick = onExplainExperimental)
-          }
+  val space = MaterialTheme.taiga.space
+  val scoreLabel = stringResource(R.string.night_sleep_score)
+  TaigaCard {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(space.m),
+    ) {
+      Column(
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.spacedBy(space.s),
+      ) {
+        Pressable(
+            onClick = onOpenScore,
+            shape = CircleShape,
+            role = Role.Button,
+            onClickLabel = scoreLabel,
+        ) {
+          ScoreRing(score = score, label = scoreLabel)
         }
-        Text(
-            text =
-                when {
-                  !processed -> stringResource(R.string.night_header_pending)
-                  state is SleepScoreCardState.Unavailable ->
-                      scoreCardText(state.reason)
-                  else -> stringResource(R.string.night_sleep_score_tap)
-                },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
       }
-      if (processed && state !is SleepScoreCardState.Unavailable) {
-        ScoreRing(
-            score = score,
-            label = stringResource(R.string.night_sleep_score),
-        )
+      Column(
+          modifier = Modifier.weight(1f),
+          verticalArrangement = Arrangement.spacedBy(space.m),
+      ) {
+        for (id in SummaryItemIds) {
+          val item = items.firstOrNull { it.id == id } ?: continue
+          val value = summaryValue(item) ?: continue
+          LabeledValue(label = item.label, value = value)
+        }
       }
     }
   }
 }
 
-/** The reason the result has no sleep score, instead of the number the card would show. */
+/** A summary figure in the unit the item carries. */
 @Composable
-private fun scoreCardText(reason: SleepScoreUnavailableReason): String =
-    when (reason) {
-      SleepScoreUnavailableReason.NOT_ENOUGH_GOOD_DATA ->
-          stringResource(R.string.night_sleep_score_not_enough_data)
-      // The card stays short; the sheet says which result this is and what to do about it.
-      SleepScoreUnavailableReason.OLDER_RESULT -> stringResource(R.string.night_sleep_score_none)
-    }
+private fun summaryValue(item: ResultItemDto): String? =
+    item.metricSpec()?.let { spec -> formatItemValue(spec.kind, spec.itemValue) }
 
-/** The full reason the result has no sleep score, for the sheet. */
+/** The reason the result has no sleep score, instead of the number the sheet would show. */
 @Composable
 private fun sleepScoreUnavailableText(reason: SleepScoreUnavailableReason): String =
     when (reason) {
@@ -109,55 +93,25 @@ private fun sleepScoreUnavailableText(reason: SleepScoreUnavailableReason): Stri
           stringResource(R.string.night_sleep_score_unavailable)
     }
 
-/**
- * The label that qualifies a sleep score, and the button that explains it. The pill stays small,
- * but the touch target around it is the 48 dp a button needs.
- */
-@Composable
-private fun ExperimentalLabel(onClick: () -> Unit) {
-  val description = stringResource(R.string.night_sleep_score_experimental_description)
-  Box(
-      modifier =
-          Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-              .clickable(role = Role.Button, onClick = onClick)
-              .semantics(mergeDescendants = true) { contentDescription = description },
-      contentAlignment = Alignment.Center,
-  ) {
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = MaterialTheme.taiga.warnContainer,
-        contentColor = MaterialTheme.taiga.warnInk,
-    ) {
-      Text(
-          text = stringResource(R.string.night_sleep_score_experimental),
-          style = MaterialTheme.typography.labelLarge,
-          modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-      )
-    }
-  }
-}
-
 /** The sleep score and what it is made of, or the reason there is no score. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SleepScoreSheet(
     item: ResultItemDto?,
     state: SleepScoreCardState?,
     onDismiss: () -> Unit,
 ) {
-  ModalBottomSheet(onDismissRequest = onDismiss) {
+  val space = MaterialTheme.taiga.space
+  TaigaSheet(onDismiss = onDismiss) {
     Column(
         modifier =
             Modifier.fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = space.l)
+                .padding(bottom = space.l),
+        verticalArrangement = Arrangement.spacedBy(space.m),
     ) {
       Text(
           text = stringResource(R.string.night_sleep_score_breakdown),
-          style = MaterialTheme.typography.headlineSmall,
+          style = MaterialTheme.taiga.text.section,
       )
       val score = (state as? SleepScoreCardState.Scored)?.score
       val reason = (state as? SleepScoreCardState.Unavailable)?.reason
@@ -168,24 +122,24 @@ internal fun SleepScoreSheet(
               label = stringResource(R.string.night_sleep_score),
               size = 82,
           )
-          Spacer(Modifier.width(16.dp))
+          Spacer(Modifier.width(space.m))
           Text(
               text = stringResource(R.string.night_sleep_score_value, score.roundToInt()),
-              style = MaterialTheme.typography.titleMedium,
+              style = MaterialTheme.taiga.text.row,
           )
         } else {
           Text(
               text =
                   if (reason != null) sleepScoreUnavailableText(reason)
                   else stringResource(R.string.night_sleep_score_none),
-              style = MaterialTheme.typography.titleMedium,
+              style = MaterialTheme.taiga.text.body,
           )
         }
       }
       if (item != null) {
         Text(
             text = stringResource(R.string.night_sleep_score_formula),
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.taiga.text.body,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -193,7 +147,7 @@ internal fun SleepScoreSheet(
       } else if (reason == null || reason == SleepScoreUnavailableReason.OLDER_RESULT) {
         Text(
             text = stringResource(R.string.night_sleep_score_unavailable),
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.taiga.text.body,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
@@ -204,13 +158,11 @@ internal fun SleepScoreSheet(
 /** One weighted component of a score, with its share. */
 @Composable
 internal fun ScoreComponentRows(components: List<ResultScoreComponentDto>) {
+  val space = MaterialTheme.taiga.space
   components.forEach { component ->
     Row(verticalAlignment = Alignment.CenterVertically) {
       Column(Modifier.weight(1f)) {
-        Text(
-            text = component.label,
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        Text(text = component.label, style = MaterialTheme.taiga.text.body)
         Text(
             text =
                 stringResource(
@@ -218,13 +170,14 @@ internal fun ScoreComponentRows(components: List<ResultScoreComponentDto>) {
                     component.value.roundToInt(),
                     component.weight.roundToInt(),
                 ),
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.taiga.text.meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
+      Spacer(Modifier.width(space.s))
       Text(
           text = stringResource(R.string.night_percent, component.value.roundToInt()),
-          style = MaterialTheme.typography.titleMedium,
+          style = MaterialTheme.taiga.text.row,
           color = MaterialTheme.colorScheme.onSurface,
       )
     }

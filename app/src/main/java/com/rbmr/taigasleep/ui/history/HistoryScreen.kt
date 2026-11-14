@@ -1,7 +1,7 @@
 package com.rbmr.taigasleep.ui.history
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,15 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,8 +23,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -39,26 +35,31 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.library.RecordingView
-import com.rbmr.taigasleep.library.formatDuration
-import com.rbmr.taigasleep.library.formatRecordingDateAndTime
+import com.rbmr.taigasleep.insights.formatDuration
+import com.rbmr.taigasleep.library.formatRecordingDate
+import com.rbmr.taigasleep.library.formatRecordingTime
 import com.rbmr.taigasleep.sync.UploadFailure
-import com.rbmr.taigasleep.ui.components.ScoreBadge
-import com.rbmr.taigasleep.ui.components.ScreenHeader
-import com.rbmr.taigasleep.ui.components.SectionLabel
+import com.rbmr.taigasleep.ui.components.Pressable
+import com.rbmr.taigasleep.ui.components.ProgressTrack
+import com.rbmr.taigasleep.ui.components.ProgressTrackState
+import com.rbmr.taigasleep.ui.components.SegmentedControl
+import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.StageBar
 import com.rbmr.taigasleep.ui.components.StatusBanner
 import com.rbmr.taigasleep.ui.components.StatusKind
+import com.rbmr.taigasleep.ui.components.StatusPill
+import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
-import com.rbmr.taigasleep.ui.history.HistoryUiState
-import com.rbmr.taigasleep.ui.history.HistoryViewModel
-import com.rbmr.taigasleep.ui.history.ServerWarning
+import com.rbmr.taigasleep.ui.components.TaigaScreen
+import com.rbmr.taigasleep.ui.theme.taiga
+import kotlin.math.roundToInt
 
 /**
- * The list shows what the user has: one line of status, one result summary, and nothing to operate.
- * Opening a recording is the only action here; retry, export and delete live in the recording screen.
+ * History shows the recordings on this phone and the trends they make: one list without grouping,
+ * and one switch at the top between the two views.
  *
- * A server that is missing, unreachable or has no accepted login is said once at the top, because
- * without one the recordings stay unanalyzed. Tapping that card opens the server page.
+ * A server that is missing, unreachable or has no accepted login is said once above the list,
+ * because without one the recordings stay unanalyzed. Tapping that banner opens the server page.
  *
  * The screen only draws the state its view model holds (see [HistoryViewModel]).
  */
@@ -87,182 +88,256 @@ fun HistoryScreen(
     onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
     onOpenServer: () -> Unit,
 ) {
-  // The switch is presentation state: it lives while the app runs and History opens on the nights.
+  // The switch is presentation state: it lives while the app runs and History opens on the
+  // recordings.
   var trends by rememberSaveable { mutableStateOf(false) }
+  TaigaScreen(title = stringResource(R.string.history_title), scrollable = false) {
+    // The switch floats over the list or the charts, which scroll behind it: nothing but the
+    // control itself is drawn there. The content leaves room for it below its last item.
+    Box(Modifier.weight(1f).fillMaxWidth()) {
+      if (trends) {
+        TrendsScreen(
+            modifier = Modifier.fillMaxSize(),
+            bottomPadding = SwitcherClearance,
+        )
+      } else {
+        RecordingsList(
+            state = state,
+            onOpenRecording = onOpenRecording,
+            onOpenServer = onOpenServer,
+            modifier = Modifier.fillMaxSize(),
+        )
+      }
+      SegmentedControl(
+          options =
+              listOf(
+                  stringResource(R.string.history_mode_nights),
+                  stringResource(R.string.history_mode_trends),
+              ),
+          selectedIndex = if (trends) 1 else 0,
+          onSelect = { trends = it == 1 },
+          modifier =
+              Modifier.align(Alignment.BottomCenter)
+                  .fillMaxWidth()
+                  .padding(bottom = MaterialTheme.taiga.space.m),
+          fillWidth = true,
+          floating = true,
+      )
+    }
+  }
+}
+
+/** The 48 dp switch with 16 dp above and below it: what a list keeps free under its last item. */
+private val SwitcherClearance = 80.dp
+
+/** The recordings, one list without grouping. The empty state and the server warning stay. */
+@Composable
+private fun RecordingsList(
+    state: HistoryUiState,
+    onOpenRecording: (localId: String?, remoteId: String?, analysisId: String?) -> Unit,
+    onOpenServer: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  val space = MaterialTheme.taiga.space
   LazyColumn(
-      modifier = Modifier.fillMaxSize().statusBarsPadding(),
-      contentPadding = PaddingValues(horizontal = 20.dp, vertical = 32.dp),
-      verticalArrangement = Arrangement.spacedBy(12.dp),
+      modifier.fillMaxWidth(),
+      contentPadding = PaddingValues(bottom = SwitcherClearance),
+      verticalArrangement = Arrangement.spacedBy(space.m),
   ) {
-    item {
-      ScreenHeader(
-          kicker = stringResource(R.string.history_kicker),
-          title = stringResource(R.string.history_title),
-          subtitle = stringResource(R.string.history_subtitle),
-          modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-      )
+    val warning = state.serverWarning
+    if (warning != null) {
+      item {
+        StatusBanner(
+            kind = StatusKind.Warn,
+            title = stringResource(warning.titleRes),
+            body = stringResource(R.string.history_server_warning_body),
+            onClick = onOpenServer,
+        )
+      }
     }
 
-    item {
-      HistoryModeSwitch(
-          trends = trends,
-          onModeChange = { trends = it },
-          modifier = Modifier.padding(horizontal = 4.dp),
-      )
-    }
-
-    if (trends) {
-      item { TrendsScreen(onOpenRecording = onOpenRecording) }
-    } else {
-      val warning = state.serverWarning
-      if (warning != null) {
-        item {
-          StatusBanner(
-              kind = StatusKind.Warn,
-              title = stringResource(warning.titleRes),
-              body = stringResource(R.string.history_server_warning_body),
-              onClick = onOpenServer,
+    if (state.items.isEmpty()) {
+      item {
+        TaigaCard {
+          Text(
+              text = stringResource(R.string.history_empty_title),
+              style = MaterialTheme.taiga.text.section,
+          )
+          Text(
+              text = stringResource(R.string.history_empty_body),
+              style = MaterialTheme.taiga.text.body,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.padding(top = space.s),
           )
         }
       }
-
-      if (state.items.isEmpty()) {
-        item {
-          TaigaCard {
-            Text(
-                text = stringResource(R.string.history_empty_title),
-                style = MaterialTheme.typography.titleLarge,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = stringResource(R.string.history_empty_body),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+    } else {
+      item {
+        TaigaCard(contentPadding = PaddingValues(0.dp)) {
+          state.items.forEachIndexed { index, item ->
+            if (index > 0) SettingsDivider()
+            RecordingRow(
+                item = item,
+                onOpen = { onOpenRecording(item.localId, item.remoteId, item.analysisId) },
             )
           }
         }
-      } else {
-        item { SectionLabel(stringResource(R.string.history_nights_label)) }
-        items(state.items, key = { it.key }) { item ->
-          RecordingRow(
-              item = item,
-              onOpen = { onOpenRecording(item.localId, item.remoteId, item.analysisId) },
-          )
-        }
       }
     }
   }
 }
 
-/** The two ways History shows the same recordings. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun HistoryModeSwitch(
-    trends: Boolean,
-    onModeChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-  SingleChoiceSegmentedButtonRow(modifier = modifier.fillMaxWidth()) {
-    SegmentedButton(
-        selected = !trends,
-        onClick = { onModeChange(false) },
-        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-        modifier = Modifier.weight(1f),
-    ) {
-      Text(stringResource(R.string.history_mode_nights))
-    }
-    SegmentedButton(
-        selected = trends,
-        onClick = { onModeChange(true) },
-        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-        modifier = Modifier.weight(1f),
-    ) {
-      Text(stringResource(R.string.history_mode_trends))
-    }
-  }
-}
-
+/**
+ * One recording in a fixed-height row: the date, the clock times and length, the score or the state
+ * pill, and an 8 dp bar at the bottom. The bar is a stage bar, a progress bar, an indeterminate bar
+ * or an empty track, so the row never changes height.
+ */
 @Composable
 private fun RecordingRow(item: RecordingView, onOpen: () -> Unit) {
-  val titleMs =
-      if (item.isRecording) item.startUtcMs else item.endUtcMs ?: item.startUtcMs
-  val device = item.device.ifBlank { stringResource(R.string.night_device_unknown) }
-  TaigaCard(
-      modifier =
-          Modifier.fillMaxWidth().heightIn(min = 96.dp).clickable(onClick = onOpen)
-  ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Column(Modifier.weight(1f)) {
-        Text(
-            text = formatRecordingDateAndTime(titleMs),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            text = "$device · ${formatDuration(item.durationMs)}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-      if (item.status == RecordingStatus.READY) {
-        ScoreBadge(
-            score = item.sleepScore,
-            label = stringResource(R.string.history_sleep_score_label),
-            emptyLabel = stringResource(R.string.history_no_sleep_score),
+  val space = MaterialTheme.taiga.space
+  val end = item.endUtcMs?.takeIf { it > item.startUtcMs }
+  val meta =
+      if (end != null) {
+        stringResource(
+            R.string.history_times,
+            formatRecordingTime(item.startUtcMs),
+            formatRecordingTime(end),
+            formatDuration(end - item.startUtcMs),
         )
       } else {
-        Text(
-            text = rowStatus(item),
-            style = MaterialTheme.typography.labelMedium,
-            color =
-                when {
-                  item.status == RecordingStatus.FAILED -> MaterialTheme.colorScheme.error
-                  item.isRecording -> MaterialTheme.colorScheme.primary
-                  else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
+        stringResource(
+            R.string.history_started,
+            formatRecordingTime(item.startUtcMs),
+            formatDuration(item.durationMs),
         )
       }
-    }
-
-    if (item.status == RecordingStatus.READY) {
-      if (item.segments.isNotEmpty()) {
-        Spacer(Modifier.height(12.dp))
-        StageBar(item.segments)
+  val date = formatRecordingDate(item.startUtcMs)
+  val pill = rowPill(item)
+  Pressable(
+      onClick = onOpen,
+      modifier = Modifier.fillMaxWidth(),
+      shape = RectangleShape,
+      role = Role.Button,
+      onClickLabel = date,
+  ) {
+    Column(
+        modifier =
+            Modifier.fillMaxWidth()
+                // The text carries a few dp of line spacing above its glyphs and the bar has
+                // none, so the top inset is smaller to make both edges look equal.
+                .padding(start = space.m, end = space.m, top = space.s + space.xs, bottom = space.m)
+    ) {
+      Row(
+          modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp),
+          verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(Modifier.weight(1f)) {
+          Text(
+              text = date,
+              style = MaterialTheme.taiga.text.row,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+          )
+          Text(
+              text = meta,
+              style = MaterialTheme.taiga.text.meta,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+          )
+        }
+        if (pill == null) {
+          Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = item.sleepScore?.roundToInt()?.toString() ?: "-",
+                style = MaterialTheme.taiga.text.section,
+            )
+            Text(
+                text = stringResource(R.string.history_sleep_score_label),
+                style = MaterialTheme.taiga.text.meta,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+        } else {
+          StatusPill(state = pill.state, label = pill.label, modifier = Modifier.padding(start = space.s))
+        }
       }
-    } else if (item.status == RecordingStatus.UPLOADING) {
-      Spacer(Modifier.height(10.dp))
-      LinearProgressIndicator(
-          progress = { item.progress },
-          modifier = Modifier.fillMaxWidth().height(5.dp),
-      )
-    } else if (item.status == RecordingStatus.QUEUED || item.status == RecordingStatus.PROCESSING) {
-      Spacer(Modifier.height(10.dp))
-      LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(5.dp))
+      Spacer(Modifier.height(space.s))
+      if (item.status == RecordingStatus.READY && item.segments.isNotEmpty()) {
+        StageBar(item.segments, height = 8.dp)
+      } else {
+        ProgressTrack(
+            state = rowTrack(item),
+            description = rowTrackDescription(item),
+        )
+      }
     }
   }
 }
 
+/** The state of a recording as one pill, or null when the score stands in its place. */
+private data class RowPill(val label: String, val state: StatusPillState)
+
 @Composable
-private fun rowStatus(item: RecordingView): String =
+private fun rowPill(item: RecordingView): RowPill? =
     when (item.status) {
-      RecordingStatus.RECORDING -> stringResource(R.string.history_recording)
-      RecordingStatus.LOCAL_ONLY -> stringResource(R.string.history_local_only)
-      RecordingStatus.QUEUED -> stringResource(R.string.history_queued)
+      RecordingStatus.READY -> null
+      RecordingStatus.RECORDING ->
+          RowPill(stringResource(R.string.history_recording), StatusPillState.Busy)
+      RecordingStatus.LOCAL_ONLY ->
+          RowPill(stringResource(R.string.history_local_only), StatusPillState.Neutral)
+      RecordingStatus.QUEUED ->
+          RowPill(stringResource(R.string.history_queued), StatusPillState.Neutral)
       RecordingStatus.UPLOADING ->
-          stringResource(R.string.history_uploading, (item.progress * 100).toInt().coerceIn(0, 100))
-      RecordingStatus.PROCESSING -> stringResource(R.string.history_processing)
-      RecordingStatus.FAILED ->
-          stringResource(
-              when (item.failure) {
-                UploadFailure.ANALYSIS -> R.string.history_status_analysis_failed
-                UploadFailure.LOGIN -> R.string.history_status_login
-                UploadFailure.VERSION -> R.string.history_status_update
-                else -> R.string.history_status_upload_failed
-              }
+          RowPill(
+              stringResource(R.string.history_uploading, item.percent),
+              StatusPillState.Busy,
           )
-      RecordingStatus.READY -> stringResource(R.string.history_status_ready)
+      RecordingStatus.PROCESSING ->
+          RowPill(stringResource(R.string.history_processing), StatusPillState.Busy)
+      RecordingStatus.NOT_ANALYZED ->
+          RowPill(stringResource(R.string.history_not_analyzed), StatusPillState.Neutral)
+      RecordingStatus.FAILED ->
+          when (item.failure) {
+            UploadFailure.ANALYSIS ->
+                RowPill(
+                    stringResource(R.string.history_status_analysis_failed),
+                    StatusPillState.Bad,
+                )
+            UploadFailure.LOGIN ->
+                RowPill(stringResource(R.string.history_status_login), StatusPillState.Warn)
+            UploadFailure.VERSION ->
+                RowPill(stringResource(R.string.history_status_update), StatusPillState.Warn)
+            else ->
+                RowPill(
+                    stringResource(R.string.history_status_upload_failed),
+                    StatusPillState.Bad,
+                )
+          }
     }
 
-/** The one line that says why a night is not analyzed yet; the body under it is the same for all. */
+private fun rowTrack(item: RecordingView): ProgressTrackState =
+    when (item.status) {
+      RecordingStatus.UPLOADING -> ProgressTrackState.Determinate(item.progress)
+      RecordingStatus.QUEUED,
+      RecordingStatus.PROCESSING -> ProgressTrackState.Indeterminate
+      else -> ProgressTrackState.Empty
+    }
+
+@Composable
+private fun rowTrackDescription(item: RecordingView): String? =
+    when (item.status) {
+      RecordingStatus.UPLOADING ->
+          stringResource(R.string.history_uploading, item.percent)
+      RecordingStatus.QUEUED -> stringResource(R.string.history_queued)
+      RecordingStatus.PROCESSING -> stringResource(R.string.history_processing)
+      else -> null
+    }
+
+private val RecordingView.percent: Int
+  get() = (progress * 100).toInt().coerceIn(0, 100)
+
+/** The one line that says why a recording is not analyzed yet; the body under it is the same. */
 private val ServerWarning.titleRes: Int
   get() =
       when (this) {

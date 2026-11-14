@@ -1,95 +1,40 @@
 package com.rbmr.taigasleep.ui.components
 
+import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.Sensors
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.rbmr.taigasleep.ui.theme.taiga
 
-@Composable
-fun ScreenHeader(
-    title: String,
-    kicker: String? = null,
-    subtitle: String? = null,
-    modifier: Modifier = Modifier,
-    kickerColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-) {
-  Column(modifier) {
-    if (kicker != null) {
-      Text(
-          text = kicker,
-          style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.16.sp),
-          color = kickerColor,
-      )
-      Spacer(Modifier.height(4.dp))
-    }
-    Text(text = title, style = MaterialTheme.typography.displayLarge)
-    if (subtitle != null) {
-      Spacer(Modifier.height(8.dp))
-      Text(
-          text = subtitle,
-          style = MaterialTheme.typography.bodyLarge,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-    }
-  }
-}
-
-@Composable
-fun SectionLabel(text: String, modifier: Modifier = Modifier) {
-  Text(
-      text = text.uppercase(),
-      style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.68.sp),
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-      modifier = modifier.padding(horizontal = 6.dp),
-  )
-}
-
+/**
+ * A card: the surface a group of content or rows sits on. Rows that need no gaps between them pass
+ * a [contentPadding] of zero and separate themselves with [SettingsDivider].
+ */
 @Composable
 fun TaigaCard(
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.surface,
     borderColor: Color = MaterialTheme.colorScheme.outlineVariant,
-    contentPadding: PaddingValues = PaddingValues(18.dp),
+    contentPadding: PaddingValues = PaddingValues(MaterialTheme.taiga.space.m),
     content: @Composable ColumnScope.() -> Unit,
 ) {
   Surface(
       modifier = modifier.fillMaxWidth(),
-      shape = RoundedCornerShape(24.dp),
+      shape = MaterialTheme.taiga.shape.card,
       color = containerColor,
       border = BorderStroke(1.dp, borderColor),
   ) {
@@ -97,179 +42,49 @@ fun TaigaCard(
   }
 }
 
-/** A label above a card whose rows are separated by hairlines. */
-@Composable
-fun SettingsGroup(
-    label: String,
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-  Column(modifier) {
-    SectionLabel(label, Modifier.padding(bottom = 8.dp))
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        content = { Column(content = content) },
-    )
-  }
-}
-
+/** The hairline between two rows of the same card. */
 @Composable
 fun SettingsDivider() {
   HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
-/** A settings row with a checkbox and no chevron, for toggles inside a group. */
+/**
+ * The one switch of the app. Off reads as a working switch that is off: an outlined track with a
+ * visible border and a mid-grey thumb. A disabled switch keeps the faded Material colours, so the
+ * two never look alike. The theme's own outline is a pale divider tone, so the off colours come
+ * from onSurfaceVariant instead.
+ */
 @Composable
-fun SettingsCheckboxRow(
-    title: String,
-    subtitle: String? = null,
+fun TaigaSwitch(
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
+    onCheckedChange: ((Boolean) -> Unit)?,
+    modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    modifier: Modifier = Modifier,
 ) {
-  Row(
-      modifier =
-          modifier
-              .fillMaxWidth()
-              .clickable(enabled = enabled) { onCheckedChange(!checked) }
-              .padding(horizontal = 18.dp, vertical = 14.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(10.dp),
-  ) {
-    Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
-    Column(Modifier.weight(1f)) {
-      Text(title, style = MaterialTheme.typography.titleMedium)
-      if (subtitle != null) {
-        Text(
-            text = subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 2.dp),
-        )
-      }
-    }
-  }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun SettingsRow(
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit = {},
-    onLongClick: (() -> Unit)? = null,
-    subtitleColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-) {
-  Row(
-      modifier =
-          Modifier.fillMaxWidth()
-              .heightIn(min = 56.dp)
-              .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-              .padding(horizontal = 18.dp, vertical = 14.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(14.dp),
-  ) {
-    Column(Modifier.weight(1f)) {
-      Text(title, style = MaterialTheme.typography.titleMedium)
-      Text(
-          text = subtitle,
-          style = MaterialTheme.typography.bodySmall,
-          color = subtitleColor,
-          modifier = Modifier.padding(top = 2.dp),
-      )
-    }
-    Icon(
-        imageVector = Icons.Outlined.ChevronRight,
-        contentDescription = null,
-        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.size(20.dp),
-    )
-  }
-}
-
-/** The round accent-soft badge that carries an icon at the start of a card row. */
-@Composable
-fun IconBadge(icon: ImageVector, modifier: Modifier = Modifier) {
-  Box(
-      modifier =
-          modifier
-              .size(44.dp)
-              .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-      contentAlignment = Alignment.Center,
-  ) {
-    Icon(
-        imageVector = icon,
-        contentDescription = null,
-        tint = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.size(24.dp),
-    )
-  }
-}
-
-/** A small label over one value, for the live readings of a recording. */
-@Composable
-fun StatTile(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    valueColor: Color = MaterialTheme.colorScheme.onSurface,
-    caption: String? = null,
-) {
-  Surface(
+  val off = MaterialTheme.colorScheme.onSurfaceVariant
+  Switch(
+      checked = checked,
+      onCheckedChange = onCheckedChange,
       modifier = modifier,
-      shape = RoundedCornerShape(20.dp),
-      color = MaterialTheme.colorScheme.surface,
-      border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-  ) {
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-      Text(
-          text = label.uppercase(),
-          style = MaterialTheme.typography.labelMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-      Text(
-          text = value,
-          style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
-          color = valueColor,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-      )
-      if (caption != null) {
-        Text(
-            text = caption,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-    }
-  }
+      enabled = enabled,
+      colors =
+          SwitchDefaults.colors(
+              uncheckedThumbColor = off,
+              uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+              uncheckedBorderColor = off,
+          ),
+  )
 }
 
 @Preview(name = "Light")
-@Preview(name = "Dark", uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
-private fun ComponentsPreview() {
+private fun TaigaCardPreview() {
   PreviewTheme {
-    ScreenHeader(kicker = "TONIGHT", title = "Sleep well.", subtitle = "Connect your sensor.")
     TaigaCard {
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        IconBadge(Icons.Outlined.Sensors)
-        Spacer(Modifier.width(14.dp))
-        Text("Polar H10", style = MaterialTheme.typography.titleLarge)
-      }
-    }
-    SettingsGroup("Recording") {
-      SettingsRow("Preventing shutdown", "Ready", subtitleColor = MaterialTheme.taiga.ok)
+      Text("A card holds a group", style = MaterialTheme.taiga.text.body)
       SettingsDivider()
-      SettingsRow("Remote", "Not connected", subtitleColor = MaterialTheme.taiga.warn)
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-      StatTile("ECG", "130 Hz", Modifier.weight(1f))
-      StatTile("Sensor", "Connected", Modifier.weight(1f), valueColor = MaterialTheme.colorScheme.primary)
+      Text("Rows are separated by hairlines", style = MaterialTheme.taiga.text.meta)
     }
   }
 }

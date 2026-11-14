@@ -143,7 +143,7 @@ def _serialize_stages(
 ) -> dict[str, Any]:
     stages = list(result.stages)
     if sum(segment["count"] for segment in _segments(stages)) != grid.count:
-        raise AnalysisError("invalid_result", "stage timeline does not cover every epoch")
+        raise AnalysisError("invalid_result", "stage timeline does not cover every 30-second interval")
     probabilities = None
     if result.probabilities is not None:
         probabilities = {
@@ -238,7 +238,7 @@ def run_analysis(
     if recording.duration_s < info.epoch_seconds:
         raise AnalysisError(
             "recording_too_short",
-            f"recording is {recording.duration_s:g}s; {info.id} needs at least "
+            f"recording is {recording.duration_s:g}s. {info.id} needs at least "
             f"{info.epoch_seconds}s",
         )
     _required_streams(recording, info)

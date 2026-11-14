@@ -1,38 +1,49 @@
 package com.rbmr.taigasleep.ui.home
 
+import android.animation.ValueAnimator
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.recording.CaptureStatus
+import com.rbmr.taigasleep.recording.Phase
+import com.rbmr.taigasleep.recording.RecordingFormat
+import com.rbmr.taigasleep.ui.components.BearDen
 import com.rbmr.taigasleep.ui.components.ButtonSize
+import com.rbmr.taigasleep.ui.components.ConfirmDialog
+import com.rbmr.taigasleep.ui.components.ConfirmDialogStyle
+import com.rbmr.taigasleep.ui.components.DenTapEffect
+import com.rbmr.taigasleep.ui.components.DestructiveButton
 import com.rbmr.taigasleep.ui.components.LogoVariant
 import com.rbmr.taigasleep.ui.components.PrimaryButton
-import com.rbmr.taigasleep.ui.components.ScreenHeader
+import com.rbmr.taigasleep.ui.components.SecondaryButton
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.theme.taiga
+import java.text.SimpleDateFormat
+import java.util.Date
+import kotlinx.coroutines.delay
 
 internal enum class StopAction {
   STOP,
@@ -41,8 +52,8 @@ internal enum class StopAction {
 }
 
 /**
- * Recording: the live numbers, Stop as the one prominent action, and the two harsher ways to end
- * the night behind the overflow.
+ * Recording: the smaller glowing den, the elapsed time, the status card and the three ways to end
+ * the recording. Stop is the one large action; the two harsher ways sit together under it.
  */
 @Composable
 internal fun ActiveHome(
@@ -52,139 +63,193 @@ internal fun ActiveHome(
     onDiscard: () -> Unit,
 ) {
   val stopping = state.stopping
-  LazyColumn(
-      modifier = Modifier.fillMaxSize().statusBarsPadding(),
-      contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
-      verticalArrangement = Arrangement.spacedBy(16.dp),
+  val space = MaterialTheme.taiga.space
+  Column(
+      modifier =
+          Modifier.fillMaxSize()
+              .background(MaterialTheme.colorScheme.surface)
+              .verticalScroll(rememberScrollState())
   ) {
-    item {
-      ScreenHeader(
-          title = stringResource(R.string.rec_home_title_active),
-          subtitle = stringResource(R.string.rec_home_subtitle_active),
-      )
-    }
-    item { HomeLogo(LogoVariant.Sleeping, glow = true) }
-    item { RecordingCard(state.status) }
-    item {
-      Row(
-          modifier = Modifier.fillMaxWidth(),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-      ) {
+    BearDen(
+        variant = LogoVariant.Sleeping,
+        glow = true,
+        tapEffect = DenTapEffect.ForceField,
+        contentDescription = stringResource(R.string.home_logo_recording),
+    )
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = space.m).padding(bottom = space.l),
+        verticalArrangement = Arrangement.spacedBy(space.m),
+    ) {
+      RecordingHeader(state.status)
+      if (state.status.state.overall.reason != null) OverallBanner(state.status)
+      RecordingCard(state.status)
+      Column(verticalArrangement = Arrangement.spacedBy(space.s)) {
         PrimaryButton(
-            text = stringResource(R.string.rec_stop),
+            text = stringResource(R.string.rec_stop_and_save),
             onClick = onStop,
             enabled = !stopping,
             size = ButtonSize.Large,
-            modifier = Modifier.weight(1f),
         )
-        OverflowActions(
-            enabled = !stopping,
-            onForceStop = onForceStop,
-            onDiscard = onDiscard,
-        )
-      }
-    }
-  }
-}
-
-/** Force stop and Discard: the actions that are not the ordinary way to end a night. */
-@Composable
-private fun OverflowActions(
-    enabled: Boolean,
-    onForceStop: () -> Unit,
-    onDiscard: () -> Unit,
-) {
-  var open by remember { mutableStateOf(false) }
-  Box {
-    IconButton(onClick = { open = true }, enabled = enabled) {
-      Icon(
-          imageVector = Icons.Outlined.MoreVert,
-          contentDescription = stringResource(R.string.rec_more_actions),
-      )
-    }
-    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-      DropdownMenuItem(
-          text = { Text(stringResource(R.string.rec_force_stop)) },
-          onClick = {
-            open = false
-            onForceStop()
-          },
-      )
-      DropdownMenuItem(
-          text = {
-            Text(
-                text = stringResource(R.string.rec_discard),
-                color = MaterialTheme.colorScheme.error,
-            )
-          },
-          onClick = {
-            open = false
-            onDiscard()
-          },
-      )
-    }
-  }
-}
-
-/** The tracker still holds a night: explain why and offer the only useful action. */
-@Composable
-internal fun FetchPendingHome(state: HomeUiState.FetchPending, onFetchAgain: () -> Unit) {
-  LazyColumn(
-      modifier = Modifier.fillMaxSize().statusBarsPadding(),
-      contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
-      verticalArrangement = Arrangement.spacedBy(16.dp),
-  ) {
-    item {
-      ScreenHeader(
-          title = stringResource(R.string.rec_fetch_pending_title),
-          subtitle = stringResource(R.string.rec_fetch_pending_subtitle),
-      )
-    }
-    item { HomeLogo(LogoVariant.Sleeping, glow = false) }
-    item {
-      TaigaCard {
-        Text(
-            text = stringResource(R.string.rec_fetch_pending_body, state.sensorName),
-            style = MaterialTheme.typography.bodyLarge,
-        )
-        state.error?.let {
-          Text(
-              text = it,
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.error,
+        Row(horizontalArrangement = Arrangement.spacedBy(space.s)) {
+          SecondaryButton(
+              text = stringResource(R.string.rec_force_stop),
+              onClick = onForceStop,
+              modifier = Modifier.weight(1f),
+              enabled = !stopping,
+          )
+          DestructiveButton(
+              text = stringResource(R.string.rec_discard),
+              onClick = onDiscard,
+              modifier = Modifier.weight(1f),
+              enabled = !stopping,
           )
         }
       }
     }
-    item {
+  }
+}
+
+/** The recording label, its elapsed time in the hero style and what it records since. */
+@Composable
+private fun RecordingHeader(status: CaptureStatus) {
+  // A recording stored on the tracker has no service ticking: count from its start.
+  val sinceStartMs by
+      produceState(0L, status.startUtcMs, status.liveStreaming) {
+        while (!status.liveStreaming) {
+          value = (System.currentTimeMillis() - status.startUtcMs).coerceAtLeast(0)
+          delay(1000)
+        }
+      }
+  val elapsed =
+      RecordingFormat.elapsed(
+          if (status.liveStreaming) status.state.capture.elapsedMs else sinceStartMs
+      )
+  val locale = LocalLocale.current.platformLocale
+  val since = SimpleDateFormat("HH:mm", locale).format(Date(status.startUtcMs))
+  Column(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalAlignment = Alignment.CenterHorizontally,
+      verticalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.xs),
+  ) {
+    PulsingLabel(
+        text =
+            stringResource(
+                if (status.phase == Phase.STOPPING) R.string.rec_active_stopping
+                else R.string.rec_active_title
+            )
+    )
+    Text(text = elapsed, style = MaterialTheme.taiga.text.hero, textAlign = TextAlign.Center)
+    Text(
+        text = stringResource(R.string.rec_active_since, since, status.sensorName.orEmpty()),
+        style = MaterialTheme.taiga.text.meta,
+        textAlign = TextAlign.Center,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+  }
+}
+
+/** The recording label breathes while data arrives; with animations off it stays still. */
+@Composable
+private fun PulsingLabel(text: String) {
+  val animations = remember { ValueAnimator.areAnimatorsEnabled() }
+  val alpha =
+      if (animations) {
+        val transition = rememberInfiniteTransition(label = "recording")
+        val pulse by
+            transition.animateFloat(
+                initialValue = 0.45f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse),
+                label = "pulse",
+            )
+        pulse
+      } else {
+        1f
+      }
+  Text(
+      text = text,
+      style = MaterialTheme.taiga.text.section,
+      color = MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+      textAlign = TextAlign.Center,
+  )
+}
+
+/** The tracker still holds a recording: explain why and offer the only useful action. */
+@Composable
+internal fun FetchPendingHome(state: HomeUiState.FetchPending, onFetchAgain: () -> Unit) {
+  val space = MaterialTheme.taiga.space
+  Column(
+      modifier =
+          Modifier.fillMaxSize()
+              .background(MaterialTheme.colorScheme.surface)
+              .verticalScroll(rememberScrollState())
+  ) {
+    BearDen(
+        variant = LogoVariant.Sleeping,
+        contentDescription = stringResource(R.string.home_logo_sleeping),
+    )
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = space.m).padding(bottom = space.l),
+        verticalArrangement = Arrangement.spacedBy(space.m),
+    ) {
+      Column(verticalArrangement = Arrangement.spacedBy(space.xs)) {
+        Text(
+            text = stringResource(R.string.rec_fetch_pending_title),
+            style = MaterialTheme.taiga.text.screenTitle,
+        )
+        Text(
+            text = stringResource(R.string.rec_fetch_pending_subtitle),
+            style = MaterialTheme.taiga.text.meta,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      TaigaCard {
+        Column(verticalArrangement = Arrangement.spacedBy(space.s)) {
+          Text(
+              text = stringResource(R.string.rec_fetch_pending_body, state.sensorName),
+              style = MaterialTheme.taiga.text.body,
+          )
+          state.error?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.taiga.text.body,
+                color = MaterialTheme.colorScheme.error,
+            )
+          }
+        }
+      }
       PrimaryButton(
           text = stringResource(R.string.rec_fetch_again),
           onClick = onFetchAgain,
           size = ButtonSize.Large,
       )
+      Text(
+          text = stringResource(R.string.rec_fetch_pending_note),
+          style = MaterialTheme.taiga.text.meta,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
     }
-    item { Note(R.string.rec_fetch_pending_note) }
   }
 }
 
-@Composable
-private fun Note(res: Int) {
-  Text(
-      text = stringResource(res),
-      style = MaterialTheme.typography.bodyMedium,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-  )
-}
+/** What stopping does with the data in this mode, and whether the recording is then uploaded. */
+internal fun stopBody(onDevice: Boolean, autoUpload: Boolean): Int =
+    when {
+      onDevice && autoUpload -> R.string.rec_stop_body_on_device_auto_upload
+      onDevice -> R.string.rec_stop_body_on_device
+      autoUpload -> R.string.rec_stop_body_auto_upload
+      else -> R.string.rec_stop_body
+    }
 
 /**
  * The confirmation that stands between a tap and ending the recording. Each text says what happens
- * to the data in this mode, and the stop one says where the night goes next.
+ * to the data in this mode, and the stop one says where the recording goes next.
  */
 @Composable
-internal fun ConfirmDialog(
+internal fun StopConfirmDialog(
     action: StopAction,
     onDevice: Boolean,
+    autoUpload: Boolean,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
@@ -193,8 +258,8 @@ internal fun ConfirmDialog(
         StopAction.STOP ->
             Triple(
                 R.string.rec_stop_title,
-                if (onDevice) R.string.rec_stop_body_on_device else R.string.rec_stop_body,
-                R.string.rec_stop,
+                stopBody(onDevice = onDevice, autoUpload = autoUpload),
+                R.string.rec_stop_and_save,
             )
         StopAction.FORCE_STOP ->
             Triple(
@@ -209,20 +274,14 @@ internal fun ConfirmDialog(
                 R.string.rec_discard_confirm,
             )
       }
-  AlertDialog(
-      onDismissRequest = onDismiss,
-      title = { Text(stringResource(title)) },
-      text = { Text(stringResource(body)) },
-      confirmButton = {
-        TextButton(onClick = onConfirm) {
-          Text(
-              text = stringResource(label),
-              color =
-                  if (action == StopAction.DISCARD) MaterialTheme.colorScheme.error
-                  else MaterialTheme.colorScheme.primary,
-          )
-        }
-      },
-      dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.rec_cancel)) } },
+  ConfirmDialog(
+      title = stringResource(title),
+      body = stringResource(body),
+      confirmLabel = stringResource(label),
+      onConfirm = onConfirm,
+      onDismiss = onDismiss,
+      style =
+          if (action == StopAction.DISCARD) ConfirmDialogStyle.Destructive
+          else ConfirmDialogStyle.Primary,
   )
 }

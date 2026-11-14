@@ -153,7 +153,7 @@ class WakeAlarmSimulatedSensorTest {
     val store = RecordingStore(tmp.newFolder())
     val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
     val host = FakeHost(sensor)
-    val window = WakeWindow(6 * 60 + 30, 7 * 60, heartRate = false, movement = false)
+    val window = WakeWindow(6 * 60 + 30, 30, heartRate = false, movement = false)
     control = RecordingControl(store, clock, host).also { it.start(request(sensor, window)) }
     await("the window to be armed") { host.armed != null }
 
@@ -168,7 +168,7 @@ class WakeAlarmSimulatedSensorTest {
     fun minute(time: java.time.ZonedDateTime) = time.hour * 60 + time.minute
     return WakeWindow(
         startMinute = minute(local.minusMinutes(10)),
-        endMinute = minute(local.plusMinutes(20)),
+        lengthMinutes = 30,
         heartRate = false,
         movement = true,
     )

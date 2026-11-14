@@ -19,6 +19,7 @@ import com.rbmr.taigasleep.recording.ExportProgress
 import com.rbmr.taigasleep.recording.ExportResult
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
+import com.rbmr.taigasleep.recording.store.StreamId
 import com.rbmr.taigasleep.sync.RawActionResult
 import com.rbmr.taigasleep.sync.RecordingNotOnServerException
 import com.rbmr.taigasleep.sync.UploadFailure
@@ -96,6 +97,8 @@ private class FakeLibrary(initial: List<RecordingView>) : RecordingSource {
 private class FakeWork : RecordingWork {
   val calls = mutableListOf<String>()
   var rawSize = 2048L
+  var rawStreams = listOf(StreamId.HR, StreamId.ACC)
+  var remoteStreams: List<Int> = emptyList()
   var share: Result<Unit> = Result.success(Unit)
   var restore: Result<Unit> = Result.success(Unit)
   var deleteRaw: RawActionResult = RawActionResult.Done
@@ -121,6 +124,8 @@ private class FakeWork : RecordingWork {
   }
 
   override suspend fun uploadedElsewhere(localId: String): Boolean = elsewhere
+
+  override suspend fun remoteStreams(remoteId: String): List<Int> = remoteStreams
 
   override fun uploadTarget(): UploadTarget? = target
 
@@ -169,6 +174,11 @@ private class FakeWork : RecordingWork {
   override fun rawSize(localId: String): Long {
     calls += "rawSize:$localId"
     return rawSize
+  }
+
+  override fun rawStreams(localId: String): List<Int> {
+    calls += "rawStreams:$localId"
+    return rawStreams
   }
 }
 
@@ -578,7 +588,6 @@ class RecordingDetailViewModelTest {
   @Test
   fun `an export shares the recording as it was made and keeps the archive for the target`() {
     val model = viewModel()
-    model.openDetails()
 
     model.export()
 
@@ -595,7 +604,6 @@ class RecordingDetailViewModelTest {
     assertTrue(work.calls.none { it.startsWith("discard") })
     assertFalse(model.state.value.exportBusy)
     assertNull(model.state.value.exportPhase)
-    assertFalse(model.state.value.showDetails)
   }
 
   @Test
@@ -662,7 +670,7 @@ class RecordingDetailViewModelTest {
 
     assertFalse(work.calls.any { it.startsWith("share:") })
     assertTrue(
-        model.state.value.actionError.orEmpty().contains("no copy of this night is available")
+        model.state.value.actionError.orEmpty().contains("no copy of this recording is available")
     )
   }
 
@@ -699,38 +707,35 @@ class RecordingDetailViewModelTest {
   }
 
   @Test
-  fun `a failed export closes the details sheet and reports why`() {
+  fun `a failed export reports why`() {
     work.share = Result.failure(IllegalStateException("the disk is full"))
     val model = viewModel()
-    model.openDetails()
 
     model.export()
 
     assertEquals("could not restore: the disk is full", model.state.value.actionError)
-    assertFalse(model.state.value.showDetails)
     assertFalse(model.state.value.exportBusy)
   }
 
   @Test
-  fun `a successful export closes the details sheet`() {
+  fun `a successful export ends without an error`() {
     val model = viewModel()
-    model.openDetails()
 
     model.export()
 
-    assertFalse(model.state.value.showDetails)
+    assertNull(model.state.value.actionError)
+    assertFalse(model.state.value.exportBusy)
   }
 
   @Test
-  fun `downloading the raw data restores it and keeps the sheet open`() {
+  fun `downloading the raw data restores it`() {
     library.recordings.value = listOf(recording(hasRaw = false))
     val model = viewModel()
-    model.openDetails()
 
     model.downloadRaw()
 
     assertTrue("restore:local:r1" in work.calls)
-    assertTrue(model.state.value.showDetails)
+    assertFalse(model.state.value.exportBusy)
   }
 
   @Test
@@ -738,7 +743,7 @@ class RecordingDetailViewModelTest {
     library.recordings.value = listOf(recording(hasRaw = false))
     work.rawSize = 0
     val model = viewModel()
-    model.openDetails()
+    model.refresh()
     assertEquals(0L, model.state.value.rawSizeBytes)
 
     work.restores = {
@@ -748,19 +753,16 @@ class RecordingDetailViewModelTest {
     model.downloadRaw()
 
     assertEquals(229_000L, model.state.value.rawSizeBytes)
-    assertTrue(model.state.value.showDetails)
   }
 
   @Test
-  fun `deleting the raw data closes the sheet when the night was never uploaded`() {
+  fun `deleting the raw data reports when the night was never uploaded`() {
     work.deleteRaw = RawActionResult.NotUploaded
     val model = viewModel()
-    model.openDetails()
 
     model.deleteRaw()
 
     assertEquals("not uploaded yet", model.state.value.actionError)
-    assertFalse(model.state.value.showDetails)
   }
 
   @Test
@@ -784,22 +786,34 @@ class RecordingDetailViewModelTest {
   }
 
   @Test
-  fun `the details sheet reads the size of the raw files when it opens`() {
+  fun `the screen reads the size and the streams of the raw files when it shows`() {
     val model = viewModel()
 
-    model.openDetails()
+    model.refresh()
 
-    assertTrue(model.state.value.showDetails)
     assertEquals(2048L, model.state.value.rawSizeBytes)
+    assertEquals(listOf(StreamId.HR, StreamId.ACC), model.state.value.rawStreams)
     assertTrue("rawSize:local" in work.calls)
+    assertTrue("rawStreams:local" in work.calls)
   }
 
   @Test
-  fun `a night without a local copy has no raw size`() {
+  fun `a night without a local copy has no raw size and no streams`() {
     val model = viewModel(localId = null)
 
-    model.openDetails()
+    model.refresh()
 
     assertEquals(0L, model.state.value.rawSizeBytes)
+    assertTrue(model.state.value.rawStreams.isEmpty())
+  }
+
+  @Test
+  fun `a night without a local copy shows the streams of the server copy`() {
+    work.remoteStreams = listOf(StreamId.HR, StreamId.ECG)
+    val model = viewModel(localId = null)
+
+    model.refresh()
+
+    assertEquals(listOf(StreamId.HR, StreamId.ECG), model.state.value.rawStreams)
   }
 }

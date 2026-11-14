@@ -4,13 +4,22 @@ import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
@@ -44,9 +53,106 @@ fun SegmentedProgress(
   }
 }
 
+/** What one row's 8 dp track reports. */
+sealed interface ProgressTrackState {
+  /** Neither moving nor planned: the empty track. */
+  data object Empty : ProgressTrackState
+
+  /** Moving without a known end. */
+  data object Indeterminate : ProgressTrackState
+
+  /** Moving towards [fraction], from 0 to 1. */
+  data class Determinate(val fraction: Float) : ProgressTrackState
+}
+
+/**
+ * The 8 dp bar under a list row: a known progress, an indeterminate one, or an empty track. The
+ * bar is the same height in every state, so the rows it sits in keep one height.
+ */
+@Composable
+fun ProgressTrack(
+    state: ProgressTrackState,
+    modifier: Modifier = Modifier,
+    description: String? = null,
+) {
+  val semantics =
+      if (description == null) Modifier
+      else Modifier.semantics { contentDescription = description }
+  val bar = modifier.fillMaxWidth().height(8.dp).clip(CircleShape).then(semantics)
+  when (state) {
+    ProgressTrackState.Empty ->
+        Box(bar.background(MaterialTheme.taiga.segment))
+    ProgressTrackState.Indeterminate ->
+        LinearProgressIndicator(
+            modifier = bar,
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.taiga.segment,
+            strokeCap = StrokeCap.Round,
+            gapSize = 0.dp,
+        )
+    is ProgressTrackState.Determinate ->
+        LinearProgressIndicator(
+            progress = { state.fraction.coerceIn(0f, 1f) },
+            modifier = bar,
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.taiga.segment,
+            strokeCap = StrokeCap.Round,
+            gapSize = 0.dp,
+            drawStopIndicator = {},
+        )
+  }
+}
+
+/**
+ * One part of a score: its label and percentage, an optional note under them, and the bar that
+ * shows the share.
+ */
+@Composable
+fun ShareBar(
+    label: String,
+    value: String,
+    fraction: Float,
+    modifier: Modifier = Modifier,
+    caption: String? = null,
+    description: String? = null,
+) {
+  val space = MaterialTheme.taiga.space
+  Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(space.xs)) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f)) {
+        Text(text = label, style = MaterialTheme.taiga.text.body)
+        if (caption != null) {
+          Text(
+              text = caption,
+              style = MaterialTheme.taiga.text.meta,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+      Spacer(Modifier.width(space.s))
+      Text(text = value, style = MaterialTheme.taiga.text.row)
+    }
+    ProgressTrack(
+        state = ProgressTrackState.Determinate(fraction.coerceIn(0f, 1f)),
+        description = description,
+    )
+  }
+}
+
 @Preview(name = "Light")
 @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun SegmentedProgressPreview() {
-  PreviewTheme { SegmentedProgress(steps = 6, current = 3, description = "Step 3 of 6") }
+  PreviewTheme {
+    SegmentedProgress(steps = 6, current = 3, description = "Step 3 of 6")
+    ProgressTrack(ProgressTrackState.Determinate(0.42f), description = "Uploading 42%")
+    ProgressTrack(ProgressTrackState.Indeterminate, description = "Analyzing")
+    ProgressTrack(ProgressTrackState.Empty)
+    ShareBar(
+        label = "Usable coverage",
+        value = "86%",
+        fraction = 0.86f,
+        caption = "weight 50%",
+    )
+  }
 }
