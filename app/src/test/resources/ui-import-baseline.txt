@@ -3,8 +3,6 @@
 # fails when a count rises and when it falls, so the line changes with the code. Paths are relative
 # to `app/src/main/java/com/rbmr/taigasleep/ui/`. See ArchitectureTest.
 TaigaApp.kt 4
-alarm/AlarmActivity.kt 1
-alarm/AlarmScreen.kt 0
 components/BearDen.kt 0
 components/BulletList.kt 0
 components/Buttons.kt 0

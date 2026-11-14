@@ -9,18 +9,23 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
-import android.net.Uri
-import android.os.Build
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.core.app.NotificationManagerCompat
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.diagnostics.Diagnostics
 
+/** Why a wake-up alarm rings: a chosen signal said the user is waking, or the window ended. */
+enum class WakeReason(val wire: String, @StringRes val text: Int) {
+  SIGNAL("signal", R.string.wake_reason_signal),
+  WINDOW_END("window_end", R.string.wake_reason_end),
+}
+
 /**
  * The Android side of an armed wake-up window: the alarm at the end of the window, which is an
- * alarm clock so it fires even when this process is gone, and the alarm itself — a full-screen
- * screen with sound and vibration, or a high-priority notification with sound when the phone does
- * not let the app show the screen.
+ * alarm clock so it fires even when this process is gone, and the alarm itself — a high-priority
+ * notification on the alarm sound that rings until Stop is pressed. Stop ends the alarm only; the
+ * recording always goes on.
  *
  * [WakeDecision] decides when; this only rings.
  */
@@ -30,17 +35,18 @@ object WakeAlarm {
 
   private const val TAG = "WakeAlarm"
   private const val REQUEST_END = 56
-  private const val REQUEST_SCREEN = 57
+  private const val REQUEST_OPEN = 57
   private const val CHANNEL_ALARM = "wake_alarm"
-  private const val CHANNEL_SCREEN = "wake_alarm_screen"
+
+  /** The channel of the full-screen alarm the app had before; removed from phones that have it. */
+  private const val CHANNEL_SCREEN_RETIRED = "wake_alarm_screen"
   private val VIBRATION = longArrayOf(0, 800, 600)
 
   /** Arms the alarm at the end of the window; it fires even if the recording service is gone. */
   fun scheduleEnd(context: Context, endUtcMs: Long) {
     val alarms = context.getSystemService(AlarmManager::class.java)
-    val show = screen(context, PendingIntent.FLAG_UPDATE_CURRENT)
     try {
-      alarms.setAlarmClock(AlarmManager.AlarmClockInfo(endUtcMs, show), end(context))
+      alarms.setAlarmClock(AlarmManager.AlarmClockInfo(endUtcMs, open(context)), end(context))
     } catch (e: SecurityException) {
       // An alarm clock needs the exact-alarm permission. Without it the alarm is still set, just
       // not as an alarm clock the system may hold against the user's next wake-up.
@@ -66,77 +72,56 @@ object WakeAlarm {
     cancelEnd(context)
   }
 
-  /** Rings now: the screen when the phone allows it, otherwise a notification that sounds. */
-  fun fire(context: Context) {
+  /** Rings now for [reason]: a notification that sounds and vibrates until it is stopped. */
+  fun fire(context: Context, reason: WakeReason) {
     val manager = context.getSystemService(NotificationManager::class.java)
     channels(context, manager)
-    val fullScreen = canUseFullScreen(manager)
-    Diagnostics.log("wake_alarm", mapOf("full_screen" to fullScreen))
-    // A notification the phone refuses to show cannot ring, so the screen rings on its own then.
-    if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
-      ringScreen(context)
-      return
-    }
-    val screen = screen(context, PendingIntent.FLAG_UPDATE_CURRENT)
+    val allowed = NotificationManagerCompat.from(context).areNotificationsEnabled()
+    Diagnostics.log("wake_alarm", mapOf("reason" to reason.wire, "notifications" to allowed))
+    val text =
+        context.getString(R.string.wake_notification_text, context.getString(reason.text))
     val notification =
-        Notification.Builder(context, if (fullScreen) CHANNEL_SCREEN else CHANNEL_ALARM)
+        Notification.Builder(context, CHANNEL_ALARM)
             .setSmallIcon(R.drawable.ic_stat_alarm)
             .setContentTitle(context.getString(R.string.wake_notification_title))
-            .setContentText(context.getString(R.string.wake_notification_text))
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
             .setCategory(Notification.CATEGORY_ALARM)
-            .setContentIntent(screen)
+            .setContentIntent(open(context))
             .setAutoCancel(true)
             .setOngoing(true)
             .addAction(
                 Notification.Action.Builder(
                         null,
-                        context.getString(R.string.wake_notification_dismiss),
+                        context.getString(R.string.wake_notification_stop),
                         WakeAlarmReceiver.dismiss(context),
                     )
                     .build()
             )
-            .apply { if (fullScreen) setFullScreenIntent(screen, true) }
             .build()
+    // Insistent: the sound repeats until the notification is stopped, like an alarm clock.
+    notification.flags = notification.flags or Notification.FLAG_INSISTENT
     try {
       manager.notify(NOTIFICATION_ID, notification)
     } catch (e: SecurityException) {
       Log.e(TAG, "the wake-up alarm could not be posted", e)
-      ringScreen(context)
     }
   }
 
-  /** The user dismissed the alarm; the recording is untouched and the window is spent. */
+  /** The user stopped the alarm; the recording is untouched and the window is spent. */
   fun dismiss(context: Context) {
     context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
     // A window armed since this alarm belongs to a later recording, so only a spent one is dropped.
     if (RecordingPrefs.get(context).armedWake() == null) cancelEnd(context)
   }
 
-  /** The tone an alarm rings with, for the screen that rings it. */
-  fun sound(): Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-
-  /** True when the phone lets this app open its alarm screen over the lock screen. */
-  fun canUseFullScreen(manager: NotificationManager): Boolean =
-      Build.VERSION.SDK_INT < 34 || manager.canUseFullScreenIntent()
-
-  private fun screenIntent(context: Context): Intent = RecordingHooks.current().wakeAlarmScreen(context)
-
-  /**
-   * Opens the alarm screen without a notification. A background start is not always allowed, so this
-   * is the last attempt to ring, not the normal path.
-   */
-  private fun ringScreen(context: Context) {
-    runCatching {
-      context.startActivity(screenIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    }
-  }
-
-  private fun screen(context: Context, flags: Int): PendingIntent =
+  /** Opens the app, from the alarm or from the system's alarm clock icon. */
+  private fun open(context: Context): PendingIntent =
       PendingIntent.getActivity(
           context,
-          REQUEST_SCREEN,
-          screenIntent(context),
-          flags or PendingIntent.FLAG_IMMUTABLE,
+          REQUEST_OPEN,
+          context.packageManager.getLaunchIntentForPackage(context.packageName),
+          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
       )
 
   private fun end(context: Context): PendingIntent =
@@ -147,10 +132,7 @@ object WakeAlarm {
           PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
       )
 
-  /**
-   * Two channels, because a notification's sound belongs to its channel: the silent one goes with
-   * the screen, which rings itself, and the loud one is the fallback when the screen may not open.
-   */
+  /** The alarm's channel, on the alarm sound and volume. */
   private fun channels(context: Context, manager: NotificationManager) {
     val attributes =
         AudioAttributes.Builder()
@@ -164,22 +146,11 @@ object WakeAlarm {
                 NotificationManager.IMPORTANCE_HIGH,
             )
             .apply {
-              setSound(sound(), attributes)
+              setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), attributes)
               enableVibration(true)
               vibrationPattern = VIBRATION
             }
     )
-    manager.createNotificationChannel(
-        NotificationChannel(
-                CHANNEL_SCREEN,
-                context.getString(R.string.wake_channel_screen),
-                NotificationManager.IMPORTANCE_HIGH,
-            )
-            .apply {
-              setSound(null, null)
-              enableVibration(false)
-              setShowBadge(false)
-            }
-    )
+    manager.deleteNotificationChannel(CHANNEL_SCREEN_RETIRED)
   }
 }

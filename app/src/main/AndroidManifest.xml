@@ -19,9 +19,6 @@
   <uses-permission android:name="android.permission.WAKE_LOCK" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.VIBRATE" />
-  <!-- The wake-up alarm opens its screen over the lock screen. Android 14 lets the user refuse it;
-       the alarm then falls back to a high-priority notification with sound. -->
-  <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
   <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
   <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -75,18 +72,6 @@
     <receiver
         android:name=".recording.WakeAlarmReceiver"
         android:exported="false" />
-
-    <!-- The wake-up alarm itself: full screen over the lock screen, ringing until dismissed. -->
-    <activity
-        android:name=".ui.alarm.AlarmActivity"
-        android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
-        android:excludeFromRecents="true"
-        android:exported="false"
-        android:launchMode="singleInstance"
-        android:showWhenLocked="true"
-        android:taskAffinity=""
-        android:theme="@style/Theme.TaigaSleep"
-        android:turnScreenOn="true" />
 
     <!-- A reboot interrupts the service; this hands the recording back to it. Only the system sends
          this protected broadcast, so the receiver stays closed to other apps. -->
