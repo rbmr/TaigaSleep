@@ -38,6 +38,7 @@ home/IdleHome.kt 2
 home/RecordingCard.kt 3
 home/SensorPickerSheet.kt 2
 recording/AnalysisSheet.kt 2
+recording/AnalysisFailure.kt 0
 recording/DataQualitySection.kt 1
 recording/DetailScreen.kt 0
 recording/ExportSheet.kt 0

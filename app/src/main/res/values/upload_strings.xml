@@ -99,6 +99,10 @@
   <string name="night_analysis_failed_title">Analysis failed</string>
   <string name="night_upload_failed_title">Upload failed</string>
   <string name="night_analysis_failed_body">The server could not process this recording.</string>
+  <string name="night_analysis_failed_too_short">This recording is too short for this method.</string>
+  <string name="night_analysis_failed_not_enough_data">This recording does not have enough usable data for this method.</string>
+  <string name="night_analysis_failed_missing_data">This recording does not have the data this method needs.</string>
+  <string name="night_analysis_failed_bad_ecg">The ECG signal is not clear enough for this method.</string>
   <string name="night_load_failed">Could not load this recording</string>
   <string name="night_offline_saved">Showing the saved result. The server is unreachable.</string>
   <string name="night_result_loading">Loading the recording</string>

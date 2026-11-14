@@ -116,8 +116,12 @@ internal fun LazyListScope.statusCards(
                     else R.string.night_upload_failed_title
                 ),
             body =
-                state.errorDetail?.takeIf { it.isNotBlank() }
-                    ?: stringResource(R.string.night_analysis_failed_body),
+                if (state.failure == UploadFailure.ANALYSIS) {
+                  stringResource(analysisFailureText(state.errorDetail))
+                } else {
+                  state.errorDetail?.takeIf { it.isNotBlank() }
+                      ?: stringResource(R.string.night_analysis_failed_body)
+                },
             failed = true,
         ) {
           when {
