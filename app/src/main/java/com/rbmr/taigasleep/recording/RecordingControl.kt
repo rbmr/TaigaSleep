@@ -447,7 +447,7 @@ class RecordingControl(
     s.writer.event("wake", "the wake-up window triggered")
     Diagnostics.log("wake_trigger", mapOf("recording" to recordingId, "at_utc_ms" to atUtcMs))
     host.disarmWake()
-    host.fireWakeAlarm()
+    host.fireWakeAlarm(WakeReason.SIGNAL)
   }
 
   /** The tracker is storing: the service is not needed until the tracker has to be stopped. */

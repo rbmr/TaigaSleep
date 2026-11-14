@@ -21,6 +21,7 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.profile.PersonalData
+import com.rbmr.taigasleep.recording.WakeAlarmSettings
 import com.rbmr.taigasleep.sync.UploadSettings
 import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.ListRowTrailing
@@ -47,6 +48,7 @@ fun SettingsScreen(
     onPersonalClick: () -> Unit,
     onUploadsClick: () -> Unit,
     onAnalysisClick: () -> Unit,
+    onWakeAlarmClick: () -> Unit,
 ) {
   val context = LocalContext.current
   val remoteRepository = remember { context.appContainer.remoteRepository }
@@ -58,6 +60,7 @@ fun SettingsScreen(
   val analysisSettings by analysisSettingsStore.settings.collectAsStateWithLifecycle()
   val personalDataStore = remember { context.appContainer.personalDataStore }
   val personalData by personalDataStore.data.collectAsStateWithLifecycle()
+  val wakeAlarmSettings = remember { WakeAlarmSettings.get(context) }
 
   // The count is the server's answer, so the row asks for it once each time the screen is opened.
   val tokensViewModel: AccessTokensViewModel =
@@ -133,6 +136,12 @@ fun SettingsScreen(
                   fillWidth = true,
               )
             },
+        )
+        SettingsDivider()
+        ListRow(
+            title = stringResource(R.string.settings_wake_alarm_title),
+            value = endRecordingLabel(wakeAlarmSettings.endRecordingOnAlarm),
+            onClick = onWakeAlarmClick,
         )
         SettingsDivider()
         ListRow(
