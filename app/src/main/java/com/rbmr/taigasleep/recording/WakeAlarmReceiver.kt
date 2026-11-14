@@ -13,24 +13,35 @@ import com.rbmr.taigasleep.diagnostics.Diagnostics
  */
 class WakeAlarmReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
-    if (intent.action == ACTION_DISMISS) {
-      WakeAlarm.dismiss(context)
-      return
+    when (intent.action) {
+      ACTION_DISMISS -> WakeAlarm.dismiss(context)
+      ACTION_STOP -> WakeAlarm.stopRecording(context)
+      else -> {
+        Diagnostics.log("wake_alarm", mapOf("source" to "window_end"))
+        // The window is spent: nothing arms it again for this recording.
+        RecordingPrefs.get(context).clearArmedWake()
+        WakeAlarm.fire(context, WakeReason.WINDOW_END)
+      }
     }
-    Diagnostics.log("wake_alarm", mapOf("source" to "window_end"))
-    // The window is spent: nothing arms it again for this recording.
-    RecordingPrefs.get(context).clearArmedWake()
-    WakeAlarm.fire(context)
   }
 
   companion object {
     const val ACTION_DISMISS = "com.rbmr.taigasleep.recording.WAKE_DISMISS"
+    const val ACTION_STOP = "com.rbmr.taigasleep.recording.WAKE_STOP"
 
     fun dismiss(context: Context): PendingIntent =
         PendingIntent.getBroadcast(
             context,
             0,
             Intent(context, WakeAlarmReceiver::class.java).setAction(ACTION_DISMISS),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+    fun stop(context: Context): PendingIntent =
+        PendingIntent.getBroadcast(
+            context,
+            1,
+            Intent(context, WakeAlarmReceiver::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
   }

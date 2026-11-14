@@ -1,6 +1,5 @@
 package com.rbmr.taigasleep.ui.alarm
 
-import android.app.NotificationManager
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.Bundle
@@ -11,12 +10,14 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
 import com.rbmr.taigasleep.recording.WakeAlarm
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 
 /**
  * The wake-up alarm, opened full screen by its notification over the lock screen: it rings and
- * vibrates until it is dismissed. Dismissing ends the alarm only, never the recording.
+ * vibrates until it is dismissed. The screen says why it rang and offers the buttons the setting
+ * and the running recording call for.
  *
  * The alarm itself is posted by `recording.WakeAlarm`; this is only its screen.
  */
@@ -30,19 +31,30 @@ class AlarmActivity : ComponentActivity() {
     setTurnScreenOn(true)
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     enableEdgeToEdge()
+    // The screen is black in either theme, so the system bars need light icons to stay visible.
+    WindowCompat.getInsetsController(window, window.decorView).apply {
+      isAppearanceLightStatusBars = false
+      isAppearanceLightNavigationBars = false
+    }
     ring()
-    val manager = getSystemService(NotificationManager::class.java)
-    val fullScreen = WakeAlarm.canUseFullScreen(manager)
+    val screen = WakeAlarm.screenOf(this, intent)
     setContent {
       TaigaTheme(darkTheme = true) {
-        AlarmScreen(fullScreenAllowed = fullScreen, onDismiss = ::dismiss)
+        AlarmScreen(
+            reason = screen.reason,
+            details = screen.details,
+            showStop = screen.stop,
+            showDismiss = screen.dismiss,
+            onStop = ::stopRecording,
+            onDismiss = ::dismiss,
+        )
       }
     }
   }
 
   override fun onDestroy() {
     stopRinging()
-    // Leaving the screen any other way than Dismiss still ends the alarm, not the recording.
+    // Leaving the screen any other way than a button still ends the alarm, not the recording.
     if (isFinishing) WakeAlarm.dismiss(this)
     super.onDestroy()
   }
@@ -86,6 +98,14 @@ class AlarmActivity : ComponentActivity() {
     vibrator = null
   }
 
+  /** Stop stops the alarm and ends the recording. */
+  private fun stopRecording() {
+    WakeAlarm.stopRecording(this)
+    stopRinging()
+    finish()
+  }
+
+  /** Dismiss stops the alarm only; the recording goes on. */
   private fun dismiss() {
     WakeAlarm.dismiss(this)
     stopRinging()

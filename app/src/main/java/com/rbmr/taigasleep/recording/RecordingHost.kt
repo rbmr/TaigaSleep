@@ -84,8 +84,8 @@ interface RecordingHost {
   /** The alarm rang or the recording ended: forget the window and drop the end alarm. */
   fun disarmWake()
 
-  /** Rings now, without the end alarm, which [disarmWake] already dropped. */
-  fun fireWakeAlarm()
+  /** Rings now for [reason], without the end alarm, which [disarmWake] already dropped. */
+  fun fireWakeAlarm(reason: WakeReason)
 
   /** The recording the service is keeping alive; null when nothing is live. */
   var activeSessionId: String?

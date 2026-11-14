@@ -252,7 +252,7 @@ class FinishingWithSimulatedSensorTest {
       armed = null
     }
 
-    override fun fireWakeAlarm() {
+    override fun fireWakeAlarm(reason: WakeReason) {
       firedAlarms++
     }
 

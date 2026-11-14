@@ -242,9 +242,13 @@ function of the window and the samples; neither is a claim about a sleep stage. 
 armed separately with `AlarmManager.setAlarmClock`, so it rings even when the service and the process
 are gone, and a trigger that rings first drops it, so one night rings once.
 
-The alarm is a full-screen screen with sound, vibration and one Dismiss button. Android 14 lets the
-user refuse the full-screen intent; the alarm is then a high-priority notification with sound.
-Dismissing ends the alarm, never the recording.
+The alarm is a full-screen screen with sound and vibration. It says why it rang: a signal showed
+the user waking up, or the end of the window was reached. A global setting (Settings → Smart alarm)
+chooses whether it offers **Stop**, **Dismiss** or both: Stop ends the recording through the same
+action as the app's Stop button, Dismiss stops only the alarm. With no recording running it offers
+only Dismiss.
+Android 14 lets the user refuse the full-screen intent; the alarm is then a high-priority
+notification with sound and the same actions.
 
 ### Preventing-shutdown flow
 

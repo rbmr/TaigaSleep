@@ -47,6 +47,7 @@ fun SettingsScreen(
     onPersonalClick: () -> Unit,
     onUploadsClick: () -> Unit,
     onAnalysisClick: () -> Unit,
+    onSmartAlarmClick: () -> Unit,
 ) {
   val context = LocalContext.current
   val remoteRepository = remember { context.appContainer.remoteRepository }
@@ -58,6 +59,9 @@ fun SettingsScreen(
   val analysisSettings by analysisSettingsStore.settings.collectAsStateWithLifecycle()
   val personalDataStore = remember { context.appContainer.personalDataStore }
   val personalData by personalDataStore.data.collectAsStateWithLifecycle()
+  val smartAlarmViewModel: SmartAlarmSettingsViewModel =
+      viewModel(factory = remember { SmartAlarmSettingsViewModel.Factory(context) })
+  val endRecording by smartAlarmViewModel.options.collectAsStateWithLifecycle()
 
   // The count is the server's answer, so the row asks for it once each time the screen is opened.
   val tokensViewModel: AccessTokensViewModel =
@@ -133,6 +137,12 @@ fun SettingsScreen(
                   fillWidth = true,
               )
             },
+        )
+        SettingsDivider()
+        ListRow(
+            title = stringResource(R.string.wake_title),
+            value = endRecording.firstOrNull { it.selected }?.let { stringResource(it.label) },
+            onClick = onSmartAlarmClick,
         )
         SettingsDivider()
         ListRow(

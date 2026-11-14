@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import com.rbmr.taigasleep.MainActivity
 import com.rbmr.taigasleep.tracker.RecordingMode
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -30,6 +31,13 @@ class WakeAlarmTest {
   fun installHooks() {
     RecordingHooks.install(TestHooks)
     RecordingPrefs.get(context).clearArmedWake()
+    RecordingPrefs.get(context).activeSessionId = null
+    WakeAlarmSettings.get(context).endRecordingOnAlarm = EndRecordingOnAlarm.OPTIONAL
+  }
+
+  @After
+  fun clearRecording() {
+    RecordingPrefs.get(context).activeSessionId = null
   }
 
   @Test
@@ -63,6 +71,39 @@ class WakeAlarmTest {
     assertTrue("a dismissed alarm is not left scheduled", shadowOf(alarms).scheduledAlarms.isEmpty())
   }
 
+  @Test
+  fun `the alarm offers the actions of the setting while a recording runs`() {
+    RecordingPrefs.get(context).activeSessionId = RECORDING_ID
+    val expected =
+        mapOf(
+            EndRecordingOnAlarm.ALWAYS to listOf(WakeAlarmAction.STOP),
+            EndRecordingOnAlarm.OPTIONAL to
+                listOf(WakeAlarmAction.STOP, WakeAlarmAction.DISMISS),
+            EndRecordingOnAlarm.NEVER to listOf(WakeAlarmAction.DISMISS),
+        )
+
+    for ((setting, actions) in expected) {
+      WakeAlarmSettings.get(context).endRecordingOnAlarm = setting
+      assertEquals("$setting", actions, WakeAlarm.actions(context))
+    }
+  }
+
+  @Test
+  fun `without a recording the alarm offers only dismiss`() {
+    WakeAlarmSettings.get(context).endRecordingOnAlarm = EndRecordingOnAlarm.ALWAYS
+
+    assertEquals(listOf(WakeAlarmAction.DISMISS), WakeAlarm.actions(context))
+  }
+
+  @Test
+  fun `the screen is told why the alarm rang`() {
+    val signal = WakeAlarm.reason(Intent().putExtra(WakeAlarm.EXTRA_WAKE_REASON, "signal"))
+    assertEquals(WakeReason.SIGNAL, signal)
+
+    val end = WakeAlarm.reason(Intent().putExtra(WakeAlarm.EXTRA_WAKE_REASON, "window_end"))
+    assertEquals(WakeReason.WINDOW_END, end)
+  }
+
   private object TestHooks : RecordingHooks {
     override fun mayStart(context: Context, mode: RecordingMode) = true
 
@@ -77,5 +118,6 @@ class WakeAlarmTest {
 
   private companion object {
     const val END_MS = 1_792_798_200_000L
+    const val RECORDING_ID = "recording-1"
   }
 }
