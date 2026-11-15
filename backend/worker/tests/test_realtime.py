@@ -210,7 +210,7 @@ def test_the_delay_doubles_up_to_the_maximum_and_starts_over_after_a_connection(
     server.wait_for_connections(2)  # the one that ended, and the open one after the refusals
     assert wait_until(lambda: len(delays) == 8)
     assert delays == [1, 2, 4, 8, 8, 1, 1, 2]
-    assert wake.rings == 2
+    assert wait_until(lambda: wake.rings == 2)
 
 
 def test_something_that_answers_but_is_no_event_stream_is_not_a_connection(server, streams) -> None:
@@ -225,8 +225,9 @@ def test_something_that_answers_but_is_no_event_stream_is_not_a_connection(serve
 
     server.wait_for_connections(1)
     assert wait_until(lambda: len(server.requests) == 2)
+    assert wait_until(lambda: len(delays) == 1)
     assert delays == [1.0]
-    assert wake.rings == 1  # only the second try was a stream
+    assert wait_until(lambda: wake.rings == 1)  # only the second try was a stream
 
 
 def test_a_stream_without_a_token_is_refused_and_the_worker_is_not_rung(server, streams) -> None:
