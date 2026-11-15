@@ -17,9 +17,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.debug.DebugTools
 import com.rbmr.taigasleep.debug.GuidancePreviewPicker
-import com.rbmr.taigasleep.guard.GuidanceStore
 import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.tracker.ConnectionState
 
@@ -71,7 +71,7 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
   val factory = remember { HomeFactory(context) }
   val viewModel: HomeViewModel = viewModel(factory = factory)
   val state by viewModel.state.collectAsStateWithLifecycle()
-  val guidanceStore = remember { GuidanceStore(context) }
+  val guidanceStore = context.appContainer.guidanceStore
   val autoUpload by viewModel.autoUpload.collectAsStateWithLifecycle(initialValue = false)
 
   var showPreviewPicker by remember { mutableStateOf(false) }

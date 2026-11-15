@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
+import android.os.StrictMode
 import androidx.core.content.ContextCompat
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.SensorKind
@@ -28,6 +29,22 @@ object DebugTools {
       FoundSensor(SensorKind.SIMULATED, "SIM00001", "Simulated sensor", 0)
 
   fun createSimulatedSensor(): SleepSensor? = SimulatedSensor()
+
+  /**
+   * Reports disk and network work on the main thread in the log (tag `StrictMode`), so a startup
+   * that does too much shows it instead of only being slower. Installed before anything else in
+   * `Application.onCreate`. Release builds have the empty twin and never run it.
+   */
+  fun startStrictMode() {
+    StrictMode.setThreadPolicy(
+        StrictMode.ThreadPolicy.Builder()
+            .detectDiskReads()
+            .detectDiskWrites()
+            .detectNetwork()
+            .penaltyLog()
+            .build()
+    )
+  }
 
   /** `adb shell am broadcast -a com.rbmr.taigasleep.DEBUG_CRASH` crashes the app on purpose. */
   fun install(app: Application) {

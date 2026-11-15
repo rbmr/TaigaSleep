@@ -1,7 +1,5 @@
 package com.rbmr.taigasleep.ui.home
 
-import com.rbmr.taigasleep.sync.UploadSettings
-import kotlinx.coroutines.flow.map
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -10,7 +8,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.guard.GuidanceFlows
-import com.rbmr.taigasleep.guard.GuidanceStore
 import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.guard.ReadinessState
 import com.rbmr.taigasleep.recording.RecordingPrefs
@@ -21,6 +18,8 @@ import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.StreamConfig
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /** Bluetooth is needed to see and reach the straps. */
 internal val bluetoothPermissions =
@@ -40,15 +39,15 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
   override fun <T : ViewModel> create(modelClass: Class<T>): T {
     val app = context.applicationContext
     val sensors = app.appContainer.sensorHub
-    val prefs = RecordingPrefs.get(app)
-    val guidance = GuidanceStore(app)
+    val prefs = app.appContainer.recordingPrefs
+    val guidance = app.appContainer.guidanceStore
     val work =
         object : HomeWork {
           override val found = sensors.found
           override val scanning = sensors.scanning
 
           override fun onFirstShow() {
-            RecordingRepository.reconcile(app)
+            app.appContainer.scope.launch { RecordingRepository.reconcile(app) }
             sensors.restoreLast(app, canConnect = hasBluetooth(app))
           }
 
@@ -143,7 +142,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
         work,
         sensors.sensor,
         RecordingRepository.status,
-        UploadSettings.get(app).autoUpload.map { it.enabled },
+        app.appContainer.uploadSettings.autoUpload.map { it.enabled },
     ) as T
   }
 

@@ -6,10 +6,13 @@ import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class Phase {
   IDLE,
@@ -87,7 +90,10 @@ object RecordingRepository {
 
   /** Re-reads the recording list from disk (cheap for the handful of recordings kept on the phone). */
   fun refreshRecordings(context: Context) {
-    _sessions.value = context.appContainer.recordingStore.list()
+    val app = context.applicationContext
+    app.appContainer.scope.launch {
+      _sessions.value = app.appContainer.recordingStore.list()
+    }
   }
 
   /**
@@ -95,61 +101,65 @@ object RecordingRepository {
    * decides whether it can continue; only a recording the process left behind without a marker
    * becomes `interrupted`. A recording the tracker stores on its own stays active: nothing on the
    * phone has to be running for it.
+   *
+   * It reads every recording's meta.json, so it always runs on an IO dispatcher and never on the
+   * thread that opens the screen.
    */
-  fun reconcile(context: Context) {
-    if (RecordingService.running) return
-    val prefs = RecordingPrefs.get(context)
-    val store = context.appContainer.recordingStore
-    val live = RecordingRecovery.onAppear(store, prefs.activeSessionId)
-    if (live != null) {
-      prefs.activeSessionId = live.recordingId
-      try {
-        RecordingService.send(context, RecordingService.ACTION_RESUME)
-      } catch (e: Exception) {
-        // A refused start must not take the screen down: the marker stays, so the watchdog or the
-        // next app start hands the recording to the service again.
-        Diagnostics.log("resume_refused", mapOf("error" to e.message))
+  suspend fun reconcile(context: Context) =
+      withContext(Dispatchers.IO) {
+        if (RecordingService.running) return@withContext
+        val prefs = RecordingPrefs.get(context)
+        val store = context.appContainer.recordingStore
+        val live = RecordingRecovery.onAppear(store, prefs.activeSessionId)
+        if (live != null) {
+          prefs.activeSessionId = live.recordingId
+          try {
+            RecordingService.send(context, RecordingService.ACTION_RESUME)
+          } catch (e: Exception) {
+            // A refused start must not take the screen down: the marker stays, so the watchdog or
+            // the next app start hands the recording to the service again.
+            Diagnostics.log("resume_refused", mapOf("error" to e.message))
+          }
+          _sessions.value = store.list()
+          return@withContext
+        }
+        val onDevice = store.onDeviceInProgress()
+        val pending = store.fetchPending()
+        prefs.activeSessionId = onDevice?.recordingId
+        // Nothing here can be resumed, so a window left from an earlier process rings nothing.
+        WakeAlarm.disarm(context)
+        WatchdogReceiver.cancel(context)
+        if (onDevice != null) {
+          _status.value =
+              CaptureStatus(
+                  phase = Phase.RECORDING,
+                  recordingId = onDevice.recordingId,
+                  startUtcMs = onDevice.startUtcMs,
+                  config = onDevice.config,
+                  sensorName = onDevice.sensorName,
+                  liveStreaming = false,
+              )
+        } else if (pending != null) {
+          _status.value =
+              CaptureStatus(
+                  fetchPending =
+                      PendingFetch(
+                          recordingId = pending.recordingId,
+                          sensorName = pending.sensorName,
+                          startUtcMs = pending.startUtcMs,
+                          error = null,
+                      )
+              )
+        }
+        // Opening the app connects the tracker again, which is when the copies that could not be
+        // removed when their recordings ended get their next chance.
+        if (store.pendingTrackerRemovals().isNotEmpty()) {
+          try {
+            RecordingService.cleanup(context)
+          } catch (e: Exception) {
+            Diagnostics.log("cleanup_refused", mapOf("error" to e.message))
+          }
+        }
+        _sessions.value = store.list()
       }
-      refreshRecordings(context)
-      return
-    }
-    val onDevice = store.onDeviceInProgress()
-    val pending = store.fetchPending()
-    prefs.activeSessionId = onDevice?.recordingId
-    // Nothing here can be resumed, so a window left from an earlier process rings nothing.
-    WakeAlarm.disarm(context)
-    WatchdogReceiver.cancel(context)
-    if (onDevice != null) {
-      _status.value =
-          CaptureStatus(
-              phase = Phase.RECORDING,
-              recordingId = onDevice.recordingId,
-              startUtcMs = onDevice.startUtcMs,
-              config = onDevice.config,
-              sensorName = onDevice.sensorName,
-              liveStreaming = false,
-          )
-    } else if (pending != null) {
-      _status.value =
-          CaptureStatus(
-              fetchPending =
-                  PendingFetch(
-                      recordingId = pending.recordingId,
-                      sensorName = pending.sensorName,
-                      startUtcMs = pending.startUtcMs,
-                      error = null,
-                  )
-          )
-    }
-    // Opening the app connects the tracker again, which is when the copies that could not be
-    // removed when their recordings ended get their next chance.
-    if (store.pendingTrackerRemovals().isNotEmpty()) {
-      try {
-        RecordingService.cleanup(context)
-      } catch (e: Exception) {
-        Diagnostics.log("cleanup_refused", mapOf("error" to e.message))
-      }
-    }
-    refreshRecordings(context)
-  }
 }

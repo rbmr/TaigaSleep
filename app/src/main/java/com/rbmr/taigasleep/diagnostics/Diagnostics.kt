@@ -38,6 +38,7 @@ object Diagnostics {
   private var marker: RunMarker? = null
   private var dedupe: ExitInfoDedupe? = null
   private var executor: ScheduledThreadPoolExecutor? = null
+  @Volatile private var runId = ""
 
   // Touched only on the diagnostics thread.
   private var lastState: Map<String, Any?>? = null
@@ -150,14 +151,10 @@ object Diagnostics {
       if (app != null) return
       app = application
     }
-    val dir = diagnosticsDir(application)
-    val pid = Process.myPid()
-    val runId = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT)
-        .apply { timeZone = TimeZone.getTimeZone("UTC") }
-        .format(Date()) + "_$pid"
-    val newStore = DiagnosticsStore(dir, runId)
-    marker = RunMarker(File(dir, "run_marker"))
-    dedupe = ExitInfoDedupe(File(dir, "exit_info_seen"))
+    runId =
+        SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT)
+            .apply { timeZone = TimeZone.getTimeZone("UTC") }
+            .format(Date()) + "_${Process.myPid()}"
     val pool =
         ScheduledThreadPoolExecutor(1) { r ->
           Thread(r, "diagnostics").apply {
@@ -169,17 +166,36 @@ object Diagnostics {
     executor = pool
 
     // Installed synchronously: a crash during startup must still be recorded.
-    CrashHandler.install { thread, error -> recordCrash(newStore, application, thread, error) }
+    CrashHandler.install { thread, error -> recordCrash(application, thread, error) }
 
-    // The startup task runs first on the queue, so it scans the previous run's files before
-    // this run creates its own.
-    submit { startup(application, dir, newStore) }
+    // The directory is created and the previous run's files are scanned on the diagnostics thread:
+    // the main thread that is starting the app does neither.
+    submit { start(application) }
     EventListeners(application).register()
     DiagnosticsAlarm.schedule(application)
     pool.scheduleWithFixedDelay({ writeHeartbeat() }, HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS)
-    pool.scheduleWithFixedDelay({ newStore.sync() }, SYNC_SECONDS, SYNC_SECONDS, TimeUnit.SECONDS)
     pool.scheduleWithFixedDelay({ snapshot("periodic") }, SNAPSHOT_SECONDS, SNAPSHOT_SECONDS, TimeUnit.SECONDS)
-    pool.scheduleWithFixedDelay({ newStore.trim(nowMs()) }, TRIM_SECONDS, TRIM_SECONDS, TimeUnit.SECONDS)
+  }
+
+  /** Creates the store and scans what the previous process left; runs on the diagnostics thread. */
+  private fun start(application: Application) {
+    val dir = diagnosticsDir(application)
+    val newStore = DiagnosticsStore(dir, runId)
+    marker = RunMarker(File(dir, "run_marker"))
+    dedupe = ExitInfoDedupe(File(dir, "exit_info_seen"))
+    executor?.scheduleWithFixedDelay(
+        { newStore.sync() },
+        SYNC_SECONDS,
+        SYNC_SECONDS,
+        TimeUnit.SECONDS,
+    )
+    executor?.scheduleWithFixedDelay(
+        { newStore.trim(nowMs()) },
+        TRIM_SECONDS,
+        TRIM_SECONDS,
+        TimeUnit.SECONDS,
+    )
+    startup(application, dir, newStore)
   }
 
   private fun startup(app: Application, dir: File, newStore: DiagnosticsStore) {
@@ -293,7 +309,7 @@ object Diagnostics {
     log("settings_snapshot", fields)
   }
 
-  private fun recordCrash(s: DiagnosticsStore, a: Application, thread: Thread, error: Throwable) {
+  private fun recordCrash(a: Application, thread: Thread, error: Throwable) {
     val fields =
         linkedMapOf<String, Any?>(
             "thread" to thread.name,
@@ -303,7 +319,8 @@ object Diagnostics {
             "memory" to DeviceState.crashMemory(a),
         )
     val line = JsonLine.build(nowMs(), SystemClock.elapsedRealtime(), Process.myPid(), "crash", fields)
-    // Startup normally flushes pending lines, so make sure the store exists even if we died early.
+    // Startup normally creates the store first, so make sure one exists even if we died before it.
+    val s = synchronized(lock) { store } ?: DiagnosticsStore(diagnosticsDir(a), runId)
     s.append(line)
     s.sync()
   }

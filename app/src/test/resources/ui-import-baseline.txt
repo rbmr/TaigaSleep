@@ -3,7 +3,7 @@
 # fails when a count rises and when it falls, so the line changes with the code. Paths are relative
 # to `app/src/main/java/com/rbmr/taigasleep/ui/`. See ArchitectureTest.
 MainScreen.kt 0
-TaigaApp.kt 4
+TaigaApp.kt 3
 components/BearDen.kt 0
 components/BulletList.kt 0
 components/Buttons.kt 0
@@ -32,8 +32,8 @@ history/TrendsScreen.kt 0
 home/ActiveHome.kt 3
 home/ConfigureSheet.kt 1
 home/FinishingHome.kt 1
-home/HomeFactory.kt 13
-home/HomeScreen.kt 3
+home/HomeFactory.kt 11
+home/HomeScreen.kt 2
 home/HomeUiState.kt 7
 home/IdleHome.kt 2
 home/RecordingCard.kt 3
