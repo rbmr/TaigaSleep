@@ -1,0 +1,8 @@
+<resources>
+  <!-- The groups the phone's notification settings show, one per purpose. The channels inside them
+       keep the names they had, so a user's choices stay with the channel they were made for. -->
+  <string name="notification_group_recording">Recording</string>
+  <string name="notification_group_alarm">Alarm</string>
+  <string name="notification_group_uploads_analyses">Uploads and analyses</string>
+  <string name="notification_group_device_health">Device health</string>
+</resources>

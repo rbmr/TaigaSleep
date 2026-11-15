@@ -1,9 +1,6 @@
 package com.rbmr.taigasleep.recording
 
 import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
@@ -18,6 +15,7 @@ import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.diagnostics.Diagnostics
+import com.rbmr.taigasleep.notifications.Notifier
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
@@ -47,14 +45,6 @@ class RecordingService : Service(), RecordingHost {
     prefs = RecordingPrefs.get(this)
     hooks = RecordingHooks.current()
     control = RecordingControl(store, SystemClockSource, this)
-    getSystemService(NotificationManager::class.java)
-        .createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_ID,
-                getString(R.string.rec_channel_name),
-                NotificationManager.IMPORTANCE_LOW,
-            )
-        )
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -264,8 +254,7 @@ class RecordingService : Service(), RecordingHost {
     val text = notificationText(state)
     if (text == lastNotificationText) return
     lastNotificationText = text
-    getSystemService(NotificationManager::class.java)
-        .notify(NOTIFICATION_ID, notification(text, state.capture.startUtcMs))
+    Notifier.post(this, Notifier.RECORDING_ID, notification(text, state.capture.startUtcMs))
   }
 
   /** The tracker's name and one status; the notification's own timer shows the duration. */
@@ -295,37 +284,25 @@ class RecordingService : Service(), RecordingHost {
   /** Returns false when the system refuses the foreground state; the recording cannot go on then. */
   private fun promote(n: Notification): Boolean =
       try {
-        startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        startForeground(
+            Notifier.RECORDING_ID,
+            n,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+        )
         true
       } catch (e: Exception) {
         Log.e(TAG, "the system refused the foreground service", e)
         false
       }
 
-  private fun notification(text: String, startUtcMs: Long = RecordingRepository.status.value.startUtcMs): Notification {
-    val open =
-        PendingIntent.getActivity(
-            this,
-            0,
-            packageManager.getLaunchIntentForPackage(packageName),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
-    return Notification.Builder(this, CHANNEL_ID)
-        .setSmallIcon(R.drawable.ic_stat_recording)
-        .setContentTitle(getString(R.string.rec_notification_title))
-        .setContentText(text)
-        .setContentIntent(open)
-        .setOngoing(true)
-        .setOnlyAlertOnce(true)
-        .setCategory(Notification.CATEGORY_SERVICE)
-        .apply { if (startUtcMs > 0) setWhen(startUtcMs).setUsesChronometer(true) }
-        .build()
-  }
+  private fun notification(
+      text: String,
+      startUtcMs: Long = RecordingRepository.status.value.startUtcMs,
+  ): Notification =
+      Notifier.recording(this, text, startUtcMs, Notifier.APP_ACTIVITY)
 
   companion object {
     private const val TAG = "RecordingService"
-    private const val CHANNEL_ID = "recording"
-    private const val NOTIFICATION_ID = 1
 
     private fun gattName(state: Int): String =
         when (state) {

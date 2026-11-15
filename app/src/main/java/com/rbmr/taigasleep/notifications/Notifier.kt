@@ -1,0 +1,125 @@
+package com.rbmr.taigasleep.notifications
+
+import android.app.Notification
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import com.rbmr.taigasleep.R
+
+/**
+ * Every notification the app builds and posts.
+ *
+ * A sender hands over the text and the one thing only it knows, such as the action of a ringing
+ * alarm. The channel, the id, the icon and the tap target stay here, so a notification looks the
+ * same wherever it comes from and a new kind of notification is added in one place.
+ *
+ * The channels themselves are in [Channels] and are created at app start; a notification posted
+ * here belongs to one of them.
+ */
+object Notifier {
+  /**
+   * The app's launcher activity, which the manifest declares. It is named rather than imported
+   * because the activity is app wiring, which no package may depend on.
+   */
+  const val APP_ACTIVITY = "com.rbmr.taigasleep.MainActivity"
+
+  /** The id of the recording in progress; an update replaces the notification it belongs to. */
+  const val RECORDING_ID = 1
+
+  /** The id of a ringing wake-up alarm; the recording has its own. */
+  const val WAKE_ALARM_ID = 2
+
+  /** The id of the upload in progress. */
+  const val UPLOAD_ID = 4211
+
+  private const val TAG = "Notifier"
+  private const val REQUEST_OPEN = 57
+
+  /**
+   * The recording in progress: the tracker and one status, with the notification's own timer
+   * showing the duration. [startUtcMs] is 0 while no time is known, and then no timer is shown.
+   */
+  fun recording(
+      context: Context,
+      text: String,
+      startUtcMs: Long,
+      activity: String,
+  ): Notification =
+      NotificationCompat.Builder(context, Channels.RECORDING)
+          .setSmallIcon(R.drawable.ic_stat_recording)
+          .setContentTitle(context.getString(R.string.rec_notification_title))
+          .setContentText(text)
+          .setContentIntent(openApp(context, activity))
+          .setOngoing(true)
+          .setOnlyAlertOnce(true)
+          .setCategory(NotificationCompat.CATEGORY_SERVICE)
+          .apply {
+            if (startUtcMs > 0) {
+              setWhen(startUtcMs)
+              setUsesChronometer(true)
+            }
+          }
+          .build()
+
+  /** A ringing alarm: it sounds and vibrates until [stop] is used. */
+  fun wakeAlarm(
+      context: Context,
+      text: String,
+      stop: PendingIntent,
+      activity: String,
+  ): Notification {
+    val notification =
+        NotificationCompat.Builder(context, Channels.WAKE_ALARM)
+            .setSmallIcon(R.drawable.ic_stat_alarm)
+            .setContentTitle(context.getString(R.string.wake_notification_title))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setContentIntent(openApp(context, activity))
+            .setAutoCancel(true)
+            .setOngoing(true)
+            .addAction(0, context.getString(R.string.wake_notification_stop), stop)
+            .build()
+    // Insistent: the sound repeats until the notification is stopped, like an alarm clock.
+    return notification.apply { flags = flags or Notification.FLAG_INSISTENT }
+  }
+
+  /** The upload in progress, as the foreground work that keeps the transfer alive. */
+  fun upload(context: Context, activity: String): Notification =
+      NotificationCompat.Builder(context, Channels.UPLOADS)
+          .setSmallIcon(R.drawable.ic_stat_recording)
+          .setContentTitle(context.getString(R.string.upload_notification_title))
+          .setContentText(context.getString(R.string.upload_notification_body))
+          .setContentIntent(openApp(context, activity))
+          .setOngoing(true)
+          .setOnlyAlertOnce(true)
+          .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+          .setProgress(0, 0, true)
+          .build()
+
+  /** Posts [notification] under [id]; a phone that refuses it says so in the log. */
+  fun post(context: Context, id: Int, notification: Notification) {
+    try {
+      NotificationManagerCompat.from(context).notify(id, notification)
+    } catch (e: SecurityException) {
+      Log.e(TAG, "notification $id could not be posted", e)
+    }
+  }
+
+  /** Removes the notification under [id], if it is there. */
+  fun cancel(context: Context, id: Int) {
+    NotificationManagerCompat.from(context).cancel(id)
+  }
+
+  /** The one tap target: the app's launcher activity. */
+  fun openApp(context: Context, activity: String): PendingIntent =
+      PendingIntent.getActivity(
+          context,
+          REQUEST_OPEN,
+          Intent().setClassName(context, activity),
+          PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+      )
+}
