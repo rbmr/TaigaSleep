@@ -200,6 +200,15 @@ func recordSchemaOf(collection *core.Collection) map[string]any {
 		}
 	}
 	schema := map[string]any{"type": "object", "properties": properties}
+	if collection.Name == "analyses" {
+		// The result is stored in its own collection but returned with one analysis,
+		// so the document describes the field a client reads even though it is not a
+		// column of this collection.
+		properties["result"] = map[string]any{
+			"type":        []any{"object", "null"},
+			"description": "The worker's result, stored apart from the queue. Null while the analysis has not succeeded.",
+		}
+	}
 	if len(required) > 0 {
 		schema["required"] = required
 	}

@@ -265,7 +265,8 @@ rather than a walk over everybody's.
 `summary` is a small, derived headline (scores and the stage segments) so a client need
 not derive it from the full `result`; it is `null` until the analysis has succeeded, and
 `result` is `null` until then. `params_hash` is the server's hash of the parameters.
-`result` is the worker's output, validated for its envelope only (`contract_version` and
+`result` is stored apart from the queue and returned with one analysis read by id, not in
+a list or in a worker's claim. It is the worker's output, validated for its envelope only (`contract_version` and
 the fields the contract requires). Its shape is versioned and documented in
 [`analysis-contract.md`](analysis-contract.md), and it is flexible on purpose: what is
 present depends on the data and the algorithm.
@@ -273,7 +274,7 @@ present depends on the data and the algorithm.
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
 | `POST /api/collections/analyses/records` | user | Body `{ "recording", "algorithm", "version"?, "params"? }`. The version defaults to the newest a worker offers, ignoring workers that stopped announcing themselves (`TAIGA_WORKER_TTL_S`, 900 s) unless none is left. Answers `200` with a queued analysis, or with the existing one for the same recording, algorithm, version and parameters. A failed existing one is replaced, which is how a retry is made. `409 recording_incomplete` before the recording is sealed, `422 unknown_algorithm` when no worker offers it, `422 invalid_params` when the parameters do not match its announced schema. |
-| `GET /api/collections/analyses/records` | user, token, worker | List the analyses the caller may see: a user or a token the owner's, a worker the queued analyses and the one it holds a lease of. PocketBase `filter`, `sort`, `page`, `perPage`. |
+| `GET /api/collections/analyses/records` | user, token, worker | List the analyses the caller may see: a user or a token the owner's, a worker the queued analyses and the one it holds a lease of. PocketBase `filter`, `sort`, `page`, `perPage`. Results are not part of a list. |
 | `GET /api/collections/analyses/records/{id}` | user, token, worker | One analysis, with `summary` and `result`. A worker only for a queued analysis or while it holds the lease. |
 | `DELETE /api/collections/analyses/records/{id}` | user | Removes it; a running one is cancelled, and the worker's next call about it gets `404`. `204`. |
 
@@ -301,7 +302,7 @@ leak.
 | `PUT /v1/workers/me` | worker | Body `{ "name", "version", "algorithms": [...] }`: announces what this worker can run. Refreshes its last-seen time. |
 | `POST /v1/analyses/claim` | worker | Body `{ "algorithms"?: [{ "id", "version"? }], "lease_seconds"? }`. Atomically takes the oldest queued analysis it can run and marks it `running`: `200` with the analysis (including `recording` and `params`), or `204` when there is nothing to do. |
 | `POST /v1/analyses/{id}/lease` | worker | Body `{ "lease_seconds"? }`. Extends the lease on an analysis this worker is running: `200` with the analysis. `409 not_leased` when the analysis was reassigned or the lease expired, and `404` when it is gone. |
-| `POST /v1/analyses/{id}/complete` | worker | Body `{ "result": {...} }`. Stores the result and marks it `succeeded`. `409 not_leased` if the worker no longer holds the lease. |
+| `POST /v1/analyses/{id}/complete` | worker | Body `{ "result": {...} }`. Stores the result and marks it `succeeded`. `409 not_leased` if the worker no longer holds the lease, and a result over the size limit fails the analysis with `422 invalid_result` instead of being retried. |
 | `POST /v1/analyses/{id}/fail` | worker | Body `{ "error", "retryable"? }`. A retryable failure goes back to `queued` until its attempts are used up; otherwise the analysis is `failed`. |
 
 A lease that expires puts the analysis back in the queue; the backend does this itself

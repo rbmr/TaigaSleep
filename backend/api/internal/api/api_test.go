@@ -1087,9 +1087,9 @@ func TestAnalysisFlow(t *testing.T) {
 		t.Fatalf("a worker still lists %d analyses after the lease", got.TotalItems)
 	}
 
-	// A list carries the same record, result included.
+	// A list carries the summary but not the result, which is stored apart from the queue.
 	list := listAnalyses(s, alice, "?filter="+url.QueryEscape(`status="succeeded"`))
-	if list.TotalItems != 1 || list.Items[0].Result == nil || list.Items[0].Summary == nil {
+	if list.TotalItems != 1 || list.Items[0].Result != nil || list.Items[0].Summary == nil {
 		t.Fatalf("list = %+v", list)
 	}
 	ofRecording := listAnalyses(s, alice, "?filter="+url.QueryEscape(`recording="`+id+`" && status="succeeded"`))
@@ -1383,7 +1383,7 @@ func TestAccessTokensAreReadOnly(t *testing.T) {
 		t.Fatalf("recording through the token = %+v", got)
 	}
 	analyses := listAnalyses(s, created.Token, "")
-	if analyses.TotalItems != 1 || analyses.Items[0].ID != analysis.ID || analyses.Items[0].Result == nil {
+	if analyses.TotalItems != 1 || analyses.Items[0].ID != analysis.ID || analyses.Items[0].Result != nil {
 		t.Fatalf("analyses through the token = %+v", analyses)
 	}
 	if status, got := getAnalysis(s, created.Token, analysis.ID); status != 200 || got.Summary == nil || got.Result == nil {

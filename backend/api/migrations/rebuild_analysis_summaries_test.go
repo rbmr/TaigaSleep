@@ -20,6 +20,11 @@ import (
 
 func TestRebuildAnalysisSummaries(t *testing.T) {
 	app := newMigrationTestApp(t)
+	// The summary migration ran before results moved out of the queue table, so its
+	// test restores that shape first.
+	if err := downAnalysisResults(app); err != nil {
+		t.Fatalf("restore the queue result column: %v", err)
+	}
 	recording := saveMigrationRecording(t, app, "owner@example.com")
 
 	stages := map[string]any{
@@ -136,6 +141,9 @@ func TestRebuildAnalysisSummaries(t *testing.T) {
 
 func TestRebuildAnalysisSummariesOnEmptyDatabase(t *testing.T) {
 	app := newMigrationTestApp(t)
+	if err := downAnalysisResults(app); err != nil {
+		t.Fatalf("restore the queue result column: %v", err)
+	}
 	if err := rebuildAnalysisSummaries(app); err != nil {
 		t.Fatalf("migration on an empty database: %v", err)
 	}
@@ -143,6 +151,9 @@ func TestRebuildAnalysisSummariesOnEmptyDatabase(t *testing.T) {
 
 func TestRebuiltSummariesAreListedWithScores(t *testing.T) {
 	app := newMigrationTestApp(t)
+	if err := downAnalysisResults(app); err != nil {
+		t.Fatalf("restore the queue result column: %v", err)
+	}
 	recording := saveMigrationRecording(t, app, "list@example.com")
 	analysis := saveMigrationAnalysis(t, app, recording, "list", map[string]any{
 		"contract_version": 2,

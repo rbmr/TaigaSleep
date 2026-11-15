@@ -84,7 +84,7 @@ func ClaimAnalysis(e *core.RequestEvent) error {
 	if claimed == nil {
 		return e.NoContent(http.StatusNoContent)
 	}
-	return e.JSON(http.StatusOK, serializeAnalysis(claimed, false))
+	return e.JSON(http.StatusOK, serializeAnalysis(e.App, claimed, false))
 }
 
 // RenewAnalysis extends the lease of a running analysis for the worker that holds it.
@@ -120,7 +120,7 @@ func RenewAnalysis(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
-	return e.JSON(http.StatusOK, serializeAnalysis(record, false))
+	return e.JSON(http.StatusOK, serializeAnalysis(e.App, record, false))
 }
 
 func claim(txApp core.App, worker string, lease int, algorithms []ClaimAlgorithm) (*core.Record, error) {
@@ -199,7 +199,13 @@ func leasedAnalysis(txApp core.App, id, worker string) (*core.Record, error) {
 func CompleteAnalysis(e *core.RequestEvent) error {
 	var body CompleteRequest
 	const expected = `the body must be {"result": {...}}`
-	if err := decodeBody(e, bodyLimitResult, &body, expected, false); err != nil {
+	if e.Request.ContentLength > bodyLimitResult {
+		return failOversizedResult(e)
+	}
+	if err := decodeResultBody(e, &body, expected); err != nil {
+		if errors.Is(err, errResultTooLarge) {
+			return failOversizedResult(e)
+		}
 		return err
 	}
 	if len(body.Result) == 0 {
@@ -218,7 +224,9 @@ func CompleteAnalysis(e *core.RequestEvent) error {
 			invalid = problem
 			return finish(txApp, record, statusFailed, problem.Error())
 		}
-		record.Set("result", body.Result)
+		if err := storeAnalysisResult(txApp, record.Id, body.Result); err != nil {
+			return err
+		}
 		record.Set("summary", summaryOf(body.Result))
 		return finish(txApp, record, statusSucceeded, "")
 	})
@@ -228,7 +236,25 @@ func CompleteAnalysis(e *core.RequestEvent) error {
 	if invalid != nil {
 		return unprocessable("invalid_result", invalid.Error())
 	}
-	return e.JSON(http.StatusOK, serializeAnalysis(saved, false))
+	return e.JSON(http.StatusOK, serializeAnalysis(e.App, saved, false))
+}
+
+// failOversizedResult fails the analysis for a result the API cannot store. The
+// worker is told the reason once instead of leaving a result that can never save
+// to be retried until the lease runs out.
+func failOversizedResult(e *core.RequestEvent) error {
+	message := resultTooLargeMessage()
+	err := e.App.RunInTransaction(func(txApp core.App) error {
+		record, err := leasedAnalysis(txApp, e.Request.PathValue("id"), e.Auth.Id)
+		if err != nil {
+			return err
+		}
+		return finish(txApp, record, statusFailed, message)
+	})
+	if err != nil {
+		return err
+	}
+	return unprocessable("invalid_result", message)
 }
 
 func checkResult(record *core.Record, raw json.RawMessage) error {
@@ -301,7 +327,7 @@ func FailAnalysis(e *core.RequestEvent) error {
 			}
 		})
 	}
-	return e.JSON(http.StatusOK, serializeAnalysis(saved, false))
+	return e.JSON(http.StatusOK, serializeAnalysis(e.App, saved, false))
 }
 
 func requeue(record *core.Record, message string, delaySeconds int) {

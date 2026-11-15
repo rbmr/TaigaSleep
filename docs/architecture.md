@@ -45,6 +45,10 @@ no state of either.
   to and a recording names the worker whose lease is live, so no rule reaches either
   through a join that would make a list walk a whole table. This keeps the backend
   usable by other clients and independent of PocketBase's internals.
+- An analysis **result** is stored in its own collection, one row per analysis, so the
+  analyses table that is also the queue never carries the large value. Reading one
+  analysis by id returns the result in the same `result` field; a list and a queue claim
+  never read it.
 
 Realtime is PocketBase's realtime stream on `GET /api/realtime`, with the collection rules
 as its access check. A client that is connected learns at
