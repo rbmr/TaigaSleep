@@ -61,7 +61,16 @@
   <string name="settings_group_app">App</string>
   <string name="settings_prevent_title">Preventing shutdown</string>
   <string name="settings_server_title">Server</string>
-  <string name="settings_appearance_title">Appearance</string>
+  <string name="settings_display_title">Display</string>
+  <string name="display_theme_title">Theme</string>
+  <string name="display_text_size_title">Text size</string>
+  <string name="display_text_size_small">Small</string>
+  <string name="display_text_size_medium">Medium</string>
+  <string name="display_text_size_large">Large</string>
+  <string name="display_text_sample">This is how text looks.</string>
+  <string name="display_animations_title">Animations</string>
+  <string name="display_animations_on">On</string>
+  <string name="display_animations_off">Off</string>
   <string name="appearance_system">System</string>
   <string name="appearance_light">Light</string>
   <string name="appearance_dark">Dark</string>
