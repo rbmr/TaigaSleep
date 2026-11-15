@@ -1,15 +1,12 @@
 package com.rbmr.taigasleep.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -25,7 +22,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -52,24 +48,13 @@ import com.rbmr.taigasleep.ui.settings.UploadsScreen
 import com.rbmr.taigasleep.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
 
-private data class Tab(
-    val labelRes: Int,
-    val icon: ImageVector,
-)
-
-private val tabs =
-    listOf(
-        Tab(R.string.nav_history, Icons.Outlined.History),
-        Tab(R.string.nav_home, Icons.Outlined.Home),
-        Tab(R.string.nav_settings, Icons.Outlined.Tune),
-    )
-
 @Composable
 fun TaigaApp(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
 ) {
-  val pagerState = rememberPagerState(initialPage = 1, pageCount = { tabs.size })
+  val pagerState =
+      rememberPagerState(initialPage = MainTab.HOME.ordinal, pageCount = { MainTab.entries.size })
   val snackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
@@ -86,6 +71,18 @@ fun TaigaApp(
   var detailLocal by rememberSaveable { mutableStateOf<String?>(null) }
   var detailRemote by rememberSaveable { mutableStateOf<String?>(null) }
   var detailAnalysis by rememberSaveable { mutableStateOf<String?>(null) }
+  val tab = MainTab.entries[pagerState.currentPage]
+  val top =
+      mainOverlay(
+          remote = showRemote,
+          tokens = showTokens,
+          personal = showPersonal,
+          uploads = showUploads,
+          analysis = showAnalysis,
+          night = detailLocal != null || detailRemote != null,
+          guidance = showGuidance,
+          about = showAbout,
+      )
   // Prompt once per process; a successful check arms it again for a later expiry.
   var promptedLogin by remember { mutableStateOf(false) }
   val loginPrompt = stringResource(R.string.server_login_prompt)
@@ -127,13 +124,20 @@ fun TaigaApp(
     }
   }
 
-  when {
-    showRemote -> RemoteScreen(onBack = { showRemote = false })
-    showTokens -> AccessTokensScreen(onBack = { showTokens = false })
-    showPersonal -> PersonalDataScreen(onBack = { showPersonal = false })
-    showUploads -> UploadsScreen(onBack = { showUploads = false })
-    showAnalysis -> AnalysisScreen(onBack = { showAnalysis = false })
-    detailLocal != null || detailRemote != null ->
+  // Back selects Home from any tab other than Home, and leaves the app on Home as it always has.
+  // What is open above the pager answers Back itself, so it is closed first.
+  BackHandler(
+      enabled = backReturnsHome(top, tab),
+      onBack = { scope.launch { pagerState.animateScrollToPage(MainTab.HOME.ordinal) } },
+  )
+
+  when (top) {
+    MainOverlay.REMOTE -> RemoteScreen(onBack = { showRemote = false })
+    MainOverlay.TOKENS -> AccessTokensScreen(onBack = { showTokens = false })
+    MainOverlay.PERSONAL -> PersonalDataScreen(onBack = { showPersonal = false })
+    MainOverlay.UPLOADS -> UploadsScreen(onBack = { showUploads = false })
+    MainOverlay.ANALYSIS -> AnalysisScreen(onBack = { showAnalysis = false })
+    MainOverlay.NIGHT ->
         RecordingDetailScreen(
             localId = detailLocal,
             remoteId = detailRemote,
@@ -145,7 +149,7 @@ fun TaigaApp(
             },
             onLogin = { showRemote = true },
         )
-    showGuidance -> {
+    MainOverlay.GUIDANCE -> {
       val preview = GuidanceFlows.previewOf(guidanceStore)
       val match = remember(preview) { GuidanceFlows.currentMatch(preview) }
       FlowScreen(
@@ -155,15 +159,18 @@ fun TaigaApp(
           onClose = { showGuidance = false },
       )
     }
-    showAbout -> AboutScreen(onBack = { showAbout = false })
-    else ->
+    MainOverlay.ABOUT -> AboutScreen(onBack = { showAbout = false })
+    MainOverlay.NONE ->
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
               TaigaBottomBar(
-                  items = tabs.map { BottomBarItem(stringResource(it.labelRes), it.icon) },
+                  items =
+                      MainTab.entries.map {
+                        BottomBarItem(stringResource(it.labelRes), it.icon)
+                      },
                   selectedIndex = pagerState.currentPage,
                   onSelect = { scope.launch { pagerState.animateScrollToPage(it) } },
               )
@@ -174,8 +181,8 @@ fun TaigaApp(
               // The bottom bar already sits above the navigation bar, so a tab never adds that inset again.
               modifier = Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize(),
           ) { page ->
-            when (page) {
-              0 ->
+            when (MainTab.entries[page]) {
+              MainTab.HISTORY ->
                   HistoryScreen(
                       onOpenRecording = { local, server, analysis ->
                         detailLocal = local
@@ -184,7 +191,7 @@ fun TaigaApp(
                       },
                       onOpenServer = { showRemote = true },
                   )
-              1 ->
+              MainTab.HOME ->
                   HomeScreen(
                       onGuidanceClick = { showGuidance = true },
                       onOpenRecording = { recordingId ->
@@ -193,7 +200,7 @@ fun TaigaApp(
                         detailAnalysis = null
                       },
                   )
-              2 ->
+              MainTab.SETTINGS ->
                   SettingsScreen(
                       themeMode = themeMode,
                       onThemeModeChange = onThemeModeChange,

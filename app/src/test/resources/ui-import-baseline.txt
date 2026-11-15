@@ -2,6 +2,7 @@
 # guard. Every file except a `*ViewModel.kt` is listed, including the ones with none: the ratchet
 # fails when a count rises and when it falls, so the line changes with the code. Paths are relative
 # to `app/src/main/java/com/rbmr/taigasleep/ui/`. See ArchitectureTest.
+MainScreen.kt 0
 TaigaApp.kt 4
 components/BearDen.kt 0
 components/BulletList.kt 0
