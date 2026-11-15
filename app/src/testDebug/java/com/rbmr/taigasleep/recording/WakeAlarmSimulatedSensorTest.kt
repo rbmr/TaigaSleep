@@ -245,6 +245,49 @@ class WakeAlarmSimulatedSensorTest {
     await("the second alarm") { host.firedAlarms == 2 }
   }
 
+  @Test
+  fun `a resumed recording still says when its alarm rang`() {
+    val store = RecordingStore(tmp.newFolder())
+    val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
+    val host = FakeHost(sensor)
+    val first = RecordingControl(store, clock, host).also { it.start(request(sensor, windowAroundNow())) }
+    await("the streams to open") { host.armed != null && host.refreshed > 0 }
+    sensor.connect()
+    repeat(1_200) {
+      clock.advanceMs(100)
+      sensor.pump(clock.elapsedNs())
+    }
+    await("the alarm to ring") { RecordingRepository.status.value.wakeRangAtUtcMs != null }
+    val rang = RecordingRepository.status.value.wakeRangAtUtcMs!!
+    val id = host.activeSessionId!!
+
+    // The process died: only the recording on disk is left to say that the alarm rang.
+    first.shutdown()
+    host.running = false
+    RecordingRepository.setIdle()
+    control = RecordingControl(store, clock, host)
+    control!!.resume()
+    await("the recording to resume") { host.running && host.activeSessionId == id }
+
+    // The screen shows the minute; the event and the screen read the clock a moment apart.
+    await("the ring to be read back") {
+      RecordingRepository.status.value.wakeRangAtUtcMs?.let { kotlin.math.abs(it - rang) < 60_000 } == true
+    }
+    assertNull(RecordingRepository.status.value.wake)
+  }
+
+  @Test
+  fun `the end of the window is noted in the recording`() {
+    val host = startWithWindow()
+    val id = host.activeSessionId!!
+
+    control!!.wakeWindowEnded()
+
+    await("the screen to say it rang") { RecordingRepository.status.value.wakeRangAtUtcMs != null }
+    assertTrue(eventsOf(id).contains("\"wake_rang\""))
+    assertTrue(eventsOf(id).contains("the alarm window ended"))
+  }
+
   private fun eventsOf(id: String): String =
       java.io.File(tmp.root.listFiles()!!.single(), "$id/events.jsonl").readText()
 

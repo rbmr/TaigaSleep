@@ -196,8 +196,8 @@ private fun WakeSection(config: StartConfig, onWake: (WakeChoice?) -> Unit) {
 }
 
 /**
- * The smart alarm of a running recording: switch it on or off and move its window. The signals
- * follow the data the recording captures, as at the start, so they are not chosen here. A change
+ * The smart alarm of a running recording: the same rows as before the start. A signal can only be
+ * chosen when the recording captures its data, so the other one stays in place, disabled. A change
  * takes effect at once and is also the tracker's saved window.
  */
 @Composable
@@ -214,6 +214,25 @@ internal fun LiveWakeSheet(wake: LiveWake, onWake: (WakeChoice?) -> Unit, onDism
         onWake(shown.copy(startMinute = picked))
       }
       LengthRow(shown.lengthMinutes, on) { onWake(shown.copy(lengthMinutes = it)) }
+      SwitchRow(
+          title = stringResource(R.string.wake_trigger_hr),
+          checked = on && shown.heartRate && wake.heartRateRecorded,
+          enabled = on && wake.heartRateRecorded,
+      ) {
+        onWake(shown.copy(heartRate = it))
+      }
+      if (wake.movementSupported) {
+        SwitchRow(
+            title = stringResource(R.string.wake_trigger_movement),
+            checked = on && shown.movement && wake.movementRecorded,
+            enabled = on && wake.movementRecorded,
+        ) {
+          onWake(shown.copy(movement = it))
+        }
+      }
+      val triggers =
+          (shown.heartRate && wake.heartRateRecorded) || (shown.movement && wake.movementRecorded)
+      if (on && !triggers) SectionNote(stringResource(R.string.wake_trigger_none))
     }
   }
 }

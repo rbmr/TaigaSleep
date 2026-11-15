@@ -85,6 +85,7 @@ class RecordingService : Service(), RecordingHost {
       ACTION_FETCH -> control.fetchPending(intent.getStringExtra(EXTRA_RECORDING_ID))
       ACTION_CLEANUP -> control.retryTrackerRemovals()
       ACTION_WAKE -> control.changeWake(wakeOf(intent))
+      ACTION_WAKE_ENDED -> control.wakeWindowEnded()
       // The watchdog found the service alive but its control thread stalled: the restart runs on a
       // thread of its own, so it does not queue behind the thread it is recovering.
       ACTION_RESTART -> control.restart()
@@ -344,6 +345,7 @@ class RecordingService : Service(), RecordingHost {
     const val ACTION_FETCH = "com.rbmr.taigasleep.recording.FETCH"
     const val ACTION_CLEANUP = "com.rbmr.taigasleep.recording.CLEANUP"
     const val ACTION_WAKE = "com.rbmr.taigasleep.recording.WAKE"
+    const val ACTION_WAKE_ENDED = "com.rbmr.taigasleep.recording.WAKE_ENDED"
 
     private const val EXTRA_SENSOR_KIND = "sensor_kind"
     private const val EXTRA_SENSOR_ID = "sensor_id"

@@ -8,6 +8,7 @@ import com.rbmr.taigasleep.recording.ImportProgress
 import com.rbmr.taigasleep.recording.PendingFetch
 import com.rbmr.taigasleep.recording.Phase
 import com.rbmr.taigasleep.recording.WakeWindow
+import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
@@ -270,6 +271,7 @@ class HomeStepTest {
         ) as HomeUiState.Recording
 
     assertEquals(WakeChoice(390, 15), streamed.wake?.choice)
+    assertTrue("heart rate is recorded unless said otherwise", streamed.wake!!.heartRateRecorded)
     assertNull(streamed.wake?.rangAtUtcMs)
     assertNull(onDevice.wake)
   }
@@ -290,6 +292,28 @@ class HomeStepTest {
     assertNull(state.wake?.choice)
     assertEquals(5_000L, state.wake?.rangAtUtcMs)
     assertEquals(saved, state.wake?.fallback)
+  }
+
+  @Test
+  fun `the live alarm offers only the signals the recording captures`() {
+    val state =
+        homeState(
+            CaptureStatus(
+                phase = Phase.RECORDING,
+                liveStreaming = true,
+                config = RecordingConfig(hr = true, ecg = false, acc = false),
+            ),
+            tracker,
+            config().copy(canRecordAcc = true),
+            HomeState.READY,
+            false,
+            SensorPicker(),
+        ) as HomeUiState.Recording
+
+    val wake = state.wake!!
+    assertTrue(wake.heartRateRecorded)
+    assertTrue("the tracker can record movement, so the row is there", wake.movementSupported)
+    assertFalse("but this recording does not capture it", wake.movementRecorded)
   }
 
   @Test

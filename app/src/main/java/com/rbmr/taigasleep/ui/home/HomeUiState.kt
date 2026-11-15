@@ -49,6 +49,12 @@ data class LiveWake(
     val rangAtUtcMs: Long?,
     /** The window the alarm starts from when it is switched on: the last one it had. */
     val fallback: WakeChoice,
+    /** The recording captures heart rate, so the alarm can wake on a rise in it. */
+    val heartRateRecorded: Boolean = true,
+    /** The tracker can record movement; only then is waking on movement offered at all. */
+    val movementSupported: Boolean = false,
+    /** The recording captures movement, so the alarm can wake on it. */
+    val movementRecorded: Boolean = false,
 )
 
 /**
@@ -243,6 +249,8 @@ sealed interface HomeUiState {
       val savedWake: WakeChoice? = null,
       /** The smart alarm sheet is open. */
       val editingWake: Boolean = false,
+      /** The tracker can record movement, so the sheet offers waking on it. */
+      val movementSupported: Boolean = false,
   ) : HomeUiState {
     override val guard: HomeState?
       get() = null
@@ -269,7 +277,14 @@ sealed interface HomeUiState {
             status.wake?.window?.let {
               WakeChoice(it.startMinute, it.lengthMinutes, it.heartRate, it.movement)
             }
-        return LiveWake(armed, status.wakeRangAtUtcMs, savedWake ?: DEFAULT_WAKE)
+        return LiveWake(
+            choice = armed,
+            rangAtUtcMs = status.wakeRangAtUtcMs,
+            fallback = savedWake ?: DEFAULT_WAKE,
+            heartRateRecorded = status.config?.hr ?: true,
+            movementSupported = movementSupported,
+            movementRecorded = status.config?.acc ?: false,
+        )
       }
   }
 }
@@ -291,7 +306,13 @@ internal fun homeState(
 ): HomeUiState {
   status.finishing?.let { return HomeUiState.Finishing(it, picker) }
   if (status.phase != Phase.IDLE) {
-    return HomeUiState.Recording(status, picker, lastLiveWake ?: config?.wake, editingWake)
+    return HomeUiState.Recording(
+        status,
+        picker,
+        lastLiveWake ?: config?.wake,
+        editingWake,
+        movementSupported = config?.canRecordAcc ?: false,
+    )
   }
   status.fetchPending?.let {
     return HomeUiState.FetchPending(it.recordingId, it.sensorName, it.error, picker)

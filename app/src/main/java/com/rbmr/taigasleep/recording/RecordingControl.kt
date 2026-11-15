@@ -114,6 +114,9 @@ class RecordingControl(
   /** The user moved the smart alarm while recording: [window] from now on, or none when null. */
   fun changeWake(window: WakeWindow?) = post { changeWakeWindow(window) }
 
+  /** The end of the alarm window rang, outside the live decision: the recording notes it. */
+  fun wakeWindowEnded() = post { onWakeRang("the alarm window ended") }
+
   /**
    * The watchdog found the service alive but its heartbeat stopped. Its control thread is the one
    * that stopped, so the restart is not queued there: the session is closed, the old thread and
@@ -352,9 +355,14 @@ class RecordingControl(
   ) {
     // A window whose end has passed rings nothing: it belongs to a night that is over.
     val armed = wake?.takeIf { it.endUtcMs > clock.phoneNs() / NS_PER_MS }
+    // The recording keeps whether its alarm rang, so a resumed one still says when.
+    val rangAtUtcMs =
+        EventLog.last(writer.dir, setOf(EVENT_WAKE, EVENT_WAKE_RANG))
+            ?.takeIf { armed == null && it.type == EVENT_WAKE_RANG }
+            ?.let { it.phoneNs / NS_PER_MS }
     if (armed != null) {
       host.armWake(armed)
-      writer.event("wake", "smart alarm ${describe(armed.window)}")
+      writer.event(EVENT_WAKE, "smart alarm ${describe(armed.window)}")
     }
     val lifecycle = RecordingLifecycle(mode)
     val needsWakeLock = lifecycle.start().contains(LifecycleEffect.AcquireWakeLock)
@@ -402,6 +410,7 @@ class RecordingControl(
           liveStreaming = mode == RecordingMode.STREAM && sensor.capabilities.live,
           state = monitor.state.value,
           wake = armed,
+          wakeRangAtUtcMs = rangAtUtcMs,
       )
     }
     val streamConfig = StreamConfig(cfg.ecg, cfg.acc, cfg.hr)
@@ -450,10 +459,17 @@ class RecordingControl(
   private suspend fun onWakeTriggered(recordingId: String, atUtcMs: Long) {
     val s = live ?: return
     if (s.writer.meta.recordingId != recordingId) return
-    s.writer.event("wake", "the wake-up window triggered")
     Diagnostics.log("wake_trigger", mapOf("recording" to recordingId, "at_utc_ms" to atUtcMs))
     host.disarmWake()
     host.fireWakeAlarm(WakeReason.SIGNAL)
+    onWakeRang("a signal showed waking up")
+  }
+
+  /** The alarm rang: the recording notes when and why, and the screen says so. */
+  private fun onWakeRang(why: String) {
+    val s = live ?: return
+    if (s.mode != RecordingMode.STREAM) return
+    s.writer.event(EVENT_WAKE_RANG, "the smart alarm rang: $why")
     RecordingRepository.wakeRang(clock.phoneNs() / NS_PER_MS)
   }
 
@@ -479,11 +495,11 @@ class RecordingControl(
     if (armed == null) {
       host.disarmWake()
       s.fanout.wake = null
-      s.writer.event("wake", "smart alarm off")
+      s.writer.event(EVENT_WAKE, "smart alarm off")
     } else {
       host.armWake(armed)
       s.fanout.wake?.retarget(armed.window, armed.bounds) ?: run { s.fanout.wake = watchFor(armed) }
-      s.writer.event("wake", "smart alarm ${describe(armed.window)}")
+      s.writer.event(EVENT_WAKE, "smart alarm ${describe(armed.window)}")
     }
     Diagnostics.log(
         "wake_change",
@@ -979,6 +995,12 @@ class RecordingControl(
   companion object {
     private const val TAG = "RecordingControl"
     private const val NS_PER_MS = 1_000_000L
+
+    /** The smart alarm was armed, moved or switched off; the message says which window. */
+    private const val EVENT_WAKE = "wake"
+
+    /** The smart alarm rang; the message says why. A resumed recording reads it back. */
+    private const val EVENT_WAKE_RANG = "wake_rang"
     private const val STOP_STREAMS_TIMEOUT_MS = 3_000L
     private const val HEARTBEAT_MS = 15_000L
     private const val READINESS_MS = 10_000L
