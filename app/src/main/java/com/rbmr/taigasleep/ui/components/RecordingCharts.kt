@@ -11,8 +11,6 @@ import androidx.core.view.WindowInsetsControllerCompat
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -425,22 +423,13 @@ private fun TimeChart(
             pointCount,
             leftPx,
         ) {
-          awaitEachGesture {
-            fun indexAt(x: Float): Int {
-              val width = (size.width.toFloat() - leftPx).coerceAtLeast(1f)
-              val fraction = ((x - leftPx) / width).coerceIn(0f, 1f)
-              return (fraction * (pointCount - 1).coerceAtLeast(0)).roundToInt()
-            }
-
-            val down = awaitFirstDown(requireUnconsumed = false)
-            selected = indexAt(down.position.x)
-            var event = awaitPointerEvent()
-            while (event.changes.any { it.pressed }) {
-              event.changes.lastOrNull()?.let { selected = indexAt(it.position.x) }
-              event = awaitPointerEvent()
-            }
-            selected = null
+          fun indexAt(x: Float): Int {
+            val width = (size.width.toFloat() - leftPx).coerceAtLeast(1f)
+            val fraction = ((x - leftPx) / width).coerceIn(0f, 1f)
+            return (fraction * (pointCount - 1).coerceAtLeast(0)).roundToInt()
           }
+
+          scrubChart(onSelect = { x -> selected = indexAt(x) }, onClear = { selected = null })
         }
     ) {
       if (size.width <= leftPx || size.height <= topPx + bottomPx) return@Canvas

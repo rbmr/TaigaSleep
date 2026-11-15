@@ -3,8 +3,6 @@ package com.rbmr.taigasleep.ui.components
 import android.content.res.Configuration
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -502,22 +500,16 @@ private fun TrendPlotCanvas(
                 days,
                 leftPx,
             ) {
-              awaitEachGesture {
-                fun indexAt(x: Float): Int {
-                  val width = (size.width.toFloat() - leftPx).coerceAtLeast(1f)
-                  return (((x - leftPx) / width) * days.size).toInt().coerceIn(0, days.lastIndex)
-                }
-
-                val down = awaitFirstDown(requireUnconsumed = false)
-                if (days.isEmpty() || down.position.x < leftPx) return@awaitEachGesture
-                selected = indexAt(down.position.x)
-                var event = awaitPointerEvent()
-                while (event.changes.any { it.pressed }) {
-                  event.changes.lastOrNull()?.let { selected = indexAt(it.position.x) }
-                  event = awaitPointerEvent()
-                }
-                selected = null
+              fun indexAt(x: Float): Int {
+                val width = (size.width.toFloat() - leftPx).coerceAtLeast(1f)
+                return (((x - leftPx) / width) * days.size).toInt().coerceIn(0, days.lastIndex)
               }
+
+              scrubChart(
+                  accept = { x -> days.isNotEmpty() && x >= leftPx },
+                  onSelect = { x -> selected = indexAt(x) },
+                  onClear = { selected = null },
+              )
             }
     ) {
       if (size.width <= leftPx || size.height <= topPx + bottomPx) return@Canvas
