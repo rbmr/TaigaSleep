@@ -18,7 +18,7 @@ import org.robolectric.annotation.Config
 
 /**
  * What the phone's notification settings show after the app has started: one group per purpose,
- * and the three channels the app had, with the ids that keep a user's choice.
+ * and one channel per notification type, with the ids that keep a user's choice.
  *
  * The app's start is one step, and it is that step this test runs; a unit test has no running
  * process to start.
@@ -35,13 +35,18 @@ class ChannelsTest {
   }
 
   @Test
-  fun `app start keeps the three channel ids in their groups`() {
+  fun `app start keeps every channel id in its group`() {
     val channels = manager.notificationChannels.associateBy { it.id }
 
-    assertEquals(setOf("recording", "wake_alarm", "uploads"), channels.keys)
+    assertEquals(
+        setOf("recording", "wake_alarm", "uploads", "tracker_battery", "phone_storage"),
+        channels.keys,
+    )
     assertEquals(Channels.GROUP_RECORDING, channels.getValue("recording").group)
     assertEquals(Channels.GROUP_ALARM, channels.getValue("wake_alarm").group)
     assertEquals(Channels.GROUP_UPLOAD_AND_ANALYSIS, channels.getValue("uploads").group)
+    assertEquals(Channels.GROUP_DEVICE_HEALTH, channels.getValue("tracker_battery").group)
+    assertEquals(Channels.GROUP_DEVICE_HEALTH, channels.getValue("phone_storage").group)
   }
 
   @Test
@@ -57,6 +62,28 @@ class ChannelsTest {
         channels.getValue("wake_alarm").importance,
     )
     assertEquals(NotificationManager.IMPORTANCE_LOW, channels.getValue("uploads").importance)
+    assertEquals(
+        NotificationManager.IMPORTANCE_DEFAULT,
+        channels.getValue("tracker_battery").importance,
+    )
+    assertEquals(
+        NotificationManager.IMPORTANCE_DEFAULT,
+        channels.getValue("phone_storage").importance,
+    )
+  }
+
+  @Test
+  fun `the device health channels carry the names of the types they serve`() {
+    val channels = manager.notificationChannels.associateBy { it.id }
+
+    assertEquals(
+        context.getString(R.string.notification_channel_tracker_battery),
+        channels.getValue("tracker_battery").name,
+    )
+    assertEquals(
+        context.getString(R.string.notification_channel_phone_storage),
+        channels.getValue("phone_storage").name,
+    )
   }
 
   @Test

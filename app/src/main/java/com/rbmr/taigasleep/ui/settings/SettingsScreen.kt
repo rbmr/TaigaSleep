@@ -47,6 +47,7 @@ fun SettingsScreen(
     onPersonalClick: () -> Unit,
     onUploadsClick: () -> Unit,
     onAnalysisClick: () -> Unit,
+    onNotificationsClick: () -> Unit,
 ) {
   val context = LocalContext.current
   val remoteRepository = remember { context.appContainer.remoteRepository }
@@ -133,6 +134,11 @@ fun SettingsScreen(
                   fillWidth = true,
               )
             },
+        )
+        SettingsDivider()
+        ListRow(
+            title = stringResource(R.string.settings_notifications_title),
+            onClick = onNotificationsClick,
         )
         SettingsDivider()
         ListRow(

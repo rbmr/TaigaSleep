@@ -85,7 +85,7 @@ One Gradle module, one package per concern under `com.rbmr.taigasleep`:
 | `library` | The recordings the user owns, as one list: local state, sync state and results composed for presentation. | `recording`, `sync`, `insights`, `backend`, `diagnostics` |
 | `ui` | Screens and components. The only package that knows about Compose. | every other package |
 | `diagnostics` | Logging and crash evidence. A leaf. | nothing |
-| `notifications` | Every notification channel and every notification the app posts: the channel groups, the ids, and the one place that builds and posts them. A leaf. | nothing |
+| `notifications` | Every notification channel and every notification the app posts: the channel groups, the ids, the one place that builds and posts them, and the app's own switch for each optional type. A leaf. | nothing |
 
 The direction is strict: a package never imports one that is not in its row. An
 architecture test fails the build when it does, so the structure is enforced rather than

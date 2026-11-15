@@ -41,6 +41,7 @@ import com.rbmr.taigasleep.ui.settings.AccessTokensScreen
 import com.rbmr.taigasleep.ui.settings.AnalysisScreen
 import com.rbmr.taigasleep.ui.settings.FlowScreen
 import com.rbmr.taigasleep.ui.settings.LicencesScreen
+import com.rbmr.taigasleep.ui.settings.NotificationsScreen
 import com.rbmr.taigasleep.ui.settings.PersonalDataScreen
 import com.rbmr.taigasleep.ui.settings.RemoteScreen
 import com.rbmr.taigasleep.ui.settings.SettingsScreen
@@ -69,6 +70,7 @@ fun TaigaApp(
   var showPersonal by rememberSaveable { mutableStateOf(false) }
   var showUploads by rememberSaveable { mutableStateOf(false) }
   var showAnalysis by rememberSaveable { mutableStateOf(false) }
+  var showNotifications by rememberSaveable { mutableStateOf(false) }
   var detailLocal by rememberSaveable { mutableStateOf<String?>(null) }
   var detailRemote by rememberSaveable { mutableStateOf<String?>(null) }
   var detailAnalysis by rememberSaveable { mutableStateOf<String?>(null) }
@@ -80,6 +82,7 @@ fun TaigaApp(
           personal = showPersonal,
           uploads = showUploads,
           analysis = showAnalysis,
+          notifications = showNotifications,
           night = detailLocal != null || detailRemote != null,
           guidance = showGuidance,
           licences = showLicences,
@@ -139,6 +142,7 @@ fun TaigaApp(
     MainOverlay.PERSONAL -> PersonalDataScreen(onBack = { showPersonal = false })
     MainOverlay.UPLOADS -> UploadsScreen(onBack = { showUploads = false })
     MainOverlay.ANALYSIS -> AnalysisScreen(onBack = { showAnalysis = false })
+    MainOverlay.NOTIFICATIONS -> NotificationsScreen(onBack = { showNotifications = false })
     MainOverlay.NIGHT ->
         RecordingDetailScreen(
             localId = detailLocal,
@@ -214,6 +218,7 @@ fun TaigaApp(
                       onPersonalClick = { showPersonal = true },
                       onUploadsClick = { showUploads = true },
                       onAnalysisClick = { showAnalysis = true },
+                      onNotificationsClick = { showNotifications = true },
                   )
             }
           }
