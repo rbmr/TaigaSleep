@@ -182,7 +182,14 @@ sealed interface ListRowTrailing {
 
   data object Chevron : ListRowTrailing
 
-  data class Switch(val checked: Boolean) : ListRowTrailing
+  /**
+   * A switch at the end of the row. The row's own click normally changes it; [onCheckedChange] is
+   * for a row whose click does something else, such as open the matching Android settings.
+   */
+  data class Switch(
+      val checked: Boolean,
+      val onCheckedChange: ((Boolean) -> Unit)? = null,
+  ) : ListRowTrailing
 
   data class Radio(val selected: Boolean) : ListRowTrailing
 
@@ -281,7 +288,11 @@ fun ListRow(
                   tint = MaterialTheme.colorScheme.onSurfaceVariant,
               )
           is ListRowTrailing.Switch ->
-              TaigaSwitch(checked = trailing.checked, onCheckedChange = null, enabled = enabled)
+              TaigaSwitch(
+                  checked = trailing.checked,
+                  onCheckedChange = trailing.onCheckedChange,
+                  enabled = enabled,
+              )
           is ListRowTrailing.Radio ->
               RadioButton(selected = trailing.selected, onClick = null, enabled = enabled)
           is ListRowTrailing.Checkbox ->

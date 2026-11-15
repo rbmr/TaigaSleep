@@ -5,4 +5,22 @@
   <string name="notification_group_alarm">Alarm</string>
   <string name="notification_group_uploads_analyses">Uploads and analyses</string>
   <string name="notification_group_device_health">Device health</string>
+
+  <!-- The channels of the notification types that alert. -->
+  <string name="notification_channel_tracker_battery">Tracker battery low</string>
+  <string name="notification_channel_phone_storage">Phone storage low</string>
+
+  <!-- One row per notification type on Settings → Notifications. -->
+  <string name="notification_type_recording">Recording</string>
+  <string name="notification_type_wake_alarm">Smart alarm</string>
+  <string name="notification_type_uploads">Upload results</string>
+  <string name="notification_type_analyses">Analysis results</string>
+  <string name="notification_type_tracker_battery">Tracker battery low</string>
+  <string name="notification_type_phone_storage">Phone storage low</string>
+
+  <string name="notifications_allowed">Allowed</string>
+  <string name="notifications_blocked">Blocked</string>
+  <string name="notifications_app_blocked">Notifications are off for Taiga Sleep in your phone\'s settings.</string>
+  <string name="notifications_open_settings">Open settings</string>
+  <string name="notifications_open_channel">Notification settings</string>
 </resources>

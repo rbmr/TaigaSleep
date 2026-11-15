@@ -31,6 +31,7 @@ internal enum class MainOverlay {
   PERSONAL,
   UPLOADS,
   ANALYSIS,
+  NOTIFICATIONS,
   NIGHT,
   GUIDANCE,
   LICENCES,
@@ -45,6 +46,7 @@ internal fun mainOverlay(
     personal: Boolean = false,
     uploads: Boolean = false,
     analysis: Boolean = false,
+    notifications: Boolean = false,
     night: Boolean = false,
     guidance: Boolean = false,
     licences: Boolean = false,
@@ -56,6 +58,7 @@ internal fun mainOverlay(
       personal -> MainOverlay.PERSONAL
       uploads -> MainOverlay.UPLOADS
       analysis -> MainOverlay.ANALYSIS
+      notifications -> MainOverlay.NOTIFICATIONS
       night -> MainOverlay.NIGHT
       guidance -> MainOverlay.GUIDANCE
       licences -> MainOverlay.LICENCES

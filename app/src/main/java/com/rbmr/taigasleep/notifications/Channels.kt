@@ -26,6 +26,12 @@ object Channels {
   /** Uploads, and the analyses that follow them. */
   const val UPLOADS = "uploads"
 
+  /** The tracker's battery running low while it is connected. */
+  const val TRACKER_BATTERY = "tracker_battery"
+
+  /** This phone's free storage running low. */
+  const val PHONE_STORAGE = "phone_storage"
+
   /** The channel groups, one per purpose. */
   const val GROUP_RECORDING = "group_recording"
   const val GROUP_ALARM = "group_alarm"
@@ -63,6 +69,22 @@ object Channels {
                 NotificationManager.IMPORTANCE_LOW,
             )
             .apply { group = GROUP_UPLOAD_AND_ANALYSIS }
+    )
+    manager.createNotificationChannel(
+        NotificationChannel(
+                TRACKER_BATTERY,
+                context.getString(R.string.notification_channel_tracker_battery),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            )
+            .apply { group = GROUP_DEVICE_HEALTH }
+    )
+    manager.createNotificationChannel(
+        NotificationChannel(
+                PHONE_STORAGE,
+                context.getString(R.string.notification_channel_phone_storage),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            )
+            .apply { group = GROUP_DEVICE_HEALTH }
     )
     manager.createNotificationChannel(alarm(context))
     manager.deleteNotificationChannel(RETIRED_SCREEN_ALARM)
