@@ -41,6 +41,7 @@ import com.rbmr.taigasleep.ui.settings.AboutScreen
 import com.rbmr.taigasleep.ui.settings.AccessTokensScreen
 import com.rbmr.taigasleep.ui.settings.AnalysisScreen
 import com.rbmr.taigasleep.ui.settings.FlowScreen
+import com.rbmr.taigasleep.ui.settings.LicencesScreen
 import com.rbmr.taigasleep.ui.settings.PersonalDataScreen
 import com.rbmr.taigasleep.ui.settings.RemoteScreen
 import com.rbmr.taigasleep.ui.settings.SettingsScreen
@@ -62,6 +63,7 @@ fun TaigaApp(
   val remote = remember { context.appContainer.remoteRepository }
   val remoteStatus by remote.status.collectAsStateWithLifecycle()
   var showAbout by rememberSaveable { mutableStateOf(false) }
+  var showLicences by rememberSaveable { mutableStateOf(false) }
   var showGuidance by rememberSaveable { mutableStateOf(false) }
   var showRemote by rememberSaveable { mutableStateOf(false) }
   var showTokens by rememberSaveable { mutableStateOf(false) }
@@ -81,6 +83,7 @@ fun TaigaApp(
           analysis = showAnalysis,
           night = detailLocal != null || detailRemote != null,
           guidance = showGuidance,
+          licences = showLicences,
           about = showAbout,
       )
   // Prompt once per process; a successful check arms it again for a later expiry.
@@ -159,7 +162,8 @@ fun TaigaApp(
           onClose = { showGuidance = false },
       )
     }
-    MainOverlay.ABOUT -> AboutScreen(onBack = { showAbout = false })
+    MainOverlay.LICENCES -> LicencesScreen(onBack = { showLicences = false })
+    MainOverlay.ABOUT -> AboutScreen(onBack = { showAbout = false }, onLicences = { showLicences = true })
     MainOverlay.NONE ->
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,

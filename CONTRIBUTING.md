@@ -7,6 +7,9 @@
   squash and rebase are rejected.
 - Use [Conventional Commits](https://www.conventionalcommits.org/):
   `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
+- Contributions are accepted under GPL-3.0, including the additional permission
+  in [LICENSE-POLAR-SDK](LICENSE-POLAR-SDK) that allows linking the app with the
+  Polar BLE SDK.
 - Keep pull requests focused and small.
 - There are no version numbers yet. Every push to `main` replaces the `latest`
   release and republishes the backend images; see

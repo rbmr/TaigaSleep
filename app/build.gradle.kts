@@ -1,6 +1,12 @@
+import java.io.File
 import java.util.Properties
+import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.result.ResolvedArtifactResult
 
 plugins {
+  alias(libs.plugins.aboutlibraries)
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
@@ -151,6 +157,108 @@ android {
 // Room writes the schema of every version next to the sources, so a later change to the database is
 // reviewed as a diff of the generated schema and migrations are written against what shipped.
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+
+// The licences screen reads the dependency metadata the AboutLibraries plugin generates for the
+// release variant, so the list cannot go stale. Offline mode is required: the generated file must
+// describe what is bundled without downloading anything at build time, so the licence texts ship
+// in app/licenses and are merged in by the plugin.
+aboutLibraries {
+  offlineMode = true
+  collect {
+    includePlatform = false
+    configPath = project.file("licenses")
+  }
+}
+
+/**
+ * Writes the coordinates of the libraries whose code the release variant puts in the app. The
+ * licence screen reads the metadata the AboutLibraries plugin generates; a unit test compares that
+ * metadata with this list and fails when a bundled library is missing from the screen.
+ */
+abstract class WriteRuntimeDependencies : DefaultTask() {
+  @get:Input abstract val coordinates: ListProperty<String>
+
+  @get:OutputFile abstract val outputFile: RegularFileProperty
+
+  @TaskAction
+  fun write() {
+    val lines = coordinates.get().distinct().sorted()
+    outputFile.get().asFile
+        .apply { parentFile.mkdirs() }
+        .writeText(lines.joinToString("\n", postfix = "\n"))
+  }
+}
+
+/**
+ * The coordinate of an artifact that carries compiled classes. A publication that only redirects
+ * to the module holding the code (a Kotlin multiplatform root, for example) adds no code of its own
+ * and is not a library the screens have to list.
+ */
+fun ResolvedArtifactResult.codeCoordinate(): String? {
+  val id = id.componentIdentifier
+  if (id !is ModuleComponentIdentifier || id.group.isEmpty()) return null
+  return if (file.containsClasses()) "${id.group}:${id.module}" else null
+}
+
+fun File.containsClasses(): Boolean {
+  val zip =
+      try {
+        ZipFile(this)
+      } catch (_: Exception) {
+        return false
+      }
+  zip.use {
+    for (entry in it.entries()) {
+      if (entry.name.endsWith(".class")) return true
+      if (entry.name == "classes.jar") {
+        ZipInputStream(it.getInputStream(entry)).use { classes ->
+          while (true) {
+            val next = classes.nextEntry ?: break
+            if (next.name.endsWith(".class")) return true
+          }
+        }
+      }
+    }
+  }
+  return false
+}
+
+// The variant's configuration is created late in the configuration phase, so it is looked up when
+// the task runs rather than while this script is evaluated.
+val releaseRuntimeCoordinates =
+    provider {
+      configurations
+          .getByName("releaseRuntimeClasspath")
+          .incoming
+          .artifactView { lenient(true) }
+          .artifacts
+          .artifacts
+          .mapNotNull { it.codeCoordinate() }
+          .toSet()
+    }
+
+val writeLicenceDependencies =
+    tasks.register<WriteRuntimeDependencies>("writeLicenceDependencies") {
+      description = "Writes the release runtime dependencies the licence screen has to list."
+      coordinates.set(releaseRuntimeCoordinates)
+      outputFile.set(
+          layout.buildDirectory.file("generated/licences/release-runtime-dependencies.txt")
+      )
+    }
+
+val licenceMetadataFile =
+    layout.buildDirectory.file("generated/aboutLibraries/release/res/raw/aboutlibraries.json")
+val licenceDependenciesFile =
+    layout.buildDirectory.file("generated/licences/release-runtime-dependencies.txt")
+
+tasks.withType<Test>().configureEach {
+  dependsOn("prepareLibraryDefinitionsRelease", writeLicenceDependencies)
+  // The two generated files are inputs, so a change in the app's dependencies reruns the test.
+  inputs.file(licenceMetadataFile).withPropertyName("licenceMetadata")
+  inputs.file(licenceDependenciesFile).withPropertyName("licenceDependencies")
+  systemProperty("taiga.licences.metadata", licenceMetadataFile.get().asFile.absolutePath)
+  systemProperty("taiga.licences.dependencies", licenceDependenciesFile.get().asFile.absolutePath)
+}
 
 dependencies {
   implementation(libs.androidx.core.ktx)

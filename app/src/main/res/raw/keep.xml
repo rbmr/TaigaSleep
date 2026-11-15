@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The licence metadata is read at runtime, so the shrinker cannot see that the APK needs it. -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@raw/aboutlibraries" />

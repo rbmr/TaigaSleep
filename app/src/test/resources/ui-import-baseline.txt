@@ -57,6 +57,8 @@ recording/StatusCards.kt 1
 settings/AboutScreen.kt 0
 settings/AnalysisScreen.kt 1
 settings/FlowScreen.kt 11
+settings/Licences.kt 0
+settings/LicencesScreen.kt 0
 settings/PersonalData.kt 0
 settings/RemoteScreen.kt 7
 settings/SettingsScreen.kt 2
