@@ -282,6 +282,11 @@ func saveMigrationAnalysis(t *testing.T, app core.App, recording, algorithm stri
 	}
 	analysis := core.NewRecord(collection)
 	analysis.Set("recording", recording)
+	// An analysis belongs to its recording's account, which the server fills in when it
+	// creates one; the rules compare that column.
+	if stored, err := app.FindRecordById("recordings", recording); err == nil {
+		analysis.Set("owner", stored.GetString("owner"))
+	}
 	analysis.Set("algorithm", algorithm)
 	analysis.Set("version", "1.0.0")
 	analysis.Set("params", map[string]any{})

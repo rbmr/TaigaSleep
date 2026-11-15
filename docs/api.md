@@ -164,8 +164,10 @@ is created, and the server keeps the record, not the secret. See
 | `DELETE /v1/tokens/{id}` | user | Revokes it by deleting its record; it stops working at once. `204`. |
 
 A token may read through the record API for its owner: their recordings (metadata, not the
-raw files), analyses and results. Every write is refused: a record create rule refuses the
-collection, an update or delete rule hides the record, and the `/v1` routes answer `403`.
+raw files), analyses and results. The rules see the account a token was made for, not the
+token, so it reads exactly what its owner reads and the token's own collection is what
+refuses every write: a record create rule refuses the collection, an update or delete
+rule hides the record, and the `/v1` routes answer `403`.
 A recording or analysis of another account is `404`, like any other caller's. A token whose
 lifetime has ended, or one that was revoked, has no identity any more, so the record API
 answers as it does to a caller with no token (and the custom routes answer `401`).
@@ -240,6 +242,7 @@ not update.
 {
   "id": "a1b2c3d4e5f6g7h",
   "recording": "20261023_223000-k3f9",
+  "owner": "u1v2w3x4y5z6a7b",
   "algorithm": "wav2sleep",
   "version": "0.1.0",
   "params": {},
@@ -255,6 +258,9 @@ not update.
 }
 ```
 
+`owner` is the account the analysis belongs to, the same one its recording has; the
+server fills it in, so a list of one account's analyses is a lookup on that column
+rather than a walk over everybody's.
 `status` is `queued`, `running`, `succeeded` or `failed`; the last two are terminal.
 `summary` is a small, derived headline (scores and the stage segments) so a client need
 not derive it from the full `result`; it is `null` until the analysis has succeeded, and
