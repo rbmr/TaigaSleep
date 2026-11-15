@@ -133,4 +133,15 @@ configuration, deployment, backup and restore.
 
 GPL-3.0. See [LICENSE](LICENSE).
 
+The app links the [Polar BLE SDK](https://github.com/polarofficial/polar-ble-sdk),
+which is not free software: it may be redistributed in object code form only and
+requires its copyright and licence notice in the product. [LICENSE-POLAR-SDK](LICENSE-POLAR-SDK)
+grants the additional permission under section 7 of the GPL that allows conveying
+the combined work.
+
+The app lists every library it bundles, with the licence it is used under, under
+**Settings → About → Open-source licences**.
+
+Taiga Sleep is not affiliated with, endorsed by or sponsored by Polar Electro.
+
 Taiga Sleep is not a medical device.
