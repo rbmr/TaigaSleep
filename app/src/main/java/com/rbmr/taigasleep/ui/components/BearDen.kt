@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -108,15 +109,9 @@ fun BearDen(
   val wakeTime = remember { Animatable(0f) }
   var waking by remember { mutableStateOf(false) }
   val pulses = remember { mutableStateListOf<DenPulse>() }
-  // The sleeping bear's floating z's loop on one clock; the second one trails the first.
-  val zClock =
-      rememberInfiniteTransition(label = "z")
-          .animateFloat(
-              initialValue = 0f,
-              targetValue = 1f,
-              animationSpec = infiniteRepeatable(tween(Z_LOOP_MS, easing = LinearEasing)),
-              label = "z",
-          )
+  // The floating z's belong to the sleeping bear alone: while he is awake or waking the loop is
+  // not composed, so no animation runs for a still den. The second z trails the first on the clock.
+  val zClock = if (!waking && variant != LogoVariant.Awake) infiniteZClock() else null
 
   suspend fun wake() {
     try {
@@ -267,7 +262,7 @@ fun BearDen(
             }
         drawPath(path = body, color = colors.bear)
         // The z's float only while he sleeps: the eyes are open for the whole wake animation.
-        if (!waking && variant != LogoVariant.Awake) {
+        if (zClock != null) {
           drawSleepZ(zClock.value, animations, colors.auroraEnd)
         }
 
@@ -283,6 +278,17 @@ fun BearDen(
     }
   }
 }
+
+/** The one clock the sleeping bear's z's float on, composed only while he sleeps. */
+@Composable
+private fun infiniteZClock(): State<Float> =
+    rememberInfiniteTransition(label = "z")
+        .animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(Z_LOOP_MS, easing = LinearEasing)),
+            label = "z",
+        )
 
 /** One tap of the force field: the tint, the band and the ring share one timeline. */
 private class DenPulse(val at: Offset) {
