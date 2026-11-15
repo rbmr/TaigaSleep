@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.ui.theme.taiga
@@ -119,7 +119,9 @@ fun StatusPill(
 /**
  * A chip that chooses one of a few values, such as a trend range. The chosen chip is filled; the
  * others sit on the quiet track colour. Pass [role] = `Role.Checkbox` when the chips are independent
- * switches instead of one choice. It is a [Pressable], so its touch target is 48 dp.
+ * switches instead of one choice. It is a [Pressable], so its touch target is 48 dp. The chip's
+ * height is a minimum that follows its label, so a large system font makes it taller rather than
+ * cutting the label off.
  */
 @Composable
 fun ChoiceChip(
@@ -138,14 +140,17 @@ fun ChoiceChip(
   ) {
     Box(
         modifier =
-            Modifier.height(32.dp)
+            Modifier.heightIn(min = 32.dp)
                 .background(
                     color =
                         if (selected) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.surfaceVariant,
                     shape = CircleShape,
                 )
-                .padding(horizontal = MaterialTheme.taiga.space.m),
+                .padding(
+                    horizontal = MaterialTheme.taiga.space.m,
+                    vertical = MaterialTheme.taiga.space.xs,
+                ),
         contentAlignment = Alignment.Center,
     ) {
       Text(
@@ -154,7 +159,7 @@ fun ChoiceChip(
           color =
               if (selected) MaterialTheme.colorScheme.onPrimary
               else MaterialTheme.colorScheme.onSurfaceVariant,
-          maxLines = 1,
+          textAlign = TextAlign.Center,
       )
     }
   }

@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -185,9 +186,11 @@ fun TertiaryButton(
  * A compact switch between a few views, such as Recordings | Trends. The chosen segment is filled
  * and exactly covers its part of the track: it has the track's height and the track's shape, so
  * no track shows around it and it sits flush with the outer edge at either end. Every segment is
- * a [Pressable], so its touch target is 48 dp while the visible control is [SEGMENT_HEIGHT]. With
- * [fillWidth] the segments share the whole width, as in a settings row. A [floating] control casts a
- * shadow, for one that sits over scrolling content. A disabled control is dimmed and ignores taps.
+ * a [Pressable], so its touch target is [TOUCH_TARGET] while the visible control starts at
+ * [SEGMENT_HEIGHT]. Both are minimums: the track follows the tallest label, so a large system font
+ * makes the control taller instead of cutting the label off. With [fillWidth] the segments share
+ * the whole width, as in a settings row. A [floating] control casts a shadow, for one that sits
+ * over scrolling content. A disabled control is dimmed and ignores taps.
  */
 @Composable
 fun SegmentedControl(
@@ -199,21 +202,24 @@ fun SegmentedControl(
     floating: Boolean = false,
     enabled: Boolean = true,
 ) {
-  // The 48 dp box is the touch target; the track inside it is SEGMENT_HEIGHT tall and has no
-  // padding of its own, so the selected segment (same height, same shape) covers it exactly.
+  // The box is the touch target and the track sits SEGMENT_INSET inside it. The row is as tall as
+  // its tallest segment, and the track and every segment follow that height, so the chosen one
+  // covers the track exactly and a taller label makes the whole control taller.
   val shape = CircleShape
   Box(
-      modifier.height(48.dp).then(if (enabled) Modifier else Modifier.alpha(0.38f)),
+      modifier.heightIn(min = TOUCH_TARGET).then(if (enabled) Modifier else Modifier.alpha(0.38f)),
       contentAlignment = Alignment.Center,
   ) {
     Box(
         Modifier.matchParentSize()
-            .padding(vertical = (48.dp - SEGMENT_HEIGHT) / 2)
+            .padding(vertical = SEGMENT_INSET)
             .then(if (floating) Modifier.shadow(6.dp, shape) else Modifier)
             .background(MaterialTheme.colorScheme.surfaceVariant, shape)
     )
     Row(
-        Modifier.fillMaxHeight().then(if (fillWidth) Modifier.fillMaxWidth() else Modifier),
+        Modifier.heightIn(min = TOUCH_TARGET)
+            .height(IntrinsicSize.Min)
+            .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier),
         verticalAlignment = Alignment.CenterVertically,
     ) {
       options.forEachIndexed { index, option ->
@@ -229,13 +235,18 @@ fun SegmentedControl(
           Box(
               modifier =
                   Modifier.then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
-                      .height(SEGMENT_HEIGHT)
+                      .heightIn(min = SEGMENT_HEIGHT)
+                      .fillMaxHeight()
+                      .padding(vertical = SEGMENT_INSET)
                       .background(
                           color =
                               if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
                           shape = shape,
                       )
-                      .padding(horizontal = MaterialTheme.taiga.space.m),
+                      .padding(
+                          horizontal = MaterialTheme.taiga.space.m,
+                          vertical = MaterialTheme.taiga.space.xs,
+                      ),
               contentAlignment = Alignment.Center,
           ) {
             Text(
@@ -244,7 +255,7 @@ fun SegmentedControl(
                 color =
                     if (selected) MaterialTheme.colorScheme.onPrimary
                     else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+                textAlign = TextAlign.Center,
             )
           }
         }
@@ -253,8 +264,14 @@ fun SegmentedControl(
   }
 }
 
-/** The visible height of a [SegmentedControl]: track and selected segment alike. */
+/** The touch target of a [SegmentedControl]. */
+private val TOUCH_TARGET = 48.dp
+
+/** The visible height of a [SegmentedControl] at the default font scale: track and segment alike. */
 private val SEGMENT_HEIGHT = 40.dp
+
+/** How far the track of a [SegmentedControl] sits inside its touch target. */
+private val SEGMENT_INSET = (TOUCH_TARGET - SEGMENT_HEIGHT) / 2
 
 /**
  * A full-width outlined control that names what is chosen on the left, with [emphasis] drawn in the
