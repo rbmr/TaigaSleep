@@ -7,9 +7,11 @@ import com.rbmr.taigasleep.backend.HttpClients
 import com.rbmr.taigasleep.backend.OkHttpRemoteApi
 import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.remoteStore
+import com.rbmr.taigasleep.guard.GuidanceStore
 import com.rbmr.taigasleep.insights.AnalysisSettingsStore
 import com.rbmr.taigasleep.library.RecordingLibrary
 import com.rbmr.taigasleep.profile.PersonalDataStore
+import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.SensorHub
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.sync.AppSyncEnvironment
@@ -20,6 +22,7 @@ import com.rbmr.taigasleep.sync.RemoteHistoryCache
 import com.rbmr.taigasleep.sync.ResultCache
 import com.rbmr.taigasleep.sync.SyncService
 import com.rbmr.taigasleep.sync.UploadScheduler
+import com.rbmr.taigasleep.sync.UploadSettings
 import com.rbmr.taigasleep.sync.UploadStore
 import com.rbmr.taigasleep.sync.db.TaigaDatabase
 import java.io.File
@@ -93,6 +96,15 @@ class AppContainer(private val application: Application) {
   val analysisSettingsStore: AnalysisSettingsStore by offMain {
     AnalysisSettingsStore(application)
   }
+
+  /** The preventing-shutdown steps the user confirmed and the flow they picked, for every screen. */
+  val guidanceStore: GuidanceStore by offMain { GuidanceStore(application) }
+
+  /** The recorder's stored choices: last tracker, its streams, its window and the live marker. */
+  val recordingPrefs: RecordingPrefs by offMain { RecordingPrefs.get(application) }
+
+  /** The automatic upload policy the screens show and the stop confirmation reads. */
+  val uploadSettings: UploadSettings by offMain { UploadSettings.get(application) }
 
   /** The personal data the user entered, kept on the phone and read when SleepECG is requested. */
   val personalDataStore: PersonalDataStore by offMain { PersonalDataStore(application) }

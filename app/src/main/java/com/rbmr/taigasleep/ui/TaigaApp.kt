@@ -31,7 +31,6 @@ import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.RemoteError
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.guard.GuidanceFlows
-import com.rbmr.taigasleep.guard.GuidanceStore
 import com.rbmr.taigasleep.ui.components.BottomBarItem
 import com.rbmr.taigasleep.ui.components.TaigaBottomBar
 import com.rbmr.taigasleep.ui.home.HomeScreen
@@ -59,7 +58,7 @@ fun TaigaApp(
   val snackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
-  val guidanceStore = remember { GuidanceStore(context) }
+  val guidanceStore = context.appContainer.guidanceStore
   val remote = remember { context.appContainer.remoteRepository }
   val remoteStatus by remote.status.collectAsStateWithLifecycle()
   var showAbout by rememberSaveable { mutableStateOf(false) }
