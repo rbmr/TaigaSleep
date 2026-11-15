@@ -77,6 +77,25 @@ func TestMigrationsEnableTheRateLimiter(t *testing.T) {
 		rule.MaxRequests != ratelimit.APIMaxRequests || rule.Duration != ratelimit.APIWindowSeconds {
 		t.Errorf("API rule = %+v (%v), want %d per %d s", rule, ok, ratelimit.APIMaxRequests, ratelimit.APIWindowSeconds)
 	}
+	// The record API and the realtime stream are PocketBase's routes; they get a
+	// budget of their own instead of none.
+	for _, path := range []string{
+		"/api/collections/recordings/records",
+		"/api/collections/recordings/records/abc",
+		"/api/collections/analyses/records",
+		"/api/collections/analyses/records/abc",
+	} {
+		if rule, ok := rateLimitFor(settings, "GET", path); !ok ||
+			rule.MaxRequests != ratelimit.RecordMaxRequests || rule.Duration != ratelimit.RecordWindowSeconds {
+			t.Errorf("record rule for %s = %+v (%v), want %d per %d s",
+				path, rule, ok, ratelimit.RecordMaxRequests, ratelimit.RecordWindowSeconds)
+		}
+	}
+	if rule, ok := rateLimitFor(settings, "GET", "/api/realtime"); !ok ||
+		rule.MaxRequests != ratelimit.RealtimeMaxRequests || rule.Duration != ratelimit.RealtimeWindowSeconds {
+		t.Errorf("realtime rule = %+v (%v), want %d per %d s",
+			rule, ok, ratelimit.RealtimeMaxRequests, ratelimit.RealtimeWindowSeconds)
+	}
 }
 
 // TestBootstrapTrustsOnlyConfiguredProxyHeaders reads the headers the API may take the

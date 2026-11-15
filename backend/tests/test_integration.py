@@ -15,6 +15,8 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
@@ -37,6 +39,12 @@ from tests.harness import (
 )
 
 T0_MS = 1_792_798_200_000  # the start every synthetic recording has
+
+# What docs/api.md documents for the budgets these tests drive. They are the server's
+# defaults, so a change there has to reach this file as well.
+ADDRESS_RECORD_LIMIT = 900
+ACCOUNT_RECORD_LIMIT = 600
+ACCOUNT_REALTIME_CONNECTIONS = 8
 
 
 def iso(ms: int) -> str:
@@ -2094,6 +2102,142 @@ def test_a_worker_whose_stream_dropped_claims_what_it_missed_once_it_is_connecte
         assert_stopped_cleanly(worker)
     finally:
         proxy.close()
+
+
+# ---------------------------------------------------------------------------
+# Rate limits
+# ---------------------------------------------------------------------------
+
+
+def connected_realtime(api: Backend, account: Account, address: str) -> Any:
+    """Open a realtime stream and read its PB_CONNECT, so the server holds it open.
+
+    The caller closes the returned response, which is what ends the connection.
+    """
+
+    request = urllib.request.Request(api.base_url + "/api/realtime")
+    request.add_header("Authorization", f"Bearer {account.token}")
+    request.add_header("Accept", "text/event-stream")
+    request.add_header("X-Forwarded-For", address)
+    response = urllib.request.urlopen(request, timeout=10)
+    while True:
+        line = response.readline()
+        if not line:
+            response.close()
+            raise AssertionError("the realtime stream closed before PB_CONNECT")
+        if line.startswith(b"data:"):
+            return response
+
+
+def test_one_account_is_limited_by_its_own_budget_across_addresses(api: Backend) -> None:
+    """Spreading one account over two addresses does not give it a second budget."""
+
+    account = api.new_user("accountbudget")
+    addresses = ["203.0.113.111", "203.0.113.112"]
+    per_address = {address: 0 for address in addresses}
+
+    throttled = None
+    for index in range(ACCOUNT_RECORD_LIMIT + 5):
+        address = addresses[index % 2]
+        response = api.get(RECORDINGS_API, token=account, headers={"X-Forwarded-For": address})
+        if response.status == 429:
+            throttled = response
+            break
+        assert response.status == 200, response.body[:300]
+        per_address[address] += 1
+
+    assert throttled is not None, "the account's budget never refused a request"
+    assert sum(per_address.values()) == ACCOUNT_RECORD_LIMIT, per_address
+    # Neither address reached its own budget: only the account budget can have refused.
+    assert all(count < ADDRESS_RECORD_LIMIT for count in per_address.values()), per_address
+    assert_error(throttled, 429)
+    assert int(throttled.header("Retry-After") or 0) >= 1
+
+
+def test_two_accounts_behind_one_address_are_limited_by_the_address_budget(api: Backend) -> None:
+    """Two accounts sharing an address share its budget, before either is out."""
+
+    first, second = api.new_user("addressone"), api.new_user("addresstwo")
+    address = "203.0.113.113"
+    per_account = {first.id: 0, second.id: 0}
+
+    throttled = None
+    for index in range(ADDRESS_RECORD_LIMIT + 5):
+        account = first if index % 2 == 0 else second
+        response = api.get(RECORDINGS_API, token=account, headers={"X-Forwarded-For": address})
+        if response.status == 429:
+            throttled = response
+            break
+        assert response.status == 200, response.body[:300]
+        per_account[account.id] += 1
+
+    assert throttled is not None, "the address budget never refused a request"
+    assert sum(per_account.values()) == ADDRESS_RECORD_LIMIT, per_account
+    # Neither account reached its own budget: the address's budget refused.
+    assert all(count < ACCOUNT_RECORD_LIMIT for count in per_account.values()), per_account
+    assert_error(throttled, 429)
+    assert int(throttled.header("Retry-After") or 0) >= 1
+
+
+def test_the_app_catch_up_pattern_is_never_refused(api: Backend) -> None:
+    """Ten nights uploaded the way the app uploads them stay below every budget.
+
+    This is the pattern the app produces when it catches up: create the recording,
+    ask where each file resumes, append one chunk at a time, seal it, ask for the
+    analysis, and read the lists History shows. Every call asserts its status, so a
+    429 anywhere fails the test.
+    """
+
+    algorithm = unique("catchup")
+    api.offer(api.worker, manifest(algorithm))
+    account = api.new_user("catchup")
+
+    for index in range(10):
+        recording_id = unique(f"catchup{index}")
+        files = fx.recording(recording_id, hr_frames=120)
+        api.put_recording(account, recording_id, files["meta"])
+        for name in ("hr.log", "ecg.log", "acc.log", "events.jsonl"):
+            data = files.get(name)
+            if not isinstance(data, bytes) or not data:
+                continue
+            api.head(f"/v1/recordings/{recording_id}/files/{name}", token=account)
+            api.upload(account, recording_id, name, data, chunk_size=1024)
+        api.complete_recording(account, recording_id)
+        api.request_analysis(account, recording_id, algorithm)
+
+    api.recordings(account, "?perPage=100")
+    api.analyses(account, "?perPage=200")
+
+
+def test_one_account_holds_at_most_its_realtime_connections(api: Backend) -> None:
+    """The realtime budget counts open connections, and closing one releases its place."""
+
+    account = api.new_user("realtime")
+    address = "203.0.113.114"
+    streams: list[Any] = []
+    try:
+        for _ in range(ACCOUNT_REALTIME_CONNECTIONS):
+            streams.append(connected_realtime(api, account, address))
+
+        refused = api.get("/api/realtime", token=account, headers={"X-Forwarded-For": address})
+        assert_error(refused, 429)
+        assert int(refused.header("Retry-After") or 0) >= 1
+
+        # Closing a stream frees its place; the server notices when the request ends.
+        streams.pop().close()
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                streams.append(connected_realtime(api, account, address))
+                break
+            except urllib.error.HTTPError as closed:
+                closed.close()
+                assert closed.code == 429, closed.code
+                assert time.monotonic() < deadline, "the closed stream's place was never released"
+                time.sleep(0.1)
+    finally:
+        for stream in streams:
+            stream.close()
 
 
 # ---------------------------------------------------------------------------
