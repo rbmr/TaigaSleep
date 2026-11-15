@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.ui.home
 
 import com.rbmr.taigasleep.sync.UploadSettings
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -48,7 +49,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
           override val scanning = sensors.scanning
 
           override fun onFirstShow() {
-            RecordingRepository.reconcile(app)
+            app.appContainer.scope.launch { RecordingRepository.reconcile(app) }
             sensors.restoreLast(app, canConnect = hasBluetooth(app))
           }
 
