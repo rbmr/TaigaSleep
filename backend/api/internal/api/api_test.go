@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -1486,6 +1487,25 @@ func TestAccessTokenLifetimes(t *testing.T) {
 	}
 	if want := time.Now().Add(7 * 24 * time.Hour); expires.Sub(want) > time.Minute || expires.Sub(want) < -time.Minute {
 		t.Fatalf("expires_at = %v, want about %v", expires, want)
+	}
+	// The token itself carries the same expiry, so PocketBase refuses it once the
+	// lifetime ends even before the record's expiry is consulted.
+	parts := strings.Split(week.Token, ".")
+	if len(parts) != 3 {
+		t.Fatalf("token = %q", week.Token)
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode token payload: %v", err)
+	}
+	var claims struct {
+		Expires int64 `json:"exp"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil || claims.Expires == 0 {
+		t.Fatalf("token claims = %s: %v", payload, err)
+	}
+	if at := time.Unix(claims.Expires, 0); at.Sub(expires) > 2*time.Second || at.Sub(expires) < -2*time.Second {
+		t.Fatalf("token expiry = %v, stored expiry = %v", at, expires)
 	}
 
 	list := decode[TokenList](t, s.expect(200, http.MethodGet, "/v1/tokens", alice, nil, nil))
