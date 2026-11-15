@@ -21,6 +21,7 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -95,6 +96,14 @@ class RecordingControl(
 
     /** Elapsed-realtime ms when the wake lock was last acquired, so it can be renewed in time. */
     var wakeLockSinceMs = 0L
+
+    private val claimed = AtomicBoolean(false)
+
+    /**
+     * Only one path may end this session: the stop that closes it, a forced stop, or a restart that
+     * drops it. A path that cannot claim leaves the session to the one that did.
+     */
+    fun claim(): Boolean = claimed.compareAndSet(false, true)
   }
 
   // Actions. Each is queued on the control thread, except the ones that must run when it cannot.
@@ -103,7 +112,26 @@ class RecordingControl(
 
   fun resume() = post { resumeRecording() }
 
-  fun stop(forced: Boolean) = post { stopRecording(forced) }
+  fun stop() = post { stopRecording() }
+
+  /**
+   * Ends the recording with what is already on the phone. It runs on the recovery thread like a
+   * restart, because the reason to force a stop is a control thread that is busy stopping and may
+   * be blocked in a tracker call.
+   */
+  fun forceStop() {
+    recovery.execute {
+      runBlocking {
+        try {
+          forceStopRecording()
+        } catch (e: CancellationException) {
+          throw e
+        } catch (e: Exception) {
+          Log.e(TAG, "the forced stop could not be finished", e)
+        }
+      }
+    }
+  }
 
   fun discard() = post { discardRecording() }
 
@@ -128,7 +156,8 @@ class RecordingControl(
         try {
           live?.let { session ->
             Diagnostics.log("service_restart", mapOf("recording" to session.writer.meta.recordingId))
-            teardown(session)
+            // A stop may have reached its end while the heartbeat stalled: it owns the recording.
+            if (!teardown(session)) return@runBlocking
           }
           replaceControlThread()
           post { resumeRecording() }
@@ -520,13 +549,16 @@ class RecordingControl(
   /** The tracker is storing: the service is not needed until the tracker has to be stopped. */
   private suspend fun onDeviceStarted(error: String?) {
     val s = live ?: return
-    s.jobs.forEach { it.cancel() }
     if (error != null) {
+      // A forced stop may have ended the recording while the tracker was starting.
+      if (!s.claim()) return
+      s.jobs.forEach { it.cancel() }
       s.writer.finish(RecordingPhase.INTERRUPTED, "tracker did not start")
       end(s)
       RecordingRepository.setIdle(error)
       return
     }
+    s.jobs.forEach { it.cancel() }
     s.writer.sync()
     s.writer.close()
     live = null
@@ -542,20 +574,14 @@ class RecordingControl(
     return live
   }
 
-  private suspend fun stopRecording(forced: Boolean) {
-    val s = adopt(contact = !forced)
+  private suspend fun stopRecording() {
+    val s = adopt(contact = true)
     if (s == null) {
       leave(null)
       return
     }
-    if (forced) {
-      RecordingRepository.update { it.copy(phase = Phase.STOPPING) }
-      s.monitor.onPhase(RecordingState.Phase.STOPPING)
-      s.jobs.forEach { it.cancel() }
-      apply(s, s.lifecycle.forceStop())
-      end(s)
-      return
-    }
+    // A forced stop or a restart ended the session while it was being picked up.
+    if (live !== s) return
     val finishing =
         FinishingState(
             recordingId = s.writer.meta.recordingId,
@@ -573,23 +599,48 @@ class RecordingControl(
     } else {
       // The tracker is closed first, then the recording on disk is finished: the two steps the
       // screen shows for a streamed night.
-      val effects = s.lifecycle.stop()
-      apply(s, effects.filter { it !is LifecycleEffect.Finish })
+      apply(s, s.lifecycle.stop())
+      // A forced stop may have ended the recording while the streams were closing.
+      if (live !== s || !s.claim()) return
       RecordingRepository.setFinishing(finishing.copy(step = FinishingState.Step.SAVING))
-      apply(s, effects.filterIsInstance<LifecycleEffect.Finish>())
+      apply(s, s.lifecycle.stopCompleted())
       end(s, done = finishing)
     }
+  }
+
+  /**
+   * Ends the recording one-sidedly: what is written stays, the recording is closed and the session
+   * is let go, without waiting for the tracker or for a stop that is already running.
+   */
+  private suspend fun forceStopRecording() {
+    val s = adopt(contact = false)
+    if (s == null) {
+      leave(null)
+      return
+    }
+    // The stop may have reached its own end first: then there is nothing left to force.
+    if (!s.claim()) return
+    // A control thread still inside a tracker call for this session must not attach it again.
+    s.dropped = true
+    RecordingRepository.update { it.copy(phase = Phase.STOPPING) }
+    s.monitor.onPhase(RecordingState.Phase.STOPPING)
+    s.jobs.forEach { it.cancel() }
+    apply(s, s.lifecycle.forceStop())
+    end(s)
   }
 
   /** The on-device part of a stop: one timeout, then either a finished night or a retry. */
   private suspend fun fetchFromTracker(s: Live, finishing: FinishingState) {
     val tracker = s.sensor as? OnDeviceTracker
     if (tracker == null) {
+      if (!s.claim()) return
       failFetch(s, "this tracker cannot hand over the recording")
       return
     }
     // Write the pending state before starting, so a process kill mid-fetch is found after restart.
     if (!s.writer.markFetchPending()) {
+      // A forced stop closed the recording while the fetch was about to start.
+      if (live !== s) return
       failFetch(s, "could not record that the fetch is still pending")
       return
     }
@@ -599,6 +650,9 @@ class RecordingControl(
         }
     when (val result = fetcher.fetch()) {
       is OnDeviceFetch.Imported -> {
+        // A forced stop may have ended the recording while the fetch ran: then what it brought is
+        // not taken and the tracker keeps its copy.
+        if (live !== s || !s.claim()) return
         // The night is on the phone: finish the recording, then take the tracker's copy away. A
         // process that dies in between leaves a removal still to do, not a fetch that repeats.
         if (!s.writer.markTrackerRemoval(result.entries.map { it.id })) {
@@ -608,7 +662,10 @@ class RecordingControl(
         apply(s, s.lifecycle.fetchSucceeded())
         end(s, done = finishing)
       }
-      is OnDeviceFetch.Failed -> failFetch(s, result.reason)
+      is OnDeviceFetch.Failed -> {
+        if (live !== s || !s.claim()) return
+        failFetch(s, result.reason)
+      }
     }
   }
 
@@ -776,6 +833,7 @@ class RecordingControl(
       leave(null)
       return
     }
+    if (!s.claim()) return
     s.jobs.forEach { it.cancel() }
     apply(s, s.lifecycle.discard())
     end(s)
@@ -855,8 +913,10 @@ class RecordingControl(
   /**
    * Drops the live session without ending the recording: its streams stop and its logs are closed,
    * so the directory can be opened again. meta.json stays as it is, so the recording stays open.
+   * Returns false when another path is already ending the session, which is then left to it.
    */
-  private suspend fun teardown(s: Live) {
+  private suspend fun teardown(s: Live): Boolean {
+    if (!s.claim()) return false
     s.dropped = true
     s.jobs.forEach { it.cancel() }
     apply(s, s.lifecycle.restart())
@@ -865,6 +925,7 @@ class RecordingControl(
     releaseWakeLock(s)
     live = null
     host.markRunning(false)
+    return true
   }
 
   /**
@@ -875,7 +936,7 @@ class RecordingControl(
    * retry instead of losing it.
    */
   private suspend fun foregroundRefusedInternal() {
-    live?.let { teardown(it) }
+    live?.let { if (!teardown(it)) return }
     host.disarmWake()
     val abandoned =
         RecordingRecovery.abandon(store, host.activeSessionId, REASON_NO_FOREGROUND, clock)

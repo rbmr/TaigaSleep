@@ -74,7 +74,6 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
   val guidanceStore = remember { GuidanceStore(context) }
   val autoUpload by viewModel.autoUpload.collectAsStateWithLifecycle(initialValue = false)
 
-  var confirm by remember { mutableStateOf<StopAction?>(null) }
   var showPreviewPicker by remember { mutableStateOf(false) }
   // The debug-only preview of another OS, honoured by the card exactly as the flow honours it.
   val readinessLongClick: (() -> Unit)? =
@@ -116,11 +115,12 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
   // Two separate stages: nothing from one is shown on the other.
   when (val current = state) {
     is HomeUiState.Recording ->
-        ActiveHome(
+        RecordingHome(
             state = current,
-            onStop = { confirm = StopAction.STOP },
-            onForceStop = { confirm = StopAction.FORCE_STOP },
-            onDiscard = { confirm = StopAction.DISCARD },
+            autoUpload = autoUpload,
+            onStop = viewModel::stop,
+            onForceStop = viewModel::forceStop,
+            onDiscard = viewModel::discard,
             onWake = viewModel::openLiveWake,
         )
     is HomeUiState.Finishing ->
@@ -181,22 +181,6 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
         onDismiss = {
           showPreviewPicker = false
           viewModel.refreshGuard()
-        },
-    )
-  }
-  confirm?.let { action ->
-    StopConfirmDialog(
-        action = action,
-        onDevice = (state as? HomeUiState.Recording)?.onDevice == true,
-        autoUpload = autoUpload,
-        onDismiss = { confirm = null },
-        onConfirm = {
-          confirm = null
-          when (action) {
-            StopAction.STOP -> viewModel.stop()
-            StopAction.FORCE_STOP -> viewModel.forceStop()
-            StopAction.DISCARD -> viewModel.discard()
-          }
         },
     )
   }

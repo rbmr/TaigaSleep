@@ -74,7 +74,7 @@ class FinishingWithSimulatedSensorTest {
       sensor.pump(clock.elapsedNs())
     }
 
-    control!!.stop(forced = false)
+    control!!.stop()
     await("the done card") { RecordingRepository.status.value.finishing?.done == true }
 
     val finishing = RecordingRepository.status.value.finishing!!
@@ -119,7 +119,7 @@ class FinishingWithSimulatedSensorTest {
     assertTrue(sensor.storedEntries().single().rrMs.isNotEmpty())
 
     sensor.fetchDelayMs = 150
-    control!!.stop(forced = false)
+    control!!.stop()
     await("the done card") { RecordingRepository.status.value.finishing?.done == true }
 
     val finishing = RecordingRepository.status.value.finishing!!
@@ -167,7 +167,7 @@ class FinishingWithSimulatedSensorTest {
     }
 
     sensor.failFetchAfterEntries = 0
-    control!!.stop(forced = false)
+    control!!.stop()
     await("the fetch-pending state") { RecordingRepository.status.value.fetchPending != null }
 
     val pending = RecordingRepository.status.value.fetchPending!!

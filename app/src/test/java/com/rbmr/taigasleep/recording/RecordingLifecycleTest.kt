@@ -28,9 +28,40 @@ class RecordingLifecycleTest {
     val lifecycle = RecordingLifecycle(RecordingMode.STREAM)
     lifecycle.start()
 
+    assertEquals(listOf(LifecycleEffect.StopStreams), lifecycle.stop())
+    assertEquals(LifecycleState.STOPPING, lifecycle.state)
     assertEquals(
-        listOf(LifecycleEffect.StopStreams, LifecycleEffect.Finish(RecordingPhase.STOPPED)),
-        lifecycle.stop(),
+        listOf(LifecycleEffect.Finish(RecordingPhase.STOPPED)),
+        lifecycle.stopCompleted(),
+    )
+    assertEquals(LifecycleState.FINISHED, lifecycle.state)
+  }
+
+  @Test
+  fun aStreamedStopThatHangsCanBeForced() {
+    val lifecycle = RecordingLifecycle(RecordingMode.STREAM)
+    lifecycle.start()
+    lifecycle.stop()
+
+    assertEquals(
+        listOf(
+            LifecycleEffect.Finish(RecordingPhase.FORCED_STOP),
+            LifecycleEffect.StopStreamsAsync,
+        ),
+        lifecycle.forceStop(),
+    )
+    assertEquals(LifecycleState.FINISHED, lifecycle.state)
+  }
+
+  @Test
+  fun anOnDeviceFetchThatHangsCanBeForced() {
+    val lifecycle = RecordingLifecycle(RecordingMode.ON_DEVICE)
+    lifecycle.start()
+    lifecycle.stop()
+
+    assertEquals(
+        listOf(LifecycleEffect.Finish(RecordingPhase.FORCED_STOP)),
+        lifecycle.forceStop(),
     )
     assertEquals(LifecycleState.FINISHED, lifecycle.state)
   }
@@ -157,9 +188,10 @@ class RecordingLifecycleTest {
     assertEquals(listOf(LifecycleEffect.StopStreamsAsync), lifecycle.restart())
     // The recording stays open, so it can be attached again on the same directory.
     assertEquals(LifecycleState.RECORDING, lifecycle.state)
+    assertEquals(listOf(LifecycleEffect.StopStreams), lifecycle.stop())
     assertEquals(
-        listOf(LifecycleEffect.StopStreams, LifecycleEffect.Finish(RecordingPhase.STOPPED)),
-        lifecycle.stop(),
+        listOf(LifecycleEffect.Finish(RecordingPhase.STOPPED)),
+        lifecycle.stopCompleted(),
     )
     assertEquals(LifecycleState.FINISHED, lifecycle.state)
   }
@@ -193,6 +225,7 @@ class RecordingLifecycleTest {
         lifecycle.fetchSucceeded()
       } else {
         lifecycle.stop()
+        lifecycle.stopCompleted()
       }
 
       assertTrue(lifecycle.stop().isEmpty())

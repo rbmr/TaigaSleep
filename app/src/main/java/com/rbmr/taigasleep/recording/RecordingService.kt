@@ -69,8 +69,8 @@ class RecordingService : Service(), RecordingHost {
     }
     when (intent?.action) {
       ACTION_START -> control.start(startRequest(intent))
-      ACTION_STOP -> control.stop(forced = false)
-      ACTION_FORCE_STOP -> control.stop(forced = true)
+      ACTION_STOP -> control.stop()
+      ACTION_FORCE_STOP -> control.forceStop()
       ACTION_DISCARD -> control.discard()
       ACTION_FETCH -> control.fetchPending(intent.getStringExtra(EXTRA_RECORDING_ID))
       ACTION_CLEANUP -> control.retryTrackerRemovals()
