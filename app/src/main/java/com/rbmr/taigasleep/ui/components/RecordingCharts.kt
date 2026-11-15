@@ -183,6 +183,14 @@ fun ScoreRing(
   }
 }
 
+/** One run of the stage bar: one stage and the share of the bar it takes. */
+private data class StageRun(val stage: String, val start: Float, val end: Float)
+
+/**
+ * The stages of a night as one bar: the segments in order, each as wide as its share of the night.
+ * Two neighbours of the same stage are one run, and the runs are remembered for the segment list,
+ * so drawing a row again draws the same bar instead of one box per segment.
+ */
 @Composable
 fun StageBar(
     segments: List<StageSegmentDto>,
@@ -190,27 +198,52 @@ fun StageBar(
     height: Dp = 10.dp,
     description: String = stringResource(R.string.history_stage_bar_description),
 ) {
-  val visible = segments.filter { it.count > 0 }
-  Row(
-      modifier =
-          modifier
-              .fillMaxWidth()
-              .height(height)
-              .clip(RoundedCornerShape(50))
-              .background(MaterialTheme.colorScheme.surfaceVariant)
-              .semantics { contentDescription = description },
+  val runs = remember(segments) { stageRuns(segments) }
+  val colors = mutableMapOf<String, Color>()
+  for (run in runs) {
+    if (!colors.containsKey(run.stage)) colors[run.stage] = stageColor(run.stage)
+  }
+  Canvas(
+      modifier
+          .fillMaxWidth()
+          .height(height)
+          .clip(RoundedCornerShape(50))
+          .background(MaterialTheme.colorScheme.surfaceVariant)
+          .semantics { contentDescription = description }
   ) {
-    if (visible.isEmpty()) {
-      Spacer(Modifier.fillMaxWidth().fillMaxHeight())
-    } else {
-      visible.forEach { segment ->
-        Box(
-            Modifier.weight(segment.count.toFloat())
-                .fillMaxHeight()
-                .background(stageColor(segment.stage))
-        )
-      }
+    for (run in runs) {
+      drawRect(
+          color = colors.getValue(run.stage),
+          topLeft = Offset(size.width * run.start, 0f),
+          size = Size(size.width * (run.end - run.start), size.height),
+      )
     }
+  }
+}
+
+/**
+ * The runs of one stage bar: neighbours of the same stage merged, empty segments dropped, and each
+ * run placed by its share of the counted segments. A run ends where the next one starts, so the
+ * bar has no seams and its last run ends exactly at the right edge.
+ */
+private fun stageRuns(segments: List<StageSegmentDto>): List<StageRun> {
+  val merged = mutableListOf<Pair<String, Long>>()
+  for (segment in segments) {
+    if (segment.count <= 0) continue
+    val last = merged.lastOrNull()
+    if (last != null && last.first == segment.stage) {
+      merged[merged.lastIndex] = last.first to last.second + segment.count.toLong()
+    } else {
+      merged += segment.stage to segment.count.toLong()
+    }
+  }
+  val total = merged.sumOf { it.second }
+  if (total <= 0L) return emptyList()
+  var counted = 0L
+  return merged.map { (stage, count) ->
+    val start = counted.toFloat() / total
+    counted += count
+    StageRun(stage, start, counted.toFloat() / total)
   }
 }
 
