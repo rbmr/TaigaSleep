@@ -1,6 +1,5 @@
 package com.rbmr.taigasleep.ui.history
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,11 +38,12 @@ import com.rbmr.taigasleep.insights.formatDuration
 import com.rbmr.taigasleep.library.formatRecordingDate
 import com.rbmr.taigasleep.library.formatRecordingTime
 import com.rbmr.taigasleep.sync.UploadFailure
+import com.rbmr.taigasleep.ui.components.CardRow
+import com.rbmr.taigasleep.ui.components.CardRowPosition
 import com.rbmr.taigasleep.ui.components.Pressable
 import com.rbmr.taigasleep.ui.components.ProgressTrack
 import com.rbmr.taigasleep.ui.components.ProgressTrackState
 import com.rbmr.taigasleep.ui.components.SegmentedControl
-import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.StageBar
 import com.rbmr.taigasleep.ui.components.StatusBanner
 import com.rbmr.taigasleep.ui.components.StatusKind
@@ -138,14 +139,19 @@ private fun RecordingsList(
     modifier: Modifier = Modifier,
 ) {
   val space = MaterialTheme.taiga.space
+  // Rows are items of their own with their key, so a year of nights composes the rows on screen
+  // and nothing else. Each row draws the one card they form together (see CardRow), so the card
+  // cannot wrap the list: the gaps between the cards are drawn by the items instead.
   LazyColumn(
       modifier.fillMaxWidth(),
       contentPadding = PaddingValues(bottom = SwitcherClearance),
-      verticalArrangement = Arrangement.spacedBy(space.m),
   ) {
     val warning = state.serverWarning
+    // The gap above the card the warning precedes: the warning keeps its own height and the card
+    // below carries the gap, so the list has the same spacing with and without a warning.
+    val gap = if (warning != null) Modifier.padding(top = space.m) else Modifier
     if (warning != null) {
-      item {
+      item(key = "warning") {
         StatusBanner(
             kind = StatusKind.Warn,
             title = stringResource(warning.titleRes),
@@ -156,8 +162,8 @@ private fun RecordingsList(
     }
 
     if (state.items.isEmpty()) {
-      item {
-        TaigaCard {
+      item(key = "empty") {
+        TaigaCard(modifier = gap) {
           Text(
               text = stringResource(R.string.history_empty_title),
               style = MaterialTheme.taiga.text.section,
@@ -171,20 +177,29 @@ private fun RecordingsList(
         }
       }
     } else {
-      item {
-        TaigaCard(contentPadding = PaddingValues(0.dp)) {
-          state.items.forEachIndexed { index, item ->
-            if (index > 0) SettingsDivider()
-            RecordingRow(
-                item = item,
-                onOpen = { onOpenRecording(item.localId, item.remoteId, item.analysisId) },
-            )
-          }
+      itemsIndexed(state.items, key = { _, item -> item.key }) { index, item ->
+        CardRow(
+            position = cardRowPosition(index, state.items.size),
+            modifier = if (index == 0) gap else Modifier,
+        ) {
+          RecordingRow(
+              item = item,
+              onOpen = { onOpenRecording(item.localId, item.remoteId, item.analysisId) },
+          )
         }
       }
     }
   }
 }
+
+/** Where a row of the recordings card sits: only visible rows are items of the list. */
+private fun cardRowPosition(index: Int, count: Int): CardRowPosition =
+    when {
+      count == 1 -> CardRowPosition.ONLY
+      index == 0 -> CardRowPosition.FIRST
+      index == count - 1 -> CardRowPosition.LAST
+      else -> CardRowPosition.MIDDLE
+    }
 
 /**
  * One recording in a row: the date, the clock times and length, the score or the state pill, and an

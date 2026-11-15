@@ -2,11 +2,14 @@ package com.rbmr.taigasleep.ui.components
 
 import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -15,8 +18,17 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.ui.theme.taiga
 
@@ -46,6 +58,96 @@ fun TaigaCard(
 @Composable
 fun SettingsDivider() {
   HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+/** Where one row sits in a card that a lazy list draws from its rows. */
+enum class CardRowPosition {
+  FIRST,
+  MIDDLE,
+  LAST,
+  ONLY,
+}
+
+/**
+ * One row of a card that a lazy list draws as its own item. A card cannot wrap items of a lazy
+ * list, so each row paints the card's surface and the border of the edges it owns: the first its
+ * rounded top, the last its rounded bottom, and a row that has one above it the hairline between
+ * them. Together the rows read as the one card they are, and only visible rows exist.
+ */
+@Composable
+fun CardRow(
+    position: CardRowPosition,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+  val radius = MaterialTheme.taiga.shape.cardRadius
+  val top = position == CardRowPosition.FIRST || position == CardRowPosition.ONLY
+  val bottom = position == CardRowPosition.LAST || position == CardRowPosition.ONLY
+  val outline = MaterialTheme.colorScheme.outlineVariant
+  val radiusPx = with(LocalDensity.current) { radius.toPx() }
+  Box(
+      modifier
+          .fillMaxWidth()
+          .clip(cardRowShape(radius, top, bottom))
+          .background(MaterialTheme.colorScheme.surface)
+          .drawBehind { drawCardRow(outline, radiusPx, top, bottom) }
+  ) {
+    // The hairline takes a line of its own above the row, as the divider it replaces did.
+    Box(Modifier.padding(top = if (top) 0.dp else DividerThickness)) { content() }
+  }
+}
+
+/** The thickness of the hairline between two rows, and of the card's own border. */
+private val DividerThickness = 1.dp
+
+/** The shape of one row of a card: rounded only where the card itself ends. */
+private fun cardRowShape(radius: Dp, top: Boolean, bottom: Boolean) =
+    RoundedCornerShape(
+        topStart = if (top) radius else 0.dp,
+        topEnd = if (top) radius else 0.dp,
+        bottomEnd = if (bottom) radius else 0.dp,
+        bottomStart = if (bottom) radius else 0.dp,
+    )
+
+/**
+ * The border of one row of a card: the two sides, the rounded end where the card ends, and the
+ * hairline above a row that has one above it. A joined edge draws nothing, so two rows never
+ * paint two lines where they meet.
+ */
+private fun DrawScope.drawCardRow(outline: Color, radius: Float, top: Boolean, bottom: Boolean) {
+  val stroke = DividerThickness.toPx()
+  val inset = stroke / 2f
+  val corner = (radius - inset).coerceAtLeast(0f)
+  val left = inset
+  val right = size.width - inset
+  val topY = inset
+  val bottomY = size.height - inset
+  val sideTop = if (top) topY + corner else topY
+  val sideBottom = if (bottom) bottomY - corner else bottomY
+  drawLine(outline, Offset(left, sideTop), Offset(left, sideBottom), stroke)
+  drawLine(outline, Offset(right, sideTop), Offset(right, sideBottom), stroke)
+  if (top) {
+    val path =
+        Path().apply {
+          moveTo(left, topY + corner)
+          arcTo(Rect(left, topY, left + 2 * corner, topY + 2 * corner), 180f, 90f, false)
+          lineTo(right - corner, topY)
+          arcTo(Rect(right - 2 * corner, topY, right, topY + 2 * corner), 270f, 90f, false)
+        }
+    drawPath(path, outline, style = Stroke(stroke))
+  } else {
+    drawLine(outline, Offset(left, topY), Offset(right, topY), stroke)
+  }
+  if (bottom) {
+    val path =
+        Path().apply {
+          moveTo(right, bottomY - corner)
+          arcTo(Rect(right - 2 * corner, bottomY - 2 * corner, right, bottomY), 0f, 90f, false)
+          lineTo(left + corner, bottomY)
+          arcTo(Rect(left, bottomY - 2 * corner, left + 2 * corner, bottomY), 90f, 90f, false)
+        }
+    drawPath(path, outline, style = Stroke(stroke))
+  }
 }
 
 /**
