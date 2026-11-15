@@ -14,6 +14,7 @@ import (
 // sweeper.
 func Register(app core.App) {
 	registerRecordHooks(app)
+	registerRealtimeHooks(app)
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		// The record API's documentation is generated from the collection schema, which
@@ -57,8 +58,11 @@ func Register(app core.App) {
 }
 
 // RegisterRoutes mounts every declared route. Each handler runs behind the route's
-// access check and the error shape, so no endpoint can skip either.
+// access check and the error shape, so no endpoint can skip either. The account
+// limits wrap the whole router, PocketBase's own record, realtime and auth routes
+// included.
 func RegisterRoutes(router *router.Router[*core.RequestEvent]) {
+	router.Bind(accountRateLimitMiddleware())
 	for _, route := range Routes() {
 		mounted := router.Route(route.Method, route.Path, handle(route.Handler))
 		// PocketBase loads the token and refuses a token from another collection; the

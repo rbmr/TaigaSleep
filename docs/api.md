@@ -70,11 +70,58 @@ contract revision; a breaking change bumps `api` (see [`versioning.md`](versioni
   A missing or invalid token (`401`), a token of a role the route does not take
   (`403`), a rate limit (`429`) and a server failure (`500`) come from PocketBase's
   middleware or from the error handler; they carry an empty `data`, so the status is the
-  answer.
+  answer. A `429` also carries `Retry-After`; [Rate limits](#rate-limits) lists the
+  budgets.
 - **Idempotency.** Creating a recording is `POST` with the client-chosen id; repeating
   it for an open recording replaces the metadata, so a retry after a lost response is
   safe. Requesting an analysis that already exists returns the existing one.
 - **Caching.** `GET /v1` responses are `Cache-Control: no-store`.
+
+## Rate limits
+
+Every request is counted per **client address** by PocketBase's limiter, and, when it
+carries a token, per **account** by the API's own counter, which PocketBase's limiter
+cannot express because its counters know only the address. A request is refused as soon
+as either budget of its group is used up:
+
+```json
+{ "status": 429, "message": "Too Many Requests.", "data": {} }
+```
+
+`Retry-After` says how many seconds to wait: the whole window for an address rule, the
+rest of it for an account budget, and 60 seconds when an account already holds its
+realtime connections.
+
+| Group | Per client address | Per account |
+| --- | --- | --- |
+| Password login, both auth collections | 20 per 5 minutes | — |
+| Token refresh, both auth collections | 300 per 10 seconds | — |
+| `POST /v1/tokens` | 20 per minute | `/v1`: 900 per minute |
+| `PATCH /v1/recordings/{id}/files/{name}` (an upload chunk) | 300 per minute | `/v1`: 900 per minute |
+| The rest of `/v1` | 300 per 10 seconds | 900 per minute |
+| The record API (`/api/collections/recordings/records` and `/api/collections/analyses/records`) | 900 per minute | 600 per minute |
+| `/api/realtime` (a connect and its subscribe) | 60 per minute | 8 open connections |
+
+- A window is fixed and starts with the first request of its group, so a client that
+  hits a limit waits for the window rather than for a rolling average to recover.
+- The record API's account budget is below its address budget, so an account catching up
+  leaves room for the other accounts behind the same address. One account has the same
+  budget from every address it uses, and a [read-only access token](#access-tokens)
+  counts as the account that created it, not as an account of its own. A worker has its
+  own account and its own budget.
+- The `/v1` account budget is well above the per-address upload rate, so a night
+  uploaded at the chunk rate the API allows never uses it up.
+- The realtime limit counts open connections, not requests. A ninth connection for one
+  account is `429` with `Retry-After: 60`; closing a connection frees its place at once,
+  and the server closes every connection after 30 minutes at the latest anyway (see
+  [Realtime](#realtime)).
+- The per-address rules are PocketBase settings: the migrations write the defaults above
+  once, and the dashboard owns them afterwards. The per-account budgets and the
+  concurrent-connection limit are part of the API itself, not dashboard settings. A
+  superuser and an excluded address are never counted, and turning the limiter off in
+  the dashboard turns every limit off.
+- A `429` is the same answer from every route. A client waits for `Retry-After` and tries
+  again: a catch-up that meets one loses time, never data.
 
 ## System
 
