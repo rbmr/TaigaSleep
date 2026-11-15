@@ -12,5 +12,7 @@ object DebugTools {
 
   fun createSimulatedSensor(): SleepSensor? = null
 
+  fun startStrictMode() = Unit
+
   fun install(app: Application) = Unit
 }

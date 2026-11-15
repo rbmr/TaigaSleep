@@ -13,6 +13,7 @@ empty twins with the same API, so none of it ends up in the release APK.
 | Simulated sensor | Not available | Listed when scanning; streams HR, RR, ECG and ACC without hardware and drops out every few minutes to exercise reconnects |
 | Guidance preview | Not available | Long-press the readiness card on Home to preview another brand's guidance |
 | Crash trigger | Not available | `adb shell am broadcast -a com.rbmr.taigasleep.DEBUG_CRASH` crashes the app on purpose |
+| StrictMode | Not available | Disk reads, disk writes and network on the main thread are reported in the log (tag `StrictMode`) |
 | Diagnostics | `process_start` logs `debug: false` | `process_start` logs `debug: true` |
 | Signing | Release key when configured | Debug key |
 
