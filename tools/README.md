@@ -40,6 +40,25 @@ python3 tools/ci_areas.py --self-test
 described in [`docs/versioning.md`](../docs/versioning.md) and
 [`docs/ci.md`](../docs/ci.md).
 
+## CI shards
+
+The parallel jobs in [`docs/ci.md`](../docs/ci.md#how-the-parallelism-is-configured)
+get their share of a test suite from two small scripts:
+
+```bash
+# from backend/api: the names of one shard, and the check that every test is in one
+python3 ../../tools/go_test_shard.py --index 0 --shards 4
+python3 ../../tools/go_test_shard.py --self-test
+
+# from backend: the ids of one shard of the integration suite
+uv run --project worker --frozen python ../tools/pytest_shard.py \
+  --index 0 --shards 4 tests/test_integration.py
+```
+
+`go_test_shard.py` uses only the standard library and the Go toolchain.
+`pytest_shard.py` collects the suite with the same environment that runs it, so
+run it through the worker's project, as the workflow does.
+
 ## Check scripts
 
 [`check_kotlin.sh`](check_kotlin.sh) runs detekt over the app's Kotlin sources
