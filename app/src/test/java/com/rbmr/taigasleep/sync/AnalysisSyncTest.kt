@@ -168,6 +168,40 @@ class AnalysisSyncTest {
   }
 
   @Test
+  fun `a finished analysis is reported once, not on every read`() {
+    val outcomes = mutableListOf<AnalysisOutcome>()
+    val client =
+        FakeClient(
+            listing = listOf(analysis("a1", "succeeded")),
+            full = mapOf("a1" to withResult(analysis("a1", "succeeded"))),
+        )
+
+    repeat(2) {
+      runBlocking {
+        AnalysisSync(client, store, results, ACCOUNT) { outcomes += it }
+            .refresh("r1", "r1")
+      }
+    }
+
+    assertEquals(listOf(AnalysisOutcome.FINISHED), outcomes)
+  }
+
+  @Test
+  fun `a failed analysis is reported once, not on every read`() {
+    val outcomes = mutableListOf<AnalysisOutcome>()
+    val client = FakeClient(listing = listOf(analysis("a1", "failed", error = "bad_ecg: too noisy")))
+
+    repeat(2) {
+      runBlocking {
+        AnalysisSync(client, store, results, ACCOUNT) { outcomes += it }
+            .refresh("r1", "r1")
+      }
+    }
+
+    assertEquals(listOf(AnalysisOutcome.FAILED), outcomes)
+  }
+
+  @Test
   fun `queued and running analyses leave the night processing under their id`() {
     for (status in listOf("queued", "running")) {
       store = UploadStore(database.uploadStates(), accounts, scope)
