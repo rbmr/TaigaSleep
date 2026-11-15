@@ -17,8 +17,8 @@ import com.rbmr.taigasleep.tracker.Stamp
 class SampleFanout(
     private val writer: RecordingWriter,
     private val monitor: SampleMonitor,
-    /** The armed wake-up window of this recording; null when the user set none. */
-    private val wake: WakeWatch? = null,
+    /** The armed wake-up window of this recording; null when the user set none or switched it off. */
+    @Volatile var wake: WakeWatch? = null,
     /** Called once per recording if the monitor throws; the service records it as an event. */
     private val onMonitorFailure: (String) -> Unit,
 ) : SampleListener {

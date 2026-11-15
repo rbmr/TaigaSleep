@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.ui.home
 import androidx.lifecycle.ViewModel
 import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.recording.CaptureStatus
+import com.rbmr.taigasleep.recording.Phase
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SleepSensor
@@ -49,6 +50,12 @@ interface HomeWork {
   /** The wake-up window of this tracker; null turns it off. */
   fun setWake(sensorId: String, wake: WakeChoice?)
 
+  /**
+   * Moves the smart alarm of the running recording, or switches it off with null. The change is
+   * also the tracker's saved window, when the tracker is known.
+   */
+  fun changeLiveWake(sensorId: String?, wake: WakeChoice?)
+
   /** The shared answer of the preventing-shutdown flow for a recording mode. */
   fun guard(mode: RecordingMode): HomeState
 
@@ -93,6 +100,10 @@ class HomeViewModel(
   private var config: StartConfig? = null
   private var guard: HomeState = HomeState.NEEDS_SETTINGS
   private var configuring = false
+  private var editingWake = false
+
+  /** The last window the running recording's alarm had, so switching it back on restores it. */
+  private var lastLiveWake: WakeChoice? = null
   private var picker = SensorPicker()
   private var capture = CaptureStatus()
   private var watching: Job? = null
@@ -104,6 +115,12 @@ class HomeViewModel(
     scope.launch {
       status.collect {
         capture = it
+        // The sheet belongs to one recording; the next one starts with it closed.
+        if (it.phase != Phase.RECORDING) {
+          editingWake = false
+          lastLiveWake = null
+        }
+        it.wake?.window?.let { w -> lastLiveWake = WakeChoice(w.startMinute, w.lengthMinutes, w.heartRate, w.movement) }
         emit()
       }
     }
@@ -151,6 +168,26 @@ class HomeViewModel(
   fun setMode(mode: RecordingMode) = updateConfig { work.setMode(it.id, mode) }
 
   fun setWake(wake: WakeChoice?) = updateConfig { work.setWake(it.id, wake) }
+
+  /** The smart alarm row of a running recording: the sheet that moves or switches the alarm. */
+  fun openLiveWake() {
+    editingWake = true
+    emit()
+  }
+
+  fun closeLiveWake() {
+    editingWake = false
+    emit()
+  }
+
+  /** The user moved the smart alarm of the running recording, or switched it off with null. */
+  fun setLiveWake(wake: WakeChoice?) {
+    val sensor = current
+    if (wake != null) lastLiveWake = wake
+    work.changeLiveWake(sensor?.id, wake)
+    if (sensor != null) config = work.savedConfig(sensor)
+    emit()
+  }
 
   /** The user asked for the sensor picker; the Bluetooth permission may have to be asked first. */
   fun selectSensor() {
@@ -273,6 +310,7 @@ class HomeViewModel(
   }
 
   private fun emit() {
-    _state.value = homeState(capture, tracker, config, guard, configuring, picker)
+    _state.value =
+        homeState(capture, tracker, config, guard, configuring, picker, editingWake, lastLiveWake)
   }
 }

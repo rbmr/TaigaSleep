@@ -39,6 +39,25 @@ data class WakeChoice(
 }
 
 /**
+ * The smart alarm of a running recording, as the recording screen shows it: the window it rings
+ * for, or none, and when it rang. Only times are shown, never how far the night has come.
+ */
+data class LiveWake(
+    /** The window the alarm rings for; null when it is off or has rung. */
+    val choice: WakeChoice?,
+    /** When the alarm rang, in wall-clock ms; null until it does. */
+    val rangAtUtcMs: Long?,
+    /** The window the alarm starts from when it is switched on: the last one it had. */
+    val fallback: WakeChoice,
+    /** The recording captures heart rate, so the alarm can wake on a rise in it. */
+    val heartRateRecorded: Boolean = true,
+    /** The tracker can record movement; only then is waking on movement offered at all. */
+    val movementSupported: Boolean = false,
+    /** The recording captures movement, so the alarm can wake on it. */
+    val movementRecorded: Boolean = false,
+)
+
+/**
  * What the tracker will record and how: the configuration step of the start flow. Only the
  * recording [mode] drives the rest. On the tracker the recording is heart rate only and the smart
  * alarm is off; streaming to the phone uses the choices the user made for it. [streams] and [wake]
@@ -223,6 +242,15 @@ sealed interface HomeUiState {
   data class Recording(
       val status: CaptureStatus,
       override val picker: SensorPicker = SensorPicker(),
+      /**
+       * The window switching the alarm on starts from: the last one this recording had, otherwise
+       * the tracker's saved one.
+       */
+      val savedWake: WakeChoice? = null,
+      /** The smart alarm sheet is open. */
+      val editingWake: Boolean = false,
+      /** The tracker can record movement, so the sheet offers waking on it. */
+      val movementSupported: Boolean = false,
   ) : HomeUiState {
     override val guard: HomeState?
       get() = null
@@ -240,6 +268,24 @@ sealed interface HomeUiState {
 
     val stopping: Boolean
       get() = status.phase == Phase.STOPPING
+
+    /** The smart alarm; null for a recording the tracker stores, which has no live data to wake on. */
+    val wake: LiveWake?
+      get() {
+        if (!status.liveStreaming) return null
+        val armed =
+            status.wake?.window?.let {
+              WakeChoice(it.startMinute, it.lengthMinutes, it.heartRate, it.movement)
+            }
+        return LiveWake(
+            choice = armed,
+            rangAtUtcMs = status.wakeRangAtUtcMs,
+            fallback = savedWake ?: DEFAULT_WAKE,
+            heartRateRecorded = status.config?.hr ?: true,
+            movementSupported = movementSupported,
+            movementRecorded = status.config?.acc ?: false,
+        )
+      }
   }
 }
 
@@ -255,9 +301,19 @@ internal fun homeState(
     guard: HomeState,
     configuring: Boolean,
     picker: SensorPicker,
+    editingWake: Boolean = false,
+    lastLiveWake: WakeChoice? = null,
 ): HomeUiState {
   status.finishing?.let { return HomeUiState.Finishing(it, picker) }
-  if (status.phase != Phase.IDLE) return HomeUiState.Recording(status, picker)
+  if (status.phase != Phase.IDLE) {
+    return HomeUiState.Recording(
+        status,
+        picker,
+        lastLiveWake ?: config?.wake,
+        editingWake,
+        movementSupported = config?.canRecordAcc ?: false,
+    )
+  }
   status.fetchPending?.let {
     return HomeUiState.FetchPending(it.recordingId, it.sensorName, it.error, picker)
   }
@@ -272,3 +328,7 @@ internal fun homeState(
   }
   return HomeUiState.ReadyToStart(tracker, config, guard, picker, status.error)
 }
+
+/** Turning the alarm on starts from a time most people wake at; the user moves it from there. */
+internal val DEFAULT_WAKE =
+    WakeChoice(startMinute = 6 * 60 + 30, lengthMinutes = WakeChoice.DEFAULT_LENGTH)

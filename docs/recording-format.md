@@ -208,7 +208,9 @@ with the reason in the message), `battery` (the sensor battery crossed the low t
 or fsync failed), `storage_low` (free space fell below an hour of the selected streams),
 `storage_ok` (a failed write was followed by a good one, or free space came back above the
 threshold), `fetch` (an on-device fetch was retried), `readiness` (a snapshot of the battery/standby
-settings at start and on every state change). Keep messages short and free of personal data.
+settings at start and on every state change), `wake` (the smart alarm was armed, moved or
+switched off, with its window), `wake_rang` (the smart alarm rang, with why). Keep messages short
+and free of personal data.
 
 The service owns the lifecycle lines (`start`, `stop`, `force_stop`, `readiness`,
 `service_restart`); the live monitor owns `connect`, `disconnect`, `reconnect`, `contact`,

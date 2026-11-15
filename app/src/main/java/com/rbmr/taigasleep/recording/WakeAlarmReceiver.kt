@@ -21,6 +21,8 @@ class WakeAlarmReceiver : BroadcastReceiver() {
     // The window is spent: nothing arms it again for this recording.
     RecordingPrefs.get(context).clearArmedWake()
     WakeAlarm.fire(context, WakeReason.WINDOW_END)
+    // The recording notes that its alarm rang; with no recording running there is nothing to note.
+    if (RecordingService.running) RecordingService.send(context, RecordingService.ACTION_WAKE_ENDED)
   }
 
   companion object {

@@ -112,6 +112,7 @@ Not enforced; keep them lower_snake_case and keep `diag_heartbeat` for the diagn
 | `watchdog_fire`, `watchdog_restart` | `action`, `service_running`, `last_heartbeat_age_s` |
 | `boot_resume`, `resume_refused`, `service_foreground_refused` | `recording`, `error` |
 | `wake_trigger`, `wake_alarm` | `recording`, `at_utc_ms`, `source` (`window_end`), `reason` (`signal`/`window_end`), `notifications` |
+| `wake_change` | `recording`, `start_utc_ms`, `end_utc_ms` (empty when the alarm was switched off) |
 | `wakelock` | `action` (acquire/release), `timeout_ms` |
 
 ## Battery cost

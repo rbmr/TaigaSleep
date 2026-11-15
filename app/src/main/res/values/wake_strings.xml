@@ -10,6 +10,11 @@
   <string name="wake_trigger_none">Choose at least one signal. Without one, the alarm rings only at the end of the window.</string>
   <string name="wake_time">%1$02d:%2$02d</string>
 
+  <!-- The smart alarm while recording: off, its window, or when it rang. -->
+  <string name="wake_live_off">Off</string>
+  <string name="wake_live_window">%1$s to %2$s</string>
+  <string name="wake_live_rang">Rang at %1$s</string>
+
   <!-- The alarm itself. -->
   <string name="wake_channel_alarm">Smart alarm</string>
   <string name="wake_notification_title">Good morning.</string>

@@ -84,6 +84,8 @@ class RecordingService : Service(), RecordingHost {
       ACTION_DISCARD -> control.discard()
       ACTION_FETCH -> control.fetchPending(intent.getStringExtra(EXTRA_RECORDING_ID))
       ACTION_CLEANUP -> control.retryTrackerRemovals()
+      ACTION_WAKE -> control.changeWake(wakeOf(intent))
+      ACTION_WAKE_ENDED -> control.wakeWindowEnded()
       // The watchdog found the service alive but its control thread stalled: the restart runs on a
       // thread of its own, so it does not queue behind the thread it is recovering.
       ACTION_RESTART -> control.restart()
@@ -112,6 +114,17 @@ class RecordingService : Service(), RecordingHost {
           // The wake-up window is part of this tracker's configuration, like its streams.
           wake = intent.getStringExtra(EXTRA_SENSOR_ID)?.let { prefs.wakeWindow(it) },
       )
+
+  /** The window an [ACTION_WAKE] carries, or null when it switches the alarm off. */
+  private fun wakeOf(intent: Intent): WakeWindow? {
+    if (!intent.getBooleanExtra(EXTRA_WAKE_ON, false)) return null
+    return WakeWindow(
+        startMinute = intent.getIntExtra(EXTRA_WAKE_START, 0),
+        lengthMinutes = intent.getIntExtra(EXTRA_WAKE_LENGTH, WakeWindow.LENGTHS.first),
+        heartRate = intent.getBooleanExtra(EXTRA_WAKE_HR, true),
+        movement = intent.getBooleanExtra(EXTRA_WAKE_MOVEMENT, false),
+    )
+  }
 
   // The Android side of the recording.
 
@@ -331,6 +344,8 @@ class RecordingService : Service(), RecordingHost {
     const val ACTION_RESTART = "com.rbmr.taigasleep.recording.RESTART"
     const val ACTION_FETCH = "com.rbmr.taigasleep.recording.FETCH"
     const val ACTION_CLEANUP = "com.rbmr.taigasleep.recording.CLEANUP"
+    const val ACTION_WAKE = "com.rbmr.taigasleep.recording.WAKE"
+    const val ACTION_WAKE_ENDED = "com.rbmr.taigasleep.recording.WAKE_ENDED"
 
     private const val EXTRA_SENSOR_KIND = "sensor_kind"
     private const val EXTRA_SENSOR_ID = "sensor_id"
@@ -340,6 +355,11 @@ class RecordingService : Service(), RecordingHost {
     private const val EXTRA_ACC = "acc"
     private const val EXTRA_MODE = "mode"
     private const val EXTRA_RECORDING_ID = "recording_id"
+    private const val EXTRA_WAKE_ON = "wake_on"
+    private const val EXTRA_WAKE_START = "wake_start"
+    private const val EXTRA_WAKE_LENGTH = "wake_length"
+    private const val EXTRA_WAKE_HR = "wake_hr"
+    private const val EXTRA_WAKE_MOVEMENT = "wake_movement"
 
     /** True while this process has a live recording. */
     @Volatile
@@ -376,6 +396,18 @@ class RecordingService : Service(), RecordingHost {
       context.startForegroundService(
           intent(context, ACTION_FETCH).putExtra(EXTRA_RECORDING_ID, recordingId)
       )
+    }
+
+    /** Moves the smart alarm of the running recording to [window], or switches it off with null. */
+    fun changeWake(context: Context, window: WakeWindow?) {
+      val i = intent(context, ACTION_WAKE).putExtra(EXTRA_WAKE_ON, window != null)
+      if (window != null) {
+        i.putExtra(EXTRA_WAKE_START, window.startMinute)
+            .putExtra(EXTRA_WAKE_LENGTH, window.lengthMinutes)
+            .putExtra(EXTRA_WAKE_HR, window.heartRate)
+            .putExtra(EXTRA_WAKE_MOVEMENT, window.movement)
+      }
+      context.startForegroundService(i)
     }
 
     /** Retries the tracker copies that earlier removals left behind. */

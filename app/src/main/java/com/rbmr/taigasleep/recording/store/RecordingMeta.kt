@@ -9,6 +9,7 @@ import java.nio.file.StandardCopyOption
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -259,7 +260,30 @@ object EventLog {
       it.fd.sync()
     }
   }
+
+  /**
+   * The last event in [dir] whose type is one of [types], or null. Lines that cannot be read are
+   * skipped, so a torn last line from a killed process does not hide the ones before it.
+   */
+  fun last(dir: File, types: Set<String>): LoggedEvent? {
+    val file = File(dir, FILE_NAME)
+    if (!file.exists()) return null
+    return file
+        .readLines()
+        .asReversed()
+        .firstNotNullOfOrNull { line ->
+          runCatching { eventJson.decodeFromString<EventJson>(line) }
+              .getOrNull()
+              ?.takeIf { it.type in types }
+              ?.let { LoggedEvent(it.type, it.phoneNs) }
+        }
+  }
+
+  private val eventJson = Json { ignoreUnknownKeys = true }
 }
+
+/** One event read back from events.jsonl: its type and wall-clock time. */
+data class LoggedEvent(val type: String, val phoneNs: Long)
 
 /** meta.json as it is on disk: the keys and the value of each. */
 @Serializable

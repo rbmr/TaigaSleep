@@ -17,6 +17,7 @@ import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.StreamConfig
 import java.io.File
 import java.io.IOException
+import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -109,6 +110,12 @@ class RecordingControl(
   fun fetchPending(recordingId: String?) = post { fetchRecording(recordingId) }
 
   fun retryTrackerRemovals() = post { retryRemovals() }
+
+  /** The user moved the smart alarm while recording: [window] from now on, or none when null. */
+  fun changeWake(window: WakeWindow?) = post { changeWakeWindow(window) }
+
+  /** The end of the alarm window rang, outside the live decision: the recording notes it. */
+  fun wakeWindowEnded() = post { onWakeRang("the alarm window ended") }
 
   /**
    * The watchdog found the service alive but its heartbeat stopped. Its control thread is the one
@@ -348,7 +355,15 @@ class RecordingControl(
   ) {
     // A window whose end has passed rings nothing: it belongs to a night that is over.
     val armed = wake?.takeIf { it.endUtcMs > clock.phoneNs() / NS_PER_MS }
-    if (armed != null) host.armWake(armed)
+    // The recording keeps whether its alarm rang, so a resumed one still says when.
+    val rangAtUtcMs =
+        EventLog.last(writer.dir, setOf(EVENT_WAKE, EVENT_WAKE_RANG))
+            ?.takeIf { armed == null && it.type == EVENT_WAKE_RANG }
+            ?.let { it.phoneNs / NS_PER_MS }
+    if (armed != null) {
+      host.armWake(armed)
+      writer.event(EVENT_WAKE, "smart alarm ${describe(armed.window)}")
+    }
     val lifecycle = RecordingLifecycle(mode)
     val needsWakeLock = lifecycle.start().contains(LifecycleEffect.AcquireWakeLock)
     val acquiredAtMs = clock.elapsedNs() / NS_PER_MS
@@ -369,12 +384,10 @@ class RecordingControl(
         )
     monitor.onPhase(RecordingState.Phase.RECORDING)
     monitor.onLink(sensor.connection.value)
-    val watch =
-        armed?.let {
-          WakeWatch(it.window, it.bounds) { at -> post { onWakeTriggered(it.recordingId, at) } }
-        }
     val fanout =
-        SampleFanout(writer, monitor, watch) { message -> writer.event("error", message) }
+        SampleFanout(writer, monitor, armed?.let(::watchFor)) { message ->
+          writer.event("error", message)
+        }
     val s = Live(writer, sensor, mode, lifecycle, fanout, wakeLock, monitor)
     s.wakeLockSinceMs = acquiredAtMs
     live = s
@@ -396,6 +409,8 @@ class RecordingControl(
           sensorName = sensor.name,
           liveStreaming = mode == RecordingMode.STREAM && sensor.capabilities.live,
           state = monitor.state.value,
+          wake = armed,
+          wakeRangAtUtcMs = rangAtUtcMs,
       )
     }
     val streamConfig = StreamConfig(cfg.ecg, cfg.acc, cfg.hr)
@@ -444,10 +459,62 @@ class RecordingControl(
   private suspend fun onWakeTriggered(recordingId: String, atUtcMs: Long) {
     val s = live ?: return
     if (s.writer.meta.recordingId != recordingId) return
-    s.writer.event("wake", "the wake-up window triggered")
     Diagnostics.log("wake_trigger", mapOf("recording" to recordingId, "at_utc_ms" to atUtcMs))
     host.disarmWake()
     host.fireWakeAlarm(WakeReason.SIGNAL)
+    onWakeRang("a signal showed waking up")
+  }
+
+  /** The alarm rang: the recording notes when and why, and the screen says so. */
+  private fun onWakeRang(why: String) {
+    val s = live ?: return
+    if (s.mode != RecordingMode.STREAM) return
+    s.writer.event(EVENT_WAKE_RANG, "the smart alarm rang: $why")
+    RecordingRepository.wakeRang(clock.phoneNs() / NS_PER_MS)
+  }
+
+  /** The watch that rings [armed] for its recording, from the samples handed to it. */
+  private fun watchFor(armed: ArmedWake): WakeWatch =
+      WakeWatch(armed.window, armed.bounds) { at -> post { onWakeTriggered(armed.recordingId, at) } }
+
+  /**
+   * Moves the window of the running recording, or switches it off. The new window is resolved to a
+   * night the same way as at the start, its end alarm replaces the old one and is kept for a resumed
+   * recording, and the live decision goes on with the samples it already has.
+   */
+  private suspend fun changeWakeWindow(window: WakeWindow?) {
+    val s = adopt(contact = true)
+    if (s == null) {
+      leave(null)
+      return
+    }
+    // A recording the tracker stores has no live data to wake on, so it has no smart alarm.
+    if (s.mode != RecordingMode.STREAM) return
+    val meta = s.writer.meta
+    val armed = wakeOf(window, s.mode, meta.config, meta.recordingId, clock.phoneNs() / NS_PER_MS)
+    if (armed == null) {
+      host.disarmWake()
+      s.fanout.wake = null
+      s.writer.event(EVENT_WAKE, "smart alarm off")
+    } else {
+      host.armWake(armed)
+      s.fanout.wake?.retarget(armed.window, armed.bounds) ?: run { s.fanout.wake = watchFor(armed) }
+      s.writer.event(EVENT_WAKE, "smart alarm ${describe(armed.window)}")
+    }
+    Diagnostics.log(
+        "wake_change",
+        mapOf("recording" to meta.recordingId, "start_utc_ms" to armed?.startUtcMs, "end_utc_ms" to armed?.endUtcMs),
+    )
+    RecordingRepository.update { it.copy(wake = armed, wakeRangAtUtcMs = null) }
+  }
+
+  /** A window as the recording's events note it: its local times and the signals it wakes on. */
+  private fun describe(window: WakeWindow): String {
+    fun time(minute: Int) = String.format(Locale.ROOT, "%02d:%02d", minute / 60, minute % 60)
+    val signals =
+        listOfNotNull("heart rate".takeIf { window.heartRate }, "movement".takeIf { window.movement })
+    return "${time(window.startMinute)} to ${time(window.endMinute)}, wakes on " +
+        signals.ifEmpty { listOf("the end only") }.joinToString(" and ")
   }
 
   /** The tracker is storing: the service is not needed until the tracker has to be stopped. */
@@ -928,6 +995,12 @@ class RecordingControl(
   companion object {
     private const val TAG = "RecordingControl"
     private const val NS_PER_MS = 1_000_000L
+
+    /** The smart alarm was armed, moved or switched off; the message says which window. */
+    private const val EVENT_WAKE = "wake"
+
+    /** The smart alarm rang; the message says why. A resumed recording reads it back. */
+    private const val EVENT_WAKE_RANG = "wake_rang"
     private const val STOP_STREAMS_TIMEOUT_MS = 3_000L
     private const val HEARTBEAT_MS = 15_000L
     private const val READINESS_MS = 10_000L

@@ -85,6 +85,13 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
             )
           }
 
+          override fun changeLiveWake(sensorId: String?, wake: WakeChoice?) {
+            val window =
+                wake?.let { WakeWindow(it.startMinute, it.lengthMinutes, it.heartRate, it.movement) }
+            if (sensorId != null) prefs.setWakeWindow(sensorId, window)
+            RecordingService.changeWake(app, window)
+          }
+
           override fun guard(mode: RecordingMode): HomeState =
               ReadinessState.state(app, guidance, GuidanceFlows.previewOf(guidance), mode)
 

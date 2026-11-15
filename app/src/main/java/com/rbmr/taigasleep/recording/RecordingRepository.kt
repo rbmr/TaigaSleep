@@ -41,6 +41,10 @@ data class CaptureStatus(
     val fetchPending: PendingFetch? = null,
     /** The steps a stopped recording is going through, until the user leaves the done card. */
     val finishing: FinishingState? = null,
+    /** The smart alarm window the running recording rings for; null when it is off or has rung. */
+    val wake: ArmedWake? = null,
+    /** When the smart alarm of the running recording rang, in wall-clock ms; null until it does. */
+    val wakeRangAtUtcMs: Long? = null,
 )
 
 /** Observable recorder state: written by [RecordingService], read by the UI. */
@@ -52,6 +56,10 @@ object RecordingRepository {
   val sessions: StateFlow<List<Recording>> = _sessions.asStateFlow()
 
   internal fun update(f: (CaptureStatus) -> CaptureStatus) = _status.update(f)
+
+  /** The smart alarm rang: the screen shows when, until the recording ends. */
+  internal fun wakeRang(atUtcMs: Long) =
+      _status.update { if (it.phase == Phase.RECORDING) it.copy(wake = null, wakeRangAtUtcMs = atUtcMs) else it }
 
   internal fun setIdle(error: String? = null) {
     _status.value = CaptureStatus(error = error)

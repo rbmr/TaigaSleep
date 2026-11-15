@@ -121,6 +121,7 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
             onStop = { confirm = StopAction.STOP },
             onForceStop = { confirm = StopAction.FORCE_STOP },
             onDiscard = { confirm = StopAction.DISCARD },
+            onWake = viewModel::openLiveWake,
         )
     is HomeUiState.Finishing ->
         FinishingHome(
@@ -170,6 +171,9 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
         onWake = viewModel::setWake,
         onDismiss = viewModel::closeConfiguration,
     )
+  }
+  (state as? HomeUiState.Recording)?.takeIf { it.editingWake }?.wake?.let { wake ->
+    LiveWakeSheet(wake = wake, onWake = viewModel::setLiveWake, onDismiss = viewModel::closeLiveWake)
   }
   if (showPreviewPicker) {
     GuidancePreviewPicker(
