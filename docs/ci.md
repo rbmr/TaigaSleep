@@ -51,9 +51,8 @@ existing findings are recorded:
   so a standard-library advisory is fixed by the Go patch release the runner
   installs, and a module advisory by a `go get`.
 - **Python.** [`tools/ruff.toml`](../tools/ruff.toml) covers the worker and
-  `tools/`. The worker's
-  dev dependencies pin ruff, so `uv run --frozen --project backend/worker ruff`
-  is the same version CI uses.
+  `tools/`. The worker's dev dependencies pin ruff, so
+  `uv run --frozen --project backend/worker ruff` is the same version CI uses.
 - **Android lint** keeps its own baseline in `app/lint-baseline.xml`.
 
 ## Dependencies and scanning
@@ -62,7 +61,9 @@ existing findings are recorded:
   modules, the worker's Python project, the two Dockerfiles and the pinned
   actions. Patch and minor updates are grouped per ecosystem; a major one gets its
   own pull request. A dependency change is a change to that component, so its
-  version still has to be bumped.
+  version still has to be bumped: a Gradle, Go, Python or Docker update pull
+  request stays red on `version bump` until that is added, which is what keeps a
+  dependency change from being published without a release.
 - Third-party actions are pinned by commit with the version in a trailing
   comment, and Dependabot keeps the pins current.
 - [`.github/workflows/codeql.yml`](../.github/workflows/codeql.yml) scans Kotlin,
@@ -101,7 +102,7 @@ python3 tools/ci_areas.py --base origin/main
 ```
 
 `tools/check_kotlin.sh` downloads detekt once into
-`${XDG_CACHE_HOME:-$HOME/.cache}/taiga-sleep` and verifies its checksum. The
-actionlint and shellcheck versions CI uses are the latest releases; install them
-with your package manager, or take the release binary from
-`github.com/rhysd/actionlint`.
+`${XDG_CACHE_HOME:-$HOME/.cache}/taiga-sleep` and verifies its checksum. CI
+installs actionlint 1.7.12 from its release assets after checking the published
+checksum, and uses the shellcheck the runner image ships, so install both
+locally to see every finding the workflow job sees.

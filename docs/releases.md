@@ -266,7 +266,7 @@ A backend release body carries the digest of each image index it pushed, so a
 deployment can pin the exact bytes instead of trusting a tag that may move:
 
 ```text
-| `taigasleep-api` | `ghcr.io/rbmr/taigasleep-api:v0.6.29@sha256:...` |
+| `taigasleep-api` | `ghcr.io/rbmr/taigasleep-api:v0.6.31@sha256:...` |
 ```
 
 Each index also carries an SBOM and a provenance attestation, which
