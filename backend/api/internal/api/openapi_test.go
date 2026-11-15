@@ -183,7 +183,8 @@ func TestOpenAPIDocumentIsDeterministic(t *testing.T) {
 		}
 		return string(data)
 	}
-	if encode() != encode() {
+	first, second := encode(), encode()
+	if first != second {
 		t.Fatalf("the generated document is not deterministic")
 	}
 }

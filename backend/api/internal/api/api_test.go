@@ -41,10 +41,9 @@ const (
 )
 
 type server struct {
-	t    *testing.T
-	app  *tests.TestApp
-	mux  http.Handler
-	user string
+	t   *testing.T
+	app *tests.TestApp
+	mux http.Handler
 	// tokens by account name
 	tokens map[string]string
 }
