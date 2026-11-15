@@ -2,8 +2,6 @@ package com.rbmr.taigasleep.ui.settings
 
 import com.rbmr.taigasleep.ui.theme.taiga
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
@@ -31,6 +29,25 @@ import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.components.TaigaScreen
 import com.rbmr.taigasleep.ui.theme.ThemeMode
+
+/**
+ * What the Settings screen draws: the choices it shows and the facts it reads from the stores.
+ * Everything is resolved already, so the screen itself only draws.
+ */
+internal data class SettingsUiState(
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val serverStatus: RemoteStatus = RemoteStatus.NotConfigured,
+    val serverHost: String? = null,
+    val serverEmail: String? = null,
+    /** A server address is saved, so the rows that need one are shown. */
+    val serverSet: Boolean = false,
+    /** How many access tokens there are, or null while that is unknown. */
+    val tokenCount: String? = null,
+    val autoUpload: Boolean = true,
+    val autoAnalysis: Boolean = true,
+    /** "3 of 5 set": how many of the optional personal details are filled in. */
+    val personalValue: String = "",
+)
 
 /**
  * Settings: the server, the personal details and the app, each a short list of rows. Nothing here
@@ -69,41 +86,80 @@ fun SettingsScreen(
   }
 
   val serverSet = remoteStatus !is RemoteStatus.NotConfigured
-  val tokenCount =
-      tokens.tokens.size.takeIf { !tokens.loading && tokens.error == null }?.toString()
+  SettingsContent(
+      state =
+          SettingsUiState(
+              themeMode = themeMode,
+              serverStatus = remoteStatus,
+              serverHost = hostLabel(address),
+              serverEmail =
+                  (remoteStatus as? RemoteStatus.Connected)
+                      ?.email
+                      ?.takeIf { it.isNotBlank() }
+                      ?: remoteRepository.savedEmail.takeIf { serverSet && it.isNotBlank() },
+              serverSet = serverSet,
+              tokenCount =
+                  tokens.tokens.size
+                      .takeIf { !tokens.loading && tokens.error == null }
+                      ?.toString(),
+              autoUpload = autoUpload.enabled,
+              autoAnalysis = analysisSettings.auto,
+              personalValue = personalSetValue(personalData),
+          ),
+      onThemeModeChange = onThemeModeChange,
+      onAboutClick = onAboutClick,
+      onGuidanceClick = onGuidanceClick,
+      onRemoteClick = onRemoteClick,
+      onTokensClick = onTokensClick,
+      onPersonalClick = onPersonalClick,
+      onUploadsClick = onUploadsClick,
+      onAnalysisClick = onAnalysisClick,
+      onNotificationsClick = onNotificationsClick,
+  )
+}
 
+/** The rows of Settings, drawn from [state]. */
+@Composable
+internal fun SettingsContent(
+    state: SettingsUiState,
+    onThemeModeChange: (ThemeMode) -> Unit,
+    onAboutClick: () -> Unit,
+    onGuidanceClick: () -> Unit,
+    onRemoteClick: () -> Unit,
+    onTokensClick: () -> Unit,
+    onPersonalClick: () -> Unit,
+    onUploadsClick: () -> Unit,
+    onAnalysisClick: () -> Unit,
+    onNotificationsClick: () -> Unit,
+) {
   TaigaScreen(title = stringResource(R.string.settings_title)) {
     Section(title = stringResource(R.string.settings_group_server)) {
       TaigaCard(contentPadding = PaddingValues(0.dp)) {
         ServerRow(
-            status = remoteStatus,
-            host = hostLabel(address),
-            email =
-                (remoteStatus as? RemoteStatus.Connected)
-                    ?.email
-                    ?.takeIf { it.isNotBlank() }
-                    ?: remoteRepository.savedEmail.takeIf { serverSet && it.isNotBlank() },
+            status = state.serverStatus,
+            host = state.serverHost,
+            email = state.serverEmail,
             onClick = onRemoteClick,
         )
-        if (serverSet) {
+        if (state.serverSet) {
           SettingsDivider()
           ListRow(
               title = stringResource(R.string.tokens_title),
-              value = tokenCount,
+              value = state.tokenCount,
               onClick = onTokensClick,
           )
         }
         SettingsDivider()
         ListRow(
             title = stringResource(R.string.settings_uploads_title),
-            value = automaticOrManual(autoUpload.enabled),
+            value = automaticOrManual(state.autoUpload),
             onClick = onUploadsClick,
         )
-        if (serverSet) {
+        if (state.serverSet) {
           SettingsDivider()
           ListRow(
               title = stringResource(R.string.settings_analysis_title),
-              value = automaticOrManual(analysisSettings.auto),
+              value = automaticOrManual(state.autoAnalysis),
               onClick = onAnalysisClick,
           )
         }
@@ -113,7 +169,7 @@ fun SettingsScreen(
       TaigaCard(contentPadding = PaddingValues(0.dp)) {
         ListRow(
             title = stringResource(R.string.settings_personal_title),
-            value = personalSetValue(personalData),
+            value = state.personalValue,
             onClick = onPersonalClick,
         )
         SettingsDivider()
@@ -128,7 +184,7 @@ fun SettingsScreen(
                           stringResource(R.string.appearance_light),
                           stringResource(R.string.appearance_dark),
                       ),
-                  selectedIndex = ThemeMode.entries.indexOf(themeMode),
+                  selectedIndex = ThemeMode.entries.indexOf(state.themeMode),
                   onSelect = { onThemeModeChange(ThemeMode.entries[it]) },
                   modifier = Modifier.fillMaxWidth(),
                   fillWidth = true,
