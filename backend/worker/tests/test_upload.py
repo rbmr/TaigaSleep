@@ -29,7 +29,7 @@ def test_verify_keeps_only_the_valid_prefix(tmp_path: Path) -> None:
     assert path.read_bytes() == good
 
 
-def test_verify_stops_at_the_first_bad_crc(tmp_path: Path) -> None:
+def test_verify_steps_over_a_bad_crc_in_the_middle(tmp_path: Path) -> None:
     path = tmp_path / "hr.log"
     good = fx.hr_log(duration_s=2)
     broken = fx.frame(fx.hr_payload(fx.START_NS, 0, 60), bad_crc=True)
@@ -38,10 +38,14 @@ def test_verify_stops_at_the_first_bad_crc(tmp_path: Path) -> None:
 
     check = verify_recording_file(path, "hr.log")
 
-    assert check.frames == 2
-    assert check.truncated
+    assert check.frames == 3
+    assert check.valid_bytes == len(good) + len(broken) + len(after)
+    assert not check.truncated
     assert "CRC" in (check.error or "")
-    assert path.read_bytes() == good
+    assert len(check.gaps) == 1
+    assert (check.gaps[0].start, check.gaps[0].end) == (len(good), len(good) + len(broken))
+    # Damage in the middle stays where it is: the reader steps over it.
+    assert path.read_bytes() == good + broken + after
 
 
 def test_verify_rejects_a_log_with_the_wrong_header(tmp_path: Path) -> None:
@@ -191,19 +195,34 @@ def test_a_corrupt_tail_is_cut_off_whatever_the_encoding(tmp_path: Path, encodin
     assert len(api.completed) == 1
 
 
-def test_a_bad_crc_in_a_plain_file_ends_the_stream_there(tmp_path: Path) -> None:
+@pytest.mark.parametrize("encoding", ["identity", "gzip"])
+def test_a_bad_crc_in_the_middle_keeps_the_frames_after_it(
+    tmp_path: Path, encoding: str
+) -> None:
     bodies = recording_bytes(tmp_path, duration_s=60)
     good = fx.hr_log(duration_s=10)
     bad = fx.frame(fx.hr_payload(fx.START_NS, 0, 60), bad_crc=True)
     later = fx.frame(fx.hr_payload(fx.START_NS + 11_000_000_000, 11_000_000_000, 60))
     bodies["hr.log"] = good + bad + later
-    api = FakeApi([analysis()], files=bodies)
+    api = InflatingApi([analysis()], files=bodies, encodings={name: encoding for name in bodies})
 
     runner = run_worker(api)
 
-    assert runner.seen["hr.log"] == good
-    assert runner.source["files"]["hr.log"]["frames"] == 10
+    # The middle damage is handed to the analysis as it is; the decoder steps over it.
+    assert runner.seen["hr.log"] == good + bad + later
+    hr = runner.source["files"]["hr.log"]
+    assert hr["frames"] == 11
+    assert hr["truncated_tail"] is False
+    assert hr["gaps"] == [
+        {
+            "start": len(good),
+            "end": len(good) + len(bad),
+            "bytes": len(bad),
+            "reason": "frame CRC mismatch",
+        }
+    ]
     assert any("CRC" in item for item in runner.source["warnings"])
+    assert any(f"skipped {len(bad)} bytes" in item for item in runner.source["warnings"])
 
 
 @pytest.mark.parametrize("encoding", ["identity", "gzip"])

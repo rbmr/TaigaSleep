@@ -459,16 +459,13 @@ def validate(directory, expected, start_ns, end_ns):
         raise ConvertError(f"{filename}: unexpected file")
       continue
     try:
-      actual_stream, payloads, valid_end, damaged = read_recording.read_log(path)
+      actual_stream, payloads, byte_gaps = read_recording.read_log(path)
     except (OSError, ValueError, struct.error) as exc:
       raise ConvertError(f"{filename}: {exc}") from exc
     if actual_stream != stream:
       raise ConvertError(f"{filename}: stream id {actual_stream} (expected {stream})")
-    if damaged:
-      raise ConvertError(f"{filename}: damaged tail at byte {valid_end}")
-    size = os.path.getsize(path)
-    if valid_end != size:
-      raise ConvertError(f"{filename}: read {valid_end} of {size} bytes")
+    if byte_gaps:
+      raise ConvertError(f"{filename}: damaged region at byte {byte_gaps[0].start}")
     previous_elapsed = -1
     try:
       for payload in payloads:

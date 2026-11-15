@@ -101,30 +101,108 @@ class Frame:
         return self.offset + 4 + len(self.payload)
 
 
-def iter_frames(data: bytes, stream: int) -> Iterator[Frame]:
-    """Yield the frames of a log up to the first truncated or bad-CRC one.
+@dataclass(frozen=True)
+class FrameGap:
+    """A byte range a reader stepped over because no frame in it checks out.
 
-    A damaged frame ends the iteration with a :class:`FrameError` at its offset,
-    so a caller keeps everything before it (the recovery rule of the format).
+    ``start`` is where the damaged bytes begin and ``end`` is where the reader
+    read on: the start of the next frame that checks out, or the end of the log
+    when the damage is its tail.
+    """
+
+    start: int
+    end: int
+    reason: str
+
+    @property
+    def size(self) -> int:
+        """How many bytes the reader could not use."""
+
+        return self.end - self.start
+
+    def describe(self) -> str:
+        """One line for a warning: why the bytes were skipped and how many."""
+
+        return (
+            f"{self.reason} at byte {self.start}; "
+            f"skipped {self.size} bytes to byte {self.end}"
+        )
+
+
+def _damage(data: bytes, stream: int, offset: int) -> str:
+    """Why the bytes at ``offset`` are not a frame this log can use."""
+
+    if len(data) - offset < 8:
+        return "truncated frame"
+    length = struct.unpack_from("<I", data, offset)[0]
+    if length > MAX_PAYLOAD:
+        return f"frame payload too large ({length})"
+    end = offset + 8 + length
+    if end > len(data):
+        return "truncated frame"
+    payload = memoryview(data)[offset + 4 : offset + 4 + length]
+    expected_crc = struct.unpack_from("<I", data, offset + 4 + length)[0]
+    if expected_crc != zlib.crc32(payload) & 0xFFFFFFFF:
+        return "frame CRC mismatch"
+    return "payload does not decode"
+
+
+def _frame_at(data: bytes, stream: int, offset: int) -> Frame | None:
+    """The frame at ``offset``, or None when its length, CRC or payload is off.
+
+    The payload has to decode as the stream's own layout, so a length and a CRC
+    that happen to match random bytes still do not make a frame.
+    """
+
+    if len(data) - offset < 8:
+        return None
+    length = struct.unpack_from("<I", data, offset)[0]
+    end = offset + 8 + length
+    if length > MAX_PAYLOAD or end > len(data):
+        return None
+    payload = memoryview(data)[offset + 4 : offset + 4 + length]
+    expected_crc = struct.unpack_from("<I", data, offset + 4 + length)[0]
+    if expected_crc != zlib.crc32(payload) & 0xFFFFFFFF:
+        return None
+    try:
+        read_payload(stream, payload)
+    except (ValueError, struct.error):
+        return None
+    return Frame(bytes(payload), offset, end)
+
+
+def iter_frames(data: bytes, stream: int, gaps: list[FrameGap]) -> Iterator[Frame]:
+    """Yield every frame of a log that checks out, over damaged regions if need be.
+
+    A region that does not hold an acceptable frame is skipped to the next offset
+    where a whole frame's length, CRC and payload check out, so one damaged frame
+    does not hide the frames after it. Each skipped range is appended to ``gaps``
+    in order; one that ends at ``len(data)`` is the log's damaged tail, after
+    which there is nothing left to read. An invalid log header raises
+    :class:`FrameError`, because then no byte of the file can be trusted.
     """
 
     check_header(data, stream)
     pos = HEADER_SIZE
     while pos < len(data):
-        if len(data) - pos < 8:
-            raise FrameError(pos, "truncated frame")
-        length = struct.unpack_from("<I", data, pos)[0]
-        if length > MAX_PAYLOAD:
-            raise FrameError(pos, f"frame payload too large ({length})")
-        end = pos + 8 + length
-        if end > len(data):
-            raise FrameError(pos, "truncated frame")
-        payload = data[pos + 4 : pos + 4 + length]
-        expected_crc = struct.unpack_from("<I", data, pos + 4 + length)[0]
-        if expected_crc != zlib.crc32(payload) & 0xFFFFFFFF:
-            raise FrameError(pos, "frame CRC mismatch")
-        yield Frame(payload, pos, end)
-        pos = end
+        frame = _frame_at(data, stream, pos)
+        if frame is not None:
+            yield frame
+            pos = frame.end
+            continue
+        reason = _damage(data, stream, pos)
+        next_pos = None
+        # A frame needs its 8-byte length-and-CRC shell, so the last candidate
+        # starts at len(data) - 8.
+        for candidate in range(pos + 1, len(data) - 7):
+            if _frame_at(data, stream, candidate) is not None:
+                next_pos = candidate
+                break
+        if next_pos is None:
+            gaps.append(FrameGap(pos, len(data), reason))
+            return
+        gaps.append(FrameGap(pos, next_pos, reason))
+        pos = next_pos
 
 
 def encode_timestamps(values: Sequence[int]) -> tuple[int, bytes]:
@@ -255,6 +333,18 @@ def read_acc(payload: bytes) -> Batch:
     return _read_batch(payload, values_per_sample=3, value_format="h")
 
 
+def read_payload(stream: int, payload: bytes) -> HrSample | Batch:
+    """Parse one payload as the layout of ``stream``, raising ValueError if it is not."""
+
+    if stream == STREAM_HR:
+        return read_hr(payload)
+    if stream == STREAM_ECG:
+        return read_ecg(payload)
+    if stream == STREAM_ACC:
+        return read_acc(payload)
+    raise ValueError(f"unknown stream id {stream}")
+
+
 def _read_batch(payload: bytes, values_per_sample: int, value_format: str) -> Batch:
     phone_ns, elapsed_ns, mode, count = struct.unpack_from("<qqBH", payload, 0)
     offset = 19
@@ -280,6 +370,7 @@ __all__ = [
     "Batch",
     "Frame",
     "FrameError",
+    "FrameGap",
     "HEADER_SIZE",
     "HrSample",
     "MAGIC",
@@ -303,5 +394,6 @@ __all__ = [
     "read_acc",
     "read_ecg",
     "read_hr",
+    "read_payload",
     "trunc_div",
 ]

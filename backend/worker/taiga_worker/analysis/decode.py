@@ -8,7 +8,6 @@ saturation masks, gaps, and stream coverage. Algorithms never parse bytes.
 from __future__ import annotations
 
 import json
-import struct
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -18,7 +17,11 @@ import numpy as np
 from ..frames import (
     POLAR_EPOCH_OFFSET_NS,
     FrameError,
+    FrameGap,
     iter_frames,
+    read_acc,
+    read_ecg,
+    read_hr,
 )
 from .contract import (
     AccStream,
@@ -54,6 +57,10 @@ class FrameLogInfo:
     valid_bytes: int
     truncated_tail: bool
     error: str | None
+    gaps: tuple[FrameGap, ...] = ()
+    # For every gap, the sample indices just before and just after it, or None
+    # when the gap is at the start or the end of the log.
+    gap_samples: tuple[tuple[int | None, int | None], ...] = ()
 
 
 @dataclass
@@ -80,29 +87,49 @@ def _read_bytes(path: Path) -> bytes | None:
 
 
 def _scan(path: Path, expected_stream: int, on_payload) -> FrameLogInfo:
+    """Scan one frame log, keeping every frame that checks out.
+
+    ``on_payload`` parses a payload, hands it to the caller's arrays and returns
+    how many samples it held, so a skipped byte range can be tied to the sample
+    indices on either side of it.
+    """
+
     data = _read_bytes(path)
     if data is None:
         return FrameLogInfo(False, 0, 0, False, None)
     if len(data) == 0:
         return FrameLogInfo(True, 0, 0, False, "empty frame log")
 
+    gaps: list[FrameGap] = []
+    gap_samples: list[tuple[int | None, int | None]] = []
     frames = 0
+    samples = 0
     valid_bytes = 0
     try:
-        for frame in iter_frames(data, expected_stream):
-            on_payload(frame.payload)
+        for frame in iter_frames(data, expected_stream, gaps):
+            while len(gap_samples) < len(gaps):
+                gap_samples.append((samples - 1 if samples else None, samples))
+            samples += on_payload(frame.payload)
             frames += 1
             # The report counts up to the payload end, not the CRC that follows it.
             valid_bytes = frame.payload_end
     except FrameError as exc:
-        return FrameLogInfo(
-            True,
-            frames,
-            valid_bytes,
-            True,
-            f"{exc} at byte {exc.offset}",
-        )
-    return FrameLogInfo(True, frames, valid_bytes, False, None)
+        return FrameLogInfo(True, 0, 0, True, f"{exc} at byte {exc.offset}")
+    while len(gap_samples) < len(gaps):
+        # A damaged tail: there is no sample after it, the stream ends there.
+        gap_samples.append((samples - 1 if samples else None, None))
+
+    truncated_tail = bool(gaps) and gaps[-1].end == len(data)
+    error = gaps[-1].describe() if truncated_tail else None
+    return FrameLogInfo(
+        True,
+        frames,
+        valid_bytes,
+        truncated_tail,
+        error,
+        tuple(gaps),
+        tuple(gap_samples),
+    )
 
 
 def _decode_hr(path: Path) -> tuple[list[np.ndarray], list[np.ndarray], list[np.ndarray], list[np.ndarray], list[np.ndarray], FrameLogInfo]:
@@ -112,21 +139,14 @@ def _decode_hr(path: Path) -> tuple[list[np.ndarray], list[np.ndarray], list[np.
     flags: list[np.ndarray] = []
     rr: list[np.ndarray] = []
 
-    def on_payload(payload: bytes) -> None:
-        if len(payload) < 20:
-            raise FrameError(0, "HR payload is too short")
-        phone_ns, elapsed_ns, hr, flag, n_rr = struct.unpack_from("<qqHBB", payload, 0)
-        expected = 20 + 2 * n_rr
-        if len(payload) != expected:
-            raise FrameError(0, "HR payload length mismatch")
-        rr_values = np.frombuffer(payload, dtype="<u2", count=n_rr, offset=20).astype(
-            np.float32, copy=False
-        )
-        phone.append(np.asarray([phone_ns], dtype=np.int64))
-        elapsed.append(np.asarray([elapsed_ns], dtype=np.int64))
-        bpm.append(np.asarray([float(hr)], dtype=np.float32))
-        flags.append(np.asarray([int(flag)], dtype=np.uint8))
-        rr.append(rr_values)
+    def on_payload(payload: bytes) -> int:
+        sample = read_hr(payload)
+        phone.append(np.asarray([sample.phone_ns], dtype=np.int64))
+        elapsed.append(np.asarray([sample.elapsed_ns], dtype=np.int64))
+        bpm.append(np.asarray([float(sample.hr_bpm)], dtype=np.float32))
+        flags.append(np.asarray([int(sample.flags)], dtype=np.uint8))
+        rr.append(np.asarray(sample.rr_ms, dtype=np.float32))
+        return 1
 
     info = _scan(path, 1, on_payload)
 
@@ -148,36 +168,15 @@ def _decode_hr(path: Path) -> tuple[list[np.ndarray], list[np.ndarray], list[np.
 def _decode_ecg(path: Path) -> tuple[_RawEcg, FrameLogInfo]:
     raw = _RawEcg([], [], [], [])
 
-    def on_payload(payload: bytes) -> None:
-        if len(payload) < 19:
-            raise FrameError(0, "ECG payload is too short")
-        phone_ns, elapsed_ns, mode, n = struct.unpack_from("<qqBH", payload, 0)
-        if n == 0:
-            return
-        if mode == 0:
-            if len(payload) < 35:
-                raise FrameError(0, "ECG linear payload is too short")
-            first, last = struct.unpack_from("<qq", payload, 19)
-            t = _reconstruct_linear(first, last, n)
-            values_offset = 35
-        elif mode == 1:
-            values_offset = 19 + 8 * n
-            if len(payload) < values_offset:
-                raise FrameError(0, "ECG explicit payload is too short")
-            t = np.frombuffer(payload, dtype="<i8", count=n, offset=19).astype(np.int64, copy=True)
-        else:
-            raise FrameError(0, f"unknown ECG timestamp mode {mode}")
-
-        expected = values_offset + 4 * n
-        if len(payload) != expected:
-            raise FrameError(0, "ECG payload length mismatch")
-        values = np.frombuffer(payload, dtype="<i4", count=n, offset=values_offset).astype(
-            np.float32, copy=False
-        )
-        raw.phone_ns.append(np.asarray([phone_ns], dtype=np.int64))
-        raw.elapsed_ns.append(np.asarray([elapsed_ns], dtype=np.int64))
-        raw.t_polar.append(t)
-        raw.values_uv.append(values)
+    def on_payload(payload: bytes) -> int:
+        batch = read_ecg(payload)
+        if not batch.timestamps_ns:
+            return 0
+        raw.phone_ns.append(np.asarray([batch.phone_ns], dtype=np.int64))
+        raw.elapsed_ns.append(np.asarray([batch.elapsed_ns], dtype=np.int64))
+        raw.t_polar.append(np.asarray(batch.timestamps_ns, dtype=np.int64))
+        raw.values_uv.append(np.asarray(batch.values, dtype=np.float32))
+        return len(batch.timestamps_ns)
 
     info = _scan(path, 2, on_payload)
     return raw, info
@@ -186,47 +185,18 @@ def _decode_ecg(path: Path) -> tuple[_RawEcg, FrameLogInfo]:
 def _decode_acc(path: Path) -> tuple[_RawAcc, FrameLogInfo]:
     raw = _RawAcc([], [], [], [])
 
-    def on_payload(payload: bytes) -> None:
-        if len(payload) < 19:
-            raise FrameError(0, "ACC payload is too short")
-        phone_ns, elapsed_ns, mode, n = struct.unpack_from("<qqBH", payload, 0)
-        if n == 0:
-            return
-        if mode == 0:
-            if len(payload) < 35:
-                raise FrameError(0, "ACC linear payload is too short")
-            first, last = struct.unpack_from("<qq", payload, 19)
-            t = _reconstruct_linear(first, last, n)
-            values_offset = 35
-        elif mode == 1:
-            values_offset = 19 + 8 * n
-            if len(payload) < values_offset:
-                raise FrameError(0, "ACC explicit payload is too short")
-            t = np.frombuffer(payload, dtype="<i8", count=n, offset=19).astype(np.int64, copy=True)
-        else:
-            raise FrameError(0, f"unknown ACC timestamp mode {mode}")
-
-        expected = values_offset + 6 * n
-        if len(payload) != expected:
-            raise FrameError(0, "ACC payload length mismatch")
-        values = np.frombuffer(payload, dtype="<i2", count=3 * n, offset=values_offset).astype(
-            np.float32, copy=False
-        )
-        raw.phone_ns.append(np.asarray([phone_ns], dtype=np.int64))
-        raw.elapsed_ns.append(np.asarray([elapsed_ns], dtype=np.int64))
-        raw.t_polar.append(t)
-        raw.values_mg.append(values.reshape(n, 3))
+    def on_payload(payload: bytes) -> int:
+        batch = read_acc(payload)
+        if not batch.timestamps_ns:
+            return 0
+        raw.phone_ns.append(np.asarray([batch.phone_ns], dtype=np.int64))
+        raw.elapsed_ns.append(np.asarray([batch.elapsed_ns], dtype=np.int64))
+        raw.t_polar.append(np.asarray(batch.timestamps_ns, dtype=np.int64))
+        raw.values_mg.append(np.asarray(batch.values, dtype=np.float32).reshape(-1, 3))
+        return len(batch.timestamps_ns)
 
     info = _scan(path, 3, on_payload)
     return raw, info
-
-
-def _reconstruct_linear(first: int, last: int, n: int) -> np.ndarray:
-    if n <= 1:
-        return np.asarray([first], dtype=np.int64)
-    span = last - first
-    idx = np.arange(n, dtype=np.int64)
-    return first + (span * idx) // (n - 1)
 
 
 def _relative_from_elapsed(
@@ -282,6 +252,42 @@ def _gaps(t_s: np.ndarray, rate_hz: float, stream: str) -> list[Gap]:
     for index in np.nonzero(diffs > threshold)[0]:
         gaps.append(Gap(stream, float(t_s[index]), float(t_s[index + 1])))
     return gaps
+
+
+def _byte_gaps(
+    stream: str,
+    gap_samples: Sequence[tuple[int | None, int | None]],
+    t_s: np.ndarray,
+) -> list[Gap]:
+    """The time that the samples around every skipped byte range do not cover.
+
+    The samples are those in frame order, before they are sorted by time. A
+    range with no sample after it is the log's damaged tail: the stream simply
+    ends there, as it did before, so it is not a gap in time.
+    """
+
+    gaps: list[Gap] = []
+    for before, after in gap_samples:
+        if after is None or after >= t_s.size:
+            continue
+        start = 0.0 if before is None else float(t_s[before])
+        end = float(t_s[after])
+        if end > start:
+            gaps.append(Gap(stream, start, end))
+    return gaps
+
+
+def _merge_gaps(gaps: Sequence[Gap]) -> list[Gap]:
+    """One missing stretch, whether it was found by bytes or by timestamps."""
+
+    merged: list[Gap] = []
+    for gap in sorted(gaps, key=lambda item: item.start_s):
+        if merged and gap.start_s <= merged[-1].end_s:
+            last = merged[-1]
+            merged[-1] = Gap(last.stream, last.start_s, max(last.end_s, gap.end_s))
+        else:
+            merged.append(gap)
+    return merged
 
 
 def _median_rate(t_s: np.ndarray, fallback: float) -> float:
@@ -364,10 +370,12 @@ def load_recording(directory: str | Path) -> Recording:
 
     hr: HrStream | None = None
     hr_t = np.empty(0, dtype=np.float64)
+    hr_byte_gaps: list[Gap] = []
     if hr_info.present and hr_phone.size:
         hr_t = _relative_from_elapsed(
             hr_elapsed, hr_phone, start_unix_ns, elapsed0, warnings, "hr"
         )
+        hr_byte_gaps = _byte_gaps("hr", hr_info.gap_samples, hr_t)
         order = np.argsort(hr_t, kind="stable")
         hr_t = hr_t[order]
         hr_bpm = hr_bpm[order]
@@ -389,6 +397,7 @@ def load_recording(directory: str | Path) -> Recording:
 
     ecg: EcgStream | None = None
     ecg_t = np.empty(0, dtype=np.float64)
+    ecg_byte_gaps: list[Gap] = []
     if ecg_info.present and ecg_raw.values_uv:
         ecg_elapsed = np.concatenate(ecg_raw.elapsed_ns)
         ecg_phone = np.concatenate(ecg_raw.phone_ns)
@@ -401,6 +410,7 @@ def load_recording(directory: str | Path) -> Recording:
             warnings,
             "ecg",
         )
+        ecg_byte_gaps = _byte_gaps("ecg", ecg_info.gap_samples, ecg_t)
         ecg_uv = np.concatenate(ecg_raw.values_uv)
         ecg_mv = (ecg_uv / 1000.0).astype(np.float32, copy=False)
         order = np.argsort(ecg_t, kind="stable")
@@ -418,6 +428,7 @@ def load_recording(directory: str | Path) -> Recording:
 
     acc: AccStream | None = None
     acc_t = np.empty(0, dtype=np.float64)
+    acc_byte_gaps: list[Gap] = []
     if acc_info.present and acc_raw.values_mg:
         acc_elapsed = np.concatenate(acc_raw.elapsed_ns)
         acc_phone = np.concatenate(acc_raw.phone_ns)
@@ -430,6 +441,7 @@ def load_recording(directory: str | Path) -> Recording:
             warnings,
             "acc",
         )
+        acc_byte_gaps = _byte_gaps("acc", acc_info.gap_samples, acc_t)
         acc_mg = np.concatenate(acc_raw.values_mg)
         acc_g = (acc_mg / 1000.0).astype(np.float32, copy=False)
         order = np.argsort(acc_t, kind="stable")
@@ -494,16 +506,20 @@ def load_recording(directory: str | Path) -> Recording:
     )
 
     gaps: list[Gap] = []
-    gaps.extend(_gaps(hr_t, hr_rate or 1.0, "hr"))
-    gaps.extend(_gaps(ecg_t, ecg_rate or meta.ecg_rate_hz, "ecg"))
-    gaps.extend(_gaps(acc_t, acc_rate or meta.acc_rate_hz, "acc"))
+    gaps.extend(_merge_gaps(_gaps(hr_t, hr_rate or 1.0, "hr") + hr_byte_gaps))
+    gaps.extend(_merge_gaps(_gaps(ecg_t, ecg_rate or meta.ecg_rate_hz, "ecg") + ecg_byte_gaps))
+    gaps.extend(_merge_gaps(_gaps(acc_t, acc_rate or meta.acc_rate_hz, "acc") + acc_byte_gaps))
 
     clock_syncs, clock_jumps = _clock_events(
         events, start_unix_ns, elapsed0, ecg_raw, acc_raw, warnings
     )
-    for report in (hr_report, ecg_report, acc_report):
-        if report.truncated_tail and report.error:
-            warnings.append(report.error)
+    for name, info in (
+        ("hr.log", hr_info),
+        ("ecg.log", ecg_info),
+        ("acc.log", acc_info),
+    ):
+        for gap in info.gaps:
+            warnings.append(f"{name}: {gap.describe()}")
     if not hr_report.present and meta.hr_enabled:
         warnings.append("no HR stream")
     if not ecg_report.present and meta.ecg_enabled:

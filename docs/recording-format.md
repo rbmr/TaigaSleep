@@ -134,10 +134,16 @@ reserved for future sensors, e.g. PPG/PPI).
 
 **Recovery rule.** A write that fails is rolled back to the end of the last whole frame, so the
 next frame is appended after good data and the recording goes on. The lost frame is counted in the
-recording state and logged as an `error` event. A reader accepts every frame whose length and CRC
-check out and steps over a damaged region to the next frame that does, so one bad frame does not
-hide the rest of the file. When the app resumes it truncates the file to the end of the last whole
-frame before appending, which keeps every frame after a damaged region in the middle.
+recording state and logged as an `error` event. A reader takes a frame only when its length fits,
+its CRC matches and its payload decodes as that stream's own layout, so random bytes cannot pass
+for a frame. A region that holds no such frame is skipped to the next offset that does, so one bad
+frame does not hide the rest of the file; this holds for the HR, ECG and ACC logs alike. Every
+skipped byte range is reported as a gap by whatever reads the log, appears as a warning in the
+analysis result, and marks the time it covered as missing in the input quality, so downstream steps
+treat it as a gap and not as a continuous signal. When the app resumes it truncates the file to the
+end of the last whole frame before appending, which keeps every frame after a damaged region in the
+middle. The worker's check of a downloaded log leaves damage in the middle in place for the decoder
+to step over, and cuts back a damaged tail as before, so the stream ends at its last whole frame.
 
 Every payload starts with two clocks:
 

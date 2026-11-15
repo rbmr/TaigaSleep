@@ -107,10 +107,11 @@ gzip even if the setting is later turned off; a file that started plain stays
 plain, because a file's encoding is fixed by its first chunk.
 
 The API stores the bytes as they are and only checks gzip framing. The worker
-inflates with size/member/ratio limits, validates frame headers and CRCs, keeps
-the valid prefix and records the compression ratio in the analysis provenance.
-Full details and the measured trade-off are in
-[`upload-compression.md`](upload-compression.md).
+inflates with size/member/ratio limits, validates frame headers, CRCs and payloads,
+keeps every frame that checks out, reports each damaged byte range in the analysis
+provenance and records the compression ratio there. A damaged tail is cut back; damage
+in the middle is left for the decoder to step over. Full details and the measured
+trade-off are in [`upload-compression.md`](upload-compression.md).
 
 ## Upload lifecycle
 

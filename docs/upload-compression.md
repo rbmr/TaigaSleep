@@ -135,8 +135,10 @@ size, fails the job instead of handing the analysis a short night. The worker
 enforces the same limits after download: total and per-file decompressed size,
 member count, expansion ratio per member and a whitelist of file names. A
 truncated or corrupt member fails the job with `truncated gzip member` or
-`invalid gzip member`. After extraction the worker validates frame headers and
-CRCs, keeps the valid prefix of each stream and reports truncation as a warning.
+`invalid gzip member`. After extraction the worker validates frame headers, CRCs
+and payloads, keeps every frame that checks out, and reports each damaged byte
+range as a warning. A damaged tail is cut back to the last whole frame; damage in
+the middle is left for the decoder to step over.
 
 ## App behaviour
 
@@ -260,4 +262,4 @@ server storage or upload bandwidth becomes the binding constraint.
 | Download cut short, or shorter or longer than advertised | Worker | job fails before analysis; lease/retry logic applies |
 | Decompression bomb | Worker | job fails before analysis; size/member/ratio limits |
 | Cache lost while the server has bytes | App | explicit error; delete the recording on the server and retry |
-| Bad frame or CRC after decompression | Worker | valid prefix kept, warning in the result provenance |
+| Bad frame or CRC after decompression | Worker | frames around it kept, byte range in the warnings and provenance |

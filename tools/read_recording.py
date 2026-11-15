@@ -9,11 +9,12 @@ The frame format lives in the worker, so run the tool from the worker environmen
 
 See tools/README.md.
 
-Validates the CRC of every frame, stops each log at the first truncated or corrupt frame (the
-recovery rule), and prints per-stream counts, duration, sample rate and gaps.
+Validates the CRC and payload of every frame, skips a damaged region to the next frame that
+checks out (the recovery rule) and prints per-stream counts, duration, sample rate, gaps and
+every skipped byte range.
 
 Exit status: 0 all logs fully valid, 1 unreadable (bad header, no meta.json), 3 a log has a
-damaged tail (everything before it was still read).
+damaged region (everything around it was still read).
 """
 import json
 import os
@@ -32,22 +33,23 @@ GAP_SECONDS = {frames.STREAM_HR: 2.5, frames.STREAM_ECG: 1.0, frames.STREAM_ACC:
 
 
 def read_log(path):
-  """Return (stream, payloads, valid_end, damaged) for one frame log.
+  """Return (stream, payloads, gaps) for one frame log.
 
-  Frames are accepted until the first truncated or CRC-failing one; the rest is ignored.
+  Frames are kept wherever their length, CRC and payload check out; a damaged
+  region is skipped to the next such frame and reported in gaps.
   """
   with open(path, "rb") as f:
     data = f.read()
-  if len(data) < frames.HEADER_SIZE or data[:4] != frames.MAGIC or data[4] != frames.VERSION:
+  if len(data) < frames.HEADER_SIZE:
     raise ValueError("bad header")
   stream = data[5]
-  payloads = []
   try:
-    for frame in frames.iter_frames(data, stream):
-      payloads.append(frame.payload)
+    frames.check_header(data, stream)
   except frames.FrameError as e:
-    return stream, payloads, e.offset, True
-  return stream, payloads, len(data), False
+    raise ValueError(str(e))
+  gaps = []
+  payloads = [frame.payload for frame in frames.iter_frames(data, stream, gaps)]
+  return stream, payloads, gaps
 
 
 def fmt_time(ns):
@@ -128,7 +130,7 @@ def main(argv):
     if not os.path.exists(path):
       continue
     try:
-      s, payloads, valid_end, damaged = read_log(path)
+      s, payloads, byte_gaps = read_log(path)
     except (ValueError, OSError, struct.error) as e:
       print("%-8s UNREADABLE: %s" % (name, e))
       status = max(status, 1)
@@ -143,20 +145,25 @@ def main(argv):
       print("%-8s BAD PAYLOAD: %s" % (name, e))
       status = max(status, 1)
       continue
-    tail = os.path.getsize(path) - valid_end
     line = "%-8s %s frames=%d samples=%d" % (name, label, info["frames"], info["samples"])
     if info["samples"] > 1:
       line += " duration=%.1fs rate=%.2fHz (excl. gaps)" % (info["duration_s"], info["rate_hz"])
     if stream != frames.STREAM_HR:
       line += " ts_modes(linear/explicit)=%d/%d" % (info["modes"][0], info["modes"][1])
     line += " gaps=%d" % len(info["gaps"])
-    line += "  [DAMAGED TAIL: %d bytes ignored]" % tail if damaged else "  [ok]"
+    if byte_gaps:
+      line += "  [%d damaged region(s), %d bytes skipped]" % (
+          len(byte_gaps), sum(gap.size for gap in byte_gaps))
+    else:
+      line += "  [ok]"
     print(line)
     for at, length in info["gaps"]:
       print("    gap at %s UTC, %.1f s" % (fmt_time(at), length / 1e9))
     for at, step in info.get("jumps", []):
       print("    CLOCK JUMP at %s UTC (phone time): sample timestamps moved %.1f s" % (fmt_time(at), step / 1e9))
-    if damaged:
+    for gap in byte_gaps:
+      print("    skipped bytes %d-%d (%s)" % (gap.start, gap.end, gap.reason))
+    if byte_gaps:
       status = max(status, 3)
   events = os.path.join(d, "events.jsonl")
   if os.path.exists(events):

@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from taiga_worker import frames
 from taiga_worker.analysis.decode import load_recording
 from tests import analysis_fixture as fx
 
@@ -101,6 +102,68 @@ def test_bad_crc_keeps_the_valid_prefix_and_reports_it(tmp_path: Path) -> None:
     report = recording.quality.streams["hr"]
     assert report.truncated_tail
     assert "CRC" in (report.error or "")
+
+
+DAMAGED_FRAME = {
+    "hr": (fx.STREAM_HR, 9, 3.0, 5.0),
+    "ecg": (fx.STREAM_ECG, 90, 3.0, 4.1),
+    "acc": (fx.STREAM_ACC, 90, 3.0, 4.1),
+}
+
+
+@pytest.mark.parametrize("name", list(DAMAGED_FRAME))
+def test_a_damaged_frame_in_the_middle_keeps_the_frames_after_it(
+    tmp_path: Path, name: str
+) -> None:
+    stream, samples, gap_start, gap_end = DAMAGED_FRAME[name]
+    fx.write_recording(tmp_path, duration_s=10)
+    encoded = [fx.frame(fx.stream_payload(stream, index)) for index in range(10)]
+    damaged = bytearray(encoded[4])
+    damaged[6] ^= 0xFF
+    start = frames.HEADER_SIZE + sum(len(item) for item in encoded[:4])
+    (tmp_path / f"{name}.log").write_bytes(
+        fx.frame_header(stream) + b"".join(encoded[:4] + [bytes(damaged)] + encoded[5:])
+    )
+
+    recording = load_recording(tmp_path)
+    decoded = getattr(recording, name)
+
+    assert decoded is not None
+    assert decoded.t_s.size == samples
+    assert float(decoded.t_s.min()) < gap_start
+    assert float(decoded.t_s.max()) > gap_end
+    gaps = [gap for gap in recording.quality.gaps if gap.stream == name]
+    assert len(gaps) == 1
+    assert gaps[0].start_s == pytest.approx(gap_start, abs=0.2)
+    assert gaps[0].end_s == pytest.approx(gap_end, abs=0.2)
+    warning = next(
+        item for item in recording.quality.warnings if item.startswith(f"{name}.log:")
+    )
+    assert f"byte {start}" in warning
+    assert f"skipped {len(damaged)} bytes" in warning
+
+
+def test_resampling_marks_the_time_of_a_damaged_frame_as_missing(tmp_path: Path) -> None:
+    fx.write_recording(tmp_path, duration_s=10)
+    encoded = [fx.frame(fx.stream_payload(fx.STREAM_HR, index)) for index in range(10)]
+    damaged = bytearray(encoded[4])
+    damaged[6] ^= 0xFF
+    (tmp_path / "hr.log").write_bytes(
+        fx.frame_header(fx.STREAM_HR)
+        + b"".join(encoded[:4] + [bytes(damaged)] + encoded[5:])
+    )
+    recording = load_recording(tmp_path)
+
+    resampled = recording.resample("hr", 1.0)
+
+    inside = (resampled.t_s >= 3.0) & (resampled.t_s <= 5.0)
+    assert np.any(inside)
+    # The neighbours are close enough for nearest-neighbour resampling, but the
+    # gap must stay missing instead of being interpolated across.
+    assert not np.any(resampled.valid[inside])
+    assert np.all(np.isnan(resampled.values[inside]))
+    after = (resampled.t_s > 5.0) & (resampled.t_s < 9.0)
+    assert np.any(resampled.valid[after])
 
 
 def test_missing_streams_are_reported_without_crashing(tmp_path: Path) -> None:

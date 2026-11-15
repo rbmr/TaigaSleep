@@ -341,10 +341,9 @@ class Worker:
                     return None
 
                 # The API stores what the phone sent, so every file is checked,
-                # compressed or not, and cut back to its valid prefix.
+                # compressed or not, and a damaged tail is cut back.
                 check = verify_recording_file(destination, name)
-                if check.truncated and check.error:
-                    source["warnings"].append(f"{name}: {check.error}")
+                source["warnings"].extend(check.warnings())
                 if name in STREAM_IDS:
                     frames += check.frames
                 stored_bytes = int(entry.get("size") or check.size)
@@ -358,6 +357,15 @@ class Worker:
                     "valid_bytes": check.valid_bytes,
                     "truncated_tail": check.truncated,
                     "error": check.error,
+                    "gaps": [
+                        {
+                            "start": gap.start,
+                            "end": gap.end,
+                            "bytes": gap.size,
+                            "reason": gap.reason,
+                        }
+                        for gap in check.gaps
+                    ],
                 }
 
             encodings = {item["encoding"] for item in source["files"].values()}
