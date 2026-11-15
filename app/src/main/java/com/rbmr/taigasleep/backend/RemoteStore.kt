@@ -147,25 +147,48 @@ class RemoteStore(
     get() = prefs.getString(KEY_UNREACHABLE)
     set(value) = prefs.putString(KEY_UNREACHABLE, value)
 
-  /** Null when nothing is stored, or when the Keystore key was invalidated and the token is lost. */
+  /**
+   * Null when nothing is stored, or when the Keystore key was invalidated and the token is lost.
+   *
+   * The decrypted value is kept for the life of the process: opening the stored one is a Keystore
+   * call, and the app asks for it on every screen that shows the connection state. Setting or
+   * clearing the token replaces the kept value, so no read ever returns an older one.
+   */
   var token: String?
-    get() {
-      val sealed = prefs.getString(KEY_TOKEN) ?: return null
-      return try {
-        String(secretBox.open(Base64.getDecoder().decode(sealed)), Charsets.UTF_8)
-      } catch (_: Exception) {
-        clearToken()
-        null
-      }
+    get() =
+        synchronized(tokenLock) {
+          if (!tokenLoaded) {
+            tokenLoaded = true
+            tokenPlain = readStoredToken()
+          }
+          tokenPlain
+        }
+    set(value) =
+        synchronized(tokenLock) {
+          if (value == null) {
+            prefs.putString(KEY_TOKEN, null)
+          } else {
+            val sealed = secretBox.seal(value.toByteArray(Charsets.UTF_8))
+            prefs.putString(KEY_TOKEN, Base64.getEncoder().encodeToString(sealed))
+          }
+          tokenPlain = value
+          tokenLoaded = true
+        }
+
+  private val tokenLock = Any()
+  private var tokenPlain: String? = null
+  private var tokenLoaded = false
+
+  /** Opens the stored value once; one the Keystore cannot open is dropped, as it always was. */
+  private fun readStoredToken(): String? {
+    val sealed = prefs.getString(KEY_TOKEN) ?: return null
+    return try {
+      String(secretBox.open(Base64.getDecoder().decode(sealed)), Charsets.UTF_8)
+    } catch (_: Exception) {
+      clearToken()
+      null
     }
-    set(value) {
-      if (value == null) {
-        prefs.putString(KEY_TOKEN, null)
-      } else {
-        val sealed = secretBox.seal(value.toByteArray(Charsets.UTF_8))
-        prefs.putString(KEY_TOKEN, Base64.getEncoder().encodeToString(sealed))
-      }
-    }
+  }
 
   fun saveAddress(url: String, email: String) {
     this.url = url
