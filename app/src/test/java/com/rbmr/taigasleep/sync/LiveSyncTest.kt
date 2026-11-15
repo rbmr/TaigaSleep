@@ -207,7 +207,14 @@ class LiveSyncTest {
     }
   }
 
-  private fun emit(event: RemoteEvent) = runBlocking { shared.emit(event) }
+  /**
+   * Sends an event the way the server would, once the stream listens. The fake stream announces
+   * `Connected` before it subscribes, and a shared flow without replay drops what nobody hears yet.
+   */
+  private fun emit(event: RemoteEvent) {
+    await("the stream to listen") { shared.subscriptionCount.value > 0 }
+    runBlocking { shared.emit(event) }
+  }
 
   @Test
   fun `no stream runs while no account may stream`() {
@@ -319,7 +326,8 @@ class LiveSyncTest {
 
     assertEquals(1, closed.get())
     val calls = target.calls.size
-    emit(RemoteEvent.RecordingChanged("late", "updated"))
+    // Nothing listens any more, so the event is sent without waiting for a listener.
+    runBlocking { shared.emit(RemoteEvent.RecordingChanged("late", "updated")) }
     Thread.sleep(200)
     assertEquals(calls, target.calls.size)
   }
