@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
@@ -224,6 +225,20 @@ fun hoursAxis(values: List<Double?>, targetHours: Double?): TrendAxis {
 private val ChartHeight = 176.dp
 private val LeftLabelWidth = 48.dp
 private val LargeLeftLabelWidth = 64.dp
+
+/**
+ * The room a [TrendPlotCanvas] keeps clear of its plot for the axis labels, in dp. It follows the
+ * system font scale, so a large font gets the labels the space they need instead of being clipped.
+ */
+internal data class ChartLabelSpace(val left: Dp, val top: Dp, val bottom: Dp)
+
+/** The label space of a trend chart at [fontScale]. */
+internal fun chartLabelSpace(large: Boolean, fontScale: Float): ChartLabelSpace =
+    ChartLabelSpace(
+        left = (if (large) LargeLeftLabelWidth else LeftLabelWidth) * fontScale,
+        top = (if (large) 18.dp else 16.dp) * fontScale,
+        bottom = (if (large) 28.dp else 24.dp) * fontScale,
+    )
 
 private data class TrendPlot(
     val left: Float,
@@ -478,11 +493,11 @@ private fun TrendPlotCanvas(
 ) {
   val density = LocalDensity.current
   // A large system font enlarges the axis labels too, so the room reserved for them follows it.
-  val fontScale = density.fontScale.coerceIn(1f, 1.6f)
-  val leftLabelWidth = (if (large) LargeLeftLabelWidth else LeftLabelWidth) * fontScale
+  val labelSpace = chartLabelSpace(large, density.fontScale)
+  val leftLabelWidth = labelSpace.left
   val leftPx = with(density) { leftLabelWidth.toPx() }
-  val topPx = with(density) { ((if (large) 18.dp else 16.dp) * fontScale).toPx() }
-  val bottomPx = with(density) { ((if (large) 28.dp else 24.dp) * fontScale).toPx() }
+  val topPx = with(density) { labelSpace.top.toPx() }
+  val bottomPx = with(density) { labelSpace.bottom.toPx() }
   val labelSp = if (large) 13.sp else 12.sp
   val gridColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f)
   val axisColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
