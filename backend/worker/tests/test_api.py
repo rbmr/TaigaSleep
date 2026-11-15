@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import gzip
 import json
 import threading
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Iterator
@@ -11,10 +13,20 @@ import pytest
 from taiga_worker.api import ApiClient, ApiError
 
 
+@dataclass
+class Reply:
+    status: int = 404
+    body: bytes = b""
+    headers: dict[str, str] = field(default_factory=dict)
+    # Bytes really written when they are fewer than the declared Content-Length,
+    # which is what a response that is cut off mid-body looks like.
+    sent: bytes | None = None
+
+
 class Recorder:
     def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
-        self.answers: dict[tuple[str, str], tuple[int, bytes]] = {}
+        self.answers: dict[tuple[str, str], Reply] = {}
 
 
 @pytest.fixture()
@@ -33,13 +45,15 @@ def server() -> Iterator[tuple[ApiClient, Recorder]]:
                     "body": json.loads(body) if body else None,
                 }
             )
-            status, payload = recorder.answers.get((self.command, self.path), (404, b""))
-            self.send_response(status)
-            if payload:
-                self.send_header("Content-Length", str(len(payload)))
+            reply = recorder.answers.get((self.command, self.path), Reply())
+            self.send_response(reply.status)
+            for name, value in reply.headers.items():
+                self.send_header(name, value)
+            if reply.body:
+                self.send_header("Content-Length", str(len(reply.body)))
             self.end_headers()
-            if payload:
-                self.wfile.write(payload)
+            if reply.body:
+                self.wfile.write(reply.body if reply.sent is None else reply.sent)
 
         do_GET = do_POST = do_PUT = _answer
 
@@ -56,9 +70,17 @@ def server() -> Iterator[tuple[ApiClient, Recorder]]:
         httpd.server_close()
 
 
-def answer(recorder: Recorder, method: str, path: str, status: int, body: Any = None) -> None:
+def answer(
+    recorder: Recorder,
+    method: str,
+    path: str,
+    status: int,
+    body: Any = None,
+    headers: dict[str, str] | None = None,
+    sent: bytes | None = None,
+) -> None:
     payload = body if isinstance(body, bytes) else (json.dumps(body).encode() if body is not None else b"")
-    recorder.answers[(method, path)] = (status, payload)
+    recorder.answers[(method, path)] = Reply(status, payload, dict(headers or {}), sent)
 
 
 def test_login_keeps_a_worker_token_and_sends_it_as_a_bearer(server) -> None:
@@ -251,3 +273,183 @@ def test_download_writes_the_bytes_and_asks_for_no_compression(server, tmp_path:
     # Without Accept-Encoding: gzip the API sends a compressed file inflated.
     assert "gzip" not in request["headers"].get("accept-encoding", "")
     assert caught.value.status == 404
+
+
+def compressed_night(size: int = 1 << 20) -> bytes:
+    # Not very compressible on purpose, so the stored form is not tiny.
+    return bytes(index % 251 for index in range(size))
+
+
+def test_a_compressed_download_is_requested_as_stored_and_inflated(server, tmp_path: Path) -> None:
+    client, recorder = server
+    client.token = "t1"
+    payload = compressed_night()
+    # The app uploads one member per chunk, so a stored file is many members.
+    stored = b"".join(
+        gzip.compress(payload[index : index + 65_536], mtime=0)
+        for index in range(0, len(payload), 65_536)
+    )
+    answer(
+        recorder,
+        "GET",
+        "/v1/recordings/rec1/files/hr.log",
+        200,
+        stored,
+        headers={"Content-Encoding": "gzip"},
+    )
+
+    client.download_file(
+        "rec1",
+        "hr.log",
+        tmp_path / "hr.log",
+        encoding="gzip",
+        uncompressed_size=len(payload),
+    )
+
+    assert (tmp_path / "hr.log").read_bytes() == payload
+    assert recorder.requests[0]["headers"]["accept-encoding"] == "gzip"
+
+
+def test_a_compressed_download_that_inflates_too_few_bytes_is_an_error(server, tmp_path: Path) -> None:
+    client, recorder = server
+    client.token = "t1"
+    payload = compressed_night(50_000)
+    answer(
+        recorder,
+        "GET",
+        "/v1/recordings/rec1/files/hr.log",
+        200,
+        gzip.compress(payload, mtime=0),
+        headers={"Content-Encoding": "gzip"},
+    )
+
+    with pytest.raises(ApiError, match="not the advertised"):
+        client.download_file(
+            "rec1",
+            "hr.log",
+            tmp_path / "hr.log",
+            encoding="gzip",
+            uncompressed_size=len(payload) + 1,
+        )
+
+
+def test_a_compressed_download_that_inflates_too_many_bytes_is_an_error(server, tmp_path: Path) -> None:
+    client, recorder = server
+    client.token = "t1"
+    payload = compressed_night(50_000)
+    answer(
+        recorder,
+        "GET",
+        "/v1/recordings/rec1/files/hr.log",
+        200,
+        gzip.compress(payload, mtime=0),
+        headers={"Content-Encoding": "gzip"},
+    )
+
+    with pytest.raises(ApiError, match="inflates past the advertised"):
+        client.download_file(
+            "rec1",
+            "hr.log",
+            tmp_path / "hr.log",
+            encoding="gzip",
+            uncompressed_size=len(payload) - 1,
+        )
+
+
+def test_a_cut_off_compressed_download_is_an_error(server, tmp_path: Path) -> None:
+    client, recorder = server
+    client.token = "t1"
+    payload = compressed_night(50_000)
+    stored = gzip.compress(payload, mtime=0)
+    answer(
+        recorder,
+        "GET",
+        "/v1/recordings/rec1/files/hr.log",
+        200,
+        stored,
+        headers={"Content-Encoding": "gzip"},
+        sent=stored[: len(stored) // 2],
+    )
+
+    with pytest.raises(ApiError, match="cannot download hr.log"):
+        client.download_file(
+            "rec1",
+            "hr.log",
+            tmp_path / "hr.log",
+            encoding="gzip",
+            uncompressed_size=len(payload),
+        )
+
+
+def test_a_corrupt_compressed_member_is_an_error(server, tmp_path: Path) -> None:
+    client, recorder = server
+    client.token = "t1"
+    payload = compressed_night(50_000)
+    stored = bytearray(gzip.compress(payload, mtime=0))
+    stored[len(stored) // 2] ^= 0xFF
+    answer(
+        recorder,
+        "GET",
+        "/v1/recordings/rec1/files/hr.log",
+        200,
+        bytes(stored),
+        headers={"Content-Encoding": "gzip"},
+    )
+
+    with pytest.raises(ApiError, match="cannot download hr.log"):
+        client.download_file(
+            "rec1",
+            "hr.log",
+            tmp_path / "hr.log",
+            encoding="gzip",
+            uncompressed_size=len(payload),
+        )
+
+
+def test_a_damaged_deflate_stream_is_an_error(server, tmp_path: Path) -> None:
+    client, recorder = server
+    client.token = "t1"
+    payload = compressed_night(50_000)
+    stored = bytearray(gzip.compress(payload, mtime=0))
+    stored[12] ^= 0xFF
+    answer(
+        recorder,
+        "GET",
+        "/v1/recordings/rec1/files/hr.log",
+        200,
+        bytes(stored),
+        headers={"Content-Encoding": "gzip"},
+    )
+
+    with pytest.raises(ApiError, match="cannot download hr.log"):
+        client.download_file(
+            "rec1",
+            "hr.log",
+            tmp_path / "hr.log",
+            encoding="gzip",
+            uncompressed_size=len(payload),
+        )
+
+
+def test_a_compressed_download_without_the_stored_encoding_is_an_error(server, tmp_path: Path) -> None:
+    client, recorder = server
+    client.token = "t1"
+    payload = compressed_night(1000)
+    answer(recorder, "GET", "/v1/recordings/rec1/files/hr.log", 200, payload)
+
+    with pytest.raises(ApiError, match="not as the gzip"):
+        client.download_file(
+            "rec1",
+            "hr.log",
+            tmp_path / "hr.log",
+            encoding="gzip",
+            uncompressed_size=len(payload),
+        )
+
+
+def test_a_compressed_download_without_an_advertised_size_is_an_error(server, tmp_path: Path) -> None:
+    client, _ = server
+    client.token = "t1"
+
+    with pytest.raises(ApiError, match="does not say"):
+        client.download_file("rec1", "hr.log", tmp_path / "hr.log", encoding="gzip")

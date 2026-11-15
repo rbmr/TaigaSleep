@@ -593,9 +593,12 @@ func TestFileUpload(t *testing.T) {
 	if got := s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/files/hr.log", alice, nil, nil); string(got) != "hello world" {
 		t.Fatalf("hr.log = %q", got)
 	}
-	inflated := s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/files/ecg.log", alice, nil, nil)
-	if want := append(bytes.Repeat([]byte("ab"), 500), bytes.Repeat([]byte("cd"), 500)...); !bytes.Equal(inflated, want) {
-		t.Fatalf("inflated ecg.log has %d bytes", len(inflated))
+	inflatedStatus, inflatedHeader, inflatedBytes := s.call(http.MethodGet, "/v1/recordings/"+id+"/files/ecg.log", alice, nil, nil)
+	if inflatedStatus != 200 || inflatedHeader.Get("Content-Length") != "2000" {
+		t.Fatalf("inflated ecg.log = %d %v", inflatedStatus, inflatedHeader)
+	}
+	if want := append(bytes.Repeat([]byte("ab"), 500), bytes.Repeat([]byte("cd"), 500)...); !bytes.Equal(inflatedBytes, want) {
+		t.Fatalf("inflated ecg.log has %d bytes", len(inflatedBytes))
 	}
 	status, header, stored := s.call(http.MethodGet, "/v1/recordings/"+id+"/files/ecg.log", alice, nil, map[string]string{"Accept-Encoding": "gzip"})
 	if status != 200 || header.Get("Content-Encoding") != "gzip" || !bytes.Equal(stored, append(append([]byte{}, first...), second...)) {
@@ -614,6 +617,75 @@ func TestFileUpload(t *testing.T) {
 		t.Fatalf("append after complete = %d %s", st, b)
 	}
 	s.expectCode(409, "recording_complete", http.MethodDelete, "/v1/recordings/"+id+"/files/hr.log", alice, nil, nil)
+}
+
+// The upload path inflates every member, so a member that misstates what it
+// holds or fails its CRC is refused before anything is stored.
+func TestGzipUploadVerifiesEachMember(t *testing.T) {
+	s := newServer(t)
+	alice := s.tokens["alice"]
+	id := "rec1"
+	createRecording(s, alice, id, testMeta(id, "recording"))
+	gz := map[string]string{"Content-Encoding": "gzip"}
+	payload := bytes.Repeat([]byte("taiga"), 1000)
+	member := gzipMember(t, payload)
+
+	understated := append([]byte(nil), member...)
+	binaryLittleEndian(understated[len(understated)-4:], 100)
+	if st, _, b := appendChunk(s, alice, id, "hr.log", 0, understated, gz); st != 400 || decode[ErrorResponse](t, b).Data["code"] != "invalid_gzip" {
+		t.Fatalf("member that inflates past its declared size = %d %s", st, b)
+	}
+	badCRC := append([]byte(nil), member...)
+	badCRC[len(badCRC)-8] ^= 0xff
+	if st, _, b := appendChunk(s, alice, id, "ecg.log", 0, badCRC, gz); st != 400 || decode[ErrorResponse](t, b).Data["code"] != "invalid_gzip" {
+		t.Fatalf("member with a wrong CRC = %d %s", st, b)
+	}
+	s.expect(404, http.MethodHead, "/v1/recordings/"+id+"/files/hr.log", alice, nil, nil)
+	s.expect(404, http.MethodHead, "/v1/recordings/"+id+"/files/ecg.log", alice, nil, nil)
+}
+
+// A stored compressed file that no longer inflates to what the recording
+// declares ends the download in a connection error, not in a short response
+// that looks complete.
+func TestInflatedDownloadAbortsWhenTheStoredFileIsDamaged(t *testing.T) {
+	s := newServer(t)
+	alice := s.tokens["alice"]
+	id := "rec1"
+	createRecording(s, alice, id, testMeta(id, "recording"))
+	gz := map[string]string{"Content-Encoding": "gzip"}
+	payload := bytes.Repeat([]byte("ab"), 500)
+	if st, _, b := appendChunk(s, alice, id, "ecg.log", 0, gzipMember(t, payload), gz); st != 204 {
+		t.Fatalf("gzip chunk = %d %s", st, b)
+	}
+	path := filepath.Join(recordingDir(s.app, id), "ecg.log.gz")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, info.Size()-12); err != nil {
+		t.Fatal(err)
+	}
+
+	httpServer := httptest.NewServer(s.mux)
+	t.Cleanup(httpServer.Close)
+	request, _ := http.NewRequest(http.MethodGet, httpServer.URL+"/v1/recordings/"+id+"/files/ecg.log", nil)
+	request.Header.Set("Authorization", "Bearer "+alice)
+	// Ask for the original bytes; Go's client would otherwise accept the stored gzip.
+	request.Header.Set("Accept-Encoding", "identity")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("download: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", response.StatusCode)
+	}
+	if got := response.Header.Get("Content-Length"); got != strconv.Itoa(len(payload)) {
+		t.Fatalf("Content-Length = %q, want %d", got, len(payload))
+	}
+	if _, err := io.ReadAll(response.Body); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("read = %v, want an aborted response", err)
+	}
 }
 
 func TestChunkLimits(t *testing.T) {

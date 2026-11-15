@@ -62,23 +62,28 @@ Content-Encoding: gzip
 
 `PATCH /api/collections/recordings/records/{id}` with `{"complete": true}` seals the
 recording without inflating anything. Frame validation is the worker's job in this mode; the API
-only checks gzip framing.
+checks the gzip framing and its integrity, not the frames inside.
 
-### What the API validates, and what it does not
+### What the API validates
 
-Per chunk, without inflating:
+Per chunk, the API inflates the member to a discard sink, bounded by the size its
+trailer declares, and checks it before anything is stored:
 
 - gzip magic, compression method, reserved and optional flags;
 - a non-empty deflate payload with a legal block type;
-- the trailer's declared uncompressed size (`ISIZE`);
-- the declared size against `max_uncompressed_chunk_bytes` and
-  `max_expansion_ratio`;
+- the trailer's declared uncompressed size (`ISIZE`) against
+  `max_uncompressed_chunk_bytes` and `max_expansion_ratio`;
+- the CRC and the real inflated size against that declaration: a member that
+  fails its CRC, ends early, or inflates to anything other than exactly its
+  declared size is refused (`400 invalid_gzip`);
 - the stored file/total caps and the member count cap.
 
-The API deliberately does **not** verify the member CRC or the deflate stream,
-because that requires inflating. A corrupt or truncated member is therefore
-detected by the worker, which reports the failure with a clear reason. This
-keeps upload CPU low and gives the full stream check one owner.
+The declared size is therefore true, and everything the API keeps about a file
+is derived from it, including the bound of an inflated download. The inflate is
+limited to the declared size plus one byte, so a member that understates what it
+holds stops there instead of expanding without bound. Frame validation stays the
+worker's job: the API checks the gzip framing and its integrity, not the frames
+inside.
 
 ## Storage layout
 
@@ -95,12 +100,17 @@ shrink. The worker always extracts to its temporary directory and deletes it
 after the job. `GET /v1/recordings/{id}/files` names each stored file and its
 encoding, so a worker never has to guess.
 
-The download route (`GET /v1/recordings/{id}/files/{name}`) reads the same layout
-and inflates a stored gzip stream on the fly unless the request says
-`Accept-Encoding: gzip`, so the phone can restore a raw file it cleaned up locally
-as the original bytes. The phone asks for `identity`: a stored file is several gzip
+The download route (`GET /v1/recordings/{id}/files/{name}`) reads the same layout.
+A client that asks for `Accept-Encoding: gzip` gets the stored members verbatim,
+with their stored size. Any other request gets the file inflated on the way out,
+as the original bytes: the phone does this to restore a raw file it cleaned up
+locally. The phone asks for `identity` because a stored file is several gzip
 members, and HTTP clients that decode `Content-Encoding` themselves often read
-only the first (OkHttp fails on the second).
+only the first (OkHttp fails on the second). An inflated download is bounded by
+the uncompressed size the recording declares and declares that size as its
+`Content-Length`. If inflating fails, or the result is not exactly that size,
+the API aborts the connection: the client sees a failed download instead of a
+short file that ends like a complete one.
 
 ## Limits
 
@@ -117,12 +127,16 @@ Defaults, all overridable per deployment:
 | `TAIGA_MAX_UPLOAD_MEMBERS` | 10000 | Compressed members per file. |
 | `max_expansion_ratio` | 200 | Fixed in the API; per member decompressed/compressed. |
 
-The worker enforces the same limits after download: total and per-file
-decompressed size, member count, expansion ratio per member and a whitelist of
-file names. `zlib` verifies each member CRC and size, so a truncated or corrupt
-member fails the job with `truncated gzip member` or `invalid gzip member`.
-After extraction the worker validates frame headers and CRCs, keeps the valid
-prefix of each stream and reports truncation as a warning.
+The worker downloads a compressed file as stored (`Accept-Encoding: gzip`),
+inflates it locally member by member, bounded by the uncompressed size the file
+listing advertises, and lets `zlib` verify each member's CRC and size. A
+download that is cut short, or that does not inflate to exactly the advertised
+size, fails the job instead of handing the analysis a short night. The worker
+enforces the same limits after download: total and per-file decompressed size,
+member count, expansion ratio per member and a whitelist of file names. A
+truncated or corrupt member fails the job with `truncated gzip member` or
+`invalid gzip member`. After extraction the worker validates frame headers and
+CRCs, keeps the valid prefix of each stream and reports truncation as a warning.
 
 ## App behaviour
 
@@ -238,9 +252,12 @@ server storage or upload bandwidth becomes the binding constraint.
 | Symptom | Where | Result |
 | --- | --- | --- |
 | Not a gzip member, bad flags, empty member, too much expansion | API | `400` before anything is stored |
+| A member that fails its CRC or inflates to another size than it declares | API | `400 invalid_gzip` before anything is stored |
 | Offset not at a member boundary | API | `409 offset_mismatch`, resume from the `Upload-Offset` it carries |
 | Mixed encodings in one file | API | `409 encoding_mismatch`, the first encoding wins |
-| Truncated or corrupt member | Worker | job fails with the member reason; lease/retry logic applies |
+| Stored member damaged after the upload | API on download | the inflated response aborts, the client sees a failed download |
+| Truncated or corrupt member at the worker | Worker | job fails with the member reason; lease/retry logic applies |
+| Download cut short, or shorter or longer than advertised | Worker | job fails before analysis; lease/retry logic applies |
 | Decompression bomb | Worker | job fails before analysis; size/member/ratio limits |
 | Cache lost while the server has bytes | App | explicit error; delete the recording on the server and retry |
 | Bad frame or CRC after decompression | Worker | valid prefix kept, warning in the result provenance |

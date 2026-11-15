@@ -314,8 +314,19 @@ class Worker:
                 name = str(entry["name"])
                 destination = root / name
 
-                def download(name: str = name, destination: Path = destination) -> None:
-                    self.api.download_file(recording_id, name, destination)
+                def download(
+                    name: str = name,
+                    destination: Path = destination,
+                    entry: Mapping[str, Any] = entry,
+                ) -> None:
+                    advertised = entry.get("uncompressed_size")
+                    self.api.download_file(
+                        recording_id,
+                        name,
+                        destination,
+                        encoding=str(entry.get("encoding") or "identity"),
+                        uncompressed_size=int(advertised) if advertised is not None else None,
+                    )
 
                 try:
                     self._call(download)

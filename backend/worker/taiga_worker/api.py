@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import gzip
 import http.client
 import json
 import shutil
 import socket
 import urllib.error
 import urllib.request
+import zlib
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import quote, urljoin
 
 from . import __version__
+
+# A compressed download is inflated and written in chunks of at most this size.
+COPY_CHUNK = 1 << 20
 
 
 class ApiError(RuntimeError):
@@ -43,12 +48,14 @@ class ApiClient:
         body: Mapping[str, Any] | None = None,
         auth: bool = True,
         accept: str = "application/json",
+        accept_encoding: str | None = None,
         timeout_s: float | None = None,
     ) -> Any:
         """Send one request and return the open response, or raise ApiError.
 
-        No Accept-Encoding is sent, so the API inflates a file it stores compressed
-        and every download is the original bytes.
+        Most requests say nothing about encodings and leave the response encoding
+        to the HTTP library. A compressed recording file is downloaded as the gzip
+        the API stores, so the worker verifies it itself.
         """
 
         data = None
@@ -56,6 +63,8 @@ class ApiClient:
             "Accept": accept,
             "User-Agent": f"taiga-sleep-worker/{__version__}",
         }
+        if accept_encoding is not None:
+            headers["Accept-Encoding"] = accept_encoding
         if body is not None:
             data = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json"
@@ -225,13 +234,88 @@ class ApiClient:
             raise ApiError("files response did not contain a list")
         return [item for item in items if isinstance(item, dict)]
 
-    def download_file(self, recording_id: str, name: str, destination: Path) -> None:
+    def download_file(
+        self,
+        recording_id: str,
+        name: str,
+        destination: Path,
+        *,
+        encoding: str = "identity",
+        uncompressed_size: int | None = None,
+    ) -> None:
+        """Download one file, checking it against what the file listing says.
+
+        A compressed file is requested as stored and inflated here, member by
+        member, bounded by the uncompressed size the API advertises, with every
+        member's CRC checked. A download that stops early, or does not inflate to
+        exactly that size, is an error: a night that arrived short must not reach
+        the analysis looking complete.
+        """
+
         path = f"/v1/recordings/{quote(recording_id, safe='')}/files/{quote(name, safe='')}"
         try:
+            if encoding == "gzip":
+                self._download_gzip(path, name, destination, uncompressed_size)
+                return
             with self._open(
                 "GET", path, accept="application/octet-stream", timeout_s=max(self.timeout_s, 300.0)
             ) as response:
                 with Path(destination).open("wb") as handle:
                     shutil.copyfileobj(response, handle)
-        except (socket.timeout, TimeoutError, OSError, http.client.HTTPException) as exc:
+        except (
+            socket.timeout,
+            TimeoutError,
+            OSError,
+            EOFError,
+            zlib.error,
+            http.client.HTTPException,
+        ) as exc:
             raise ApiError(f"cannot download {name}: {exc}") from exc
+
+    def _download_gzip(
+        self,
+        path: str,
+        name: str,
+        destination: Path,
+        uncompressed_size: int | None,
+    ) -> None:
+        """Request a compressed file as stored and inflate it, bounded and verified."""
+
+        if not uncompressed_size:
+            raise ApiError(f"cannot download {name}: the listing does not say what it inflates to")
+        with self._open(
+            "GET",
+            path,
+            accept="application/octet-stream",
+            accept_encoding="gzip",
+            timeout_s=max(self.timeout_s, 300.0),
+        ) as response:
+            sent = (response.headers.get("Content-Encoding") or "").strip().lower()
+            if sent != "gzip":
+                raise ApiError(
+                    f"cannot download {name}: the API sent it as {sent or 'identity'}, "
+                    "not as the gzip it advertises"
+                )
+            written = 0
+            with Path(destination).open("wb") as handle, gzip.GzipFile(
+                fileobj=response, mode="rb"
+            ) as member:
+                while True:
+                    # One byte more than what is still allowed: a stream that keeps
+                    # going past its declaration is caught instead of filling the disk.
+                    size = min(COPY_CHUNK, uncompressed_size - written + 1)
+                    data = member.read(size)
+                    if not data:
+                        break
+                    written += len(data)
+                    if written > uncompressed_size:
+                        raise ApiError(
+                            f"cannot download {name}: it inflates past the advertised "
+                            f"{uncompressed_size} bytes"
+                        )
+                    handle.write(data)
+        if written != uncompressed_size:
+            raise ApiError(
+                f"cannot download {name}: it delivered {written} bytes, "
+                f"not the advertised {uncompressed_size}"
+            )
