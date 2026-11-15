@@ -499,11 +499,12 @@ private object Architecture {
   val ALLOWED: Map<String, Set<String>> =
       mapOf(
           "tracker" to setOf("diagnostics"),
-          "recording" to setOf("tracker", "diagnostics"),
+          "recording" to setOf("tracker", "notifications", "diagnostics"),
           "guard" to setOf("tracker", "diagnostics"),
           "backend" to setOf("diagnostics"),
           "profile" to emptySet(),
-          "sync" to setOf("recording", "backend", "insights", "profile", "diagnostics"),
+          "sync" to
+              setOf("recording", "backend", "insights", "profile", "notifications", "diagnostics"),
           "insights" to setOf("backend", "diagnostics"),
           "library" to setOf("recording", "sync", "insights", "backend", "diagnostics"),
           "ui" to
@@ -516,9 +517,11 @@ private object Architecture {
                   "insights",
                   "profile",
                   "library",
+                  "notifications",
                   "diagnostics",
               ),
           "diagnostics" to emptySet(),
+          "notifications" to emptySet(),
       )
 
   /**

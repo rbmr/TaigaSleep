@@ -122,6 +122,9 @@ android {
   }
 
   testOptions {
+    // Robolectric tests read the app's real resources and manifest, so what they assert is what
+    // the phone shows.
+    unitTests.isIncludeAndroidResources = true
     unitTests.isReturnDefaultValues = true
     unitTests.all { test ->
       // The opt-in export benchmark reads this; a test JVM does not inherit the build's properties.

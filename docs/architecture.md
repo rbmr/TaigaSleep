@@ -73,15 +73,16 @@ One Gradle module, one package per concern under `com.rbmr.taigasleep`:
 | Package | Responsibility | May depend on |
 | --- | --- | --- |
 | `tracker` | What a tracker is: its capabilities, its recording mode, its configuration. Implementations per device (`polar`), a simulated one in debug builds. | `diagnostics` |
-| `recording` | Capturing: the selected tracker, the recording state machine, the foreground service, the on-disk format, the local store, export, the wake-up window and its alarm. | `tracker`, `diagnostics` |
+| `recording` | Capturing: the selected tracker, the recording state machine, the foreground service, the on-disk format, the local store, export, the wake-up window and its alarm. | `tracker`, `notifications`, `diagnostics` |
 | `guard` | The preventing-shutdown flow: per-device steps, checks, the final readiness list. | `tracker`, `diagnostics` |
 | `backend` | A client for API v1: DTOs, requests, authentication state, the realtime stream. No business logic. | `diagnostics` |
 | `profile` | The personal data the user enters about themselves: date of birth, sex and weight, plus the usual bedtime and wake time. Kept on the phone, optional; the first three go to an analysis, the times only draw the History trends. | nothing |
-| `sync` | Moving recordings to and from the backend: upload queue, retention, deletion, analysis requests, result cache. `SyncService` is its entry point, and the only thing outside the package calls. | `recording`, `backend`, `insights`, `profile`, `diagnostics` |
+| `sync` | Moving recordings to and from the backend: upload queue, retention, deletion, analysis requests, result cache. `SyncService` is its entry point, and the only thing outside the package calls. | `recording`, `backend`, `insights`, `profile`, `notifications`, `diagnostics` |
 | `insights` | Turning analysis results into what is displayed: statistics, series, scores, the algorithm catalogue and the user's algorithm preference. | `backend`, `diagnostics` |
 | `library` | The recordings the user owns, as one list: local state, sync state and results composed for presentation. | `recording`, `sync`, `insights`, `backend`, `diagnostics` |
 | `ui` | Screens and components. The only package that knows about Compose. | every other package |
 | `diagnostics` | Logging and crash evidence. A leaf. | nothing |
+| `notifications` | Every notification channel and every notification the app posts: the channel groups, the ids, and the one place that builds and posts them. A leaf. | nothing |
 
 The direction is strict: a package never imports one that is not in its row. An
 architecture test fails the build when it does, so the structure is enforced rather than

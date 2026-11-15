@@ -9,6 +9,7 @@ import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.guard.GuidanceStore
 import com.rbmr.taigasleep.guard.Readiness
 import com.rbmr.taigasleep.guard.ReadinessState
+import com.rbmr.taigasleep.notifications.Channels
 import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.RecordingHooks
 import com.rbmr.taigasleep.tracker.RecordingMode
@@ -29,6 +30,8 @@ class TaigaApplication : Application() {
     // Before anything can start a recording: the service asks these to decide and to hand over.
     RecordingHooks.install(RecordingWiring)
     Diagnostics.init(this)
+    // Every notification channel exists before anything can post one.
+    Channels.create(this)
     registerActivityLifecycleCallbacks(lifecycleLogger)
     DebugTools.install(this)
     CoroutineScope(Dispatchers.IO).launch {
