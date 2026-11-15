@@ -129,6 +129,9 @@ android {
     unitTests.all { test ->
       // The opt-in export benchmark reads this; a test JVM does not inherit the build's properties.
       System.getProperty("taiga.benchmark")?.let { test.systemProperty("taiga.benchmark", it) }
+      // Robolectric emulates the current Android release and reaches into this JDK-internal package
+      // while it sets the application up.
+      test.jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")
     }
   }
 
@@ -176,6 +179,9 @@ dependencies {
 
   testImplementation(libs.junit)
   testImplementation(libs.okhttp.mockwebserver)
+  // The screens are tested as they are drawn, on the JVM through Robolectric.
+  testImplementation(libs.androidx.compose.ui.test.junit4)
+  debugImplementation(libs.androidx.compose.ui.test.manifest)
   // Room needs the Android SQLite stack; Robolectric provides it in JVM tests.
   testImplementation(libs.robolectric)
 }
