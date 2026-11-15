@@ -7,6 +7,7 @@ import shutil
 import socket
 import urllib.error
 import urllib.request
+import zlib
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import quote, urljoin
@@ -261,7 +262,14 @@ class ApiClient:
             ) as response:
                 with Path(destination).open("wb") as handle:
                     shutil.copyfileobj(response, handle)
-        except (socket.timeout, TimeoutError, OSError, EOFError, http.client.HTTPException) as exc:
+        except (
+            socket.timeout,
+            TimeoutError,
+            OSError,
+            EOFError,
+            zlib.error,
+            http.client.HTTPException,
+        ) as exc:
             raise ApiError(f"cannot download {name}: {exc}") from exc
 
     def _download_gzip(

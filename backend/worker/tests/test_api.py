@@ -406,6 +406,31 @@ def test_a_corrupt_compressed_member_is_an_error(server, tmp_path: Path) -> None
         )
 
 
+def test_a_damaged_deflate_stream_is_an_error(server, tmp_path: Path) -> None:
+    client, recorder = server
+    client.token = "t1"
+    payload = compressed_night(50_000)
+    stored = bytearray(gzip.compress(payload, mtime=0))
+    stored[12] ^= 0xFF
+    answer(
+        recorder,
+        "GET",
+        "/v1/recordings/rec1/files/hr.log",
+        200,
+        bytes(stored),
+        headers={"Content-Encoding": "gzip"},
+    )
+
+    with pytest.raises(ApiError, match="cannot download hr.log"):
+        client.download_file(
+            "rec1",
+            "hr.log",
+            tmp_path / "hr.log",
+            encoding="gzip",
+            uncompressed_size=len(payload),
+        )
+
+
 def test_a_compressed_download_without_the_stored_encoding_is_an_error(server, tmp_path: Path) -> None:
     client, recorder = server
     client.token = "t1"
