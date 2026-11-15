@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,6 +14,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.rbmr.taigasleep.notifications.resultsOpened
 import com.rbmr.taigasleep.ui.TaigaApp
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 import com.rbmr.taigasleep.ui.theme.ThemeMode
@@ -23,6 +25,8 @@ class MainActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    // A start from the results notification read its counts; any other start changes nothing.
+    resultsOpened(this, intent)
     enableEdgeToEdge()
     // Results arrive live while the app is on screen: the realtime stream is open exactly while the
     // activity is started, and is closed when it is not. Nothing is kept running in the background.
@@ -52,5 +56,10 @@ class MainActivity : ComponentActivity() {
         )
       }
     }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    resultsOpened(this, intent)
   }
 }

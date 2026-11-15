@@ -15,6 +15,7 @@ import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.diagnostics.Diagnostics
+import com.rbmr.taigasleep.notifications.DeviceAlerts
 import com.rbmr.taigasleep.notifications.Notifier
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.tracker.RecordingMode
@@ -250,11 +251,25 @@ class RecordingService : Service(), RecordingHost {
 
   private var lastNotificationText: String? = null
 
+  private val alerts by lazy { DeviceAlerts(this) }
+
   override fun onState(state: RecordingState) {
+    reportHealth(state)
     val text = notificationText(state)
     if (text == lastNotificationText) return
     lastNotificationText = text
     Notifier.post(this, Notifier.RECORDING_ID, notification(text, state.capture.startUtcMs))
+  }
+
+  /**
+   * The battery reading and the free-space answer the monitor already has feed the two device
+   * alerts; each is sent once per episode, so the every-second publish repeats neither.
+   */
+  private fun reportHealth(state: RecordingState) {
+    state.power.percent?.let {
+      alerts.trackerBattery(it, state.power.state == RecordingState.PowerState.LOW)
+    }
+    alerts.phoneStorage(state.storage.lowSpace)
   }
 
   /** The tracker's name and one status; the notification's own timer shows the duration. */

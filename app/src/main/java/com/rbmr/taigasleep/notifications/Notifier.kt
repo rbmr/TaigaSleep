@@ -35,8 +35,22 @@ object Notifier {
   /** The id of the upload in progress. */
   const val UPLOAD_ID = 4211
 
+  /** The id of the one notification that batches upload and analysis results. */
+  const val RESULTS_ID = 4212
+
+  /** The id of the tracker's low battery alert. */
+  const val TRACKER_BATTERY_ID = 4213
+
+  /** The id of the phone's low storage alert. */
+  const val PHONE_STORAGE_ID = 4214
+
+  /** The extra the app's activity reads to tell a start from the results notification. */
+  const val EXTRA_RESULTS_OPENED = "com.rbmr.taigasleep.notifications.RESULTS_OPENED"
+
   private const val TAG = "Notifier"
   private const val REQUEST_OPEN = 57
+  private const val REQUEST_OPEN_RESULTS = 58
+  private const val REQUEST_DISMISS_RESULTS = 59
 
   /**
    * The recording in progress: the tracker and one status, with the notification's own timer
@@ -100,6 +114,46 @@ object Notifier {
           .setProgress(0, 0, true)
           .build()
 
+  /**
+   * The one summary of upload and analysis results, updated in place: [text] names only the
+   * outcomes whose type is on. Opening it goes to the app and clears the counts, and so does
+   * dismissing it.
+   */
+  fun results(context: Context, text: String, activity: String): Notification =
+      NotificationCompat.Builder(context, Channels.UPLOADS)
+          .setSmallIcon(R.drawable.ic_stat_recording)
+          .setContentTitle(context.getString(R.string.results_notification_title))
+          .setContentText(text)
+          .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+          .setContentIntent(openResults(context, activity))
+          .setDeleteIntent(dismissResults(context))
+          .setAutoCancel(true)
+          .setOnlyAlertOnce(true)
+          .setCategory(NotificationCompat.CATEGORY_STATUS)
+          .build()
+
+  /** The tracker's battery fell below what the app warns about. */
+  fun trackerBatteryLow(context: Context, percent: Int, activity: String): Notification =
+      NotificationCompat.Builder(context, Channels.TRACKER_BATTERY)
+          .setSmallIcon(R.drawable.ic_stat_recording)
+          .setContentTitle(context.getString(R.string.tracker_battery_notification_title))
+          .setContentText(context.getString(R.string.tracker_battery_notification_body, percent))
+          .setContentIntent(openApp(context, activity))
+          .setAutoCancel(true)
+          .setCategory(NotificationCompat.CATEGORY_STATUS)
+          .build()
+
+  /** Free space on this phone fell below what a recording needs. */
+  fun phoneStorageLow(context: Context, activity: String): Notification =
+      NotificationCompat.Builder(context, Channels.PHONE_STORAGE)
+          .setSmallIcon(R.drawable.ic_stat_recording)
+          .setContentTitle(context.getString(R.string.phone_storage_notification_title))
+          .setContentText(context.getString(R.string.phone_storage_notification_body))
+          .setContentIntent(openApp(context, activity))
+          .setAutoCancel(true)
+          .setCategory(NotificationCompat.CATEGORY_STATUS)
+          .build()
+
   /** Posts [notification] under [id]; a phone that refuses it says so in the log. */
   fun post(context: Context, id: Int, notification: Notification) {
     try {
@@ -122,10 +176,31 @@ object Notifier {
       PendingIntent.getActivity(
           context,
           REQUEST_OPEN,
-          Intent(Intent.ACTION_MAIN)
-              .addCategory(Intent.CATEGORY_LAUNCHER)
-              .setClassName(context, activity)
-              .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+          launcherIntent(context, activity),
           PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
       )
+
+  /** The results summary's tap: the same launcher start, marked so the app clears its counts. */
+  private fun openResults(context: Context, activity: String): PendingIntent =
+      PendingIntent.getActivity(
+          context,
+          REQUEST_OPEN_RESULTS,
+          launcherIntent(context, activity).putExtra(EXTRA_RESULTS_OPENED, true),
+          PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+      )
+
+  /** The results summary's dismissal: the counts it showed are done. */
+  private fun dismissResults(context: Context): PendingIntent =
+      PendingIntent.getBroadcast(
+          context,
+          REQUEST_DISMISS_RESULTS,
+          Intent(context, ResultsReceiver::class.java).setAction(ResultsReceiver.ACTION_DISMISSED),
+          PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+      )
+
+  private fun launcherIntent(context: Context, activity: String): Intent =
+      Intent(Intent.ACTION_MAIN)
+          .addCategory(Intent.CATEGORY_LAUNCHER)
+          .setClassName(context, activity)
+          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 }

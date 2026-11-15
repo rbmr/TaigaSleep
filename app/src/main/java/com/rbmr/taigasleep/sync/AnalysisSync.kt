@@ -18,6 +18,15 @@ class RecordingSnapshot(
 )
 
 /**
+ * An analysis outcome the app did not have yet. A repeat read of the same finished or failed run
+ * is not an outcome, so it is reported once.
+ */
+enum class AnalysisOutcome {
+  FINISHED,
+  FAILED,
+}
+
+/**
  * Brings the app's stored view of one recording in line with the server, once. This is what runs
  * when the realtime stream says a recording changed, when it (re)connects, and when a recording is opened.
  * It is a plain read-and-store, never a loop: nothing waits for an analysis to finish.
@@ -26,6 +35,9 @@ class RecordingSnapshot(
  * [ResultCache] and the recording becomes done; a failed one marks the recording failed; one that is queued
  * or running leaves it processing; none at all leaves it uploaded and not analyzed. A recording whose analysis is gone (deleted, or replaced by a retry
  * under a new id) follows what the recording lists now.
+ *
+ * [onOutcome] is told when a run finished or failed for the first time; a later read of the same
+ * state reports nothing.
  */
 class AnalysisSync(
     private val client: TaigaClient,
@@ -33,6 +45,7 @@ class AnalysisSync(
     private val results: ResultCache,
     /** The account [client] speaks for; everything below is stored under it. */
     private val account: String,
+    private val onOutcome: (AnalysisOutcome) -> Unit = {},
 ) {
   /**
    * Reads [recordingId] and writes what it says for the recording [key]. [preferred] are analysis ids in
@@ -45,6 +58,9 @@ class AnalysisSync(
       recordingId: String,
       preferred: List<String?> = emptyList(),
   ): RecordingSnapshot {
+    // What the app had before this read: an outcome already stored here is reported once, so a
+    // repeated read of the same run changes nothing.
+    val before = store.record(key, account)
     val recording = client.getRecording(recordingId)
     var analyses = client.allAnalyses(recordingId)
 
@@ -86,14 +102,19 @@ class AnalysisSync(
         // A result never changes once it succeeded, so one already on this phone is not saved again.
         if (!cached) results.save(account, key, shown.id, shown)
         store.markDone(key, account = account)
+        if (before?.phase != UploadPhase.DONE) onOutcome(AnalysisOutcome.FINISHED)
       }
-      shown.isFailed ->
-          store.markFailed(
-              key,
-              UploadFailure.ANALYSIS,
-              shown.error.takeIf { it.isNotBlank() },
-              account = account,
-          )
+      shown.isFailed -> {
+        store.markFailed(
+            key,
+            UploadFailure.ANALYSIS,
+            shown.error.takeIf { it.isNotBlank() },
+            account = account,
+        )
+        val known =
+            before?.phase == UploadPhase.FAILED && before.failure == UploadFailure.ANALYSIS
+        if (!known) onOutcome(AnalysisOutcome.FAILED)
+      }
       else -> if (recording.complete) store.markProcessing(key, account = account)
     }
     return RecordingSnapshot(recording, analyses, shown)

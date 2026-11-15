@@ -81,3 +81,20 @@ data class NotificationTypeState(
   val hasSwitch: Boolean
     get() = !type.required
 }
+
+/**
+ * [type] as the app and the phone have it now: the app's own switch for an optional type, and
+ * what Android allows for the app and for the type's channel. Nothing is stored here, so a change
+ * made in either place is what the next notification follows.
+ */
+internal fun notificationTypeState(
+    type: NotificationType,
+    settings: NotificationSettings,
+    access: NotificationAccess,
+): NotificationTypeState =
+    NotificationTypeState(
+        type = type,
+        preferenceOn = type.required || settings.isOn(type),
+        appAllowed = access.appAllowed(),
+        channelAllowed = access.channelAllowed(type.channelId),
+    )

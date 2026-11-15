@@ -23,4 +23,30 @@
   <string name="notifications_app_blocked">Notifications are off for Taiga Sleep in your phone\'s settings.</string>
   <string name="notifications_open_settings">Open settings</string>
   <string name="notifications_open_channel">Notification settings</string>
+
+  <!-- The one notification that batches upload and analysis results. Each line names only the
+       outcomes whose switch is on, and the counts are since it was last opened or dismissed. -->
+  <string name="results_notification_title">Uploads and analyses</string>
+  <plurals name="results_uploaded">
+    <item quantity="one">%1$d recording uploaded</item>
+    <item quantity="other">%1$d recordings uploaded</item>
+  </plurals>
+  <plurals name="results_upload_failed">
+    <item quantity="one">%1$d upload failed</item>
+    <item quantity="other">%1$d uploads failed</item>
+  </plurals>
+  <plurals name="results_analysis_finished">
+    <item quantity="one">%1$d analysis finished</item>
+    <item quantity="other">%1$d analyses finished</item>
+  </plurals>
+  <plurals name="results_analysis_failed">
+    <item quantity="one">%1$d analysis failed</item>
+    <item quantity="other">%1$d analyses failed</item>
+  </plurals>
+
+  <!-- The two device health alerts; their channels have default importance so they can alert. -->
+  <string name="tracker_battery_notification_title">Tracker battery low</string>
+  <string name="tracker_battery_notification_body">The tracker has %1$d%% left. Change or charge its battery before the next recording.</string>
+  <string name="phone_storage_notification_title">Phone storage low</string>
+  <string name="phone_storage_notification_body">Free up space on this phone to keep recording.</string>
 </resources>
