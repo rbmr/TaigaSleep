@@ -24,6 +24,8 @@ class TaigaApplication : Application() {
   private var startedActivities = 0
 
   override fun onCreate() {
+    // Debug builds report disk and network work on the main thread from the first call on.
+    DebugTools.startStrictMode()
     super.onCreate()
     // Before anything else: every collaborator is reached through this one instance.
     container = AppContainer(this)
@@ -39,8 +41,9 @@ class TaigaApplication : Application() {
       container.syncService.enforceRawRetention()
     }
     // Automatic upload and analysis catch up on everything that is due now, again at every event
-    // that can make something due, and every few hours as a safety net.
-    container.syncService.start()
+    // that can make something due, and every few hours as a safety net. The remote stack is built
+    // here, on the IO scope, so a wake-up never touches the Keystore on the main thread.
+    container.scope.launch { container.syncService.start() }
     container.scope.launch {
       // An export a share target may still be reading is kept for an hour, then removed.
       Exporter.cleanupOnStart(this@TaigaApplication)
