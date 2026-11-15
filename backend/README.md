@@ -438,8 +438,9 @@ POCKETBASE_BIN=/tmp/taiga-sleep-api \
 
 Set `TAIGA_KEEP_TEST_DATA=1` to keep the temporary data directory after a run.
 
-CI (`.github/workflows/backend.yml`) runs the Go tests, the worker tests and the
-integration suite on every pull request that touches `backend/`.
+CI (`.github/workflows/ci.yml`) runs the Go tests, the worker tests, the
+integration suite and the static checks on every pull request that touches
+`backend/`. See [`docs/ci.md`](../docs/ci.md).
 
 ## Deployment
 

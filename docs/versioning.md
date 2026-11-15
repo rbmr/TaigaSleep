@@ -104,8 +104,9 @@ for what R8 cannot see on its own live in `app/proguard-rules.pro`.
 
 The same plan is the `release plan` check on every pull request, so the checks on
 the pull request are the only place to look: green means the merge publishes
-cleanly, red means it would fail on `main`. `version bump` and `release plan` are
-both required checks on `main`.
+cleanly, red means it would fail on `main`. `version bump`, `release plan` and
+`gate` are the required checks on `main`; the last one is the aggregate over the
+tests and static checks described in [`ci.md`](ci.md).
 
 That matters because the two rules are easy to confuse. Bumping only the app is
 correct for an app-only change, and the backend keeps a version that was released

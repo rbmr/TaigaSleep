@@ -1,0 +1,73 @@
+# Keeps the dependencies and the pinned actions current. Patch and minor
+# updates arrive as one pull request per ecosystem; a major update arrives on its
+# own, because it usually needs a code change. See docs/versioning.md: a change
+# to a component's dependencies is a change to that component, so its version
+# still has to be bumped in the pull request.
+version: 2
+
+updates:
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(app)
+    groups:
+      gradle-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: gomod
+    directory: "/backend/api"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(api)
+    groups:
+      go-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: uv
+    directory: "/backend/worker"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(worker)
+    groups:
+      python-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: docker
+    directory: "/backend/api"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore(api)
+
+  - package-ecosystem: docker
+    directory: "/backend/worker"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore(worker)
+
+  # The workflows pin third-party actions by commit; this is what keeps the
+  # comments' versions and the pins moving.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(ci)
+    groups:
+      actions-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
