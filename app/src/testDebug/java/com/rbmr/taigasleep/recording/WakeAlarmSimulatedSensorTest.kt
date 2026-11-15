@@ -73,7 +73,7 @@ class WakeAlarmSimulatedSensorTest {
   @Test
   fun `stopping a recording drops its window`() {
     val host = startWithWindow()
-    control!!.stop(forced = false)
+    control!!.stop()
     await("the recording to end") { host.activeSessionId == null }
 
     assertNull("a stopped recording does not ring", host.armed)
@@ -82,7 +82,7 @@ class WakeAlarmSimulatedSensorTest {
   @Test
   fun `force stopping a recording drops its window`() {
     val host = startWithWindow()
-    control!!.stop(forced = true)
+    control!!.forceStop()
     await("the recording to end") { host.activeSessionId == null }
 
     assertNull("a force-stopped recording does not ring", host.armed)

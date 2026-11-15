@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -40,8 +41,12 @@ class RecordingControlTest {
   private val clock = TestClock()
   private var control: RecordingControl? = null
 
+  /** Tracker calls a test made hang must be let go, or their threads outlive the test. */
+  private var release: (() -> Unit)? = null
+
   @After
   fun tearDown() {
+    release?.invoke()
     control?.shutdown()
   }
 
@@ -168,8 +173,47 @@ class RecordingControlTest {
     assertNull("a refused recording does not ring", host.armed)
   }
 
+  @Test
+  fun `a stop that does not complete can be forced`() {
+    val store = store()
+    val dir = open(store)
+    val sensor = FakeSensor(stallsStart = false, stallsStop = true)
+    val host = FakeHost(sensor).apply { activeSessionId = ID }
+    val control = RecordingControl(store, clock, host).also { this.control = it }
+    release = sensor::releaseStop
+
+    control.resume()
+    await("the recording to be attached") { host.running && sensor.starts == 1 }
+    sensor.deliverHr(clock)
+    await("the data written so far") { frames(dir) > 0 }
+    val written = frames(dir)
+
+    control.stop()
+    // The tracker never answers the stop, so the control thread is stuck in the stopping phase.
+    assertTrue(sensor.stopEntered.await(5, TimeUnit.SECONDS))
+    assertEquals(RecordingPhase.RECORDING, RecordingMeta.read(dir)!!.state)
+
+    control.forceStop()
+
+    await("the recording to be forced") {
+      RecordingMeta.read(dir)!!.state == RecordingPhase.FORCED_STOP && host.finished
+    }
+    val meta = RecordingMeta.read(dir)!!
+    assertEquals(RecordingPhase.FORCED_STOP, meta.state)
+    assertEquals("the end of the forced recording is written", clock.phoneNs / 1_000_000L, meta.endUtcMs)
+    assertEquals("what was written before the force stop stays", written, frames(dir))
+    await("the tracker to be let go") { sensor.stopCalls >= 2 }
+    assertNull("the marker is cleared so nothing resumes it", host.activeSessionId)
+    assertFalse("the service is gone", host.running)
+    assertEquals(Phase.IDLE, RecordingRepository.status.value.phase)
+    assertNull("no half-finished card is left behind", RecordingRepository.status.value.finishing)
+  }
+
   /** A tracker whose first stream start never returns, like a call that hangs in the SDK. */
-  private class FakeSensor : SleepSensor {
+  private class FakeSensor(
+      private val stallsStart: Boolean = true,
+      private val stallsStop: Boolean = false,
+  ) : SleepSensor {
     override val kind = SensorKind.POLAR_H10
     override val id = ID
     override val name = "Test strap"
@@ -184,6 +228,9 @@ class RecordingControlTest {
 
     val firstStartEntered = CountDownLatch(1)
     private val firstStartReleased = CountDownLatch(1)
+    private val stopReleased = CountDownLatch(1)
+
+    val stopEntered = CountDownLatch(1)
 
     @Volatile private var listener: SampleListener? = null
     @Volatile var starts = 0
@@ -202,20 +249,31 @@ class RecordingControlTest {
     override fun startStreams(config: StreamConfig, listener: SampleListener) {
       this.listener = listener
       starts++
-      if (starts == 1) {
-        firstStartEntered.countDown()
-        // The stall ends only when the interrupted control thread is let go.
-        try {
-          firstStartReleased.await()
-        } catch (_: InterruptedException) {
-          Thread.currentThread().interrupt()
-        }
+      if (!stallsStart || starts > 1) return
+      firstStartEntered.countDown()
+      // The stall ends only when the interrupted control thread is let go.
+      try {
+        firstStartReleased.await()
+      } catch (_: InterruptedException) {
+        Thread.currentThread().interrupt()
       }
     }
 
     // Best effort, like the SDK: a start that supersedes this one owns the samples again.
     override fun stopStreams() {
       stopCalls++
+      if (!stallsStop) return
+      stopEntered.countDown()
+      try {
+        stopReleased.await()
+      } catch (_: InterruptedException) {
+        Thread.currentThread().interrupt()
+      }
+    }
+
+    /** Lets a hanging stop return, as a tracker that finally answers would. */
+    fun releaseStop() {
+      stopReleased.countDown()
     }
 
     fun deliverHr(clock: TestClock) {

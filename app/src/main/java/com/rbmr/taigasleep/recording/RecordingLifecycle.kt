@@ -63,20 +63,23 @@ class RecordingLifecycle(
   }
 
   /**
-   * Graceful stop: close the streams, or fetch everything. An on-device stop stays in
-   * [LifecycleState.STOPPING] until [fetchSucceeded] or [fetchFailed] says how the fetch went.
+   * Graceful stop: close the streams, or fetch everything. The recording stays in
+   * [LifecycleState.STOPPING] until [stopCompleted], [fetchSucceeded] or [fetchFailed] says how that
+   * went, so a stop that hangs can still be forced.
    */
   fun stop(): List<LifecycleEffect> {
     if (!beginStop()) return emptyList()
     return when (mode) {
-      RecordingMode.STREAM ->
-          listOf(
-              LifecycleEffect.StopStreams,
-              LifecycleEffect.Finish(RecordingPhase.STOPPED),
-          )
-              .also { state = LifecycleState.FINISHED }
+      RecordingMode.STREAM -> listOf(LifecycleEffect.StopStreams)
       RecordingMode.ON_DEVICE -> listOf(LifecycleEffect.FetchFromTracker)
     }
+  }
+
+  /** The streamed recording's streams are closed and its data is on the phone. */
+  fun stopCompleted(): List<LifecycleEffect> {
+    if (state != LifecycleState.STOPPING || mode != RecordingMode.STREAM) return emptyList()
+    state = LifecycleState.FINISHED
+    return listOf(LifecycleEffect.Finish(RecordingPhase.STOPPED))
   }
 
   /** The fetch is complete and verified: the recording is finished, then the tracker's copy goes. */
@@ -103,9 +106,14 @@ class RecordingLifecycle(
     return listOf(LifecycleEffect.FetchFromTracker)
   }
 
-  /** Force stop: accept what is already on the phone, do not wait for the tracker. */
+  /**
+   * Force stop: accept what is already on the phone, do not wait for the tracker. A recording that
+   * is still recording and one whose stop has not completed both end this way, which is what makes
+   * a hanging stop escapable.
+   */
   fun forceStop(): List<LifecycleEffect> {
-    if (!beginStop()) return emptyList()
+    if (state != LifecycleState.RECORDING && state != LifecycleState.STOPPING) return emptyList()
+    state = LifecycleState.FINISHED
     return when (mode) {
       RecordingMode.STREAM ->
           listOf(
@@ -113,7 +121,7 @@ class RecordingLifecycle(
               LifecycleEffect.StopStreamsAsync,
           )
       RecordingMode.ON_DEVICE -> listOf(LifecycleEffect.Finish(RecordingPhase.FORCED_STOP))
-    }.also { state = LifecycleState.FINISHED }
+    }
   }
 
   /** Discard: end the recording and remove every copy, local and on the tracker. */
