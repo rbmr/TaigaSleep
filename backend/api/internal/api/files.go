@@ -2,6 +2,7 @@ package api
 
 import (
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -75,13 +76,21 @@ func readFiles(record *core.Record) map[string]FileEntry {
 	return files
 }
 
-func fileSize(path string) int64 {
+// storedSize is the size of a stored file and whether it is there.
+func storedSize(path string) (int64, bool, error) {
 	info, err := os.Stat(path)
-	if err != nil {
-		return 0
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, false, nil
 	}
-	return info.Size()
+	if err != nil {
+		return 0, false, err
+	}
+	return info.Size(), true, nil
 }
+
+// writeFileChunk appends one chunk to a stored file and flushes it to disk. A test
+// replaces it to fail a write after part of the chunk is on disk.
+var writeFileChunk = appendFile
 
 // fileViews lists the files that exist, in a stable order. The size comes from the
 // disk, so it is right even after a crash between writing a chunk and recording it.
@@ -231,9 +240,81 @@ func PatchFile(e *core.RequestEvent) error {
 		}
 	}
 
-	var newSize int64
+	// One append at a time per recording: the offset is read from the file, so a
+	// second chunk that looked before the first was written would claim the same
+	// place.
+	id := e.Request.PathValue("id")
+	release := recordingFileLocks.lock(id)
+	defer release()
+
+	// Decide first, write second, record third. The checks read the recording, the
+	// account and the file and no transaction is open while the chunk is written, so
+	// a slow disk holds up this recording instead of every write on the server.
+	record, err := ownRecording(e.App, e, id)
+	if err != nil {
+		return err
+	}
+	if record.GetBool("complete") {
+		return conflict("recording_complete", "the recording is complete and can no longer change")
+	}
+	entries := readFiles(record)
+	entry, exists := entries[name]
+	if exists && entry.Encoding != encoding {
+		return conflict("encoding_mismatch", fmt.Sprintf("this file is already stored as %s", entry.Encoding))
+	}
+	dir := recordingDir(e.App, record.Id)
+	path := filepath.Join(dir, storedName(name, encoding))
+	current, existed, err := storedSize(path)
+	if err != nil {
+		return err
+	}
+	if offset != current {
+		apiErr := conflict("offset_mismatch", fmt.Sprintf("the file is %d bytes long, not %d", current, offset))
+		apiErr.Headers = map[string]string{headerUploadOffset: strconv.FormatInt(current, 10)}
+		return apiErr
+	}
+	chunkSize := int64(len(data))
+	if current+chunkSize > maxFileBytes() {
+		return tooLarge("file_too_large", fmt.Sprintf("a file is at most %d bytes", maxFileBytes()))
+	}
+	if recordingSize(e.App, record)+chunkSize > maxTotalBytes() {
+		return tooLarge("recording_too_large", fmt.Sprintf("a recording is at most %d bytes", maxTotalBytes()))
+	}
+	account, err := e.App.FindRecordById("users", record.GetString("owner"))
+	if err != nil {
+		return err
+	}
+	if err := quotaCheck(int64(account.GetInt("storage_bytes")), chunkSize); err != nil {
+		return err
+	}
+	if !exists {
+		entry = FileEntry{Encoding: encoding}
+	}
+	if encoding == encodingGzip {
+		if entry.Members+1 > maxMembers() {
+			return tooLarge("too_many_members", "the file has too many compressed chunks")
+		}
+		if entry.UncompressedSize+member.Uncompressed > maxUncompressedFileBytes() {
+			return tooLarge("file_too_large", "the file expands beyond the limit")
+		}
+		if totalUncompressed(e.App, record)+member.Uncompressed > maxUncompressedBytes() {
+			return tooLarge("recording_too_large", "the recording expands beyond the limit")
+		}
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	if err := writeFileChunk(path, data); err != nil {
+		return rollbackChunk(path, current, existed, err)
+	}
+	newSize := current + chunkSize
+
+	// The bookkeeping is committed once the bytes are on disk. Nothing but the two
+	// rows is written, so the database holds its write lock for that alone. A failure
+	// here rolls the chunk back, so the file size and the rows agree and the same
+	// offset can be sent again.
 	err = e.App.RunInTransaction(func(txApp core.App) error {
-		record, err := ownRecording(txApp, e, e.Request.PathValue("id"))
+		record, err := ownRecording(txApp, e, id)
 		if err != nil {
 			return err
 		}
@@ -245,64 +326,64 @@ func PatchFile(e *core.RequestEvent) error {
 		if exists && entry.Encoding != encoding {
 			return conflict("encoding_mismatch", fmt.Sprintf("this file is already stored as %s", entry.Encoding))
 		}
-		dir := recordingDir(txApp, record.Id)
-		path := filepath.Join(dir, storedName(name, encoding))
-		current := fileSize(path)
-		if offset != current {
-			apiErr := conflict("offset_mismatch", fmt.Sprintf("the file is %d bytes long, not %d", current, offset))
-			apiErr.Headers = map[string]string{headerUploadOffset: strconv.FormatInt(current, 10)}
-			return apiErr
-		}
-		if current+int64(len(data)) > maxFileBytes() {
-			return tooLarge("file_too_large", fmt.Sprintf("a file is at most %d bytes", maxFileBytes()))
-		}
-		if recordingSize(txApp, record)+int64(len(data)) > maxTotalBytes() {
-			return tooLarge("recording_too_large", fmt.Sprintf("a recording is at most %d bytes", maxTotalBytes()))
-		}
 		account, err := txApp.FindRecordById("users", record.GetString("owner"))
 		if err != nil {
 			return err
 		}
-		if err := quotaCheck(int64(account.GetInt("storage_bytes")), int64(len(data))); err != nil {
+		// Another recording of the account may have taken the room since the check.
+		if err := quotaCheck(int64(account.GetInt("storage_bytes")), chunkSize); err != nil {
 			return err
 		}
 		if !exists {
 			entry = FileEntry{Encoding: encoding}
 		}
 		if encoding == encodingGzip {
-			if entry.Members+1 > maxMembers() {
-				return tooLarge("too_many_members", "the file has too many compressed chunks")
-			}
-			if entry.UncompressedSize+member.Uncompressed > maxUncompressedFileBytes() {
-				return tooLarge("file_too_large", "the file expands beyond the limit")
-			}
-			if totalUncompressed(txApp, record)+member.Uncompressed > maxUncompressedBytes() {
-				return tooLarge("recording_too_large", "the recording expands beyond the limit")
-			}
 			entry.Members++
 			entry.UncompressedSize += member.Uncompressed
 		}
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return err
-		}
-		if err := appendFile(path, data); err != nil {
-			return err
-		}
-		newSize = current + int64(len(data))
 		entries[name] = entry
 		record.Set("files", entries)
-		record.Set("stored_bytes", int64(record.GetInt("stored_bytes"))+int64(len(data)))
+		record.Set("stored_bytes", int64(record.GetInt("stored_bytes"))+chunkSize)
 		if err := txApp.Save(record); err != nil {
 			return err
 		}
-		account.Set("storage_bytes", int64(account.GetInt("storage_bytes"))+int64(len(data)))
+		account.Set("storage_bytes", int64(account.GetInt("storage_bytes"))+chunkSize)
 		return txApp.Save(account)
 	})
 	if err != nil {
-		return err
+		return rollbackChunk(path, current, existed, err)
 	}
 	e.Response.Header().Set(headerUploadOffset, strconv.FormatInt(newSize, 10))
 	return e.NoContent(http.StatusNoContent)
+}
+
+// rollbackChunk undoes a chunk that could not be recorded: the file goes back to the
+// size it had before the chunk, or disappears when this chunk created it. The answer
+// is the original failure, with the rollback failure added when there is one, because
+// a file that is longer than its rows would answer the next offset check with a size
+// no chunk starts at.
+func rollbackChunk(path string, size int64, existed bool, cause error) error {
+	var err error
+	if !existed {
+		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			err = removeErr
+		}
+	} else if file, openErr := os.OpenFile(path, os.O_WRONLY, 0); openErr != nil {
+		err = openErr
+	} else {
+		if truncateErr := file.Truncate(size); truncateErr != nil {
+			err = truncateErr
+		} else if syncErr := file.Sync(); syncErr != nil {
+			err = syncErr
+		}
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("%w (the chunk could not be rolled back: %v)", cause, err)
+	}
+	return cause
 }
 
 func totalUncompressed(app core.App, record *core.Record) int64 {
@@ -386,6 +467,10 @@ func DeleteFile(e *core.RequestEvent) error {
 	if !isDataFile(name) {
 		return notFound("file")
 	}
+	// A delete takes the same lock as an append, so a chunk cannot be written to a
+	// file that this request is removing.
+	release := recordingFileLocks.lock(e.Request.PathValue("id"))
+	defer release()
 	err := e.App.RunInTransaction(func(txApp core.App) error {
 		record, err := ownRecording(txApp, e, e.Request.PathValue("id"))
 		if err != nil {
@@ -404,7 +489,10 @@ func DeleteFile(e *core.RequestEvent) error {
 			encoding = encodingIdentity
 		}
 		dir := recordingDir(txApp, record.Id)
-		removed := fileSize(filepath.Join(dir, storedName(name, encoding)))
+		removed, _, err := storedSize(filepath.Join(dir, storedName(name, encoding)))
+		if err != nil {
+			return err
+		}
 		_ = os.Remove(filepath.Join(dir, storedName(name, encodingIdentity)))
 		_ = os.Remove(filepath.Join(dir, storedName(name, encodingGzip)))
 		delete(entries, name)

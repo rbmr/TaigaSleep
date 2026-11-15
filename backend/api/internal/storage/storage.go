@@ -2,11 +2,21 @@
 // each recording holds and what an account holds across its recordings. They are kept
 // with the rows that change them, so accepting a chunk reads one number instead of
 // scanning every recording of the account and every file on disk.
+//
+// The API keeps the totals and the per-file bookkeeping correct as it writes. Check
+// compares them with the files themselves, for a data directory that drifted, and
+// repairs what it can.
 package storage
 
 import (
+	"bufio"
+	"compress/gzip"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -14,6 +24,37 @@ import (
 // DataFiles are the raw files of a recording. meta.json is not one of them: it lives
 // in the recording itself.
 var DataFiles = []string{"hr.log", "ecg.log", "acc.log", "events.jsonl"}
+
+// fileEntry is the part of a recording's file bookkeeping that is checked against the
+// file on disk. A compressed file's member count and uncompressed size are the only
+// facts about a stored file that cannot be read from its size.
+type fileEntry struct {
+	Encoding         string `json:"encoding"`
+	UncompressedSize int64  `json:"uncompressed_size"`
+	Members          int    `json:"members,omitempty"`
+}
+
+// Options says what a check may change beyond reporting.
+type Options struct {
+	// RemoveOrphans also deletes the directories under recordings/ that have no
+	// recording row.
+	RemoveOrphans bool
+}
+
+// Report is what a check found and corrected.
+type Report struct {
+	// Recordings is the number of recording rows whose stored_bytes changed.
+	Recordings int
+	// Accounts is the number of account rows whose storage_bytes changed.
+	Accounts int
+	// Files is the number of compressed files whose member count or uncompressed
+	// size was rebuilt.
+	Files int
+	// Orphans are the directories under recordings/ that have no recording row.
+	Orphans []string
+	// Removed is how many of the orphans were deleted.
+	Removed int
+}
 
 // RecordingBytes is the stored size of a recording's files on disk, which is the
 // compressed size for a gzip file. It reads the directory, so it is also right after a
@@ -32,30 +73,57 @@ func RecordingBytes(app core.App, record *core.Record) int64 {
 }
 
 // Reconcile compares the stored totals with the files on disk and corrects them. It
-// returns how many recording and account rows it changed. The operator runs it as the
-// `storage-check` command; the API keeps the totals correct on its own.
+// returns how many recording and account rows it changed. The migration that adds the
+// totals fills them with it; the operator runs `storage-check`, which also rebuilds the
+// compressed file bookkeeping, for a total that drifted.
 func Reconcile(app core.App) (recordings, accounts int, err error) {
+	report, err := reconcile(app, Options{}, false)
+	return report.Recordings, report.Accounts, err
+}
+
+// Check compares the stored totals with the files on disk and corrects them, rebuilds
+// a compressed file's member count and uncompressed size from the file's gzip members,
+// and reports the directories under recordings/ that have no recording row. It
+// returns what it found and changed.
+func Check(app core.App, options Options) (Report, error) {
+	return reconcile(app, options, true)
+}
+
+// reconcile compares the rows with the files. checkFiles says whether a compressed file's
+// member count and uncompressed size are rebuilt as well; the migration fills only the
+// totals, and must not stop on a stored file it cannot read.
+func reconcile(app core.App, options Options, checkFiles bool) (Report, error) {
+	var report Report
 	rows, err := app.FindAllRecords("recordings")
 	if err != nil {
-		return 0, 0, err
+		return report, err
 	}
+	known := make(map[string]bool, len(rows))
 	totals := map[string]int64{}
 	for _, record := range rows {
-		want := RecordingBytes(app, record)
+		known[record.Id] = true
+		want, rebuilt, err := reconcileRecording(app, record, checkFiles)
+		if err != nil {
+			return report, err
+		}
+		report.Files += rebuilt
 		totals[record.GetString("owner")] += want
-		if int64(record.GetInt("stored_bytes")) == want {
+		stored := int64(record.GetInt("stored_bytes"))
+		if stored == want && rebuilt == 0 {
 			continue
+		}
+		if stored != want {
+			report.Recordings++
 		}
 		record.Set("stored_bytes", want)
 		if err := app.Save(record); err != nil {
-			return recordings, accounts, err
+			return report, err
 		}
-		recordings++
 	}
 
 	users, err := app.FindAllRecords("users")
 	if err != nil {
-		return recordings, accounts, err
+		return report, err
 	}
 	for _, user := range users {
 		want := totals[user.Id]
@@ -64,9 +132,108 @@ func Reconcile(app core.App) (recordings, accounts int, err error) {
 		}
 		user.Set("storage_bytes", want)
 		if err := app.Save(user); err != nil {
-			return recordings, accounts, err
+			return report, err
 		}
-		accounts++
+		report.Accounts++
 	}
-	return recordings, accounts, nil
+
+	base := filepath.Join(app.DataDir(), "recordings")
+	entries, err := os.ReadDir(base)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return report, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || known[entry.Name()] {
+			continue
+		}
+		report.Orphans = append(report.Orphans, entry.Name())
+	}
+	sort.Strings(report.Orphans)
+	if options.RemoveOrphans {
+		for _, name := range report.Orphans {
+			if err := os.RemoveAll(filepath.Join(base, name)); err != nil {
+				return report, err
+			}
+			report.Removed++
+		}
+	}
+	return report, nil
+}
+
+// reconcileRecording corrects the parts of one recording's bookkeeping that disagree
+// with its files and returns its stored size and how many compressed files it rebuilt.
+// It writes nothing: the caller saves the record.
+func reconcileRecording(app core.App, record *core.Record, checkFiles bool) (int64, int, error) {
+	if !checkFiles {
+		return RecordingBytes(app, record), 0, nil
+	}
+	entries := map[string]fileEntry{}
+	_ = record.UnmarshalJSONField("files", &entries)
+	if entries == nil {
+		entries = map[string]fileEntry{}
+	}
+	dir := filepath.Join(app.DataDir(), "recordings", record.Id)
+	rebuilt := 0
+	for _, name := range DataFiles {
+		path := filepath.Join(dir, name+".gz")
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		entry, ok := entries[name]
+		if !ok || entry.Encoding != "gzip" {
+			continue
+		}
+		members, uncompressed, err := gzipTotals(path)
+		if err != nil {
+			return 0, 0, fmt.Errorf("recording %s: %s: %w", record.Id, name+".gz", err)
+		}
+		if entry.Members == members && entry.UncompressedSize == uncompressed {
+			continue
+		}
+		entry.Members = members
+		entry.UncompressedSize = uncompressed
+		entries[name] = entry
+		rebuilt++
+	}
+	if rebuilt > 0 {
+		record.Set("files", entries)
+	}
+	return RecordingBytes(app, record), rebuilt, nil
+}
+
+// gzipTotals counts the gzip members of a stored file and the bytes they inflate to.
+// A compressed file is one member per uploaded chunk, so the member boundaries are the
+// chunk boundaries and the two numbers are what the file row would have recorded had
+// every chunk committed. It reads one member at a time and stops exactly at each
+// member's end, so a damaged member is an error rather than part of the next one.
+func gzipTotals(path string) (members int, uncompressed int64, err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer file.Close()
+	buffered := bufio.NewReader(file)
+	for {
+		if _, err := buffered.Peek(1); err != nil {
+			if errors.Is(err, io.EOF) {
+				return members, uncompressed, nil
+			}
+			return members, uncompressed, err
+		}
+		reader, err := gzip.NewReader(buffered)
+		if err != nil {
+			return members, uncompressed, err
+		}
+		reader.Multistream(false)
+		size, err := io.Copy(io.Discard, reader)
+		closeErr := reader.Close()
+		if err != nil {
+			return members, uncompressed, err
+		}
+		if closeErr != nil {
+			return members, uncompressed, closeErr
+		}
+		members++
+		uncompressed += size
+	}
 }
