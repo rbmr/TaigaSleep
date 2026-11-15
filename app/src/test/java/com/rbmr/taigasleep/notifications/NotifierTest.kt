@@ -37,6 +37,16 @@ class NotifierTest {
   }
 
   @Test
+  fun `tapping a notification starts the launcher activity like the launcher does`() {
+    val tap = shadowOf(Notifier.openApp(context, Notifier.APP_ACTIVITY)).savedIntent
+
+    assertEquals(Intent.ACTION_MAIN, tap.action)
+    assertTrue(tap.categories.contains(Intent.CATEGORY_LAUNCHER))
+    assertEquals(Notifier.APP_ACTIVITY, tap.component?.className)
+    assertTrue(tap.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+  }
+
+  @Test
   fun `the recording notification shows the tracker, one status and its timer`() {
     val notification = recording("Strap · Connected", START_MS)
 

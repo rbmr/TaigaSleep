@@ -114,12 +114,18 @@ object Notifier {
     NotificationManagerCompat.from(context).cancel(id)
   }
 
-  /** The one tap target: the app's launcher activity. */
+  /**
+   * The one tap target: the app's launcher activity, started the way the launcher starts it. A
+   * running app comes to the front instead of getting a second copy of its screen on top.
+   */
   fun openApp(context: Context, activity: String): PendingIntent =
       PendingIntent.getActivity(
           context,
           REQUEST_OPEN,
-          Intent().setClassName(context, activity),
+          Intent(Intent.ACTION_MAIN)
+              .addCategory(Intent.CATEGORY_LAUNCHER)
+              .setClassName(context, activity)
+              .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
           PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
       )
 }
