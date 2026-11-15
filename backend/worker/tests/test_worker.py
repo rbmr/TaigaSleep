@@ -82,6 +82,7 @@ class FakeApi:
         self.report_calls = 0
         self.fetched: list[str] = []
         self.downloads: list[str] = []
+        self.download_options: list[dict[str, Any]] = []
 
     def login(self, email: str, password: str) -> str:
         self.logins += 1
@@ -126,8 +127,19 @@ class FakeApi:
             for name, body in self.files_by_name.items()
         ]
 
-    def download_file(self, recording_id: str, name: str, destination: Path) -> None:
+    def download_file(
+        self,
+        recording_id: str,
+        name: str,
+        destination: Path,
+        *,
+        encoding: str = "identity",
+        uncompressed_size: int | None = None,
+    ) -> None:
         self.downloads.append(name)
+        self.download_options.append(
+            {"name": name, "encoding": encoding, "uncompressed_size": uncompressed_size}
+        )
         destination.write_bytes(self.files_by_name[name])
 
     def _report(self, bucket: list[dict[str, Any]], entry: dict[str, Any]) -> dict[str, Any]:

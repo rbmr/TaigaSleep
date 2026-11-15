@@ -143,6 +143,11 @@ def test_worker_hands_the_downloaded_files_to_the_analysis(tmp_path: Path, encod
     assert source["files"]["hr.log"]["frames"] == 120
     assert source["uncompressed_bytes"] == sum(len(body) for body in bodies.values())
     assert source["warnings"] == []
+    # The worker downloads each file as the listing describes it, so the API
+    # client can verify a compressed one against its advertised size.
+    options = {item["name"]: item for item in api.download_options}
+    assert options["hr.log"]["encoding"] == encoding
+    assert options["hr.log"]["uncompressed_size"] == len(bodies["hr.log"])
     if encoding == "gzip":
         assert source["stored_bytes"] < source["uncompressed_bytes"]
         assert source["compression_ratio"] > 1
@@ -254,7 +259,15 @@ def test_only_the_data_files_are_downloaded(tmp_path: Path) -> None:
 
 def test_a_failed_download_is_retryable() -> None:
     class BrokenDownload(FakeApi):
-        def download_file(self, recording_id: str, name: str, destination: Path) -> None:
+        def download_file(
+            self,
+            recording_id: str,
+            name: str,
+            destination: Path,
+            *,
+            encoding: str = "identity",
+            uncompressed_size: int | None = None,
+        ) -> None:
             raise ApiError("connection reset", status=None)
 
     api = BrokenDownload([analysis()], files={"hr.log": fx.hr_log(duration_s=5)})
