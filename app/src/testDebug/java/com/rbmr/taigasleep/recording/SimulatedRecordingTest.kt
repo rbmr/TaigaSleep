@@ -139,7 +139,7 @@ class SimulatedRecordingTest {
     val (tornCode, tornOut) = run(python, script, torn)
     println(tornOut)
     assertEquals(tornOut, 3, tornCode)
-    assertTrue(tornOut, tornOut.contains("DAMAGED TAIL"))
+    assertTrue(tornOut, tornOut.contains("damaged region"))
     assertTrue(tornOut, tornOut.contains("acc.log") && tornOut.contains("hr.log"))
   }
 
