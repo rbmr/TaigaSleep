@@ -11,6 +11,7 @@ import java.nio.ByteOrder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 
 data class Recording(
@@ -29,13 +30,50 @@ data class Recording(
     get() = ((endUtcMs ?: startUtcMs) - startUtcMs).coerceAtLeast(0)
 }
 
-/** Lists and manages the recording directories under `<external files>/recordings/`. */
-class RecordingStore(val root: File) {
+/**
+ * Lists and manages the recording directories under `<external files>/recordings/`.
+ *
+ * The queries a reconcile makes share one scan of the directory: every meta.json is read once into
+ * an index, and the index is scanned again only after a recording changed. A year of nights is
+ * hundreds of files, so this is the difference between five reads of each and one.
+ *
+ * [readMeta] exists so a test can count what one scan reads; the app uses [RecordingMeta.read].
+ */
+class RecordingStore(
+    val root: File,
+    private val readMeta: (File) -> RecordingMeta? = { dir -> RecordingMeta.read(dir) },
+) {
   init {
     root.mkdirs()
   }
 
+  /** One directory in the index: its path and the meta.json that was read for it. */
+  private class Indexed(val dir: File, val meta: RecordingMeta)
+
+  private val lock = Any()
+  private var scannedVersion = -1L
+  private var index: List<Indexed> = emptyList()
+
   fun dir(id: String) = File(root, id)
+
+  /**
+   * The recordings on disk as one scan found them. A meta.json written since the scan (or a
+   * directory deleted or created) makes it stale, so the next query scans again.
+   */
+  private fun entries(): List<Indexed> =
+      synchronized(lock) {
+        val version = MetaWrites.version
+        if (version != scannedVersion) {
+          scannedVersion = version
+          index = scan()
+        }
+        index
+      }
+
+  private fun scan(): List<Indexed> =
+      (root.listFiles { f -> f.isDirectory } ?: emptyArray()).mapNotNull { dir ->
+        readMeta(dir)?.let { Indexed(dir, it) }
+      }
 
   /**
    * Local start time as `yyyyMMdd_HHmmss`, a dash and four random lowercase letters or digits,
@@ -56,12 +94,13 @@ class RecordingStore(val root: File) {
 
   /** Newest first. Directories without a readable meta.json are skipped. */
   fun list(): List<Recording> =
-      (root.listFiles { f -> f.isDirectory } ?: emptyArray())
-          .mapNotNull { info(it) }
-          .sortedByDescending { it.startUtcMs }
+      entries().mapNotNull { recording(it) }.sortedByDescending { it.startUtcMs }
 
-  fun info(dir: File): Recording? {
-    val meta = RecordingMeta.read(dir) ?: return null
+  fun info(dir: File): Recording? = entries().firstOrNull { it.dir == dir }?.let { recording(it) }
+
+  private fun recording(entry: Indexed): Recording {
+    val meta = entry.meta
+    val dir = entry.dir
     val end = meta.endUtcMs ?: lastFrameMs(dir)
     return Recording(
         id = meta.recordingId,
@@ -95,17 +134,17 @@ class RecordingStore(val root: File) {
    */
   fun markOrphans(liveId: String?): List<String> {
     val changed = mutableListOf<String>()
-    for (dir in root.listFiles { f -> f.isDirectory } ?: emptyArray()) {
-      val meta = RecordingMeta.read(dir) ?: continue
+    for (entry in entries()) {
+      val meta = entry.meta
       if (meta.state != RecordingPhase.RECORDING || meta.recordingId == liveId) continue
       // The tracker keeps recording without the app; the recording is still going, not orphaned.
       if (meta.mode == RecordingMode.ON_DEVICE) continue
-      val end = lastFrameMs(dir) ?: meta.startUtcMs
+      val end = lastFrameMs(entry.dir) ?: meta.startUtcMs
       try {
         val now = System.currentTimeMillis() * 1_000_000L
-        EventLog.append(dir, now, 0, "error", "unfinished recording found on app start")
+        EventLog.append(entry.dir, now, 0, "error", "unfinished recording found on app start")
       } catch (_: java.io.IOException) {}
-      if (meta.copy(state = RecordingPhase.INTERRUPTED, endUtcMs = end).write(dir)) {
+      if (meta.copy(state = RecordingPhase.INTERRUPTED, endUtcMs = end).write(entry.dir)) {
         changed += meta.recordingId
       }
     }
@@ -114,26 +153,30 @@ class RecordingStore(val root: File) {
 
   /** The recording the tracker is storing on its own, if one is in progress. */
   fun onDeviceInProgress(): RecordingMeta? =
-      (root.listFiles { f -> f.isDirectory } ?: emptyArray())
-          .mapNotNull { RecordingMeta.read(it) }
+      entries()
+          .map { it.meta }
           .filter { it.state == RecordingPhase.RECORDING && it.mode == RecordingMode.ON_DEVICE }
           .maxByOrNull { it.startUtcMs }
 
   /** The newest recording whose tracker copy was not fetched yet, if any. */
   fun fetchPending(): RecordingMeta? =
-      (root.listFiles { f -> f.isDirectory } ?: emptyArray())
-          .mapNotNull { RecordingMeta.read(it) }
+      entries()
+          .map { it.meta }
           .filter { it.fetchPending }
           .maxByOrNull { it.startUtcMs }
 
   /** The recordings whose copy is still on the tracker, newest first. */
   fun pendingTrackerRemovals(): List<RecordingMeta> =
-      (root.listFiles { f -> f.isDirectory } ?: emptyArray())
-          .mapNotNull { RecordingMeta.read(it) }
+      entries()
+          .map { it.meta }
           .filter { it.trackerRemovalPending.isNotEmpty() }
           .sortedByDescending { it.startUtcMs }
 
-  fun delete(id: String): Boolean = File(root, id).takeIf { it.isDirectory }?.deleteRecursively() ?: false
+  fun delete(id: String): Boolean {
+    val deleted = File(root, id).takeIf { it.isDirectory }?.deleteRecursively() ?: false
+    if (deleted) MetaWrites.note()
+    return deleted
+  }
 
   /** Zips the whole recording directory to [out]; the archive is never kept beyond the share. */
   fun zip(id: String, out: File, onProgress: (Float) -> Unit = {}) {
@@ -154,5 +197,21 @@ class RecordingStore(val root: File) {
     val RAW_FILES = listOf("hr.log", "ecg.log", "acc.log")
 
     fun of(context: Context): RecordingStore = context.appContainer.recordingStore
+  }
+}
+
+/**
+ * Moves whenever a recording changed on disk: a meta.json was written or a directory was removed.
+ * A [RecordingStore] scans the directory again only after the version it scanned at is behind, so
+ * the reads a reconcile makes share one scan.
+ */
+internal object MetaWrites {
+  private val count = AtomicLong()
+
+  val version: Long
+    get() = count.get()
+
+  fun note() {
+    count.incrementAndGet()
   }
 }

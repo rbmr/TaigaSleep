@@ -239,6 +239,7 @@ data class RecordingMeta(
             StandardCopyOption.ATOMIC_MOVE,
             StandardCopyOption.REPLACE_EXISTING,
         )
+        MetaWrites.note()
         true
       } catch (_: IOException) {
         false
