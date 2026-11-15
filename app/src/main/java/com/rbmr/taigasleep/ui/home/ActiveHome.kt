@@ -20,8 +20,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -52,6 +54,45 @@ internal enum class StopAction {
   STOP,
   FORCE_STOP,
   DISCARD,
+}
+
+/**
+ * The recording stage: the live screen and the confirmation behind its three ways to end it. The
+ * dialog sits where the actions are decided, so every one of them asks the same question.
+ */
+@Composable
+internal fun RecordingHome(
+    state: HomeUiState.Recording,
+    autoUpload: Boolean,
+    onStop: () -> Unit,
+    onForceStop: () -> Unit,
+    onDiscard: () -> Unit,
+    onWake: () -> Unit,
+) {
+  var confirm by remember { mutableStateOf<StopAction?>(null) }
+  ActiveHome(
+      state = state,
+      onStop = { confirm = StopAction.STOP },
+      onForceStop = { confirm = StopAction.FORCE_STOP },
+      onDiscard = { confirm = StopAction.DISCARD },
+      onWake = onWake,
+  )
+  confirm?.let { action ->
+    StopConfirmDialog(
+        action = action,
+        onDevice = state.onDevice,
+        autoUpload = autoUpload,
+        onDismiss = { confirm = null },
+        onConfirm = {
+          confirm = null
+          when (action) {
+            StopAction.STOP -> onStop()
+            StopAction.FORCE_STOP -> onForceStop()
+            StopAction.DISCARD -> onDiscard()
+          }
+        },
+    )
+  }
 }
 
 /**
@@ -96,11 +137,12 @@ internal fun ActiveHome(
             size = ButtonSize.Large,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(space.s)) {
+          // Force stop stays on while the recording is stopping: a stop that hangs is exactly when
+          // it is the way out.
           SecondaryButton(
               text = stringResource(R.string.rec_force_stop),
               onClick = onForceStop,
               modifier = Modifier.weight(1f),
-              enabled = !stopping,
           )
           DestructiveButton(
               text = stringResource(R.string.rec_discard),
