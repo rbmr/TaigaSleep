@@ -40,8 +40,11 @@ no state of either.
 - The **API** ([`api.md`](api.md)) is the whole contract. Recordings and analyses are
   PocketBase records: clients read and write them through its record API, and the
   collection rules decide what a caller may see and change. Every other collection's
-  record API is closed. This keeps the backend usable by other clients and independent
-  of PocketBase's internals.
+  record API is closed. A rule is the `WHERE` of the query the request runs, so it is
+  written with comparisons an index answers: an analysis carries the account it belongs
+  to and a recording names the worker whose lease is live, so no rule reaches either
+  through a join that would make a list walk a whole table. This keeps the backend
+  usable by other clients and independent of PocketBase's internals.
 
 Realtime is PocketBase's realtime stream on `GET /api/realtime`, with the collection rules
 as its access check. A client that is connected learns at
