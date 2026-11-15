@@ -41,7 +41,7 @@ func readAny(record *core.Record, name string) any {
 	return value
 }
 
-func serializeAnalysis(record *core.Record, withResult bool) AnalysisView {
+func serializeAnalysis(app core.App, record *core.Record, withResult bool) AnalysisView {
 	params := map[string]any{}
 	_ = record.UnmarshalJSONField("params", &params)
 	if params == nil {
@@ -62,7 +62,12 @@ func serializeAnalysis(record *core.Record, withResult bool) AnalysisView {
 		Summary:    readAny(record, "summary"),
 	}
 	if withResult {
-		view.Result = readAny(record, "result")
+		if raw, err := analysisResult(app, record.Id); err == nil {
+			var value any
+			if json.Unmarshal(raw, &value) == nil {
+				view.Result = value
+			}
+		}
 	}
 	return view
 }
