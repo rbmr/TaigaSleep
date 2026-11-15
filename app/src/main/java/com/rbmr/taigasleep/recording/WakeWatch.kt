@@ -10,11 +10,12 @@ import com.rbmr.taigasleep.tracker.Stamp
  *
  * Samples arrive on the sensor's threads, so every change is taken under one short lock and the
  * trigger is handed out after it. The watch is spent once it rang: a recording that is resumed
- * after the alarm never rings a second time for the same window.
+ * after the alarm never rings a second time for the same window. A window moved while recording
+ * ([retarget]) is a new window, so the watch can ring for it again, from the samples it already has.
  */
 class WakeWatch(
-    private val window: WakeWindow,
-    private val bounds: WakeBounds,
+    private var window: WakeWindow,
+    private var bounds: WakeBounds,
     /** Called once, from the sample thread, with the moment the alarm is due. */
     private val onTrigger: (Long) -> Unit,
 ) {
@@ -58,6 +59,16 @@ class WakeWatch(
           evaluate(at)
         }
     if (trigger != null) onTrigger(trigger)
+  }
+
+  /** Watches [window] from now on, with the samples kept so far; it may ring again. */
+  fun retarget(window: WakeWindow, bounds: WakeBounds) {
+    synchronized(lock) {
+      this.window = window
+      this.bounds = bounds
+      evaluatedAtMs = null
+      fired = false
+    }
   }
 
   /** Adds the second that ended to the series the decision reads, and forgets what is too old. */

@@ -8,6 +8,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.recording.CaptureStatus
 import com.rbmr.taigasleep.recording.Phase
@@ -36,6 +38,7 @@ import com.rbmr.taigasleep.ui.components.ConfirmDialog
 import com.rbmr.taigasleep.ui.components.ConfirmDialogStyle
 import com.rbmr.taigasleep.ui.components.DenTapEffect
 import com.rbmr.taigasleep.ui.components.DestructiveButton
+import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.LogoVariant
 import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.SecondaryButton
@@ -61,6 +64,7 @@ internal fun ActiveHome(
     onStop: () -> Unit,
     onForceStop: () -> Unit,
     onDiscard: () -> Unit,
+    onWake: () -> Unit,
 ) {
   val stopping = state.stopping
   val space = MaterialTheme.taiga.space
@@ -83,6 +87,7 @@ internal fun ActiveHome(
       RecordingHeader(state.status)
       if (state.status.state.overall.reason != null) OverallBanner(state.status)
       RecordingCard(state.status)
+      state.wake?.let { WakeRow(it, enabled = !stopping, onClick = onWake) }
       Column(verticalArrangement = Arrangement.spacedBy(space.s)) {
         PrimaryButton(
             text = stringResource(R.string.rec_stop_and_save),
@@ -144,6 +149,40 @@ private fun RecordingHeader(status: CaptureStatus) {
         style = MaterialTheme.taiga.text.meta,
         textAlign = TextAlign.Center,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+  }
+}
+
+/**
+ * The smart alarm of the recording in one row: off, the times of its window, or when it rang. Only
+ * times, never how much of the night is left. A tap opens the sheet that moves it.
+ */
+@Composable
+private fun WakeRow(wake: LiveWake, enabled: Boolean, onClick: () -> Unit) {
+  val choice = wake.choice
+  val rang = wake.rangAtUtcMs
+  val locale = LocalLocale.current.platformLocale
+  val value =
+      when {
+        choice != null ->
+            stringResource(
+                R.string.wake_live_window,
+                stringResource(R.string.wake_time, choice.startMinute / 60, choice.startMinute % 60),
+                (choice.startMinute + choice.lengthMinutes).let { end ->
+                  val minute = end % (24 * 60)
+                  stringResource(R.string.wake_time, minute / 60, minute % 60)
+                },
+            )
+        rang != null ->
+            stringResource(R.string.wake_live_rang, SimpleDateFormat("HH:mm", locale).format(Date(rang)))
+        else -> stringResource(R.string.wake_live_off)
+      }
+  TaigaCard(contentPadding = PaddingValues(0.dp)) {
+    ListRow(
+        title = stringResource(R.string.wake_title),
+        value = value,
+        enabled = enabled,
+        onClick = onClick,
     )
   }
 }

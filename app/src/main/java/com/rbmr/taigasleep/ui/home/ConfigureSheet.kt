@@ -195,6 +195,29 @@ private fun WakeSection(config: StartConfig, onWake: (WakeChoice?) -> Unit) {
   }
 }
 
+/**
+ * The smart alarm of a running recording: switch it on or off and move its window. The signals
+ * follow the data the recording captures, as at the start, so they are not chosen here. A change
+ * takes effect at once and is also the tracker's saved window.
+ */
+@Composable
+internal fun LiveWakeSheet(wake: LiveWake, onWake: (WakeChoice?) -> Unit, onDismiss: () -> Unit) {
+  val on = wake.choice != null
+  val shown = wake.choice ?: wake.fallback
+  TaigaSheet(onDismiss = onDismiss) {
+    Column(modifier = Modifier.fillMaxWidth().padding(bottom = MaterialTheme.taiga.space.l)) {
+      SectionTitle(stringResource(R.string.wake_title))
+      SwitchRow(title = stringResource(R.string.wake_enable), checked = on) {
+        onWake(if (on) null else shown)
+      }
+      TimeRow(stringResource(R.string.wake_start), shown.startMinute, on) { picked ->
+        onWake(shown.copy(startMinute = picked))
+      }
+      LengthRow(shown.lengthMinutes, on) { onWake(shown.copy(lengthMinutes = it)) }
+    }
+  }
+}
+
 /** How long the window stays open: one choice out of a few lengths, the current one included. */
 @Composable
 private fun LengthRow(minutes: Int, enabled: Boolean, onChange: (Int) -> Unit) {
@@ -259,7 +282,3 @@ private fun TimeRow(label: String, minute: Int, enabled: Boolean, onChange: (Int
     )
   }
 }
-
-/** Turning the alarm on starts from a time most people wake at; the user moves it from there. */
-private val DEFAULT_WAKE =
-    WakeChoice(startMinute = 6 * 60 + 30, lengthMinutes = WakeChoice.DEFAULT_LENGTH)

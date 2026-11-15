@@ -1,11 +1,13 @@
 package com.rbmr.taigasleep.ui.home
 
 import com.rbmr.taigasleep.guard.HomeState
+import com.rbmr.taigasleep.recording.ArmedWake
 import com.rbmr.taigasleep.recording.CaptureStatus
 import com.rbmr.taigasleep.recording.FinishingState
 import com.rbmr.taigasleep.recording.ImportProgress
 import com.rbmr.taigasleep.recording.PendingFetch
 import com.rbmr.taigasleep.recording.Phase
+import com.rbmr.taigasleep.recording.WakeWindow
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
@@ -71,7 +73,7 @@ private class FakeWork : HomeWork {
   }
 
   override fun savedConfig(sensor: SleepSensor) =
-      StartConfig(streams, modes, mode, canEcg, canAcc)
+      StartConfig(streams, modes, mode, canEcg, canAcc, wake)
 
   override fun setHr(sensorId: String, on: Boolean) {
     calls += "hr:$on"
@@ -95,6 +97,11 @@ private class FakeWork : HomeWork {
 
   override fun setWake(sensorId: String, wake: WakeChoice?) {
     calls += "wake:${wake != null}"
+    this.wake = wake
+  }
+
+  override fun changeLiveWake(sensorId: String?, wake: WakeChoice?) {
+    calls += "liveWake:$sensorId:${wake?.startMinute}"
     this.wake = wake
   }
 
@@ -238,6 +245,51 @@ class HomeStepTest {
     assertEquals(RecordingMode.STREAM, (streamed as HomeUiState.Recording).mode)
     assertEquals(RecordingMode.ON_DEVICE, (onDevice as HomeUiState.Recording).mode)
     assertFalse(streamed.stopping)
+  }
+
+  @Test
+  fun `a streamed recording shows its smart alarm window and one on the tracker has none`() {
+    val armed = ArmedWake("20261023_223000", WakeWindow(390, 15), 1_000L, 2_000L)
+    val streamed =
+        homeState(
+            CaptureStatus(phase = Phase.RECORDING, liveStreaming = true, wake = armed),
+            tracker,
+            config(),
+            HomeState.READY,
+            false,
+            SensorPicker(),
+        ) as HomeUiState.Recording
+    val onDevice =
+        homeState(
+            CaptureStatus(phase = Phase.RECORDING, liveStreaming = false, wake = armed),
+            tracker,
+            config(),
+            HomeState.READY,
+            false,
+            SensorPicker(),
+        ) as HomeUiState.Recording
+
+    assertEquals(WakeChoice(390, 15), streamed.wake?.choice)
+    assertNull(streamed.wake?.rangAtUtcMs)
+    assertNull(onDevice.wake)
+  }
+
+  @Test
+  fun `an alarm that rang says when and switching it on starts from the saved window`() {
+    val saved = WakeChoice(420, 20)
+    val state =
+        homeState(
+            CaptureStatus(phase = Phase.RECORDING, liveStreaming = true, wakeRangAtUtcMs = 5_000L),
+            tracker,
+            config().copy(wake = saved),
+            HomeState.READY,
+            false,
+            SensorPicker(),
+        ) as HomeUiState.Recording
+
+    assertNull(state.wake?.choice)
+    assertEquals(5_000L, state.wake?.rangAtUtcMs)
+    assertEquals(saved, state.wake?.fallback)
   }
 
   @Test
@@ -474,6 +526,38 @@ class HomeViewModelTest {
     model.discard()
 
     assertEquals(listOf("stop", "forceStop", "discard"), work.calls)
+  }
+
+  @Test
+  fun `moving the smart alarm while recording goes to the recorder and is saved for the tracker`() {
+    val model = viewModel()
+    sensor.value = FakeSensor()
+    status.value = CaptureStatus(phase = Phase.RECORDING, liveStreaming = true)
+
+    model.openLiveWake()
+    assertTrue((model.state.value as HomeUiState.Recording).editingWake)
+    model.setLiveWake(WakeChoice(420, 20))
+    model.setLiveWake(null)
+
+    assertEquals(listOf("liveWake:S1:420", "liveWake:S1:null"), work.calls.filter { it.startsWith("liveWake") })
+    assertEquals(
+        "switching it back on restores the window it had",
+        WakeChoice(420, 20),
+        (model.state.value as HomeUiState.Recording).wake?.fallback,
+    )
+  }
+
+  @Test
+  fun `the smart alarm sheet closes with the recording`() {
+    val model = viewModel()
+    sensor.value = FakeSensor()
+    status.value = CaptureStatus(phase = Phase.RECORDING, liveStreaming = true)
+    model.openLiveWake()
+
+    status.value = CaptureStatus()
+    status.value = CaptureStatus(phase = Phase.RECORDING, liveStreaming = true)
+
+    assertFalse((model.state.value as HomeUiState.Recording).editingWake)
   }
 
   @Test

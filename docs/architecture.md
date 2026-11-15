@@ -246,6 +246,14 @@ The alarm is a high-priority notification on the alarm sound and volume. It vibr
 sound until it is stopped, says why it rang (a signal showed the user waking up, or the window
 ended) and has one Stop button. Stopping ends the alarm, never the recording.
 
+While a streamed recording runs, the recording screen shows the alarm's window (or Off, or when it
+rang) and lets the user switch it on or off and move its start and length. A change goes to the
+service, which resolves the window to a night as at the start, replaces the end alarm, keeps the
+new window for a resumed recording and moves the live decision to it with the samples it already
+has, so a moved window can ring again. Each change is noted in the recording's events and becomes
+the tracker's saved window. A recording the tracker stores itself has no live data, so it shows no
+smart alarm.
+
 ### Preventing-shutdown flow
 
 1. Select a device, defaulting to the detected one.

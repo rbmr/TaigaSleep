@@ -21,6 +21,7 @@ class WakeAlarmReceiver : BroadcastReceiver() {
     // The window is spent: nothing arms it again for this recording.
     RecordingPrefs.get(context).clearArmedWake()
     WakeAlarm.fire(context, WakeReason.WINDOW_END)
+    RecordingRepository.wakeRang(System.currentTimeMillis())
   }
 
   companion object {
