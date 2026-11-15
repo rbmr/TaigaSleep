@@ -8,6 +8,7 @@ data is committed.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -21,6 +22,11 @@ STREAM_ACC = frames.STREAM_ACC
 START_UTC_MS = 1_792_798_200_000
 START_NS = START_UTC_MS * 1_000_000
 POLAR_START_NS = START_NS - POLAR_EPOCH_OFFSET_NS
+
+# A plausible resting R-R series: about one beat per second, with a few tens of
+# milliseconds of beat-to-beat variation. It is spread over the heart-rate frames by
+# the time each beat completes, the way the strap reports it.
+DEFAULT_RR_MS = (1000, 980, 1020, 990, 1010)
 
 frame_header = frames.frame_header
 event_line = frames.event_line
@@ -132,13 +138,50 @@ def meta(
     }
 
 
+def default_rr_series(duration_s: int) -> list[int]:
+    """A resting R-R series that covers the whole recording, about one beat a second."""
+
+    series: list[int] = []
+    elapsed_ms = 0
+    index = 0
+    while elapsed_ms < duration_s * 1000:
+        interval = DEFAULT_RR_MS[index % len(DEFAULT_RR_MS)]
+        series.append(interval)
+        elapsed_ms += interval
+        index += 1
+    return series
+
+
+def rr_frames(
+    rr_series_ms: Sequence[int], duration_s: int
+) -> tuple[list[tuple[int, ...]], list[float]]:
+    """Spread a whole R-R series over 1-second heart-rate frames.
+
+    Every interval goes into the frame in which its beat completed, which is what the
+    strap reports; the frames in between stay empty, as they are below about 60 bpm.
+    """
+
+    per_frame: list[list[int]] = [[] for _ in range(duration_s)]
+    elapsed_ms = 0
+    for interval in rr_series_ms:
+        if interval <= 0:
+            raise ValueError("R-R intervals must be positive")
+        elapsed_ms += interval
+        frame_index = int(math.ceil(elapsed_ms / 1000.0))
+        if frame_index >= duration_s:
+            break
+        per_frame[frame_index].append(int(interval))
+    return [tuple(values) for values in per_frame], [float(second) for second in range(duration_s)]
+
+
 def hr_log(
     *,
     duration_s: int,
     hr_values: Sequence[int] | None = None,
     contact: bool = True,
-    rr_ms: Iterable[int] = (1000, 980, 1020),
+    rr_ms: Iterable[int] | None = None,
     rr_per_sample: Sequence[Iterable[int]] | None = None,
+    rr_series_ms: Sequence[int] | None = None,
     stream_start_s: float = 0.0,
 ) -> bytes:
     data = bytearray(frame_header(STREAM_HR))
@@ -147,6 +190,12 @@ def hr_log(
         raise ValueError("hr_values must contain one value per second")
     if rr_per_sample is not None and len(rr_per_sample) != duration_s:
         raise ValueError("rr_per_sample must contain one entry per second")
+    if rr_ms is not None:
+        per_frame: Sequence[Iterable[int]] = [rr_ms] * duration_s
+    elif rr_per_sample is not None:
+        per_frame = rr_per_sample
+    else:
+        per_frame, _ = rr_frames(rr_series_ms or default_rr_series(duration_s), duration_s)
     flags = 3 if contact else 1
     for second, value in enumerate(values):
         wall_s = stream_start_s + second
@@ -156,28 +205,41 @@ def hr_log(
                 round(wall_s * 1_000_000_000),
                 value,
                 flags=flags,
-                rr_ms=rr_ms if rr_per_sample is None else rr_per_sample[second],
+                rr_ms=per_frame[second],
             )
         )
     return bytes(data)
 
 
+# A batch carries at most ten seconds of samples, so a frame's uint16 sample count
+# holds for a whole night as well as for a short recording.
+BATCH_SECONDS = 10
+
+
+def _batch_starts(n: int, rate_hz: int) -> list[tuple[int, int]]:
+    size = max(1, rate_hz * BATCH_SECONDS)
+    return [(first, min(size, n - first)) for first in range(0, n, size)]
+
+
 def ecg_log(*, duration_s: int, rate_hz: int = 130, stream_start_s: float = 0.0) -> bytes:
     n = max(1, duration_s * rate_hz)
-    # A small deterministic waveform; unit conversion is what matters here.
-    values = [int(1000 * ((i % 20) - 10)) for i in range(n)]
-    t_first = POLAR_START_NS + round(stream_start_s * 1_000_000_000)
-    t_last = t_first + (n - 1) * (1_000_000_000 // rate_hz)
-    wall_s = stream_start_s + duration_s
-    return frame_header(STREAM_ECG) + frame(
-        ecg_payload(
-            START_NS + round(wall_s * 1_000_000_000),
-            round(wall_s * 1_000_000_000),
-            t_first,
-            t_last,
-            values,
+    data = bytearray(frame_header(STREAM_ECG))
+    spacing = 1_000_000_000 // rate_hz
+    start_ns = POLAR_START_NS + round(stream_start_s * 1_000_000_000)
+    for first, count in _batch_starts(n, rate_hz):
+        # A small deterministic waveform; unit conversion is what matters here.
+        values = [int(1000 * (((first + index) % 20) - 10)) for index in range(count)]
+        end_s = stream_start_s + (first + count) / rate_hz
+        data += frame(
+            ecg_payload(
+                START_NS + round(end_s * 1_000_000_000),
+                round(end_s * 1_000_000_000),
+                start_ns + first * spacing,
+                start_ns + (first + count - 1) * spacing,
+                values,
+            )
         )
-    )
+    return bytes(data)
 
 
 def acc_log(
@@ -196,18 +258,21 @@ def acc_log(
         moving = any(start <= second < end for start, end in movement_windows)
         x = movement_mg if moving else 0
         values.extend([x + offset_mg, offset_mg, 1000 + offset_mg])
-    t_first = POLAR_START_NS + round(stream_start_s * 1_000_000_000)
-    t_last = t_first + (n - 1) * (1_000_000_000 // rate_hz)
-    wall_s = stream_start_s + duration_s
-    return frame_header(STREAM_ACC) + frame(
-        acc_payload(
-            START_NS + round(wall_s * 1_000_000_000),
-            round(wall_s * 1_000_000_000),
-            t_first,
-            t_last,
-            values,
+    data = bytearray(frame_header(STREAM_ACC))
+    spacing = 1_000_000_000 // rate_hz
+    start_ns = POLAR_START_NS + round(stream_start_s * 1_000_000_000)
+    for first, count in _batch_starts(n, rate_hz):
+        end_s = stream_start_s + (first + count) / rate_hz
+        data += frame(
+            acc_payload(
+                START_NS + round(end_s * 1_000_000_000),
+                round(end_s * 1_000_000_000),
+                start_ns + first * spacing,
+                start_ns + (first + count - 1) * spacing,
+                values[first * 3 : (first + count) * 3],
+            )
         )
-    )
+    return bytes(data)
 
 
 def write_recording(
@@ -222,7 +287,9 @@ def write_recording(
     movement_windows: Sequence[tuple[float, float]] = (),
     movement_mg: int = 500,
     acc_offset_mg: int = 0,
+    rr_ms: Iterable[int] | None = None,
     rr_per_sample: Sequence[Iterable[int]] | None = None,
+    rr_series_ms: Sequence[int] | None = None,
     bad_hr_tail: bytes | None = None,
     stream_start_s: float = 0.0,
 ) -> Path:
@@ -238,7 +305,9 @@ def write_recording(
         duration_s=duration_s,
         hr_values=hr_values,
         contact=contact,
+        rr_ms=rr_ms,
         rr_per_sample=rr_per_sample,
+        rr_series_ms=rr_series_ms,
         stream_start_s=stream_start_s,
     )
     if bad_hr_tail:

@@ -24,6 +24,11 @@ from .contract import (
     StreamName,
 )
 
+# A 30-second interval counts as movement above this deviation from the recording's
+# median accelerometer magnitude. It is also the window-level threshold the HRV
+# derivation uses to leave disturbed windows out of its summary.
+MOVEMENT_THRESHOLD_G = 0.08
+
 
 def _bins(
     t_s: np.ndarray, starts_s: np.ndarray, ends_s: np.ndarray
@@ -263,4 +268,4 @@ def resample_stream(recording: Recording, name: StreamName, rate_hz: float) -> R
     return ResampledStream(t_target, values, rate_hz, valid)
 
 
-__all__ = ["build_epoch_grid", "resample_stream"]
+__all__ = ["MOVEMENT_THRESHOLD_G", "build_epoch_grid", "resample_stream"]

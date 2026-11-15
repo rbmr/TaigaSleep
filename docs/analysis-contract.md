@@ -83,6 +83,12 @@ client renders it without knowing the algorithm or a local catalog:
   depend on sample times can change for recordings where a stream did not start at the first
   sample. A result stored under an older contract version keeps the older times until it is
   analysed again.
+- Contract version 8 computes heart-rate variability from the raw R-R intervals instead of
+  the stager's sleep epochs: the beats are chained into runs, artefacts are detected and
+  removed, and the figures are the median over fixed five-minute windows. `hrv_sdnn_ms` is
+  replaced by `hrv_sdnn_median_ms`, and `hrv_ln_rmssd`, `hrv_artifact_share`,
+  `hrv_window_count` and an `hrv` window series are added. A result stored under an older
+  contract version keeps the older figures until it is analysed again.
 
 ## Canonical stages and epochs
 
@@ -199,8 +205,9 @@ StagingResult(
   an artifact (for example a short electrode pop), so artifacts are not necessarily unknown.
 - `probabilities` is optional. If confidence is absent, it is derived from the
   maximum probability.
-- `beats_s` is optional and lets an ECG algorithm improve HRV without changing
-  the shared figures. If absent, HRV uses the H10 RR intervals.
+- `beats_s` is optional and lets a stager report the beat times it detected. It is not
+  used by the shared figures: heart-rate variability is computed from the raw R-R stream
+  by the shared beat series, so every stager gives the same HRV for the same recording.
 - `provenance` is optional algorithm-specific provenance (checkpoint path,
   model revision, hashes). The worker merges it into the result under
   `provenance.algorithm`; it cannot replace the standard licence, citation or
@@ -217,7 +224,9 @@ The shared layer derives, and then emits as items:
 - scored/unscored duration, total sleep, efficiency, sleep latency, WASO,
   awakenings (wake periods longer than two minutes), final awakening, time per
   stage;
-- HR mean/min/max, HRV RMSSD/SDNN, movement index/mean/epochs;
+- HR mean/min/max, movement index/mean/epochs;
+- HRV RMSSD, SDNN, ln RMSSD, artifact share and window count over five-minute windows,
+  plus an `hrv` series with one entry per window (see below);
 - an epoch-aligned heart-rate series, as a `series` item;
 - explicit support per figure: `supported`, `unsupported_device`,
   `insufficient_data`, or `unsupported_algorithm`, with a reason. Only
@@ -227,12 +236,90 @@ Efficiency is total sleep divided by scored time, and it is reported as
 `insufficient_data` with a reason when less than half of the recording could be
 scored. Latency runs from the first scored epoch, so leading `unknown` epochs do
 not count. WASO, awakenings and the final awakening stay on the recording
-timeline. HRV uses sleep epochs only: RMSSD is computed per uninterrupted stretch
-of RR data, so no successive difference spans a gap, and the stretches are
-combined weighted by beat count; SDNN is the standard deviation of all sleep RR
-intervals. Movement per epoch is the mean deviation from the night's median
+timeline. Movement per epoch is the mean deviation from the night's median
 accelerometer magnitude rather than from a nominal 1 g, so a constant sensor
 offset does not read as movement.
+
+### Heart-rate variability
+
+HRV is computed from the raw R-R intervals and from nothing the stager produced.
+Two analyses of one recording therefore report the same HRV whatever stages they carry.
+
+**Beat series.** The strap reports R-R intervals in bursts, and the burst's arrival time
+jitters by tens to hundreds of milliseconds. The shared beat series
+(`analysis/beats.py`) chains the intervals themselves, so the beat times are exact and
+the timestamps are used only to anchor a run and to find its breaks. A run ends where the
+chain drifts more than 1.5 s from the clock, which is what a lost notification or a real
+gap looks like; a burst without intervals is normal below about 60 bpm and does not end a
+run. The series keeps a `nan` entry at every break, so no successive difference is ever
+taken across one.
+
+**Artifacts.** Each run is classified with the adaptive decision rules of Lipponen &
+Tarvainen (2019), *A robust algorithm for heart rate variability time series artefact
+correction using novel beat classification*, Journal of Medical Engineering & Technology
+43(3), 173-181. The threshold is 5.2 times the quartile deviation of the surrounding 91
+successive differences, and the decision boundaries use the published constants. Ectopic,
+missed, extra, long and short intervals are flagged and excluded, not corrected: the
+figures never rest on an invented beat. A successive difference that touches a flagged
+interval is dropped. A perfectly regular stretch has a quartile deviation of zero, so the
+threshold has a floor of 20 ms; a normal sinus rhythm is far less regular than that.
+
+**Windows.** The recording is cut into fixed five-minute windows. Each window reports
+RMSSD, SDNN, ln RMSSD, mean heart rate and its artifact share. A window enters the
+summary when
+
+- it has at least 30 clean intervals covering at least half of it,
+- its artifact share is at most 5%, and
+- when the recording has an accelerometer stream, movement is above the movement
+  threshold in at most a fifth of its 30-second intervals.
+
+That rule reads raw signals only; stages never decide it. The summary figure of each
+measure is the median over the included windows, so a single disturbed window does not
+move the night.
+
+The items are:
+
+| Item | Meaning |
+| --- | --- |
+| `hrv_rmssd_ms` | Median RMSSD of the valid windows. |
+| `hrv_sdnn_median_ms` | Median SDNN of the valid windows. It describes short-term variability; it is not a whole-night SDNN. |
+| `hrv_ln_rmssd` | Median of ln RMSSD, in `ln(ms)`. |
+| `hrv_artifact_share` | Share of all R-R intervals removed as artifacts. |
+| `hrv_window_count` | Number of windows that entered the summary. |
+| `hrv_rr_count` | Number of clean intervals in those windows. |
+
+The `hrv` series carries every window, included or not, so a client can show the windows
+that were left out and why:
+
+```json
+{
+  "kind": "series",
+  "id": "hrv",
+  "label": "HRV by 5-minute window",
+  "group": "heart",
+  "unit": "ms",
+  "sources": ["hr"],
+  "series": {
+    "window_seconds": 300,
+    "start_unix_ms": 1790000000000,
+    "count": 2,
+    "start_s": [0.0, 300.0],
+    "rmssd_ms": [38.4, 41.2],
+    "sdnn_ms": [27.6, 28.1],
+    "ln_rmssd": [3.648, 3.718],
+    "mean_hr_bpm": [60.2, 58.9],
+    "artifact_share": [0.0, 0.012],
+    "intervals": [296, 291],
+    "included": [true, true],
+    "reason": ["", ""]
+  }
+}
+```
+
+A window that cannot be summarised still carries the figures it could compute, and its
+`reason` is empty when it was included and otherwise `too_little_data`, `artifacts` or
+`movement`. A recording shorter than five minutes has no `hrv` series and reports
+`insufficient_data` with `recording_shorter_than_one_hrv_window`.
 
 ### Data-quality score
 
