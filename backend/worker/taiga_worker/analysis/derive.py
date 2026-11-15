@@ -8,7 +8,6 @@ times.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
@@ -83,7 +82,9 @@ def _support(status: str, reason: str | None = None) -> dict[str, Any]:
 
 
 def _stage_support(stage: Stage, supported: set[Stage], reason: str) -> dict[str, Any]:
-    return _support("supported") if stage in supported else _support("unsupported_algorithm", reason)
+    return (
+        _support("supported") if stage in supported else _support("unsupported_algorithm", reason)
+    )
 
 
 def _segments(mask: np.ndarray) -> list[tuple[int, int]]:
@@ -95,7 +96,7 @@ def _segments(mask: np.ndarray) -> list[tuple[int, int]]:
     changes = np.diff(padded.astype(np.int8))
     starts = np.nonzero(changes == 1)[0]
     ends = np.nonzero(changes == -1)[0]
-    return list(zip(starts.tolist(), ends.tolist()))
+    return list(zip(starts.tolist(), ends.tolist(), strict=True))
 
 
 def _clean_rr_mask(rr_ms: np.ndarray) -> np.ndarray:
@@ -125,7 +126,7 @@ def _rr_intervals(
         return None, None, "no_rr_intervals"
     ends_s: list[np.ndarray] = []
     rr: list[np.ndarray] = []
-    for sample_time, values in zip(hr.t_s, hr.rr_ms):
+    for sample_time, values in zip(hr.t_s, hr.rr_ms, strict=True):
         interval_values = np.asarray(values, dtype=np.float64)
         if interval_values.size == 0:
             continue
@@ -228,7 +229,9 @@ def _hr_metrics(recording: Recording) -> tuple[dict[str, Any], dict[str, Any]]:
     return metrics, {key: supported for key in metrics}
 
 
-def _movement_metrics(recording: Recording, grid: EpochGrid) -> tuple[dict[str, Any], dict[str, Any]]:
+def _movement_metrics(
+    recording: Recording, grid: EpochGrid
+) -> tuple[dict[str, Any], dict[str, Any]]:
     if recording.acc is None:
         missing = _support("unsupported_device", "no_acc_stream")
         return (
@@ -338,7 +341,9 @@ def derive(
             stage_support[key] = _support("supported")
         else:
             time_per_stage[key] = None
-            stage_support[key] = _stage_support(stage, supported, f"algorithm_does_not_distinguish_{stage}")
+            stage_support[key] = _stage_support(
+                stage, supported, f"algorithm_does_not_distinguish_{stage}"
+            )
 
     hr_metrics, hr_support = _hr_metrics(recording)
     hrv_metrics, hrv_support = _hrv_metrics(
@@ -481,11 +486,15 @@ def _sleep_quality(
     )
     score = None
     if available_weight > 0:
-        score = 100.0 * sum(
-            component["value"] * component["weight"]
-            for component in components.values()
-            if component["available"]
-        ) / available_weight
+        score = (
+            100.0
+            * sum(
+                component["value"] * component["weight"]
+                for component in components.values()
+                if component["available"]
+            )
+            / available_weight
+        )
 
     # A score computed from too little good data would read as a statement about the night
     # rather than about the recording, so it is withheld and the reason is recorded instead.
@@ -579,11 +588,15 @@ def _quality(
     if available_weight <= 0:
         score = None
     else:
-        score = 100.0 * sum(
-            component["value"] * component["weight"]
-            for component in components.values()
-            if component["available"]
-        ) / available_weight
+        score = (
+            100.0
+            * sum(
+                component["value"] * component["weight"]
+                for component in components.values()
+                if component["available"]
+            )
+            / available_weight
+        )
 
     return {
         "score": None if score is None else round(score, 1),

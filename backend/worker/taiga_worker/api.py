@@ -297,9 +297,10 @@ class ApiClient:
                     "not as the gzip it advertises"
                 )
             written = 0
-            with Path(destination).open("wb") as handle, gzip.GzipFile(
-                fileobj=response, mode="rb"
-            ) as member:
+            with (
+                Path(destination).open("wb") as handle,
+                gzip.GzipFile(fileobj=response, mode="rb") as member,
+            ):
                 while True:
                     # One byte more than what is still allowed: a stream that keeps
                     # going past its declaration is caught instead of filling the disk.

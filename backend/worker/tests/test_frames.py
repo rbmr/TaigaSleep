@@ -4,8 +4,8 @@ import random
 import zlib
 
 import pytest
-
 from taiga_worker import frames
+
 from tests import analysis_fixture as fx
 
 STREAMS = [frames.STREAM_HR, frames.STREAM_ECG, frames.STREAM_ACC]

@@ -5,11 +5,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from taiga_worker.analysis.algorithms import sleepecg
 from taiga_worker.analysis.contract import AnalysisError, HrStream
 from taiga_worker.analysis.decode import load_recording
 from taiga_worker.analysis.pipeline import run_analysis
+
 from tests import analysis_fixture as fx
 
 
@@ -62,9 +62,7 @@ def test_rr_heartbeats_stop_when_contact_is_lost(tmp_path: Path) -> None:
 def test_missing_streams_fail_clearly(tmp_path: Path) -> None:
     recording = _recording(tmp_path, duration_s=120, contact_until=0)
     with pytest.raises(AnalysisError) as context:
-        sleepecg._beats(
-            replace(recording, ecg=None), _config(prefer_ecg=False)
-        )
+        sleepecg._beats(replace(recording, ecg=None), _config(prefer_ecg=False))
     assert context.value.code == "insufficient_beats"
 
     empty_hr = replace(
@@ -84,9 +82,7 @@ def test_missing_streams_fail_clearly(tmp_path: Path) -> None:
     assert context.value.code == "insufficient_beats"
 
     with pytest.raises(AnalysisError) as context:
-        sleepecg._beats(
-            replace(empty_hr, hr=None, ecg=None), _config(prefer_ecg=True)
-        )
+        sleepecg._beats(replace(empty_hr, hr=None, ecg=None), _config(prefer_ecg=True))
     assert context.value.code == "missing_stream"
 
 

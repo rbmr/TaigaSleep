@@ -5,13 +5,13 @@ import time
 from typing import Any, Callable, Iterator
 
 import pytest
-
 from taiga_worker.api import ApiClient, ApiError
 from taiga_worker.realtime import MAX_LINE_BYTES, Realtime, parse_events
+
 from tests.realtime_server import (
     TOPIC,
-    RealtimeServer,
     Plan,
+    RealtimeServer,
     change,
     message,
     queued,
@@ -194,7 +194,9 @@ def test_a_stream_the_api_refuses_is_tried_again(server, streams) -> None:
     assert wake.rings == 1  # a refused stream is no connection
 
 
-def test_the_delay_doubles_up_to_the_maximum_and_starts_over_after_a_connection(server, streams) -> None:
+def test_the_delay_doubles_up_to_the_maximum_and_starts_over_after_a_connection(
+    server, streams
+) -> None:
     refused = Plan(status=503, content_type="application/json", body=b"{}")
     server.plans = [refused] * 5 + [Plan(then="end")] + [refused] * 2
     delays: list[float] = []
@@ -237,7 +239,9 @@ def test_a_stream_without_a_token_is_refused_and_the_worker_is_not_rung(server, 
     assert wake.rings == 0
 
 
-def test_a_rejected_token_is_replaced_through_call_and_the_stream_opened_again(server, streams) -> None:
+def test_a_rejected_token_is_replaced_through_call_and_the_stream_opened_again(
+    server, streams
+) -> None:
     server.revoked.add("stale")
     holder: dict[str, ApiClient] = {}
 
@@ -321,7 +325,9 @@ def test_garbage_does_not_stop_the_stream(server, streams) -> None:
 
     connection.send(b"\xff\xfe\x00\x01 not a message at all\n\n")
     connection.send(b"data: " + b"x" * (MAX_LINE_BYTES + 1) + b"\n\n")  # longer than a line may be
-    connection.send(b'event: analyses/*\ndata: {"record": {"status": "queued"\n\n')  # truncated JSON
+    connection.send(
+        b'event: analyses/*\ndata: {"record": {"status": "queued"\n\n'
+    )  # truncated JSON
     connection.send(queued())
 
     assert wake.wait(5)
@@ -351,7 +357,9 @@ def test_an_unreachable_api_is_retried_and_never_raises(streams) -> None:
     assert wake.rings == 0
 
 
-def test_a_failure_is_logged_once_as_a_warning_and_recovery_once_as_info(server, streams, caplog) -> None:
+def test_a_failure_is_logged_once_as_a_warning_and_recovery_once_as_info(
+    server, streams, caplog
+) -> None:
     refused = Plan(status=503, content_type="application/json", body=b"{}")
     server.plans = [refused] * 3
     with caplog.at_level("DEBUG", logger="taiga_worker"):

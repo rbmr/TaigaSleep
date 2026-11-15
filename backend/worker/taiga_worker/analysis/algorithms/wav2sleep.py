@@ -119,18 +119,26 @@ INFO = AlgorithmInfo(
             "max_ecg_rms_ratio": {
                 "type": "number",
                 "minimum": 0.0,
-                "description": "Reject 30-second intervals this many times louder than the night median; 0 turns it off.",
+                "description": (
+                    "Reject 30-second intervals this many times louder than the night "
+                    "median; 0 turns it off."
+                ),
             },
             "min_ecg_rms_ratio": {
                 "type": "number",
                 "minimum": 0.0,
-                "description": "Reject 30-second intervals this much quieter than the night median; 0 turns it off.",
+                "description": (
+                    "Reject 30-second intervals this much quieter than the night median; "
+                    "0 turns it off."
+                ),
             },
             "min_unknown_epochs": {
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 20,
-                "description": "Short artifact runs are staged and flagged instead of becoming gaps.",
+                "description": (
+                    "Short artifact runs are staged and flagged instead of becoming gaps."
+                ),
             },
             "smooth_window_epochs": {
                 "type": "integer",
@@ -164,11 +172,7 @@ def _remote_checkpoint(value: Any) -> bool:
 
 
 def _dependencies_installed() -> tuple[bool, str]:
-    missing = [
-        name
-        for name in ("torch", "wav2sleep")
-        if importlib.util.find_spec(name) is None
-    ]
+    missing = [name for name in ("torch", "wav2sleep") if importlib.util.find_spec(name) is None]
     if missing:
         return False, ""
     return True, ""
@@ -383,9 +387,7 @@ def prepare_ecg(recording: Recording, config: Mapping[str, Any]) -> PreparedEcg:
     saturated = np.asarray(grid.ecg_saturated_fraction, dtype=np.float64)[:scored_epochs]
     usable = (coverage >= float(config["min_ecg_coverage"])) & (saturated <= 0.5)
 
-    contact_available = bool(
-        recording.hr is not None and np.any(recording.hr.contact_supported)
-    )
+    contact_available = bool(recording.hr is not None and np.any(recording.hr.contact_supported))
     hr_contact = None
     if contact_available:
         hr_contact = np.asarray(grid.hr_contact_fraction, dtype=np.float64)[:scored_epochs]
@@ -410,7 +412,9 @@ def prepare_ecg(recording: Recording, config: Mapping[str, Any]) -> PreparedEcg:
     stageable = ~unknown
     stageable_epochs = int(np.count_nonzero(stageable))
     if stageable_epochs == 0:
-        raise AnalysisError("bad_ecg", "no 30-second interval has usable ECG contact and signal quality")
+        raise AnalysisError(
+            "bad_ecg", "no 30-second interval has usable ECG contact and signal quality"
+        )
     if stageable_epochs < int(config["min_usable_epochs"]):
         needed = int(config["min_usable_epochs"]) * EPOCH_SECONDS / 60.0
         raise AnalysisError(
@@ -503,7 +507,8 @@ def _load_model(checkpoint: Path, device: str) -> Any:
     if int(getattr(model, "num_classes", 0)) != len(CLASSES):
         raise AnalysisError(
             "invalid_checkpoint",
-            f"the checkpoint has {getattr(model, 'num_classes', 0)} classes, expected {len(CLASSES)}",
+            f"the checkpoint has {getattr(model, 'num_classes', 0)} classes, "
+            f"expected {len(CLASSES)}",
         )
     _MODEL_CACHE[key] = model
     return model
@@ -552,7 +557,7 @@ def to_result(
         total = float(np.sum(row))
         if total > 0:
             row = row / total
-        for stage, value in zip(CLASSES, row):
+        for stage, value in zip(CLASSES, row, strict=True):
             by_stage[stage].append(float(value))
         if prepared.usable[index]:
             stages.append(CLASSES[int(np.argmax(row))])
@@ -581,9 +586,9 @@ def to_result(
         )
     if prepared.artifact_epochs > 0:
         warnings.append(
-            f"{prepared.artifact_epochs} 30-second interval(s) have no reliable ECG contact or signal "
-            f"quality. {prepared.unknown_epochs} are reported as unknown and the rest are "
-            "flagged as artifacts"
+            f"{prepared.artifact_epochs} 30-second interval(s) have no reliable ECG contact "
+            f"or signal quality. {prepared.unknown_epochs} are reported as unknown and the "
+            "rest are flagged as artifacts"
         )
     if smooth_window_epochs > 1:
         warnings.append(
@@ -616,13 +621,15 @@ class Wav2SleepStager(Stager):
         if _remote_checkpoint(config["checkpoint"]):
             raise AnalysisError(
                 "invalid_checkpoint",
-                "wav2sleep checkpoints must be local. Download the pinned checkpoint during installation",
+                "wav2sleep checkpoints must be local. Download the pinned checkpoint "
+                "during installation",
             )
         checkpoint = _resolve_checkpoint(config["checkpoint"])
         if checkpoint is None:
             raise AnalysisError(
                 "missing_checkpoint",
-                f"wav2sleep needs a local checkpoint. Set {CHECKPOINT_ENV} or the checkpoint parameter",
+                f"wav2sleep needs a local checkpoint. Set {CHECKPOINT_ENV} or the "
+                "checkpoint parameter",
             )
 
         prepared = prepare_ecg(recording, config)

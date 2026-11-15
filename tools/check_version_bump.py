@@ -43,9 +43,7 @@ class CheckFailed(Exception):
 
 
 def git(*args: str) -> str:
-    result = subprocess.run(
-        ["git", *args], capture_output=True, text=True, check=False
-    )
+    result = subprocess.run(["git", *args], capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise CheckFailed(f"git {' '.join(args)} failed:\n{result.stderr.strip()}")
     return result.stdout

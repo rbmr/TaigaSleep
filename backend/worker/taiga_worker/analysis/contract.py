@@ -427,9 +427,7 @@ class Stager(ABC):
         super().__init_subclass__(**kwargs)
         info = getattr(cls, "info", None)
         if not isinstance(info, AlgorithmInfo):
-            raise TypeError(
-                f"{cls.__name__} must define info as an AlgorithmInfo class attribute"
-            )
+            raise TypeError(f"{cls.__name__} must define info as an AlgorithmInfo class attribute")
 
     @abstractmethod
     def stage(self, recording: Recording, params: Mapping[str, Any]) -> StagingResult:

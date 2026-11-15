@@ -36,7 +36,7 @@ jobs:
       app_release: ${{ steps.versions.outputs.app_release }}
       backend_release: ${{ steps.versions.outputs.backend_release }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -66,14 +66,14 @@ jobs:
     env:
       VERSION: ${{ needs.plan.outputs.app_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: "21"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
 
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest
@@ -105,7 +105,7 @@ jobs:
             echo "::error::no signed release APK was produced; check the signing secrets"
             exit 1
           fi
-          build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
           "$build_tools/apksigner" verify --print-certs "$apk"
           badging=$("$build_tools/aapt" dump badging "$apk")
           echo "$badging" | grep -E '^package:'
@@ -159,6 +159,9 @@ jobs:
     env:
       VERSION: ${{ needs.plan.outputs.backend_version }}
     strategy:
+      # Both images are built even if one fails: the failing one names itself in
+      # the check, and the digests are resolved once both have been pushed.
+      fail-fast: false
       matrix:
         include:
           - name: taigasleep-api
@@ -166,32 +169,46 @@ jobs:
           - name: taigasleep-worker
             context: backend/worker
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Build image
-        run: |
-          set -euo pipefail
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.name }}"
-          docker build \
-            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
-            --tag "$image:build" \
-            "${{ matrix.context }}"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - name: Push images
+      - name: Work out the image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.name }}" >> "$GITHUB_ENV"
+
+      - name: Log in to the container registry
         if: github.event_name == 'push'
-        env:
-          REGISTRY_TOKEN: ${{ github.token }}
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # The build cache is shared per image, so a rebuild after a merge that does
+      # not touch a component's Dockerfile or dependencies reuses its layers.
+      # Provenance and the SBOM are attestations in the pushed image index.
+      - name: Build and push the image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          tags: |
+            ${{ env.IMAGE }}:v${{ env.VERSION }}
+            ${{ env.IMAGE }}:latest
+          push: ${{ github.event_name == 'push' }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Report the pushed image
+        if: github.event_name == 'push'
         run: |
           set -euo pipefail
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.name }}"
-          printf '%s' "$REGISTRY_TOKEN" |
-            docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          # The immutable tag is what a deployment should pin; latest always
-          # points at the newest backend build.
-          docker tag "$image:build" "$image:v$VERSION"
-          docker tag "$image:build" "$image:latest"
-          docker push "$image:v$VERSION"
-          docker push "$image:latest"
+          echo "$IMAGE@${{ steps.build.outputs.digest }}"
+          docker buildx imagetools inspect "$IMAGE:v$VERSION"
 
   publish-backend:
     name: Publish backend release
@@ -203,15 +220,59 @@ jobs:
     env:
       VERSION: ${{ needs.plan.outputs.backend_version }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to the container registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # The digests are what a deployment should pin: they name the exact image
+      # indexes, with their attestations, that this release pushed.
+      - name: Resolve the pushed digests
+        id: digests
+        run: |
+          set -euo pipefail
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          for name in taigasleep-api taigasleep-worker; do
+            image="ghcr.io/$owner/$name:v$VERSION"
+            digest=$(docker buildx imagetools inspect "$image" --format '{{json .Manifest.Digest}}' | tr -d '"')
+            echo "$name: $image@$digest"
+            echo "${name#taigasleep-}=$image@$digest" >> "$GITHUB_OUTPUT"
+          done
 
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          API_IMAGE: ${{ steps.digests.outputs.api }}
+          WORKER_IMAGE: ${{ steps.digests.outputs.worker }}
         run: |
           set -euo pipefail
-          gh release create "backend-v$VERSION" \
+          tag="backend-v$VERSION"
+          # The generated notes stay; the digests this run pushed are appended,
+          # because the tag alone does not say which image was built.
+          gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$tag" \
+            -f target_commitish="$GITHUB_SHA" \
+            --jq .body > "$RUNNER_TEMP/notes.md"
+          {
+            echo
+            echo "## Container images"
+            echo
+            echo "| Image | Digest |"
+            echo "| --- | --- |"
+            echo "| \`taigasleep-api\` | \`$API_IMAGE\` |"
+            echo "| \`taigasleep-worker\` | \`$WORKER_IMAGE\` |"
+            echo
+            echo "Both are tagged \`v$VERSION\` and \`latest\`. Each image index carries an"
+            echo "SBOM and a provenance attestation, which \`docker buildx imagetools inspect\`"
+            echo "lists for the digest above."
+          } >> "$RUNNER_TEMP/notes.md"
+          gh release create "$tag" \
             --target "$GITHUB_SHA" \
             --title "Backend v$VERSION" \
-            --generate-notes
+            --notes-file "$RUNNER_TEMP/notes.md"

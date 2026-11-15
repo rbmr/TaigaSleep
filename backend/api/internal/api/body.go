@@ -13,8 +13,6 @@ import (
 const (
 	// bodyLimitSmall covers a login, a token and a recording patch.
 	bodyLimitSmall = 4 * 1024
-	// bodyLimitAnalysis covers an analysis request, whose params travel with it.
-	bodyLimitAnalysis = 32 * 1024
 	// bodyLimitQueue covers what a worker sends while it runs an analysis.
 	bodyLimitQueue = 64 * 1024
 	// bodyLimitAnnouncement covers a worker announcing up to 100 algorithms.

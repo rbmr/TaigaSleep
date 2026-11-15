@@ -229,7 +229,9 @@ def write_recording(
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
     (path / "meta.json").write_text(
-        json.dumps(meta(session_id, duration_s=duration_s, ecg=include_ecg, acc=include_acc), indent=2),
+        json.dumps(
+            meta(session_id, duration_s=duration_s, ecg=include_ecg, acc=include_acc), indent=2
+        ),
         encoding="utf-8",
     )
     hr = hr_log(
@@ -258,6 +260,11 @@ def write_recording(
         )
     (path / "events.jsonl").write_bytes(
         event_line(START_NS, 0, "start", "recording started")
-        + event_line(START_NS + duration_s * 1_000_000_000, duration_s * 1_000_000_000, "stop", "recording stopped")
+        + event_line(
+            START_NS + duration_s * 1_000_000_000,
+            duration_s * 1_000_000_000,
+            "stop",
+            "recording stopped",
+        )
     )
     return path

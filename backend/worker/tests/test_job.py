@@ -6,9 +6,9 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from taiga_worker.analysis import AnalysisError
 from taiga_worker.job import analyze, main
+
 from tests import analysis_fixture as fx
 
 

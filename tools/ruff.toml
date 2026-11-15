@@ -1,0 +1,13 @@
+# Ruff configuration for the Python in this repository: the worker and the
+# scripts in tools/. It lives here because it belongs to the tooling, not to a
+# component; the commands that use it are in docs/ci.md. The line length matches
+# the code: 100 columns.
+
+line-length = 100
+target-version = "py310"
+
+[lint]
+# pycodestyle errors and warnings, pyflakes, import sorting and bugbear. The
+# comments and docstrings carry most of the explanation, so the style rules that
+# only reformat them are left to the formatter.
+select = ["E", "F", "W", "I", "B"]

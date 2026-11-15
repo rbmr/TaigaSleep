@@ -83,9 +83,7 @@ def _params(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     try:
         smooth = int(merged["smooth_window_epochs"])
     except (TypeError, ValueError) as exc:
-        raise AnalysisError(
-            "invalid_params", "smooth_window_epochs must be an integer"
-        ) from exc
+        raise AnalysisError("invalid_params", "smooth_window_epochs must be an integer") from exc
     if not 1 <= smooth <= 21:
         raise AnalysisError("invalid_params", "smooth_window_epochs must be between 1 and 21")
     merged["smooth_window_epochs"] = smooth
@@ -162,7 +160,9 @@ class BaselineStager(Stager):
             artifacts=artifacts,
             warnings=warnings,
             extras={
-                "night_median_hr_bpm": None if not np.isfinite(night_median) else round(night_median, 1),
+                "night_median_hr_bpm": None
+                if not np.isfinite(night_median)
+                else round(night_median, 1),
                 "params": config,
                 "has_acc": has_acc,
                 "smooth_window_epochs": window,

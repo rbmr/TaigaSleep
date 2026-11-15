@@ -4,10 +4,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from taiga_worker.analysis.contract import AASM4_STAGES, AlgorithmInfo, StreamNeed
 from taiga_worker.analysis.decode import load_recording
 from taiga_worker.analysis.derive import MOVEMENT_THRESHOLD_G, derive
+
 from tests import analysis_fixture as fx
 
 # Shared derivation is stage-scheme independent; this AASM4 manifest keeps these
@@ -251,7 +251,10 @@ def test_a_block_of_unknown_epochs_does_not_change_efficiency(tmp_path: Path) ->
     assert without_derived.metrics["scored_duration_s"] == 180.0
     assert with_block_derived.metrics["scored_duration_s"] == 180.0
     assert without_derived.metrics["sleep_efficiency"] == pytest.approx(2 / 3, abs=1e-4)
-    assert with_block_derived.metrics["sleep_efficiency"] == without_derived.metrics["sleep_efficiency"]
+    assert (
+        with_block_derived.metrics["sleep_efficiency"]
+        == without_derived.metrics["sleep_efficiency"]
+    )
     assert with_block_derived.support["sleep_efficiency"]["status"] == "supported"
 
 
@@ -328,9 +331,9 @@ def test_rr_data_with_a_gap_combines_the_halves_instead_of_spanning_the_gap(
 
     first_rr = [value for pair in first for value in pair]
     second_rr = [value for pair in second for value in pair]
-    expected = (
-        len(first_rr) * _rmssd(first_rr) + len(second_rr) * _rmssd(second_rr)
-    ) / (len(first_rr) + len(second_rr))
+    expected = (len(first_rr) * _rmssd(first_rr) + len(second_rr) * _rmssd(second_rr)) / (
+        len(first_rr) + len(second_rr)
+    )
 
     assert derived.metrics["hrv_rr_count"] == len(first_rr) + len(second_rr)
     assert derived.metrics["hrv_rmssd_ms"] == pytest.approx(expected, abs=0.05)

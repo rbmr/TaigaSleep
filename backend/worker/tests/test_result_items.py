@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from taiga_worker.analysis.pipeline import run_analysis
+
 from tests import analysis_fixture as fx
 
 # The figures the app renders. This is the contract of docs/analysis-contract.md; the app no
@@ -49,9 +50,7 @@ def test_an_unsupported_figure_is_absent_instead_of_null(tmp_path: Path) -> None
 
     assert "movement_index" not in item_ids(payload)
     assert all(
-        item.get("value") is not None
-        for item in payload["items"]
-        if item["kind"] == "number"
+        item.get("value") is not None for item in payload["items"] if item["kind"] == "number"
     )
 
 

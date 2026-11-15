@@ -51,7 +51,7 @@ def test_failed_status_payload_is_a_failure() -> None:
         command=[
             sys.executable,
             "-c",
-            "print('{\"status\": \"failed\", \"error\": \"bad data\"}')",
+            'print(\'{"status": "failed", "error": "bad data"}\')',
         ],
     )
     outcome = runner.run({"id": "job1"})
@@ -67,7 +67,7 @@ def test_retryable_failure_payload() -> None:
         command=[
             sys.executable,
             "-c",
-            "print('{\"status\": \"failed\", \"error\": \"temporary\", \"retryable\": true}')",
+            'print(\'{"status": "failed", "error": "temporary", "retryable": true}\')',
         ],
     )
     outcome = runner.run({"id": "job1"})

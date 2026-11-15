@@ -248,17 +248,27 @@ the build produces an unsigned APK, which is fine for `testDebugUnitTest` and
 Run the `release` workflow manually on a branch (`workflow_dispatch`). It runs the
 tests, builds and verifies the APK, and builds both images, but does not push the
 images or create a tag or release. That is the way to check a signing or Docker
-change before merging it.
+change before merging it. The image builds use a layer cache, so a manual run
+after the previous one is usually much faster than the first.
 
-## The pull request check
+## The pull request checks
 
-`.github/workflows/version.yml` runs `tools/check_version_bump.py` on every pull
-request into `main` and fails unless each changed component has a strictly greater
-version. Make it a required status check in branch protection, together with the
-app tests and the backend workflow, so a change cannot merge unreleased and
-unbuilt.
+`.github/workflows/version.yml` runs `tools/check_version_bump.py` and the release
+plan on every pull request into `main`, and `.github/workflows/ci.yml` runs the
+tests and the static checks. Three checks are required in branch protection:
+`version bump`, `release plan` and `gate`. The gate is the aggregate one: it
+always runs and is green only when every check that applies to the change passed.
+See [`ci.md`](ci.md).
 
-## Not done yet
+## Release bodies list the image digests
 
-- No reproducible backend digest is recorded in the release body; `:latest` is
-  rebuilt in place, so pin `:v<version>` when you need one.
+A backend release body carries the digest of each image index it pushed, so a
+deployment can pin the exact bytes instead of trusting a tag that may move:
+
+```text
+| `taigasleep-api` | `ghcr.io/rbmr/taigasleep-api:v0.6.31@sha256:...` |
+```
+
+Each index also carries an SBOM and a provenance attestation, which
+`docker buildx imagetools inspect <image>` lists. The `:latest` tag is still
+rebuilt in place, so pin `:v<version>` or the digest when reproducibility matters.

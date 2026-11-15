@@ -1,0 +1,422 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:RecordingControl.kt$RecordingControl$dir == null || meta == null || kind == null || meta.state == RecordingPhase.STOPPED || meta.state == RecordingPhase.FORCED_STOP</ID>
+    <ID>ComplexCondition:RecordingControl.kt$RecordingControl$modes.isEmpty() || !(config.hr || config.ecg || config.acc)</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$AccessTokenDto$val expires_at: String? = null</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$AlgorithmDto$val epoch_seconds: Int = 30</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$AlgorithmDto$val supported_stages: List&lt;String&gt; = emptyList()</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$AlgorithmNeedDto$val max_rate_hz: Double? = null</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$AlgorithmNeedDto$val min_rate_hz: Double? = null</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$AnalysisDto$val finished_at: String? = null</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$AnalysisResultDto$val contract_version: Int = 0</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$AnalysisResultDto$val model_version: String = ""</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$AnalysisResultDto$val params_hash: String = ""</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$HrSeriesDto$val epoch_seconds: Int = 30</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$HrSeriesDto$val mean_bpm: List&lt;Double?&gt; = emptyList()</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$HrSeriesDto$val sample_count: List&lt;Int&gt;? = null</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$HrSeriesDto$val start_unix_ms: Long = 0</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$RecordingDto$/** The bytes the server stores for the recording, compressed files included. */ val stored_bytes: Long = 0</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$RecordingDto$val duration_s: Double = 0.0</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$RecordingDto$val ended_at: String? = null</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$RecordingDto$val started_at: String = ""</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$RecordingFileDto$val uncompressed_size: Long = 0</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$StageSummaryDto$val epoch_seconds: Int = 30</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$StageSummaryDto$val start_unix_ms: Long = 0</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$StageTimelineDto$val epoch_seconds: Int = 30</ID>
+    <ID>ConstructorParameterNaming:TaigaApi.kt$StageTimelineDto$val start_unix_ms: Long = 0</ID>
+    <ID>CyclomaticComplexMethod:AnalysisSync.kt$AnalysisSync$suspend fun refresh( key: String, recordingId: String, preferred: List&lt;String?&gt; = emptyList(), ): RecordingSnapshot</ID>
+    <ID>CyclomaticComplexMethod:Automation.kt$Automation$private suspend fun catchUpAnalyses(only: String?)</ID>
+    <ID>CyclomaticComplexMethod:BearDen.kt$@Composable fun BearDen( modifier: Modifier = Modifier, variant: LogoVariant = LogoVariant.Sleeping, glow: Boolean = false, tapEffect: DenTapEffect = DenTapEffect.None, contentDescription: String? = null, )</ID>
+    <ID>CyclomaticComplexMethod:ConfigureSheet.kt$@Composable internal fun LiveWakeSheet(wake: LiveWake, onWake: (WakeChoice?) -&gt; Unit, onDismiss: () -&gt; Unit)</ID>
+    <ID>CyclomaticComplexMethod:DeleteWorker.kt$RemoteDelete$suspend fun run( recordingId: String, queuedFor: String?, activeAccount: () -&gt; String?, verify: suspend () -&gt; Boolean, api: () -&gt; TaigaClient?, onDeleted: suspend (account: String) -&gt; Unit, ): Outcome</ID>
+    <ID>CyclomaticComplexMethod:HomeScreen.kt$@Composable fun HomeScreen(onGuidanceClick: () -&gt; Unit, onOpenRecording: (String) -&gt; Unit)</ID>
+    <ID>CyclomaticComplexMethod:JsonLine.kt$JsonLine$private fun quote(sb: StringBuilder, s: CharSequence)</ID>
+    <ID>CyclomaticComplexMethod:JsonLine.kt$JsonLine$private fun value(sb: StringBuilder, v: Any?, depth: Int)</ID>
+    <ID>CyclomaticComplexMethod:Layout.kt$@Composable fun ListRow( title: String, modifier: Modifier = Modifier, icon: ImageVector? = null, subtitle: String? = null, value: String? = null, trailing: ListRowTrailing = ListRowTrailing.Chevron, enabled: Boolean = true, onClick: (() -&gt; Unit)? = null, onLongClick: (() -&gt; Unit)? = null, onClickLabel: String? = null, below: (@Composable () -&gt; Unit)? = null, )</ID>
+    <ID>CyclomaticComplexMethod:Names.kt$Names$fun exitReason(code: Int): String</ID>
+    <ID>CyclomaticComplexMethod:PolarH10Sensor.kt$PolarH10Sensor$private fun maybeBeginStreams(force: Boolean = false)</ID>
+    <ID>CyclomaticComplexMethod:RecordingCharts.kt$@Composable fun HeartRateChart( series: HrSeriesDto, modifier: Modifier = Modifier, chartHeight: Int = 176, fullscreen: Boolean = false, )</ID>
+    <ID>CyclomaticComplexMethod:RecordingCharts.kt$@Composable private fun TimeChart( startUnixMs: Long, totalSeconds: Long, pointCount: Int, yLabels: List&lt;Pair&lt;Float, String&gt;&gt;, horizontalLines: List&lt;Float&gt;, leftLabelWidth: Dp, description: String, valueAt: (Int) -&gt; String, large: Boolean, modifier: Modifier = Modifier, drawPlot: DrawScope.(PlotBounds, Int?) -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:RecordingControl.kt$RecordingControl$private fun attach( writer: RecordingWriter, sensor: SleepSensor, mode: RecordingMode, parked: Boolean = false, contact: Boolean = true, wake: ArmedWake? = null, )</ID>
+    <ID>CyclomaticComplexMethod:RecordingControl.kt$RecordingControl$private suspend fun startRecording(request: StartRequest)</ID>
+    <ID>CyclomaticComplexMethod:RecordingDetailViewModel.kt$RecordingDetailViewModel$private fun load()</ID>
+    <ID>CyclomaticComplexMethod:RecordingOverlays.kt$@Composable internal fun RecordingOverlays( state: RecordingDetailUiState, showSleepScore: Boolean, fullscreenChart: String?, showAnalysis: Boolean, showExport: Boolean, showDelete: Boolean, showRawDelete: Boolean, onDismissSleepScore: () -&gt; Unit, onDismissChart: () -&gt; Unit, onDismissAnalysis: () -&gt; Unit, onSelectAnalysis: (String) -&gt; Unit, onRunAnalysis: (String) -&gt; Unit, onDismissExport: () -&gt; Unit, onExportRaw: (Boolean) -&gt; Unit, onExportMetadata: (Boolean) -&gt; Unit, onExportResults: (Boolean) -&gt; Unit, onExport: () -&gt; Unit, onDismissDeleteRaw: () -&gt; Unit, onConfirmDeleteRaw: () -&gt; Unit, onDismissDelete: () -&gt; Unit, onConfirmDelete: () -&gt; Unit, onConfirmUploadElsewhere: () -&gt; Unit, onDismissUploadElsewhere: () -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:RecordingSection.kt$@Composable internal fun RecordingSection( state: RecordingDetailUiState, onExport: () -&gt; Unit, onDownloadRaw: () -&gt; Unit, onDeleteRaw: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:RecordingView.kt$private fun buildRecording( key: String, local: Recording?, entry: LibraryEntry?, ): RecordingView</ID>
+    <ID>CyclomaticComplexMethod:RemoteModels.kt$fun remoteErrorFromLabel(label: String?): RemoteError?</ID>
+    <ID>CyclomaticComplexMethod:RemoteScreen.kt$@Composable private fun errorMessage(error: RemoteError): String</ID>
+    <ID>CyclomaticComplexMethod:RemoteUrl.kt$RemoteUrl$fun isLocalOrPrivate(host: String): Boolean</ID>
+    <ID>CyclomaticComplexMethod:RemoteUrl.kt$RemoteUrl$fun parse(raw: String): Result&lt;RemoteAddress&gt;</ID>
+    <ID>CyclomaticComplexMethod:SimulatedSensor.kt$SimulatedSensor$@Synchronized fun pump(nowNs: Long)</ID>
+    <ID>CyclomaticComplexMethod:StatusCards.kt$internal fun LazyListScope.statusCards( state: RecordingDetailUiState, onUpload: () -&gt; Unit, onRefresh: () -&gt; Unit, onRetryAnalysis: () -&gt; Unit, onLogin: () -&gt; Unit, onOpenAnalysis: () -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:StatusPill.kt$@Composable fun StatusPill( state: StatusPillState, label: String, modifier: Modifier = Modifier, onClick: (() -&gt; Unit)? = null, )</ID>
+    <ID>CyclomaticComplexMethod:TaigaApp.kt$@Composable fun TaigaApp( themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:TrendsCharts.kt$@Composable private fun TrendPlotCanvas( days: List&lt;LocalDate&gt;, kind: TrendChartKind, axis: TrendAxis, references: List&lt;TrendReference&gt;, description: String, topLabel: ((String) -&gt; String)?, valueFormat: (Double) -&gt; String, large: Boolean, modifier: Modifier = Modifier, )</ID>
+    <ID>CyclomaticComplexMethod:TrendsCharts.kt$private fun DrawScope.drawTrendLine( plot: TrendPlot, series: TrendSeries, axis: TrendAxis, large: Boolean, dash: PathEffect, )</ID>
+    <ID>CyclomaticComplexMethod:UploadCoordinator.kt$UploadCoordinator$internal suspend fun retryAnalysis( remote: RemoteRepository, store: UploadStore, key: String, analysisId: String?, config: () -&gt; RecordingConfig, settings: AnalysisSettings, personalData: PersonalData = PersonalData(), startDate: LocalDate? = null, ): Result&lt;Unit&gt;</ID>
+    <ID>CyclomaticComplexMethod:UploadEngine.kt$UploadEngine$private suspend fun uploadCompressed( file: File, initial: RemoteFile?, cache: CompressionCache, uploaded: MutableMap&lt;String, Long&gt;, totalBytes: Long, )</ID>
+    <ID>CyclomaticComplexMethod:UploadEngine.kt$UploadEngine$private suspend fun uploadPlain( file: File, initial: RemoteFile?, uploaded: MutableMap&lt;String, Long&gt;, totalBytes: Long, )</ID>
+    <ID>CyclomaticComplexMethod:UploadWorker.kt$UploadWorker$override suspend fun doWork(): Result</ID>
+    <ID>DestructuringDeclarationWithTooManyEntries:RemoteUrl.kt$RemoteUrl$val (a, b, _, _) = octets</ID>
+    <ID>EmptyFunctionBlock:FetchedRecordingUploadTest.kt$FetchedRecordingUploadTest.NoMonitor${}</ID>
+    <ID>EmptyFunctionBlock:HomeViewModelTest.kt$FakeSensor${}</ID>
+    <ID>EmptyFunctionBlock:OnDeviceFetchRecoveryTest.kt$OnDeviceFetchRecoveryTest.FixedTracker${}</ID>
+    <ID>EmptyFunctionBlock:OnDeviceFetchTest.kt$OnDeviceFetchTest.FixedTracker${}</ID>
+    <ID>EmptyFunctionBlock:OnDeviceFetchTest.kt$OnDeviceFetchTest.NoMonitor${}</ID>
+    <ID>EmptyFunctionBlock:PolarH10Sensor.kt$PolarSdk.&lt;no name provided&gt;${}</ID>
+    <ID>EmptyFunctionBlock:TaigaApplication.kt$TaigaApplication.&lt;no name provided&gt;${}</ID>
+    <ID>EmptyFunctionBlock:TrackerCleanupTest.kt$TrackerCleanupTest.FakeTracker${}</ID>
+    <ID>FunctionNaming:FinishingWithSimulatedSensorTest.kt$FinishingWithSimulatedSensorTest$@Test fun `a failed fetch shows why and the retry finishes the night`()</ID>
+    <ID>FunctionNaming:FinishingWithSimulatedSensorTest.kt$FinishingWithSimulatedSensorTest$@Test fun `stopping a streamed night shows the steps and ends on the done card`()</ID>
+    <ID>FunctionNaming:FinishingWithSimulatedSensorTest.kt$FinishingWithSimulatedSensorTest$@Test fun `stopping an on-device night fetches it, shows the entry and then the done card`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `a recording abandoned on resume drops its window`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `a recording the tracker stores itself arms no window`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `a resumed recording still says when its alarm rang`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `a window around now rings once the movement keeps up`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `a window moved after it rang can ring again`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `a window without a chosen signal still arms its end`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `discarding a recording drops its window`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `force stopping a recording drops its window`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `moving the window while recording arms the new one and shows it`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `resuming a recording keeps its window armed`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `stopping a recording drops its window`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `switching the alarm off while recording drops it and nothing rings`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `switching the alarm on while recording rings for that window`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `the end of the window is armed with the system while the recording runs`()</ID>
+    <ID>FunctionNaming:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$@Test fun `the end of the window is noted in the recording`()</ID>
+    <ID>FunctionOnlyReturningConstant:DebugTools.kt$DebugTools$fun createSimulatedSensor(): SleepSensor?</ID>
+    <ID>ImplicitDefaultLocale:JsonLine.kt$JsonLine$String.format("\\u%04x", c.code)</ID>
+    <ID>InstanceOfCheckForException:PolarH10Sensor.kt$PolarH10Sensor$e !is TimeoutCancellationException</ID>
+    <ID>InstanceOfCheckForException:TaigaApi.kt$OkHttpTaigaApi$e is IllegalArgumentException</ID>
+    <ID>InstanceOfCheckForException:TaigaApi.kt$OkHttpTaigaApi$e is SerializationException</ID>
+    <ID>InstanceOfCheckForException:TaigaApi.kt$OkHttpTaigaApi$e is TaigaException</ID>
+    <ID>LargeClass:RecordingControl.kt$RecordingControl</ID>
+    <ID>LargeClass:RecordingMergeTest.kt$RecordingMergeTest</ID>
+    <ID>LongMethod:AboutScreen.kt$@Composable fun AboutScreen(onBack: () -&gt; Unit, onLicences: () -&gt; Unit)</ID>
+    <ID>LongMethod:AnalysisDtoTest.kt$AnalysisDtoTest$@Test fun aSucceededAnalysisCarriesItsSummaryAndItsResult()</ID>
+    <ID>LongMethod:AnalysisScreen.kt$@Composable fun AnalysisScreen(onBack: () -&gt; Unit)</ID>
+    <ID>LongMethod:AnalysisSheet.kt$@Composable internal fun AnalysisSheet( runs: List&lt;Analysis&gt;, selectedId: String?, algorithms: List&lt;AlgorithmDto&gt;, loading: Boolean, error: String?, busy: Boolean, onSelect: (String) -&gt; Unit, onRun: (String) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ArchitectureTest.kt$ArchitectureTest$@Test fun `the of checker reports a lookup outside the wiring and accepts the worker entry points`()</ID>
+    <ID>LongMethod:BearDen.kt$@Composable fun BearDen( modifier: Modifier = Modifier, variant: LogoVariant = LogoVariant.Sleeping, glow: Boolean = false, tapEffect: DenTapEffect = DenTapEffect.None, contentDescription: String? = null, )</ID>
+    <ID>LongMethod:ConfirmDialog.kt$@Composable fun ConfirmDialog( title: String, body: String, confirmLabel: String, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit, modifier: Modifier = Modifier, style: ConfirmDialogStyle = ConfirmDialogStyle.Primary, )</ID>
+    <ID>LongMethod:DetailScreen.kt$@Composable fun RecordingDetailScreen( localId: String?, remoteId: String?, analysisId: String?, onBack: () -&gt; Unit, onLogin: () -&gt; Unit, )</ID>
+    <ID>LongMethod:FinishingHome.kt$@Composable internal fun FinishingHome( state: HomeUiState.Finishing, onOpenRecording: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:FlowScreen.kt$@Composable fun FlowScreen( match: DeviceMatch, store: GuidanceStore, preview: Boolean, onClose: () -&gt; Unit, )</ID>
+    <ID>LongMethod:FlowScreen.kt$@Composable private fun Intro(match: DeviceMatch, flow: Flow, preview: Boolean, onPick: (Flow) -&gt; Unit)</ID>
+    <ID>LongMethod:HistoryScreen.kt$@Composable private fun RecordingRow(item: RecordingView, onOpen: () -&gt; Unit)</ID>
+    <ID>LongMethod:HomeScreen.kt$@Composable fun HomeScreen(onGuidanceClick: () -&gt; Unit, onOpenRecording: (String) -&gt; Unit)</ID>
+    <ID>LongMethod:IdleHome.kt$@Composable internal fun IdleHome( view: InactiveView, onSelectTracker: () -&gt; Unit, onDataSettings: () -&gt; Unit, onGuard: () -&gt; Unit, onGuardLongClick: (() -&gt; Unit)?, onStart: () -&gt; Unit, )</ID>
+    <ID>LongMethod:Layout.kt$@Composable fun ListRow( title: String, modifier: Modifier = Modifier, icon: ImageVector? = null, subtitle: String? = null, value: String? = null, trailing: ListRowTrailing = ListRowTrailing.Chevron, enabled: Boolean = true, onClick: (() -&gt; Unit)? = null, onLongClick: (() -&gt; Unit)? = null, onClickLabel: String? = null, below: (@Composable () -&gt; Unit)? = null, )</ID>
+    <ID>LongMethod:PersonalData.kt$@Composable private fun WeightDialog(current: Double?, onSave: (Double?) -&gt; Unit, onDismiss: () -&gt; Unit)</ID>
+    <ID>LongMethod:PersonalData.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PersonalDataScreen(onBack: () -&gt; Unit)</ID>
+    <ID>LongMethod:PersonalData.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable private fun DateOfBirthDialog( current: LocalDate?, onSave: (LocalDate?) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:RawRetention.kt$RawRetention$suspend fun restore( context: Context, localId: String, recordingId: String, onProgress: (Float) -&gt; Unit = {}, ): Result&lt;Unit&gt;</ID>
+    <ID>LongMethod:RecordingCharts.kt$@Composable fun HeartRateChart( series: HrSeriesDto, modifier: Modifier = Modifier, chartHeight: Int = 176, fullscreen: Boolean = false, )</ID>
+    <ID>LongMethod:RecordingCharts.kt$@Composable private fun TimeChart( startUnixMs: Long, totalSeconds: Long, pointCount: Int, yLabels: List&lt;Pair&lt;Float, String&gt;&gt;, horizontalLines: List&lt;Float&gt;, leftLabelWidth: Dp, description: String, valueAt: (Int) -&gt; String, large: Boolean, modifier: Modifier = Modifier, drawPlot: DrawScope.(PlotBounds, Int?) -&gt; Unit, )</ID>
+    <ID>LongMethod:RecordingControl.kt$RecordingControl$private fun attach( writer: RecordingWriter, sensor: SleepSensor, mode: RecordingMode, parked: Boolean = false, contact: Boolean = true, wake: ArmedWake? = null, )</ID>
+    <ID>LongMethod:RecordingControl.kt$RecordingControl$private suspend fun fetchRecording(recordingId: String?)</ID>
+    <ID>LongMethod:RecordingControl.kt$RecordingControl$private suspend fun startRecording(request: StartRequest)</ID>
+    <ID>LongMethod:RecordingOverlays.kt$@Composable internal fun RecordingOverlays( state: RecordingDetailUiState, showSleepScore: Boolean, fullscreenChart: String?, showAnalysis: Boolean, showExport: Boolean, showDelete: Boolean, showRawDelete: Boolean, onDismissSleepScore: () -&gt; Unit, onDismissChart: () -&gt; Unit, onDismissAnalysis: () -&gt; Unit, onSelectAnalysis: (String) -&gt; Unit, onRunAnalysis: (String) -&gt; Unit, onDismissExport: () -&gt; Unit, onExportRaw: (Boolean) -&gt; Unit, onExportMetadata: (Boolean) -&gt; Unit, onExportResults: (Boolean) -&gt; Unit, onExport: () -&gt; Unit, onDismissDeleteRaw: () -&gt; Unit, onConfirmDeleteRaw: () -&gt; Unit, onDismissDelete: () -&gt; Unit, onConfirmDelete: () -&gt; Unit, onConfirmUploadElsewhere: () -&gt; Unit, onDismissUploadElsewhere: () -&gt; Unit, )</ID>
+    <ID>LongMethod:RecordingSection.kt$@Composable internal fun RecordingSection( state: RecordingDetailUiState, onExport: () -&gt; Unit, onDownloadRaw: () -&gt; Unit, onDeleteRaw: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
+    <ID>LongMethod:RecordingView.kt$private fun buildRecording( key: String, local: Recording?, entry: LibraryEntry?, ): RecordingView</ID>
+    <ID>LongMethod:RemoteScreen.kt$@Composable fun RemoteScreen(onBack: () -&gt; Unit)</ID>
+    <ID>LongMethod:RemoteScreen.kt$@Composable private fun ServerPage( url: String, onUrlChange: (String) -&gt; Unit, address: String?, status: RemoteStatus, checking: Boolean, onCheck: () -&gt; Unit, )</ID>
+    <ID>LongMethod:SettingsScreen.kt$@Composable internal fun SettingsContent( state: SettingsUiState, onThemeModeChange: (ThemeMode) -&gt; Unit, onAboutClick: () -&gt; Unit, onGuidanceClick: () -&gt; Unit, onRemoteClick: () -&gt; Unit, onTokensClick: () -&gt; Unit, onPersonalClick: () -&gt; Unit, onUploadsClick: () -&gt; Unit, onAnalysisClick: () -&gt; Unit, onNotificationsClick: () -&gt; Unit, )</ID>
+    <ID>LongMethod:SimulatedRecordingTest.kt$SimulatedRecordingTest$@Test fun simulatedNightValidatesWithPythonReader()</ID>
+    <ID>LongMethod:Status.kt$@OptIn(ExperimentalFoundationApi::class) @Composable fun StatusBanner( kind: StatusKind, modifier: Modifier = Modifier, title: String? = null, body: String? = null, details: List&lt;String&gt; = emptyList(), actions: (@Composable RowScope.() -&gt; Unit)? = null, onClick: (() -&gt; Unit)? = null, onLongClick: (() -&gt; Unit)? = null, )</ID>
+    <ID>LongMethod:StatusCards.kt$internal fun LazyListScope.statusCards( state: RecordingDetailUiState, onUpload: () -&gt; Unit, onRefresh: () -&gt; Unit, onRetryAnalysis: () -&gt; Unit, onLogin: () -&gt; Unit, onOpenAnalysis: () -&gt; Unit, )</ID>
+    <ID>LongMethod:StreamRecovery.kt$StreamRecoveryPolicy$fun evaluate(nowMs: Long): List&lt;RecoveryStep&gt;</ID>
+    <ID>LongMethod:TaigaApp.kt$@Composable fun TaigaApp( themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -&gt; Unit, )</ID>
+    <ID>LongMethod:TokensScreen.kt$@Composable fun AccessTokensScreen(onBack: () -&gt; Unit)</ID>
+    <ID>LongMethod:TrendsCharts.kt$@Composable private fun TrendPlotCanvas( days: List&lt;LocalDate&gt;, kind: TrendChartKind, axis: TrendAxis, references: List&lt;TrendReference&gt;, description: String, topLabel: ((String) -&gt; String)?, valueFormat: (Double) -&gt; String, large: Boolean, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:TrendsCharts.kt$@Preview(name = "Light", widthDp = 360) @Preview(name = "Dark", widthDp = 360, uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun TrendChartPreview()</ID>
+    <ID>LongMethod:TrendsScreen.kt$@Composable private fun ScheduleChart(data: Trends)</ID>
+    <ID>LongMethod:UploadWorker.kt$UploadWorker$override suspend fun doWork(): Result</ID>
+    <ID>LongMethod:UploadsScreen.kt$@Composable fun UploadsScreen(onBack: () -&gt; Unit)</ID>
+    <ID>LongParameterList:ActiveHome.kt$( state: HomeUiState.Recording, autoUpload: Boolean, onStop: () -&gt; Unit, onForceStop: () -&gt; Unit, onDiscard: () -&gt; Unit, onWake: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:AnalysisService.kt$AnalysisService$( client: TaigaClient, recordingId: String, config: RecordingConfig, ids: List&lt;String&gt;, personalData: PersonalData = PersonalData(), startDate: LocalDate? = null, )</ID>
+    <ID>LongParameterList:AnalysisService.kt$AnalysisService$( client: TaigaClient, recordingId: String, config: RecordingConfig, settings: AnalysisSettings, personalData: PersonalData = PersonalData(), startDate: LocalDate? = null, )</ID>
+    <ID>LongParameterList:AnalysisSheet.kt$( runs: List&lt;Analysis&gt;, selectedId: String?, algorithms: List&lt;AlgorithmDto&gt;, loading: Boolean, error: String?, busy: Boolean, onSelect: (String) -&gt; Unit, onRun: (String) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:Automation.kt$( runs: List&lt;AnalysisDto&gt;, config: RecordingConfig, installed: List&lt;AlgorithmDto&gt;, settings: AnalysisSettings, retriesUsed: (AnalysisDto) -&gt; Int, nowMs: Long, )</ID>
+    <ID>LongParameterList:Automation.kt$Automation$( scope: CoroutineScope, uploadSettings: Flow&lt;AutoUploadSettings&gt;, analysisAuto: Flow&lt;Boolean&gt;, accounts: Flow&lt;String?&gt;, connected: Flow&lt;Boolean&gt;, onTrigger: suspend (CatchUpReason) -&gt; Unit, )</ID>
+    <ID>LongParameterList:Buttons.kt$( label: String, onClick: () -&gt; Unit, modifier: Modifier = Modifier, action: String? = null, emphasis: String? = null, enabled: Boolean = true, )</ID>
+    <ID>LongParameterList:Buttons.kt$( options: List&lt;String&gt;, selectedIndex: Int, onSelect: (Int) -&gt; Unit, modifier: Modifier = Modifier, fillWidth: Boolean = false, floating: Boolean = false, enabled: Boolean = true, )</ID>
+    <ID>LongParameterList:Buttons.kt$( text: String, onClick: () -&gt; Unit, modifier: Modifier = Modifier, enabled: Boolean = true, size: ButtonSize = ButtonSize.Regular, borderColor: Color = MaterialTheme.colorScheme.outline, contentColor: Color = MaterialTheme.colorScheme.onSurface, )</ID>
+    <ID>LongParameterList:Buttons.kt$( text: String, onClick: () -&gt; Unit, modifier: Modifier = Modifier, enabled: Boolean = true, size: ButtonSize = ButtonSize.Regular, containerColor: Color = MaterialTheme.colorScheme.primary, contentColor: Color = MaterialTheme.colorScheme.onPrimary, )</ID>
+    <ID>LongParameterList:Color.kt$TaigaColors$( val dark: Boolean, val ok: Color, val okContainer: Color, val warn: Color, val warnContainer: Color, val warnBorder: Color, val onWarn: Color, // Text and track colors on the warn container (pending-upload banner). val warnInk: Color, val warnTrack: Color, val warnBar: Color, val bad: Color, val badContainer: Color, val badBorder: Color, // Top color of the screen background gradient. val hero: Color, val disabled: Color, // Unfilled progress segments. val segment: Color, // Borders of secondary buttons. val strong: Color, val auroraStart: Color, val auroraEnd: Color, val bear: Color, val stageWake: Color, val stageRem: Color, val stageLight: Color, val stageDeep: Color, // Heart-rate curve; deliberately outside the sleep-stage palette. val chartHr: Color, // The non-colour tokens travel with the colours so `MaterialTheme.taiga` reaches all of them. val text: TaigaText = TaigaText, val space: TaigaSpacing = TaigaSpacing, val shape: TaigaShapes = TaigaShapes, )</ID>
+    <ID>LongParameterList:ConfigureSheet.kt$( config: StartConfig, onHr: (Boolean) -&gt; Unit, onEcg: (Boolean) -&gt; Unit, onAcc: (Boolean) -&gt; Unit, onMode: (RecordingMode) -&gt; Unit, onWake: (WakeChoice?) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:ConfirmDialog.kt$( title: String, body: String, confirmLabel: String, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit, modifier: Modifier = Modifier, style: ConfirmDialogStyle = ConfirmDialogStyle.Primary, )</ID>
+    <ID>LongParameterList:DeleteWorker.kt$RemoteDelete$( recordingId: String, queuedFor: String?, activeAccount: () -&gt; String?, verify: suspend () -&gt; Boolean, api: () -&gt; TaigaClient?, onDeleted: suspend (account: String) -&gt; Unit, )</ID>
+    <ID>LongParameterList:ExportSheet.kt$( state: RecordingDetailUiState, onExportRaw: (Boolean) -&gt; Unit, onExportMetadata: (Boolean) -&gt; Unit, onExportResults: (Boolean) -&gt; Unit, onExport: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:HomeUiState.kt$( status: CaptureStatus, tracker: TrackerView?, config: StartConfig?, guard: HomeState, configuring: Boolean, picker: SensorPicker, editingWake: Boolean = false, lastLiveWake: WakeChoice? = null, )</ID>
+    <ID>LongParameterList:IdleHome.kt$( view: InactiveView, connected: Boolean, onSelectTracker: () -&gt; Unit, onDataSettings: () -&gt; Unit, onGuard: () -&gt; Unit, onGuardLongClick: (() -&gt; Unit)?, )</ID>
+    <ID>LongParameterList:IdleHome.kt$( view: InactiveView, onSelectTracker: () -&gt; Unit, onDataSettings: () -&gt; Unit, onGuard: () -&gt; Unit, onGuardLongClick: (() -&gt; Unit)?, onStart: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:LargeTextScreensTest.kt$LargeTextScreensTest$( key: String, daysAgo: Long, status: RecordingStatus, score: Double? = null, progress: Float = 0f, failure: UploadFailure? = null, )</ID>
+    <ID>LongParameterList:Layout.kt$( title: String, modifier: Modifier = Modifier, icon: ImageVector? = null, subtitle: String? = null, value: String? = null, trailing: ListRowTrailing = ListRowTrailing.Chevron, enabled: Boolean = true, onClick: (() -&gt; Unit)? = null, onLongClick: (() -&gt; Unit)? = null, onClickLabel: String? = null, below: (@Composable () -&gt; Unit)? = null, )</ID>
+    <ID>LongParameterList:Layout.kt$( title: String, modifier: Modifier = Modifier, subtitle: String? = null, onBack: (() -&gt; Unit)? = null, scrollable: Boolean = true, actions: (@Composable RowScope.() -&gt; Unit)? = null, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
+    <ID>LongParameterList:LibraryFixtures.kt$( remote: RecordingSummaryListDto? = null, records: Map&lt;String, UploadRecord&gt; = emptyMap(), selectedAnalysisIds: Map&lt;String, String&gt; = emptyMap(), cachedResults: Map&lt;String, List&lt;AnalysisDto&gt;&gt; = emptyMap(), hiddenRemoteIds: Set&lt;String&gt; = emptySet(), localIds: Set&lt;String&gt; = emptySet(), )</ID>
+    <ID>LongParameterList:LiveSync.kt$LiveSync$( private val gate: Flow&lt;String?&gt;, private val events: Flow&lt;RemoteEvent&gt;, private val target: LiveSyncTarget, private val connectGraceMs: Long = CONNECT_GRACE_MS, private val refreshIntervalMs: Long = REFRESH_INTERVAL_MS, private val clock: () -&gt; Long = { System.nanoTime() / 1_000_000 }, private val sleep: suspend (Long) -&gt; Unit = { delay(it) }, )</ID>
+    <ID>LongParameterList:MainScreen.kt$( remote: Boolean = false, tokens: Boolean = false, personal: Boolean = false, uploads: Boolean = false, analysis: Boolean = false, notifications: Boolean = false, night: Boolean = false, guidance: Boolean = false, licences: Boolean = false, about: Boolean = false, )</ID>
+    <ID>LongParameterList:NightHeader.kt$( tracker: String, startUtcMs: Long, endUtcMs: Long?, lineFormat: String, startOnlyFormat: String, locale: Locale = Locale.getDefault(), zone: TimeZone = TimeZone.getDefault(), )</ID>
+    <ID>LongParameterList:Pressable.kt$( onClick: () -&gt; Unit, modifier: Modifier = Modifier, shape: Shape = RectangleShape, enabled: Boolean = true, role: Role? = null, onClickLabel: String? = null, onLongClick: (() -&gt; Unit)? = null, onLongClickLabel: String? = null, content: @Composable BoxScope.() -&gt; Unit, )</ID>
+    <ID>LongParameterList:RecordingBody.kt$( state: RecordingDetailUiState, modifier: Modifier = Modifier, onUpload: () -&gt; Unit, onRefresh: () -&gt; Unit, onRetryAnalysis: () -&gt; Unit, onLogin: () -&gt; Unit, onOpenAnalysis: () -&gt; Unit, onOpenScore: () -&gt; Unit, onExpand: (String) -&gt; Unit, onExport: () -&gt; Unit, onDownloadRaw: () -&gt; Unit, onDeleteRaw: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:RecordingCharts.kt$( segments: List&lt;StageSegmentDto&gt;, epochSeconds: Int, startUnixMs: Long, modifier: Modifier = Modifier, chartHeight: Int = 176, capabilities: JsonObject? = null, fullscreen: Boolean = false, )</ID>
+    <ID>LongParameterList:RecordingCharts.kt$( startUnixMs: Long, totalSeconds: Long, pointCount: Int, yLabels: List&lt;Pair&lt;Float, String&gt;&gt;, horizontalLines: List&lt;Float&gt;, leftLabelWidth: Dp, description: String, valueAt: (Int) -&gt; String, large: Boolean, modifier: Modifier = Modifier, drawPlot: DrawScope.(PlotBounds, Int?) -&gt; Unit, )</ID>
+    <ID>LongParameterList:RecordingControl.kt$RecordingControl$( writer: RecordingWriter, sensor: SleepSensor, mode: RecordingMode, parked: Boolean = false, contact: Boolean = true, wake: ArmedWake? = null, )</ID>
+    <ID>LongParameterList:RecordingControl.kt$RecordingControl.Live$( val writer: RecordingWriter, val sensor: SleepSensor, val mode: RecordingMode, val lifecycle: RecordingLifecycle, val fanout: SampleFanout, val wakeLock: RecordingWakeLock?, val monitor: RecordingMonitor, )</ID>
+    <ID>LongParameterList:RecordingDetailViewModel.kt$RecordingDetailViewModel$( private val key: String, private val localId: String?, private val remoteId: String?, private val analysisId: String?, private val library: RecordingSource, private val work: RecordingWork, private val texts: RecordingTexts, dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate, /** Reads the payload this phone holds, away from the main thread. */ private val resultDispatcher: CoroutineDispatcher = Dispatchers.IO, )</ID>
+    <ID>LongParameterList:RecordingDetailViewModelTest.kt$( localId: String? = "local", remoteId: String? = "r1", status: RecordingStatus = RecordingStatus.READY, failure: UploadFailure? = null, analysisId: String? = "a1", resultDownloaded: Boolean = false, hasRaw: Boolean = true, analyses: List&lt;Analysis&gt; = listOf(run("a1")), )</ID>
+    <ID>LongParameterList:RecordingExport.kt$RecordingExport$( id: String, dir: File, out: File, contents: ExportContents, results: List&lt;ExportResult&gt; = emptyList(), onProgress: (ExportProgress) -&gt; Unit = {}, )</ID>
+    <ID>LongParameterList:RecordingIndexTest.kt$RecordingIndexTest$( id: String, startUtcMs: Long, state: RecordingPhase, mode: RecordingMode, fetchPending: Boolean, trackerRemovalPending: List&lt;String&gt;, )</ID>
+    <ID>LongParameterList:RecordingIndexTest.kt$RecordingIndexTest$( root: File, count: Int, startUtcMs: Long = 1_760_000_000_000, state: RecordingPhase = RecordingPhase.STOPPED, mode: RecordingMode = RecordingMode.STREAM, fetchPending: Boolean = false, trackerRemovalPending: List&lt;String&gt; = emptyList(), )</ID>
+    <ID>LongParameterList:RecordingMergeTest.kt$RecordingMergeTest$( id: String, algorithm: String = "baseline", version: String = "1.0.0", quality: Double? = null, sleepScore: Double? = null, segments: List&lt;StageSegmentDto&gt; = listOf(StageSegmentDto("light", 1)), )</ID>
+    <ID>LongParameterList:RecordingMonitor.kt$( storageError: String?, lowSpace: Boolean, link: RecordingState.LinkState, contact: RecordingState.ContactState, streams: Collection&lt;RecordingState.Stream&gt;, ecg: RecordingState.EcgQuality, power: RecordingState.PowerState, )</ID>
+    <ID>LongParameterList:RecordingOverlays.kt$( state: RecordingDetailUiState, showSleepScore: Boolean, fullscreenChart: String?, showAnalysis: Boolean, showExport: Boolean, showDelete: Boolean, showRawDelete: Boolean, onDismissSleepScore: () -&gt; Unit, onDismissChart: () -&gt; Unit, onDismissAnalysis: () -&gt; Unit, onSelectAnalysis: (String) -&gt; Unit, onRunAnalysis: (String) -&gt; Unit, onDismissExport: () -&gt; Unit, onExportRaw: (Boolean) -&gt; Unit, onExportMetadata: (Boolean) -&gt; Unit, onExportResults: (Boolean) -&gt; Unit, onExport: () -&gt; Unit, onDismissDeleteRaw: () -&gt; Unit, onConfirmDeleteRaw: () -&gt; Unit, onDismissDelete: () -&gt; Unit, onConfirmDelete: () -&gt; Unit, onConfirmUploadElsewhere: () -&gt; Unit, onDismissUploadElsewhere: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:RemoteScreen.kt$( hasRemote: Boolean, email: String, onEmailChange: (String) -&gt; Unit, password: String, onPasswordChange: (String) -&gt; Unit, passwordVisible: Boolean, onTogglePassword: () -&gt; Unit, failure: RemoteError?, checking: Boolean, onLogin: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:RemoteScreen.kt$( state: RemoteState, status: RemoteStatus, checking: Boolean, hasRemote: Boolean, hasSession: Boolean, onCheck: () -&gt; Unit, onLogout: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:RemoteScreen.kt$( url: String, onUrlChange: (String) -&gt; Unit, address: String?, status: RemoteStatus, checking: Boolean, onCheck: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:ReorderableColumn.kt$( state: DragState&lt;T&gt;, id: Any, index: Int, lastIndex: Int, onMove: (Int) -&gt; Unit, onDrop: () -&gt; Unit, onCancel: () -&gt; Unit, content: @Composable (dragHandle: @Composable () -&gt; Unit) -&gt; Unit, )</ID>
+    <ID>LongParameterList:SegmentedProgress.kt$( label: String, value: String, fraction: Float, modifier: Modifier = Modifier, caption: String? = null, description: String? = null, )</ID>
+    <ID>LongParameterList:SensorPickerSheet.kt$( picker: SensorPicker, connected: TrackerView?, onSelect: (FoundSensor) -&gt; Unit, onScanAgain: () -&gt; Unit, onDisconnect: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:SettingsScreen.kt$( state: SettingsUiState, onThemeModeChange: (ThemeMode) -&gt; Unit, onAboutClick: () -&gt; Unit, onGuidanceClick: () -&gt; Unit, onRemoteClick: () -&gt; Unit, onTokensClick: () -&gt; Unit, onPersonalClick: () -&gt; Unit, onUploadsClick: () -&gt; Unit, onAnalysisClick: () -&gt; Unit, onNotificationsClick: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:SettingsScreen.kt$( themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -&gt; Unit, onAboutClick: () -&gt; Unit, onGuidanceClick: () -&gt; Unit, onRemoteClick: () -&gt; Unit, onTokensClick: () -&gt; Unit, onPersonalClick: () -&gt; Unit, onUploadsClick: () -&gt; Unit, onAnalysisClick: () -&gt; Unit, onNotificationsClick: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:StatTile.kt$( label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = MaterialTheme.colorScheme.onSurface, caption: String? = null, info: InfoContent? = null, )</ID>
+    <ID>LongParameterList:Status.kt$( kind: StatusKind, modifier: Modifier = Modifier, title: String? = null, body: String? = null, details: List&lt;String&gt; = emptyList(), actions: (@Composable RowScope.() -&gt; Unit)? = null, onClick: (() -&gt; Unit)? = null, onLongClick: (() -&gt; Unit)? = null, )</ID>
+    <ID>LongParameterList:StatusCards.kt$( state: RecordingDetailUiState, onUpload: () -&gt; Unit, onRefresh: () -&gt; Unit, onRetryAnalysis: () -&gt; Unit, onLogin: () -&gt; Unit, onOpenAnalysis: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:SyncEnvironment.kt$SyncEnvironment$( api: TaigaClient, recordingId: String, config: RecordingConfig, algorithm: String, personalData: PersonalData, startDate: LocalDate?, )</ID>
+    <ID>LongParameterList:Trends.kt$( recordings: List&lt;TrendRecording&gt;, rangeDays: Int, today: LocalDate, zone: ZoneId, usualBedtime: LocalTime? = null, usualWakeTime: LocalTime? = null, )</ID>
+    <ID>LongParameterList:TrendsCharts.kt$( days: List&lt;LocalDate&gt;, kind: TrendChartKind, axis: TrendAxis, references: List&lt;TrendReference&gt;, description: String, topLabel: ((String) -&gt; String)?, valueFormat: (Double) -&gt; String, large: Boolean, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:TrendsCharts.kt$( min: Double, max: Double, format: (Double) -&gt; String, steps: DoubleArray = MetricSteps, minStep: Double = 0.0, inverted: Boolean = false, )</ID>
+    <ID>LongParameterList:TrendsCharts.kt$( title: String, days: List&lt;LocalDate&gt;, kind: TrendChartKind, summary: List&lt;TrendSummary&gt;, description: String, modifier: Modifier = Modifier, emptyMessage: String? = null, references: List&lt;TrendReference&gt; = emptyList(), axisFormat: (Double) -&gt; String = ::trendNumber, valueFormat: (Double) -&gt; String = axisFormat, topLabel: ((String) -&gt; String)? = null, steps: DoubleArray = MetricSteps, minStep: Double = 0.0, )</ID>
+    <ID>LongParameterList:TrendsViewModelTest.kt$( key: String, localId: String?, remoteId: String?, startUtcMs: Long, endUtcMs: Long?, durationMs: Long, analysisId: String? = null, )</ID>
+    <ID>LongParameterList:UploadCoordinator.kt$UploadCoordinator$( remote: RemoteRepository, store: UploadStore, key: String, analysisId: String?, config: () -&gt; RecordingConfig, settings: AnalysisSettings, personalData: PersonalData = PersonalData(), startDate: LocalDate? = null, )</ID>
+    <ID>LongParameterList:UploadEngine.kt$UploadEngine$( private val client: TaigaClient, private val id: String, private val dir: File, private val onProgress: suspend (Float) -&gt; Unit = {}, private val onCreated: suspend () -&gt; Unit = {}, /** The server has the whole recording: it accepted the completion, or it already had it. */ private val onCompleted: suspend () -&gt; Unit = {}, private val compress: Boolean = false, private val cacheDir: File? = null, )</ID>
+    <ID>LongParameterList:UploadEngineTest.kt$UploadEngineTest$( client: TaigaClient, compress: Boolean = false, cacheDir: File? = null, onProgress: suspend (Float) -&gt; Unit = {}, onCreated: suspend () -&gt; Unit = {}, onCompleted: suspend () -&gt; Unit = {}, )</ID>
+    <ID>LongParameterList:UploadScheduler.kt$UploadScheduler$( context: Context, localId: String, account: String, conditions: UploadConditions, manual: Boolean, policy: ExistingWorkPolicy, )</ID>
+    <ID>LoopWithTooManyJumpStatements:AnalysisSync.kt$AnalysisSync$while</ID>
+    <ID>LoopWithTooManyJumpStatements:ArchitectureTest.kt$Architecture$for</ID>
+    <ID>LoopWithTooManyJumpStatements:Automation.kt$Automation$for</ID>
+    <ID>LoopWithTooManyJumpStatements:EventStream.kt$OkHttpEventTransport$for</ID>
+    <ID>LoopWithTooManyJumpStatements:OnDeviceImport.kt$OnDeviceImport$for</ID>
+    <ID>LoopWithTooManyJumpStatements:RecordingCharts.kt$for</ID>
+    <ID>LoopWithTooManyJumpStatements:RecordingControl.kt$RecordingControl$for</ID>
+    <ID>LoopWithTooManyJumpStatements:RecordingStore.kt$RecordingStore$for</ID>
+    <ID>LoopWithTooManyJumpStatements:RecordingView.kt$for</ID>
+    <ID>LoopWithTooManyJumpStatements:ScoreCard.kt$for</ID>
+    <ID>LoopWithTooManyJumpStatements:TrendsCharts.kt$for</ID>
+    <ID>LoopWithTooManyJumpStatements:UploadEngine.kt$UploadEngine$while</ID>
+    <ID>LoopWithTooManyJumpStatements:UploadScheduler.kt$UploadScheduler$for</ID>
+    <ID>LoopWithTooManyJumpStatements:WakeDecision.kt$WakeDecision$for</ID>
+    <ID>MatchingDeclarationName:AccessTokenExpiry.kt$TokenExpiry</ID>
+    <ID>MatchingDeclarationName:ActiveHome.kt$StopAction</ID>
+    <ID>MatchingDeclarationName:AutomationEnvironment.kt$AppAutomationEnvironment : AutomationEnvironment</ID>
+    <ID>MatchingDeclarationName:Buttons.kt$ButtonSize</ID>
+    <ID>MatchingDeclarationName:Color.kt$TaigaColors</ID>
+    <ID>MatchingDeclarationName:ConfirmDialog.kt$ConfirmDialogStyle</ID>
+    <ID>MatchingDeclarationName:HomeScreen.kt$InactiveView</ID>
+    <ID>MatchingDeclarationName:InfoSheet.kt$InfoContent</ID>
+    <ID>MatchingDeclarationName:PendingRecordings.kt$PendingRecording</ID>
+    <ID>MatchingDeclarationName:RecordingCharts.kt$QualityBand</ID>
+    <ID>MatchingDeclarationName:SettingsScreen.kt$SettingsUiState</ID>
+    <ID>MatchingDeclarationName:StagerSelection.kt$StagerChoice</ID>
+    <ID>MatchingDeclarationName:Status.kt$StatusKind</ID>
+    <ID>MatchingDeclarationName:StatusPill.kt$StatusPillState</ID>
+    <ID>MatchingDeclarationName:StrapLink.kt$ListedDevice</ID>
+    <ID>MatchingDeclarationName:TaigaBottomBar.kt$BottomBarItem</ID>
+    <ID>MatchingDeclarationName:TaigaLogo.kt$LogoVariant</ID>
+    <ID>MaxLineLength:AnalysisSync.kt$AnalysisSync$*</ID>
+    <ID>MaxLineLength:AutomationTest.kt$AutomationTest.FakeEnvironment$override var analysis = AnalysisSettings(auto = true, preferenceOrder = listOf("wav2sleep", "sleep-ecg", "baseline"))</ID>
+    <ID>MaxLineLength:EventStreamTest.kt$"id:2\nevent:analyses/*\ndata:{\"action\":\"$action\",\"record\":{\"id\":\"$id\",\"recording\":\"$recording\",\"status\":\"$status\"}}\n\n"</ID>
+    <ID>MaxLineLength:EventStreamTest.kt$SseParserTest$val event = SseMessage("analyses/*", """{"action":"delete","record":{"id":"a1","recording":"r1","status":"running"}}""").toEvent()</ID>
+    <ID>MaxLineLength:EventStreamTest.kt$SseParserTest$val event = SseMessage("analyses/*", """{"action":"update","record":{"id":"a1","recording":"r1","status":"succeeded"}}""").toEvent()</ID>
+    <ID>MaxLineLength:H10CaptureFixtureTest.kt$H10CaptureFixtureTest$assertTrue("$name: $types", types.containsAll(listOf("start", "stream_stalled", "disconnect", "reconnect", "stop")))</ID>
+    <ID>MaxLineLength:RemoteApiTest.kt$RemoteApiTest$server.enqueue(json("""{"code":401,"message":"The request requires valid record authorization token.","data":{}}""", 401))</ID>
+    <ID>MaxLineLength:RemoteApiTest.kt$RemoteApiTest$server.enqueue(json("""{"code":403,"message":"The authorized record is not allowed to perform this action.","data":{}}""", 403))</ID>
+    <ID>MaxLineLength:TokensScreen.kt$title = { Text(text = stringResource(R.string.tokens_created_title), style = MaterialTheme.taiga.text.section) }</ID>
+    <ID>MaxLineLength:TrendsScreen.kt$description = stringResource(R.string.trends_description_time, title, formatDuration((value * 1000).roundToLong()), average.nights)</ID>
+    <ID>NestedBlockDepth:DiagnosticsStore.kt$DiagnosticsStore$@Synchronized fun trim(nowMs: Long)</ID>
+    <ID>NestedBlockDepth:EventStream.kt$OkHttpEventTransport$private fun ProducerScope&lt;RemoteEvent&gt;.read( response: Response, baseUrl: String, token: String, ): TaigaException?</ID>
+    <ID>NestedBlockDepth:NotificationTypeStateTest.kt$NotificationTypeStateTest$@Test fun `a required type is on whenever Android allows it, whatever the preference says`()</ID>
+    <ID>NestedBlockDepth:RecordingExportSpeedTest.kt$RecordingExportSpeedTest$private fun zipTheOldWay(out: File): File</ID>
+    <ID>NestedBlockDepth:RecordingService.kt$RecordingService$override fun strapView(sensorId: String, sensorName: String, address: String?): String</ID>
+    <ID>NestedBlockDepth:UploadWorker.kt$UploadWorker$override suspend fun doWork(): Result</ID>
+    <ID>ReturnCount:ArchitectureTest.kt$Architecture$fun violations(file: String, source: String): List&lt;String&gt;</ID>
+    <ID>ReturnCount:Automation.kt$Automation$private suspend fun catchUpAnalyses(only: String?)</ID>
+    <ID>ReturnCount:Automation.kt$internal fun analysisAction( runs: List&lt;AnalysisDto&gt;, config: RecordingConfig, installed: List&lt;AlgorithmDto&gt;, settings: AnalysisSettings, retriesUsed: (AnalysisDto) -&gt; Int, nowMs: Long, ): AnalysisAction</ID>
+    <ID>ReturnCount:Automation.kt$internal fun mayNeedAnalysis( night: AnalysisNight, installed: List&lt;AlgorithmDto&gt;, settings: AnalysisSettings, nowMs: Long, ): Boolean</ID>
+    <ID>ReturnCount:Automation.kt$internal fun uploadDue(night: UploadNight, nowMs: Long): Boolean</ID>
+    <ID>ReturnCount:AutomationEnvironment.kt$AppAutomationEnvironment$private fun configOf(entry: LibraryEntry): RecordingConfig?</ID>
+    <ID>ReturnCount:BearDen.kt$private fun eyeScaleY(time: Float, animated: Boolean): Float</ID>
+    <ID>ReturnCount:CompressedUpload.kt$CompressionCache$fun resume(name: String, localLength: Long, serverLength: Long): Long?</ID>
+    <ID>ReturnCount:DeleteWorker.kt$RemoteDelete$suspend fun run( recordingId: String, queuedFor: String?, activeAccount: () -&gt; String?, verify: suspend () -&gt; Boolean, api: () -&gt; TaigaClient?, onDeleted: suspend (account: String) -&gt; Unit, ): Outcome</ID>
+    <ID>ReturnCount:DeviceAlerts.kt$DeviceAlerts$fun phoneStorage(low: Boolean)</ID>
+    <ID>ReturnCount:DeviceAlerts.kt$DeviceAlerts$fun trackerBattery(percent: Int, low: Boolean)</ID>
+    <ID>ReturnCount:Diagnostics.kt$Diagnostics$private fun runCheck(source: String, known: Map&lt;String, Any?&gt;?)</ID>
+    <ID>ReturnCount:EventStream.kt$OkHttpEventTransport$private fun ProducerScope&lt;RemoteEvent&gt;.read( response: Response, baseUrl: String, token: String, ): TaigaException?</ID>
+    <ID>ReturnCount:EventStream.kt$SseParser$fun feed(raw: String): SseMessage?</ID>
+    <ID>ReturnCount:FinishingHome.kt$@Composable private fun fetchText(finishing: FinishingState, stepState: StepState): String?</ID>
+    <ID>ReturnCount:FrameLog.kt$FrameLog$fun scan(file: File, onFrame: (ByteArray) -&gt; Unit = {}): Scan</ID>
+    <ID>ReturnCount:FrameLog.kt$FrameLog.FrameReader$fun frameAt(offset: Long, length: Long): ByteArray?</ID>
+    <ID>ReturnCount:HomeUiState.kt$internal fun homeState( status: CaptureStatus, tracker: TrackerView?, config: StartConfig?, guard: HomeState, configuring: Boolean, picker: SensorPicker, editingWake: Boolean = false, lastLiveWake: WakeChoice? = null, ): HomeUiState</ID>
+    <ID>ReturnCount:NotificationAccess.kt$PhoneNotificationAccess$override fun channelAllowed(channelId: String): Boolean</ID>
+    <ID>ReturnCount:OnDeviceImport.kt$OnDeviceImport$private fun importEntry(entry: TrackerEntry, onWritten: (Int) -&gt; Unit): EntryImport</ID>
+    <ID>ReturnCount:OnDeviceImport.kt$OnDeviceImport$private fun repairUnaccountedSamples(): String?</ID>
+    <ID>ReturnCount:OnDeviceImport.kt$OnDeviceImport$private fun run(): OnDeviceFetch</ID>
+    <ID>ReturnCount:Payloads.kt$Payloads$fun isLinear(t: LongArray): Boolean</ID>
+    <ID>ReturnCount:PendingDeleteStore.kt$PendingDeleteStore$suspend fun add(remoteId: String, account: String? = null)</ID>
+    <ID>ReturnCount:PolarH10Sensor.kt$PolarH10Sensor$private fun maybeBeginOnDevice(force: Boolean = false)</ID>
+    <ID>ReturnCount:PolarH10Sensor.kt$PolarH10Sensor$private fun maybeBeginStreams(force: Boolean = false)</ID>
+    <ID>ReturnCount:RawRetention.kt$internal fun rawCleanupApplies( state: RecordingPhase, record: UploadRecord?, mode: RawRetentionMode, nowMs: Long, ): Boolean</ID>
+    <ID>ReturnCount:RecordingCharts.kt$private fun hourTicks(startUnixMs: Long, totalSeconds: Long): List&lt;HourTick&gt;</ID>
+    <ID>ReturnCount:RecordingControl.kt$RecordingControl$private suspend fun fetchFromTracker(s: Live, finishing: FinishingState)</ID>
+    <ID>ReturnCount:RecordingControl.kt$RecordingControl$private suspend fun fetchRecording(recordingId: String?)</ID>
+    <ID>ReturnCount:RecordingControl.kt$RecordingControl$private suspend fun onDeviceStarted(error: String?)</ID>
+    <ID>ReturnCount:RecordingControl.kt$RecordingControl$private suspend fun resumeRecording(contact: Boolean = true)</ID>
+    <ID>ReturnCount:RecordingControl.kt$RecordingControl$private suspend fun startRecording(request: StartRequest)</ID>
+    <ID>ReturnCount:RecordingControl.kt$RecordingControl$private suspend fun stopRecording()</ID>
+    <ID>ReturnCount:RecordingDetailViewModel.kt$RecordingDetailViewModel$fun downloadRaw()</ID>
+    <ID>ReturnCount:RecordingDetailViewModel.kt$RecordingDetailViewModel$private suspend fun restoreThenShare( id: String, server: String?, contents: ExportContents, ): Result&lt;Unit&gt;</ID>
+    <ID>ReturnCount:RecordingMonitor.kt$RecordingMonitor$private fun evaluateSpace(nowMs: Long, events: MutableList&lt;Pair&lt;String, String&gt;&gt;)</ID>
+    <ID>ReturnCount:RecordingMonitor.kt$RecordingMonitor$private fun linkViewDueLocked(nowMs: Long): Boolean</ID>
+    <ID>ReturnCount:RecordingMonitor.kt$RecordingMonitor.RateWindow$fun rate(nowNs: Long): Double?</ID>
+    <ID>ReturnCount:RecordingPrefs.kt$RecordingPrefs$fun armedWake(): ArmedWake?</ID>
+    <ID>ReturnCount:RecordingRecovery.kt$RecordingRecovery$fun abandon( store: RecordingStore, activeSessionId: String?, reason: String, clock: Clock, ): Abandoned?</ID>
+    <ID>ReturnCount:RecordingStart.kt$internal suspend fun startDateOf(context: Context, key: String): LocalDate?</ID>
+    <ID>ReturnCount:RecordingStore.kt$RecordingStore$fun lastFrameMs(dir: File): Long?</ID>
+    <ID>ReturnCount:RecordingView.kt$private fun defaultRun(runs: List&lt;Analysis&gt;): Analysis?</ID>
+    <ID>ReturnCount:RecordingWriter.kt$RecordingWriter$@Synchronized fun markFetchPending(): Boolean</ID>
+    <ID>ReturnCount:RecordingWriter.kt$RecordingWriter$@Synchronized fun markTrackerRemoval(entryIds: List&lt;String&gt;): Boolean</ID>
+    <ID>ReturnCount:RecordingWriter.kt$RecordingWriter$@Synchronized fun rollbackStartedImport(): Boolean</ID>
+    <ID>ReturnCount:RecordingWriter.kt$RecordingWriter$@Synchronized fun truncateHr(frames: Long): Boolean</ID>
+    <ID>ReturnCount:RecordingWriter.kt$RecordingWriter$@Synchronized fun writeAcc(stamp: Stamp, b: AccBatch): Boolean</ID>
+    <ID>ReturnCount:RecordingWriter.kt$RecordingWriter$@Synchronized fun writeEcg(stamp: Stamp, b: EcgBatch): Boolean</ID>
+    <ID>ReturnCount:RecordingWriter.kt$RecordingWriter$private fun append(stream: Int, payload: ByteArray): Boolean</ID>
+    <ID>ReturnCount:RecordingWriter.kt$RecordingWriter.Companion$fun resume(dir: File, clock: Clock, message: String): RecordingWriter?</ID>
+    <ID>ReturnCount:RecordingWriter.kt$RecordingWriter.Companion$fun resumeFetch(dir: File, clock: Clock, message: String): RecordingWriter?</ID>
+    <ID>ReturnCount:RemoteRepository.kt$RemoteRepository$fun session(): RemoteSession?</ID>
+    <ID>ReturnCount:RemoteRepository.kt$RemoteRepository$private fun streamTarget(): StreamTarget?</ID>
+    <ID>ReturnCount:RemoteRepository.kt$RemoteRepository$private fun tokenCheck(baseUrl: String, token: String, source: String): CheckResult</ID>
+    <ID>ReturnCount:RemoteStore.kt$RemoteStore$fun status(): RemoteStatus</ID>
+    <ID>ReturnCount:RemoteUrl.kt$RemoteUrl$fun isLocalOrPrivate(host: String): Boolean</ID>
+    <ID>ReturnCount:RemoteUrl.kt$RemoteUrl$fun parse(raw: String): Result&lt;RemoteAddress&gt;</ID>
+    <ID>ReturnCount:ResultItems.kt$fun ResultItemDto.metricSpec(): MetricSpec?</ID>
+    <ID>ReturnCount:SensorHub.kt$SensorHub$fun restoreLast(context: Context, canConnect: Boolean)</ID>
+    <ID>ReturnCount:SimulatedSensor.kt$SimulatedSensor$@Synchronized fun pump(nowNs: Long)</ID>
+    <ID>ReturnCount:StreamRecovery.kt$StreamRecoveryPolicy$fun evaluate(nowMs: Long): List&lt;RecoveryStep&gt;</ID>
+    <ID>ReturnCount:StreamRecovery.kt$StreamRecoveryPolicy$fun onBluetooth(enabled: Boolean, nowMs: Long): List&lt;RecoveryStep&gt;</ID>
+    <ID>ReturnCount:TrackerCleanup.kt$TrackerCleanup$fun retry(): TrackerRemoval</ID>
+    <ID>ReturnCount:UploadConfirmation.kt$internal suspend fun confirmUploadOnServer( client: TaigaClient, id: String, store: UploadStore, account: String, ): Boolean</ID>
+    <ID>ReturnCount:UploadCoordinator.kt$UploadCoordinator$internal suspend fun retryAnalysis( remote: RemoteRepository, store: UploadStore, key: String, analysisId: String?, config: () -&gt; RecordingConfig, settings: AnalysisSettings, personalData: PersonalData = PersonalData(), startDate: LocalDate? = null, ): Result&lt;Unit&gt;</ID>
+    <ID>ReturnCount:UploadScheduler.kt$UploadScheduler$suspend fun queueAuto(context: Context, localId: String, replace: Boolean)</ID>
+    <ID>ReturnCount:UploadWorker.kt$UploadWorker$override suspend fun doWork(): Result</ID>
+    <ID>ReturnCount:WakeDecision.kt$WakeDecision$private fun heartRateTrigger(bounds: WakeBounds, hr: List&lt;WakePoint&gt;): Long?</ID>
+    <ID>ReturnCount:WakeDecision.kt$WakeDecision$private fun movementTrigger(bounds: WakeBounds, movement: List&lt;WakePoint&gt;): Long?</ID>
+    <ID>ReturnCount:WakeWatch.kt$WakeWatch$private fun evaluate(atMs: Long): Long?</ID>
+    <ID>ReturnCount:WakeWindow.kt$WakeWindow.Companion$fun between( startMinute: Int, endMinute: Int, heartRate: Boolean = true, movement: Boolean = false, ): WakeWindow?</ID>
+    <ID>SwallowedException:Automation.kt$Automation$e: TaigaUnauthorizedException</ID>
+    <ID>SwallowedException:DeleteWorker.kt$RemoteDelete$e: TaigaNetworkException</ID>
+    <ID>SwallowedException:PolarH10Sensor.kt$PolarH10Sensor$e: Exception</ID>
+    <ID>SwallowedException:RemoteApi.kt$OkHttpRemoteApi$e: RemoteHttpException</ID>
+    <ID>ThrowsCount:RemoteApi.kt$OkHttpRemoteApi$private fun execute(request: Request): String</ID>
+    <ID>ThrowsCount:RemoteApi.kt$OkHttpRemoteApi$private fun readSession(body: String, fallbackEmail: String): AuthSession</ID>
+    <ID>ThrowsCount:UploadEngine.kt$UploadEngine$private suspend fun uploadCompressed( file: File, initial: RemoteFile?, cache: CompressionCache, uploaded: MutableMap&lt;String, Long&gt;, totalBytes: Long, )</ID>
+    <ID>ThrowsCount:UploadEngine.kt$UploadEngine$private suspend fun uploadPlain( file: File, initial: RemoteFile?, uploaded: MutableMap&lt;String, Long&gt;, totalBytes: Long, )</ID>
+    <ID>ThrowsCount:UploadEngine.kt$UploadEngine$suspend fun run()</ID>
+    <ID>TooGenericExceptionCaught:AccessTokensViewModel.kt$AccessTokensViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:AnalysisService.kt$AnalysisService$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:BootReceiver.kt$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:Diagnostics.kt$Diagnostics$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:EventListeners.kt$EventListeners$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:EventStream.kt$OkHttpEventTransport.&lt;no name provided&gt;$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:HistoryViewModel.kt$HistoryViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:LiveSync.kt$LiveSync$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:LiveSync.kt$SyncQueue$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:OnDeviceImport.kt$OnDeviceImport$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:PolarH10Sensor.kt$PolarH10Sensor$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:RawRetention.kt$RawRetention$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:RecordingControl.kt$RecordingControl$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:RecordingLibrary.kt$RecordingLibrary$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:RecordingRepository.kt$RecordingRepository$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:RecordingService.kt$RecordingService$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:SampleFanout.kt$SampleFanout$e: Throwable</ID>
+    <ID>TooGenericExceptionCaught:SyncService.kt$SyncService$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:TaigaApi.kt$OkHttpTaigaApi$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:TrackerCleanup.kt$TrackerCleanup$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:UploadCoordinator.kt$UploadCoordinator$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:UploadWorker.kt$UploadWorker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:WatchdogReceiver.kt$WatchdogReceiver$e: Exception</ID>
+    <ID>TooGenericExceptionThrown:DebugTools.kt$DebugTools.DebugCrashReceiver$throw RuntimeException("Debug crash requested by broadcast")</ID>
+    <ID>TooManyFunctions:Automation.kt$AutomationEnvironment</ID>
+    <ID>TooManyFunctions:AutomationEnvironment.kt$AppAutomationEnvironment : AutomationEnvironment</ID>
+    <ID>TooManyFunctions:BearDen.kt$com.rbmr.taigasleep.ui.components.BearDen.kt</ID>
+    <ID>TooManyFunctions:ConfigureSheet.kt$com.rbmr.taigasleep.ui.home.ConfigureSheet.kt</ID>
+    <ID>TooManyFunctions:Daos.kt$RemoteRecordingDao</ID>
+    <ID>TooManyFunctions:DeviceState.kt$DeviceState</ID>
+    <ID>TooManyFunctions:Diagnostics.kt$Diagnostics</ID>
+    <ID>TooManyFunctions:FinishingWithSimulatedSensorTest.kt$FinishingWithSimulatedSensorTest$FakeHost : RecordingHost</ID>
+    <ID>TooManyFunctions:HomeViewModel.kt$HomeViewModel : ViewModel</ID>
+    <ID>TooManyFunctions:HomeViewModel.kt$HomeWork</ID>
+    <ID>TooManyFunctions:Notifier.kt$Notifier</ID>
+    <ID>TooManyFunctions:OnDeviceFetchTest.kt$OnDeviceFetchTest</ID>
+    <ID>TooManyFunctions:Payloads.kt$Payloads</ID>
+    <ID>TooManyFunctions:PersonalData.kt$com.rbmr.taigasleep.ui.settings.PersonalData.kt</ID>
+    <ID>TooManyFunctions:PolarH10Sensor.kt$PolarH10Sensor : SleepSensorOnDeviceTracker</ID>
+    <ID>TooManyFunctions:RecordingCharts.kt$com.rbmr.taigasleep.ui.components.RecordingCharts.kt</ID>
+    <ID>TooManyFunctions:RecordingControl.kt$RecordingControl</ID>
+    <ID>TooManyFunctions:RecordingDetailFactory.kt$RecordingWork</ID>
+    <ID>TooManyFunctions:RecordingDetailViewModel.kt$RecordingDetailViewModel : ViewModel</ID>
+    <ID>TooManyFunctions:RecordingHost.kt$RecordingHost</ID>
+    <ID>TooManyFunctions:RecordingLibrary.kt$RecordingLibrary : LiveSyncTargetRecordingSource</ID>
+    <ID>TooManyFunctions:RecordingLifecycle.kt$RecordingLifecycle</ID>
+    <ID>TooManyFunctions:RecordingMonitor.kt$RecordingMonitor : SampleMonitor</ID>
+    <ID>TooManyFunctions:RecordingPrefs.kt$RecordingPrefs</ID>
+    <ID>TooManyFunctions:RecordingService.kt$RecordingService : ServiceRecordingHost</ID>
+    <ID>TooManyFunctions:RecordingStore.kt$RecordingStore</ID>
+    <ID>TooManyFunctions:RecordingView.kt$com.rbmr.taigasleep.library.RecordingView.kt</ID>
+    <ID>TooManyFunctions:RecordingWriter.kt$RecordingWriter</ID>
+    <ID>TooManyFunctions:RemoteRepository.kt$RemoteRepository</ID>
+    <ID>TooManyFunctions:SimulatedSensor.kt$SimulatedSensor : SleepSensorOnDeviceTracker</ID>
+    <ID>TooManyFunctions:SyncEnvironment.kt$AppSyncEnvironment : SyncEnvironment</ID>
+    <ID>TooManyFunctions:SyncEnvironment.kt$SyncEnvironment</ID>
+    <ID>TooManyFunctions:SyncService.kt$SyncService</ID>
+    <ID>TooManyFunctions:TaigaApi.kt$OkHttpTaigaApi : TaigaClient</ID>
+    <ID>TooManyFunctions:TaigaApi.kt$TaigaClient</ID>
+    <ID>TooManyFunctions:Trends.kt$com.rbmr.taigasleep.insights.Trends.kt</ID>
+    <ID>TooManyFunctions:TrendsCharts.kt$com.rbmr.taigasleep.ui.components.TrendsCharts.kt</ID>
+    <ID>TooManyFunctions:TrendsScreen.kt$com.rbmr.taigasleep.ui.history.TrendsScreen.kt</ID>
+    <ID>TooManyFunctions:UploadScheduler.kt$UploadScheduler</ID>
+    <ID>TooManyFunctions:UploadStore.kt$UploadStore</ID>
+    <ID>TooManyFunctions:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest</ID>
+    <ID>TooManyFunctions:WakeAlarmSimulatedSensorTest.kt$WakeAlarmSimulatedSensorTest$FakeHost : RecordingHost</ID>
+    <ID>UnusedParameter:DebugTools.kt$DebugTools$app: Application</ID>
+    <ID>UnusedParameter:RecordingMetaTest.kt$RecordingMetaTest$name: String</ID>
+    <ID>UnusedPrivateMember:AnalysisChoiceTest.kt$AnalysisChoiceTest$private fun baseline(version: String)</ID>
+    <ID>UnusedPrivateMember:BearDen.kt$@Preview(name = "Light", widthDp = 360, heightDp = 560) @Preview(name = "Dark", widthDp = 360, heightDp = 560, uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun BearDenPreview()</ID>
+    <ID>UnusedPrivateMember:BulletList.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun BulletListPreview()</ID>
+    <ID>UnusedPrivateMember:Buttons.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun ButtonsPreview()</ID>
+    <ID>UnusedPrivateMember:Components.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun TaigaCardPreview()</ID>
+    <ID>UnusedPrivateMember:ConfirmDialog.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun ConfirmDialogDestructivePreview()</ID>
+    <ID>UnusedPrivateMember:ConfirmDialog.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun ConfirmDialogNeutralPreview()</ID>
+    <ID>UnusedPrivateMember:ConfirmDialog.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun ConfirmDialogPrimaryPreview()</ID>
+    <ID>UnusedPrivateMember:InfoSheet.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun InfoSheetPreview()</ID>
+    <ID>UnusedPrivateMember:Layout.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun ListRowPreview()</ID>
+    <ID>UnusedPrivateMember:Layout.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun SectionPreview()</ID>
+    <ID>UnusedPrivateMember:Layout.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun TaigaScreenPreview()</ID>
+    <ID>UnusedPrivateMember:Pressable.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun PressablePreview()</ID>
+    <ID>UnusedPrivateMember:RecordingCharts.kt$@Preview(name = "Light", widthDp = 360) @Preview(name = "Dark", widthDp = 360, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES) @Composable private fun RecordingChartsPreview()</ID>
+    <ID>UnusedPrivateMember:SegmentedProgress.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun SegmentedProgressPreview()</ID>
+    <ID>UnusedPrivateMember:StatTile.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun StatTilePreview()</ID>
+    <ID>UnusedPrivateMember:Status.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun StatusPreview()</ID>
+    <ID>UnusedPrivateMember:StatusPill.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun StatusPillPreview()</ID>
+    <ID>UnusedPrivateMember:StepList.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun StepListPreview()</ID>
+    <ID>UnusedPrivateMember:TaigaBottomBar.kt$@Preview(name = "Light") @Preview(name = "Dark", uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun TaigaBottomBarPreview()</ID>
+    <ID>UnusedPrivateMember:TaigaLogo.kt$@Preview(name = "Light", widthDp = 360, heightDp = 360) @Preview(name = "Dark", widthDp = 360, heightDp = 360, uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun TaigaLogoPreview()</ID>
+    <ID>UnusedPrivateMember:TrendsCharts.kt$@Preview(name = "Light", widthDp = 360) @Preview(name = "Dark", widthDp = 360, uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun TrendChartPreview()</ID>
+    <ID>UnusedPrivateProperty:PendingRecordingsTest.kt$/** Which nights a reconcile reads again: everything not settled, and nothing that is. */ private const val ACCOUNT = "https://sleep.example|u1"</ID>
+    <ID>UseCheckOrError:LiveSyncTest.kt$LiveSyncTest$throw IllegalStateException("boom")</ID>
+    <ID>UseCheckOrError:LiveSyncTest.kt$RecordingTarget$throw IllegalStateException("boom")</ID>
+    <ID>UseCheckOrError:SampleFanoutTest.kt$SampleFanoutTest.&lt;no name provided&gt;$throw IllegalStateException("boom")</ID>
+  </CurrentIssues>
+</SmellBaseline>

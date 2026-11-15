@@ -15,7 +15,7 @@ from __future__ import annotations
 import importlib
 import re
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable
 
 from .contract import AnalysisError, RegisteredAlgorithm, Stager
 
@@ -100,8 +100,7 @@ def _coerce_stager(value: Any, source: str) -> Stager:
             return candidate
 
     raise TypeError(
-        f"{source} must provide a Stager subclass instance "
-        f"(got {type(value).__name__})"
+        f"{source} must provide a Stager subclass instance (got {type(value).__name__})"
     )
 
 

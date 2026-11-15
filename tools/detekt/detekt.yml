@@ -1,0 +1,26 @@
+# Detekt configuration for the app's Kotlin sources. The run that uses it is
+# tools/check_kotlin.sh; CI calls the same script.
+#
+# The project's own style predates any tool: two-space blocks, four-space
+# continuations, a hundred columns and a trailing comma in every multi-line
+# argument list. No formatter reproduces that without rewriting most of the app,
+# so the check is a linter with a baseline (tools/detekt/baseline.xml) instead:
+# every finding that exists today is recorded there, and a new one fails the
+# run.
+
+build:
+  maxIssues: 0
+
+naming:
+  # Compose functions are PascalCase by convention, so the annotation is what
+  # separates them from ordinary camelCase functions.
+  FunctionNaming:
+    ignoreAnnotated:
+      - "Composable"
+
+style:
+  # Sizes, rates, thresholds and limits read better next to the code that uses
+  # them than hoisted into named constants; the model, the frames and the wake
+  # decision all name the ones that need a comment.
+  MagicNumber:
+    active: false

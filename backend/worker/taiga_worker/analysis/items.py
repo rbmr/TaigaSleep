@@ -27,7 +27,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Total asleep",
         "s",
         "sleep",
-        "Time scored as sleep across REM, light and deep sleep. It excludes wake and unscored time.",
+        "Time scored as sleep across REM, light and deep sleep. It excludes wake and "
+        "unscored time.",
         ("stages",),
     ),
     NumberItem(
@@ -35,8 +36,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Time to fall asleep",
         "s",
         "sleep",
-        "Time from the first scored 30-second interval to the first interval of sleep. Unscored time before "
-        "it is not counted.",
+        "Time from the first scored 30-second interval to the first interval of sleep. "
+        "Unscored time before it is not counted.",
         ("stages",),
     ),
     NumberItem(
@@ -101,8 +102,9 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "HRV RMSSD",
         "ms",
         "heart",
-        "Beat-to-beat variation in the sleep intervals only. It is the root mean square of successive "
-        "RR-interval differences, combined over uninterrupted stretches weighted by beat count.",
+        "Beat-to-beat variation in the sleep intervals only. It is the root mean square of "
+        "successive RR-interval differences, combined over uninterrupted stretches weighted "
+        "by beat count.",
         ("hr",),
     ),
     NumberItem(
@@ -110,8 +112,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "HRV SDNN",
         "ms",
         "heart",
-        "Overall heart-rate variability in the sleep intervals only. It is the standard deviation of the "
-        "RR intervals.",
+        "Overall heart-rate variability in the sleep intervals only. It is the standard "
+        "deviation of the RR intervals.",
         ("hr",),
     ),
     NumberItem(
@@ -127,8 +129,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Movement index",
         "%",
         "movement",
-        "Share of 30-second intervals with movement above 0.08 g, measured from the night's median "
-        "accelerometer magnitude.",
+        "Share of 30-second intervals with movement above 0.08 g, measured from the night's "
+        "median accelerometer magnitude.",
         ("acc",),
     ),
     NumberItem(
@@ -136,8 +138,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Average movement",
         "g",
         "movement",
-        "Average movement per 30-second interval, the deviation from the night's median accelerometer "
-        "magnitude.",
+        "Average movement per 30-second interval, the deviation from the night's median "
+        "accelerometer magnitude.",
         ("acc",),
     ),
     NumberItem(
@@ -145,8 +147,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Intervals with movement",
         "count",
         "movement",
-        "Number of 30-second intervals with movement above 0.08 g, measured from the night's median "
-        "accelerometer magnitude.",
+        "Number of 30-second intervals with movement above 0.08 g, measured from the night's "
+        "median accelerometer magnitude.",
         ("acc",),
     ),
     NumberItem(
@@ -302,7 +304,8 @@ def series_item(hr: Mapping[str, Any] | None) -> dict[str, Any] | None:
         "group": "heart",
         "unit": "bpm",
         "series": hr,
-        "explanation": "Mean heart rate for each 30-second interval. Gaps are intervals without a valid sample.",
+        "explanation": "Mean heart rate for each 30-second interval. Gaps are intervals "
+        "without a valid sample.",
         "sources": ["hr"],
     }
 

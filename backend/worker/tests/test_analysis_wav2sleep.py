@@ -5,7 +5,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from taiga_worker.analysis.algorithms import wav2sleep
 from taiga_worker.analysis.contract import (
     AnalysisError,
@@ -14,6 +13,7 @@ from taiga_worker.analysis.contract import (
 from taiga_worker.analysis.decode import load_recording
 from taiga_worker.analysis.pipeline import run_analysis
 from taiga_worker.analysis.registry import Registry
+
 from tests import analysis_fixture as fx
 
 
@@ -43,9 +43,7 @@ def test_ecg_adapter_uses_1024_samples_per_epoch(tmp_path: Path) -> None:
 def test_partial_epoch_is_padded_to_1024_samples(tmp_path: Path) -> None:
     fx.write_recording(tmp_path, duration_s=100)
     recording = load_recording(tmp_path)
-    config = wav2sleep._params(
-        {"min_usable_epochs": 1, "pad_to_max_length": False}
-    )
+    config = wav2sleep._params({"min_usable_epochs": 1, "pad_to_max_length": False})
 
     prepared = wav2sleep.prepare_ecg(recording, config)
     assert prepared.canonical_epochs == 4
@@ -118,9 +116,7 @@ def test_epochs_beyond_the_model_limit_are_unknown() -> None:
         coverage=np.asarray([1.0, 1.0]),
         saturated=np.zeros(2, dtype=np.float64),
     )
-    probabilities = np.asarray(
-        [[0.3, 0.4, 0.2, 0.1], [0.3, 0.4, 0.2, 0.1]], dtype=np.float64
-    )
+    probabilities = np.asarray([[0.3, 0.4, 0.2, 0.1], [0.3, 0.4, 0.2, 0.1]], dtype=np.float64)
 
     result = wav2sleep.to_result(
         prepared,
@@ -318,7 +314,9 @@ def test_checkpoint_is_pinned_and_verified(tmp_path: Path) -> None:
     assert wav2sleep.CHECKPOINT_SHA256 in str(context.value)
 
 
-def test_pipeline_merges_algorithm_provenance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pipeline_merges_algorithm_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The pipeline contract is exercised without importing torch."""
 
     fx.write_recording(tmp_path, duration_s=120)
@@ -357,7 +355,9 @@ def test_pipeline_merges_algorithm_provenance(tmp_path: Path, monkeypatch: pytes
     assert payload["model"] == "wav2sleep"
     assert payload["model_version"] == "1.1.0"
     assert payload["capabilities"]["probabilities"] is True
-    assert payload["provenance"]["algorithm"]["checkpoint_revision"] == wav2sleep.CHECKPOINT_REVISION
+    assert (
+        payload["provenance"]["algorithm"]["checkpoint_revision"] == wav2sleep.CHECKPOINT_REVISION
+    )
     assert payload["provenance"]["algorithm"]["checkpoint_sha256"] == wav2sleep.CHECKPOINT_SHA256
     assert payload["provenance"]["license"] == "MIT"
     assert payload["provenance"]["citation"]
@@ -397,7 +397,9 @@ def test_pinned_checkpoint_smoke(tmp_path: Path) -> None:
     assert payload["model"] == "wav2sleep"
     assert payload["stages"]["count"] == 4
     assert payload["capabilities"]["probabilities"] is True
-    assert payload["provenance"]["algorithm"]["checkpoint_revision"] == wav2sleep.CHECKPOINT_REVISION
+    assert (
+        payload["provenance"]["algorithm"]["checkpoint_revision"] == wav2sleep.CHECKPOINT_REVISION
+    )
     assert payload["provenance"]["algorithm"]["classes"] == list(wav2sleep.CLASSES)
     assert payload["provenance"]["runtime_s"] >= 0
     assert payload["provenance"]["peak_rss_mb"] > 0

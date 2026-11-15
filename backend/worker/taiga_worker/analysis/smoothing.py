@@ -46,7 +46,9 @@ def smooth_labels(labels: Sequence[Stage], window_epochs: int) -> list[Stage]:
                 best = max(counts.values())
                 # Tie-break towards the original label so a stable run does not
                 # drift just because a neighbouring stage is equally common.
-                smoothed.append(run[position] if counts[run[position]] == best else max(counts, key=counts.get))
+                smoothed.append(
+                    run[position] if counts[run[position]] == best else max(counts, key=counts.get)
+                )
             result[index:end] = smoothed
         index = end
     return result

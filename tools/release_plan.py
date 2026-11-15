@@ -100,9 +100,7 @@ def read_version(component: str, source: str) -> str | None:
         except FileNotFoundError:
             return None
     else:
-        exists = subprocess.run(
-            ["git", "cat-file", "-e", f"{source}:{path}"], capture_output=True
-        )
+        exists = subprocess.run(["git", "cat-file", "-e", f"{source}:{path}"], capture_output=True)
         if exists.returncode != 0:
             return None
         text = git("show", f"{source}:{path}")
@@ -171,10 +169,18 @@ def self_test() -> None:
     check(True, "no release yet", base_version="0.4.0", tag_commit=None, head_commit="bbb")
     check(True, "no release yet", base_version="0.4.1", tag_commit=None, head_commit="bbb")
     # A rerun of the commit that already published this version: skip.
-    check(False, "already published for this commit", base_version="0.4.0", tag_commit="bbb", head_commit="bbb")
+    check(
+        False,
+        "already published for this commit",
+        base_version="0.4.0",
+        tag_commit="bbb",
+        head_commit="bbb",
+    )
     # An unchanged component whose version was published earlier: skip. This is the
     # case that broke app-only and backend-only merges.
-    check(False, "unchanged since the base", base_version="0.4.1", tag_commit="aaa", head_commit="bbb")
+    check(
+        False, "unchanged since the base", base_version="0.4.1", tag_commit="aaa", head_commit="bbb"
+    )
     # A changed version whose tag already exists on another commit: refuse.
     try:
         decide("app", "0.4.1", "0.4.0", "aaa", "bbb")
@@ -190,9 +196,15 @@ def self_test() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base", default=BASE_REF, help=f"commit to compare against (default {BASE_REF})")
-    parser.add_argument("--force-both", action="store_true", help="release both components (manual runs)")
-    parser.add_argument("--github-output", metavar="PATH", help="also write GitHub Actions outputs here")
+    parser.add_argument(
+        "--base", default=BASE_REF, help=f"commit to compare against (default {BASE_REF})"
+    )
+    parser.add_argument(
+        "--force-both", action="store_true", help="release both components (manual runs)"
+    )
+    parser.add_argument(
+        "--github-output", metavar="PATH", help="also write GitHub Actions outputs here"
+    )
     parser.add_argument("--self-test", action="store_true", help="run the decision table and exit")
     args = parser.parse_args()
 

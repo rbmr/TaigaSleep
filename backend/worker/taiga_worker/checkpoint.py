@@ -60,7 +60,10 @@ def download(url: str, destination: Path) -> None:
     temporary = destination.with_name(destination.name + ".part")
     request = urllib.request.Request(url, headers={"User-Agent": "taiga-sleep-worker"})
     try:
-        with urllib.request.urlopen(request, timeout=60) as response, temporary.open("wb") as handle:
+        with (
+            urllib.request.urlopen(request, timeout=60) as response,
+            temporary.open("wb") as handle,
+        ):
             while True:
                 block = response.read(1024 * 1024)
                 if not block:

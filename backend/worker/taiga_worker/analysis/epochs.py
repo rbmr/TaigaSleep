@@ -10,7 +10,6 @@ magnitude, so a constant sensor offset does not read as movement.
 from __future__ import annotations
 
 import math
-from typing import Mapping
 
 import numpy as np
 
@@ -26,7 +25,9 @@ from .contract import (
 )
 
 
-def _bins(t_s: np.ndarray, starts_s: np.ndarray, ends_s: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _bins(
+    t_s: np.ndarray, starts_s: np.ndarray, ends_s: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     if t_s.size == 0:
         return np.zeros(starts_s.size, dtype=np.int64), np.zeros(starts_s.size, dtype=np.int64)
     left = np.searchsorted(t_s, starts_s, side="left")
@@ -91,12 +92,15 @@ def build_epoch_grid(recording: Recording, epoch_seconds: int = 30) -> EpochGrid
             out=np.full(count, np.nan, dtype=np.float64),
             where=valid_count > 0,
         )
-        variance = np.divide(
-            value_sq_sum,
-            valid_count,
-            out=np.full(count, np.nan, dtype=np.float64),
-            where=valid_count > 0,
-        ) - mean**2
+        variance = (
+            np.divide(
+                value_sq_sum,
+                valid_count,
+                out=np.full(count, np.nan, dtype=np.float64),
+                where=valid_count > 0,
+            )
+            - mean**2
+        )
         hr_mean = mean
         hr_std = np.sqrt(np.clip(variance, 0.0, None))
     else:

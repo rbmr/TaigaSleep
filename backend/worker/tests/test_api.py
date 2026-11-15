@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import pytest
-
 from taiga_worker.api import ApiClient, ApiError
 
 
@@ -61,7 +60,9 @@ def server() -> Iterator[tuple[ApiClient, Recorder]]:
             pass
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread = threading.Thread(
+        target=httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    )
     thread.start()
     try:
         yield ApiClient(f"http://127.0.0.1:{httpd.server_port}", timeout_s=5), recorder
@@ -79,7 +80,11 @@ def answer(
     headers: dict[str, str] | None = None,
     sent: bytes | None = None,
 ) -> None:
-    payload = body if isinstance(body, bytes) else (json.dumps(body).encode() if body is not None else b"")
+    payload = (
+        body
+        if isinstance(body, bytes)
+        else (json.dumps(body).encode() if body is not None else b"")
+    )
     recorder.answers[(method, path)] = Reply(status, payload, dict(headers or {}), sent)
 
 
@@ -190,7 +195,9 @@ def test_renew_extends_the_lease_and_the_document_says_whether_it_can(server) ->
     client, recorder = server
     client.token = "t1"
     answer(recorder, "POST", "/v1/analyses/an1/lease", 200, {"id": "an1", "status": "running"})
-    answer(recorder, "GET", "/v1/openapi.json", 200, {"paths": {"/v1/analyses/claim": {"post": {}}}})
+    answer(
+        recorder, "GET", "/v1/openapi.json", 200, {"paths": {"/v1/analyses/claim": {"post": {}}}}
+    )
 
     assert client.supports_lease_renewal() is False
 
@@ -237,7 +244,13 @@ def test_complete_and_fail_post_to_the_analysis(server) -> None:
 def test_recording_and_files(server) -> None:
     client, recorder = server
     client.token = "t1"
-    answer(recorder, "GET", "/api/collections/recordings/records/rec%201", 200, {"id": "rec 1", "meta": {"format": "x"}})
+    answer(
+        recorder,
+        "GET",
+        "/api/collections/recordings/records/rec%201",
+        200,
+        {"id": "rec 1", "meta": {"format": "x"}},
+    )
     answer(
         recorder,
         "GET",
@@ -310,7 +323,9 @@ def test_a_compressed_download_is_requested_as_stored_and_inflated(server, tmp_p
     assert recorder.requests[0]["headers"]["accept-encoding"] == "gzip"
 
 
-def test_a_compressed_download_that_inflates_too_few_bytes_is_an_error(server, tmp_path: Path) -> None:
+def test_a_compressed_download_that_inflates_too_few_bytes_is_an_error(
+    server, tmp_path: Path
+) -> None:
     client, recorder = server
     client.token = "t1"
     payload = compressed_night(50_000)
@@ -333,7 +348,9 @@ def test_a_compressed_download_that_inflates_too_few_bytes_is_an_error(server, t
         )
 
 
-def test_a_compressed_download_that_inflates_too_many_bytes_is_an_error(server, tmp_path: Path) -> None:
+def test_a_compressed_download_that_inflates_too_many_bytes_is_an_error(
+    server, tmp_path: Path
+) -> None:
     client, recorder = server
     client.token = "t1"
     payload = compressed_night(50_000)
@@ -431,7 +448,9 @@ def test_a_damaged_deflate_stream_is_an_error(server, tmp_path: Path) -> None:
         )
 
 
-def test_a_compressed_download_without_the_stored_encoding_is_an_error(server, tmp_path: Path) -> None:
+def test_a_compressed_download_without_the_stored_encoding_is_an_error(
+    server, tmp_path: Path
+) -> None:
     client, recorder = server
     client.token = "t1"
     payload = compressed_night(1000)
@@ -447,7 +466,9 @@ def test_a_compressed_download_without_the_stored_encoding_is_an_error(server, t
         )
 
 
-def test_a_compressed_download_without_an_advertised_size_is_an_error(server, tmp_path: Path) -> None:
+def test_a_compressed_download_without_an_advertised_size_is_an_error(
+    server, tmp_path: Path
+) -> None:
     client, _ = server
     client.token = "t1"
 
