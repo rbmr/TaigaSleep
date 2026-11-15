@@ -139,6 +139,7 @@ def hr_log(
     contact: bool = True,
     rr_ms: Iterable[int] = (1000, 980, 1020),
     rr_per_sample: Sequence[Iterable[int]] | None = None,
+    stream_start_s: float = 0.0,
 ) -> bytes:
     data = bytearray(frame_header(STREAM_HR))
     values = list(hr_values) if hr_values is not None else [60] * duration_s
@@ -148,10 +149,11 @@ def hr_log(
         raise ValueError("rr_per_sample must contain one entry per second")
     flags = 3 if contact else 1
     for second, value in enumerate(values):
+        wall_s = stream_start_s + second
         data += frame(
             hr_payload(
-                START_NS + second * 1_000_000_000,
-                second * 1_000_000_000,
+                START_NS + round(wall_s * 1_000_000_000),
+                round(wall_s * 1_000_000_000),
                 value,
                 flags=flags,
                 rr_ms=rr_ms if rr_per_sample is None else rr_per_sample[second],
@@ -160,14 +162,21 @@ def hr_log(
     return bytes(data)
 
 
-def ecg_log(*, duration_s: int, rate_hz: int = 130) -> bytes:
+def ecg_log(*, duration_s: int, rate_hz: int = 130, stream_start_s: float = 0.0) -> bytes:
     n = max(1, duration_s * rate_hz)
     # A small deterministic waveform; unit conversion is what matters here.
     values = [int(1000 * ((i % 20) - 10)) for i in range(n)]
-    t_first = POLAR_START_NS
-    t_last = POLAR_START_NS + (n - 1) * (1_000_000_000 // rate_hz)
+    t_first = POLAR_START_NS + round(stream_start_s * 1_000_000_000)
+    t_last = t_first + (n - 1) * (1_000_000_000 // rate_hz)
+    wall_s = stream_start_s + duration_s
     return frame_header(STREAM_ECG) + frame(
-        ecg_payload(START_NS + duration_s * 1_000_000_000, duration_s * 1_000_000_000, t_first, t_last, values)
+        ecg_payload(
+            START_NS + round(wall_s * 1_000_000_000),
+            round(wall_s * 1_000_000_000),
+            t_first,
+            t_last,
+            values,
+        )
     )
 
 
@@ -178,6 +187,7 @@ def acc_log(
     movement_windows: Sequence[tuple[float, float]] = (),
     movement_mg: int = 500,
     offset_mg: int = 0,
+    stream_start_s: float = 0.0,
 ) -> bytes:
     n = max(1, duration_s * rate_hz)
     values: list[int] = []
@@ -186,10 +196,17 @@ def acc_log(
         moving = any(start <= second < end for start, end in movement_windows)
         x = movement_mg if moving else 0
         values.extend([x + offset_mg, offset_mg, 1000 + offset_mg])
-    t_first = POLAR_START_NS
-    t_last = POLAR_START_NS + (n - 1) * (1_000_000_000 // rate_hz)
+    t_first = POLAR_START_NS + round(stream_start_s * 1_000_000_000)
+    t_last = t_first + (n - 1) * (1_000_000_000 // rate_hz)
+    wall_s = stream_start_s + duration_s
     return frame_header(STREAM_ACC) + frame(
-        acc_payload(START_NS + duration_s * 1_000_000_000, duration_s * 1_000_000_000, t_first, t_last, values)
+        acc_payload(
+            START_NS + round(wall_s * 1_000_000_000),
+            round(wall_s * 1_000_000_000),
+            t_first,
+            t_last,
+            values,
+        )
     )
 
 
@@ -207,6 +224,7 @@ def write_recording(
     acc_offset_mg: int = 0,
     rr_per_sample: Sequence[Iterable[int]] | None = None,
     bad_hr_tail: bytes | None = None,
+    stream_start_s: float = 0.0,
 ) -> Path:
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
@@ -214,12 +232,20 @@ def write_recording(
         json.dumps(meta(session_id, duration_s=duration_s, ecg=include_ecg, acc=include_acc), indent=2),
         encoding="utf-8",
     )
-    hr = hr_log(duration_s=duration_s, hr_values=hr_values, contact=contact, rr_per_sample=rr_per_sample)
+    hr = hr_log(
+        duration_s=duration_s,
+        hr_values=hr_values,
+        contact=contact,
+        rr_per_sample=rr_per_sample,
+        stream_start_s=stream_start_s,
+    )
     if bad_hr_tail:
         hr += bad_hr_tail
     (path / "hr.log").write_bytes(hr)
     if include_ecg:
-        (path / "ecg.log").write_bytes(ecg_log(duration_s=duration_s))
+        (path / "ecg.log").write_bytes(
+            ecg_log(duration_s=duration_s, stream_start_s=stream_start_s)
+        )
     if include_acc:
         (path / "acc.log").write_bytes(
             acc_log(
@@ -227,6 +253,7 @@ def write_recording(
                 movement_windows=movement_windows,
                 movement_mg=movement_mg,
                 offset_mg=acc_offset_mg,
+                stream_start_s=stream_start_s,
             )
         )
     (path / "events.jsonl").write_bytes(
