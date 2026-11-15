@@ -346,8 +346,13 @@ files, frees the room again. An unset, negative or non-numeric value means the d
 
 Each recording's stored bytes and each account's total are kept with the rows as chunks
 and files come and go, so accepting a chunk reads one number instead of the account's
-recordings. `./taiga-sleep-api storage-check` recomputes both from the files on disk and
-corrects them; run it with the API stopped.
+recordings. Chunks for one recording are appended one at a time: a chunk is written and
+flushed before its bookkeeping is committed, and a failure after the write cuts the file
+back, so the file and its rows agree on where the next chunk starts.
+`./taiga-sleep-api storage-check` recomputes the totals from the files on disk, rebuilds a
+compressed file's member count and uncompressed size from its gzip members, and reports
+directories under `recordings/` that have no recording row (`--remove-orphans` removes
+them); run it with the API stopped.
 
 ### Analyses and the worker
 
