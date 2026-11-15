@@ -67,6 +67,14 @@
   <string name="tokens_title">Access tokens</string>
   <string name="tokens_body">Read-only tokens for an assistant or a script of your own. They can read your recordings, analyses and results and cannot change anything.</string>
   <string name="tokens_name_label">Name</string>
+  <string name="tokens_lifetime_title">Lifetime</string>
+  <string name="tokens_lifetime_value">Lifetime: %1$s</string>
+  <string name="tokens_lifetime_change">Change</string>
+  <string name="tokens_lifetime_7d">7 days</string>
+  <string name="tokens_lifetime_30d">30 days</string>
+  <string name="tokens_lifetime_90d">90 days</string>
+  <string name="tokens_lifetime_year">1 year</string>
+  <string name="tokens_lifetime_never">Never</string>
   <string name="tokens_create">Create token</string>
   <string name="tokens_group">Your tokens</string>
   <string name="tokens_empty">No access tokens yet.</string>
@@ -74,6 +82,9 @@
   <string name="tokens_no_account">Connect the server and log in to create an access token.</string>
   <string name="tokens_row_ends">Ends in %1$s</string>
   <string name="tokens_row_created">Created %1$s</string>
+  <string name="tokens_row_expires">Expires %1$s</string>
+  <string name="tokens_row_expired">Expired %1$s</string>
+  <string name="tokens_row_never">Never expires</string>
   <string name="tokens_created_title">Token created</string>
   <string name="tokens_created_body">This token is only shown once. Copy it now and keep it somewhere safe.</string>
   <string name="tokens_copy">Copy token</string>

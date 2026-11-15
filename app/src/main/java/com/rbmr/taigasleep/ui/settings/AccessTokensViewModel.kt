@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AccessTokenDto
 import com.rbmr.taigasleep.backend.TaigaClient
+import com.rbmr.taigasleep.backend.TokenLifetime
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +17,28 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/**
+ * How long a new token should work, as the page offers it. The client speaks
+ * [TokenLifetime], so the page names its choices here and the view model translates them.
+ */
+enum class AccessTokenLifetime {
+  DAYS_7,
+  DAYS_30,
+  DAYS_90,
+  YEAR,
+  NEVER,
+}
+
+/** What the server takes for one of the page's choices. */
+private fun AccessTokenLifetime.wire(): TokenLifetime =
+    when (this) {
+      AccessTokenLifetime.DAYS_7 -> TokenLifetime.DAYS_7
+      AccessTokenLifetime.DAYS_30 -> TokenLifetime.DAYS_30
+      AccessTokenLifetime.DAYS_90 -> TokenLifetime.DAYS_90
+      AccessTokenLifetime.YEAR -> TokenLifetime.YEAR
+      AccessTokenLifetime.NEVER -> TokenLifetime.NEVER
+    }
 
 /**
  * Everything the Access tokens page draws: the tokens of the account, what the page is waiting on,
@@ -65,10 +88,10 @@ class AccessTokensViewModel(
   }
 
   /**
-   * Creates a token with [name]. The answer carries its secret, which is kept until
-   * [dismissCreated] so the page can show it once.
+   * Creates a token with [name] that works for [lifetime]. The answer carries its secret, which is
+   * kept until [dismissCreated] so the page can show it once.
    */
-  fun create(name: String) {
+  fun create(name: String, lifetime: AccessTokenLifetime) {
     val trimmed = name.trim()
     if (trimmed.isEmpty()) return
     val api = client()
@@ -78,7 +101,7 @@ class AccessTokensViewModel(
     }
     _state.update { it.copy(busy = true, error = null) }
     launch {
-      val created = api.createAccessToken(trimmed)
+      val created = api.createAccessToken(trimmed, lifetime.wire())
       _state.update {
         it.copy(
             tokens = listOf(created.copy(token = null)) + it.tokens,
