@@ -12,6 +12,7 @@ import (
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/hook"
 )
 
 // The record API's rules decide who may reach a record; these hooks decide what
@@ -26,6 +27,58 @@ func registerRecordHooks(app core.App) {
 	app.OnRecordUpdateRequest("recordings").BindFunc(updateRecordingHook)
 	app.OnRecordDeleteRequest("recordings").BindFunc(deleteRecordingHook)
 	app.OnRecordCreateRequest("analyses").BindFunc(createAnalysisHook)
+	// The columns the rules compare are filled here, whichever path saves the row:
+	// an analysis belongs to its recording's account, and a recording names the worker
+	// whose lease is live so its list rule needs no back-relation.
+	app.OnRecordCreate("analyses").BindFunc(ownAnalysisHook)
+	for _, save := range []*hook.TaggedHook[*core.RecordEvent]{
+		app.OnRecordAfterCreateSuccess("analyses"),
+		app.OnRecordAfterUpdateSuccess("analyses"),
+		app.OnRecordAfterDeleteSuccess("analyses"),
+	} {
+		save.BindFunc(leaseSyncHook)
+	}
+}
+
+// ownAnalysisHook fills an analysis's owner from its recording. The column is the
+// account the analysis belongs to, the same one its recording has, so the rules
+// compare it instead of joining the recording.
+func ownAnalysisHook(e *core.RecordEvent) error {
+	recording, err := e.App.FindRecordById("recordings", e.Record.GetString("recording"))
+	if err == nil {
+		e.Record.Set("owner", recording.GetString("owner"))
+	}
+	return e.Next()
+}
+
+// leaseSyncHook keeps a recording's lessee in step with its analyses: the worker of a
+// live lease, or none. A lease that runs out is cleared by the sweeper that requeues
+// the analysis, which is a save like any other.
+func leaseSyncHook(e *core.RecordEvent) error {
+	if err := e.Next(); err != nil {
+		return err
+	}
+	return syncRecordingLease(e.App, e.Record.GetString("recording"))
+}
+
+func syncRecordingLease(app core.App, recordingID string) error {
+	if recordingID == "" {
+		return nil
+	}
+	lessee := struct {
+		Worker string `db:"worker"`
+	}{}
+	err := app.DB().NewQuery(
+		"SELECT worker FROM analyses WHERE recording = {:recording} AND status = 'running' " +
+			"AND worker != '' AND lease_until > {:now} ORDER BY lease_until DESC LIMIT 1",
+	).Bind(dbx.Params{"recording": recordingID, "now": nowString()}).One(&lessee)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	_, err = app.DB().NewQuery(
+		"UPDATE recordings SET leased_by = {:worker} WHERE id = {:id} AND leased_by != {:worker}",
+	).Bind(dbx.Params{"worker": lessee.Worker, "id": recordingID}).Execute()
+	return err
 }
 
 // requestError is a failure in PocketBase's error shape with the API's stable code
