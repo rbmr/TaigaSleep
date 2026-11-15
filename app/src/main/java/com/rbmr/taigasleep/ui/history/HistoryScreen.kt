@@ -27,7 +27,6 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -188,9 +187,9 @@ private fun RecordingsList(
 }
 
 /**
- * One recording in a fixed-height row: the date, the clock times and length, the score or the state
- * pill, and an 8 dp bar at the bottom. The bar is a stage bar, a progress bar, an indeterminate bar
- * or an empty track, so the row never changes height.
+ * One recording in a row: the date, the clock times and length, the score or the state pill, and an
+ * 8 dp bar at the bottom. The date and the meta line wrap instead of being cut off, so a large
+ * system font makes the row taller. The bar below them does not change height.
  */
 @Composable
 private fun RecordingRow(item: RecordingView, onOpen: () -> Unit) {
@@ -235,15 +234,11 @@ private fun RecordingRow(item: RecordingView, onOpen: () -> Unit) {
           Text(
               text = date,
               style = MaterialTheme.taiga.text.row,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
           )
           Text(
               text = meta,
               style = MaterialTheme.taiga.text.meta,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
           )
         }
         if (pill == null) {

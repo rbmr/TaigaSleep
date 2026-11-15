@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -36,7 +36,8 @@ class BottomBarItem(val label: String, val icon: ImageVector)
 
 /**
  * The footer: 76 dp over the navigation inset, a hairline on top, the selected item as an icon in
- * an accent-soft pill with a bold accent label.
+ * an accent-soft pill with a bold accent label. Its height is a minimum: a large system font makes
+ * the bar taller instead of cutting a label off.
  */
 @Composable
 fun TaigaBottomBar(
@@ -49,7 +50,7 @@ fun TaigaBottomBar(
     Column(Modifier.navigationBarsPadding()) {
       HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
       Row(
-          modifier = Modifier.fillMaxWidth().height(75.dp).padding(horizontal = 16.dp),
+          modifier = Modifier.fillMaxWidth().heightIn(min = 75.dp).padding(horizontal = 16.dp),
           horizontalArrangement = Arrangement.SpaceAround,
           verticalAlignment = Alignment.CenterVertically,
       ) {
