@@ -190,12 +190,28 @@ def _nearest_valid(
     return valid
 
 
+def _gap_mask(recording: Recording, name: StreamName, t_s: np.ndarray) -> np.ndarray:
+    """The target times that fall in a gap the decoder reported.
+
+    A gap is missing data even when the samples around it are close enough for
+    nearest-neighbour resampling, so interpolating across it would pass a made-up
+    stretch off as a signal.
+    """
+
+    missing = np.zeros(t_s.shape, dtype=bool)
+    for gap in recording.quality.gaps:
+        if gap.stream == name:
+            missing |= (t_s >= gap.start_s) & (t_s <= gap.end_s)
+    return missing
+
+
 def resample_stream(recording: Recording, name: StreamName, rate_hz: float) -> ResampledStream:
     stream = getattr(recording, name)
     if stream is None:
         raise AnalysisError("missing_stream", f"recording has no {name} stream")
     t_target = _uniform_grid(recording.duration_s, rate_hz)
     max_gap_s = max(2.0 / max(rate_hz, 0.1), 2.0 / max(stream.rate_hz, 0.1), 1.0)
+    missing = _gap_mask(recording, name, t_target)
 
     if name == "hr":
         assert isinstance(stream, HrStream)
@@ -209,6 +225,7 @@ def resample_stream(recording: Recording, name: StreamName, rate_hz: float) -> R
             source_valid=stream.valid,
             max_gap_s=max_gap_s,
         )
+        valid &= ~missing
         values[~valid] = np.nan
         return ResampledStream(t_target, values, rate_hz, valid)
 
@@ -224,6 +241,7 @@ def resample_stream(recording: Recording, name: StreamName, rate_hz: float) -> R
             source_valid=~stream.saturated,
             max_gap_s=max_gap_s,
         )
+        valid &= ~missing
         values[~valid] = np.nan
         return ResampledStream(t_target, values, rate_hz, valid)
 
@@ -236,6 +254,7 @@ def resample_stream(recording: Recording, name: StreamName, rate_hz: float) -> R
         axis=1,
     ).astype(np.float32)
     valid = _nearest_valid(stream.t_s, t_target, max_gap_s=max_gap_s)
+    valid &= ~missing
     values[~valid, :] = np.nan
     return ResampledStream(t_target, values, rate_hz, valid)
 

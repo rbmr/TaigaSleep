@@ -78,6 +78,22 @@ def acc_payload(
     )
 
 
+def stream_payload(stream: int, index: int, *, samples: int = 10) -> bytes:
+    """One payload of ``stream`` for second ``index`` of a synthetic frame log."""
+
+    phone_ns = START_NS + index * 1_000_000_000
+    elapsed_ns = index * 1_000_000_000
+    t_first = POLAR_START_NS + index * 1_000_000_000
+    if stream == STREAM_HR:
+        return hr_payload(phone_ns, elapsed_ns, 60 + index % 10)
+    spacing = 1_000_000_000 // samples
+    t_last = t_first + (samples - 1) * spacing
+    if stream == STREAM_ECG:
+        return ecg_payload(phone_ns, elapsed_ns, t_first, t_last, [0] * samples)
+    values = [0, 0, 1000] * samples
+    return acc_payload(phone_ns, elapsed_ns, t_first, t_last, values)
+
+
 def meta(
     session_id: str = "20261023_223000",
     *,
