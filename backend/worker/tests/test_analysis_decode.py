@@ -4,9 +4,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from taiga_worker import frames
 from taiga_worker.analysis.decode import load_recording
+
 from tests import analysis_fixture as fx
 
 
@@ -112,9 +112,7 @@ DAMAGED_FRAME = {
 
 
 @pytest.mark.parametrize("name", list(DAMAGED_FRAME))
-def test_a_damaged_frame_in_the_middle_keeps_the_frames_after_it(
-    tmp_path: Path, name: str
-) -> None:
+def test_a_damaged_frame_in_the_middle_keeps_the_frames_after_it(tmp_path: Path, name: str) -> None:
     stream, samples, gap_start, gap_end = DAMAGED_FRAME[name]
     fx.write_recording(tmp_path, duration_s=10)
     encoded = [fx.frame(fx.stream_payload(stream, index)) for index in range(10)]
@@ -136,9 +134,7 @@ def test_a_damaged_frame_in_the_middle_keeps_the_frames_after_it(
     assert len(gaps) == 1
     assert gaps[0].start_s == pytest.approx(gap_start, abs=0.2)
     assert gaps[0].end_s == pytest.approx(gap_end, abs=0.2)
-    warning = next(
-        item for item in recording.quality.warnings if item.startswith(f"{name}.log:")
-    )
+    warning = next(item for item in recording.quality.warnings if item.startswith(f"{name}.log:"))
     assert f"byte {start}" in warning
     assert f"skipped {len(damaged)} bytes" in warning
 
@@ -149,8 +145,7 @@ def test_resampling_marks_the_time_of_a_damaged_frame_as_missing(tmp_path: Path)
     damaged = bytearray(encoded[4])
     damaged[6] ^= 0xFF
     (tmp_path / "hr.log").write_bytes(
-        fx.frame_header(fx.STREAM_HR)
-        + b"".join(encoded[:4] + [bytes(damaged)] + encoded[5:])
+        fx.frame_header(fx.STREAM_HR) + b"".join(encoded[:4] + [bytes(damaged)] + encoded[5:])
     )
     recording = load_recording(tmp_path)
 
@@ -328,13 +323,9 @@ def _write_reconnect_logs(root: Path) -> None:
         elapsed_ns = (elapsed_s + 1) * 1_000_000_000
         first = fx.POLAR_START_NS + wall_s * 1_000_000_000
         ecg_last = first + 129 * (1_000_000_000 // 130)
-        ecg += fx.frame(
-            fx.ecg_payload(phone_ns, elapsed_ns, first, ecg_last, [0] * 130)
-        )
+        ecg += fx.frame(fx.ecg_payload(phone_ns, elapsed_ns, first, ecg_last, [0] * 130))
         acc_last = first + 49 * (1_000_000_000 // 50)
-        acc += fx.frame(
-            fx.acc_payload(phone_ns, elapsed_ns, first, acc_last, [0, 0, 1000] * 50)
-        )
+        acc += fx.frame(fx.acc_payload(phone_ns, elapsed_ns, first, acc_last, [0, 0, 1000] * 50))
     (root / "ecg.log").write_bytes(bytes(ecg))
     (root / "acc.log").write_bytes(bytes(acc))
 
@@ -361,10 +352,7 @@ def test_a_device_clock_jump_and_reconnect_keep_streams_aligned(tmp_path: Path) 
         index = int(np.argmin(np.abs(stream.t_s - target)))
         assert abs(float(stream.t_s[index]) - target) <= 1.0 / rate_hz
 
-    assert any(
-        "device clock moved backwards" in warning
-        for warning in recording.quality.warnings
-    )
+    assert any("device clock moved backwards" in warning for warning in recording.quality.warnings)
     # A restart of the device clock is a new segment, not a phone clock change.
     assert recording.quality.clock_jumps == ()
     gaps = [gap for gap in recording.quality.gaps if gap.stream == "hr"]

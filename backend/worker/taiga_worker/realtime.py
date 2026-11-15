@@ -38,6 +38,7 @@ MAX_LINE_BYTES = 4 * 1024 * 1024
 # The first message of the stream carries the id the subscription is made with.
 PB_CONNECT = "PB_CONNECT"
 
+
 def topic(collection: str, fields: str) -> str:
     """One subscription, asking PocketBase for the fields the worker needs and no more."""
 
@@ -214,7 +215,10 @@ class Realtime:
             content_type = str(response.headers.get("Content-Type") or "")
             if not content_type.lower().startswith("text/event-stream"):
                 # Some proxy or captive portal answering for the API; not a stream.
-                raise ApiError(f"/api/realtime did not answer with a realtime stream ({content_type or 'no type'})")
+                raise ApiError(
+                    "/api/realtime did not answer with a realtime stream "
+                    f"({content_type or 'no type'})"
+                )
 
             for event, data in parse_events(self._lines(response)):
                 if event == PB_CONNECT:

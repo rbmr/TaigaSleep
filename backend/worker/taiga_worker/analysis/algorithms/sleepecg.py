@@ -73,9 +73,7 @@ INFO = AlgorithmInfo(
     # as unsupported.
     stage_scheme="sleep-ecg",
     supported_stages=("wake", "rem", "nrem", "sleep", "unknown"),
-    capabilities=frozenset(
-        {"stages", "confidence", "probabilities", "artifacts", "no_deep"}
-    ),
+    capabilities=frozenset({"stages", "confidence", "probabilities", "artifacts", "no_deep"}),
     default_params={
         "classifier": "wrn-gru-mesa",
         "prefer_ecg": True,
@@ -137,9 +135,7 @@ def availability() -> tuple[bool, str]:
     """Whether the optional SleepECG stack and bundled classifiers are usable."""
 
     missing = [
-        name
-        for name in ("sleepecg", "keras", "torch")
-        if importlib.util.find_spec(name) is None
+        name for name in ("sleepecg", "keras", "torch") if importlib.util.find_spec(name) is None
     ]
     if missing:
         return False, ""
@@ -264,9 +260,7 @@ def _install_nanpsd_fix() -> None:
         empty = nan_fraction == 1
         for index in np.where((nan_fraction <= max_nans) & ~(full | empty))[0]:
             valid = x[index][~np.isnan(x[index])]
-            _, psd[index] = fe.periodogram(
-                valid, fs=fs, window="hann", nfft=nfft
-            )
+            _, psd[index] = fe.periodogram(valid, fs=fs, window="hann", nfft=nfft)
         return frequencies, psd
 
     fe._nanpsd = fixed_nanpsd
@@ -361,7 +355,7 @@ def rr_heartbeats(recording: Recording) -> np.ndarray:
         return np.empty(0, dtype=np.float64)
     parts: list[np.ndarray] = []
     for time_s, intervals, valid, contact in zip(
-        hr.t_s, hr.rr_ms, hr.valid, hr.contact
+        hr.t_s, hr.rr_ms, hr.valid, hr.contact, strict=True
     ):
         if not valid or not contact or len(intervals) == 0:
             continue
@@ -400,9 +394,7 @@ def _beats(recording: Recording, config: Mapping[str, Any]) -> tuple[np.ndarray,
         if beats.size >= 2:
             return beats, "ecg"
     if recording.ecg is None and recording.hr is None:
-        raise AnalysisError(
-            "missing_stream", "SleepECG needs RR intervals or an ECG stream"
-        )
+        raise AnalysisError("missing_stream", "SleepECG needs RR intervals or an ECG stream")
     raise AnalysisError(
         "insufficient_beats",
         "SleepECG could not find enough heartbeats in the RR intervals or ECG",
@@ -510,9 +502,7 @@ def build_result(
     )
 
     beat_counts = np.histogram(beats, bins=np.arange(0, scored * 30 + 1, 30))[0]
-    contact_available = bool(
-        recording.hr is not None and np.any(recording.hr.contact_supported)
-    )
+    contact_available = bool(recording.hr is not None and np.any(recording.hr.contact_supported))
     usable = beat_counts >= int(config["min_beats_per_epoch"])
     if contact_available:
         contact = np.asarray(grid.hr_contact_fraction, dtype=np.float64)[:scored]
@@ -549,7 +539,7 @@ def build_result(
     for index in range(canonical):
         if index < scored:
             row = smoothed[index]
-            for name, value in zip(names, row):
+            for name, value in zip(names, row, strict=True):
                 probabilities[name].append(float(value))
             if stageable[index]:
                 stages.append(names[int(np.argmax(row))])  # type: ignore[arg-type]
@@ -609,8 +599,8 @@ class SleepEcgStager(Stager):
         ]
         if prepared.unknown_epochs:
             messages.append(
-                f"{prepared.artifact_epochs} 30-second interval(s) have low beat or contact quality. "
-                f"{prepared.unknown_epochs} are unknown and the rest are artifacts"
+                f"{prepared.artifact_epochs} 30-second interval(s) have low beat or contact "
+                f"quality. {prepared.unknown_epochs} are unknown and the rest are artifacts"
             )
         if config["age"] is None or config["gender"] is None:
             messages.append(

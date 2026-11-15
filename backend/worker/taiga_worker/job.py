@@ -49,11 +49,7 @@ def main() -> int:
         print(json.dumps({"analysis": result}))
         return 0
     except AnalysisError as exc:
-        print(
-            json.dumps(
-                _failure(f"{exc.code}: {exc}", exc.code in RETRYABLE)
-            )
-        )
+        print(json.dumps(_failure(f"{exc.code}: {exc}", exc.code in RETRYABLE)))
         return 0
     except Exception as exc:  # noqa: BLE001 - report a clean job failure
         print(json.dumps(_failure(f"{type(exc).__name__}: {exc}", True)))

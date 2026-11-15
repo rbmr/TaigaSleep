@@ -56,13 +56,21 @@ def load(directory):
                 else:
                     bad += 1
     # Exit-info lines are logged at the next start; place them where the process actually died.
-    events.sort(key=lambda e: (e.get("event_ms", e["t_ms"]) if e["type"] == "exit_info" else e["t_ms"],
-                               e.get("elapsed_ms", 0)))
+    events.sort(
+        key=lambda e: (
+            e.get("event_ms", e["t_ms"]) if e["type"] == "exit_info" else e["t_ms"],
+            e.get("elapsed_ms", 0),
+        )
+    )
     return events, bad
 
 
 def stamp(ms):
-    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    return (
+        datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+        .astimezone()
+        .strftime("%Y-%m-%d %H:%M:%S")
+    )
 
 
 def flatten(value, prefix=""):
@@ -100,8 +108,11 @@ def duration(seconds):
 def describe(event):
     """One-line text for events without a dedicated formatter."""
     skip = {"t_ms", "elapsed_ms", "pid", "type", "_file"}
-    parts = ["%s=%s" % (k, json.dumps(v) if isinstance(v, (dict, list)) else v)
-             for k, v in event.items() if k not in skip]
+    parts = [
+        "%s=%s" % (k, json.dumps(v) if isinstance(v, (dict, list)) else v)
+        for k, v in event.items()
+        if k not in skip
+    ]
     return " ".join(parts).rstrip()
 
 
@@ -118,9 +129,16 @@ def timeline(events, gap_seconds, show_all, out):
             heartbeats += 1
             if last_hb_any is not None and (t - last_hb_any["t_ms"]) / 1000 > gap_seconds:
                 same = last_hb_any.get("pid") == pid
-                out("%s  GAP      no heartbeat for %s (pid %s -> %s)%s" % (
-                    when, duration((t - last_hb_any["t_ms"]) / 1000), last_hb_any.get("pid"), pid,
-                    "" if same else "  process changed: suspected kill"))
+                out(
+                    "%s  GAP      no heartbeat for %s (pid %s -> %s)%s"
+                    % (
+                        when,
+                        duration((t - last_hb_any["t_ms"]) / 1000),
+                        last_hb_any.get("pid"),
+                        pid,
+                        "" if same else "  process changed: suspected kill",
+                    )
+                )
             last_hb_any = e
             last_heartbeat[pid] = t
             if show_all:
@@ -129,56 +147,102 @@ def timeline(events, gap_seconds, show_all, out):
         elif kind == "process_start":
             prev = e.get("previous_run", {})
             dev = e.get("device", {})
-            out("%s  START    pid=%s v%s%s %s %s Android %s (SDK %s) patch %s" % (
-                when, pid, e.get("version_name"), " debug" if e.get("debug") else "",
-                dev.get("manufacturer"), dev.get("model"), dev.get("release"), dev.get("sdk"),
-                dev.get("security_patch")))
+            out(
+                "%s  START    pid=%s v%s%s %s %s Android %s (SDK %s) patch %s"
+                % (
+                    when,
+                    pid,
+                    e.get("version_name"),
+                    " debug" if e.get("debug") else "",
+                    dev.get("manufacturer"),
+                    dev.get("model"),
+                    dev.get("release"),
+                    dev.get("sdk"),
+                    dev.get("security_patch"),
+                )
+            )
             since = prev.get("seconds_since_last_heartbeat")
             last_state = prev.get("last_state") or {}
             if prev.get("verdict") == "unclean_exit" and last_state:
-                out("                    last known state: " + ", ".join(
-                    "%s=%s" % (k, v) for k, v in last_state.items()))
-            out("                    previous run: %s%s%s" % (
-                prev.get("verdict"),
-                ", last heartbeat %s before this start" % duration(since) if since is not None else "",
-                ", PHONE REBOOTED" if prev.get("device_rebooted") else ""))
+                out(
+                    "                    last known state: "
+                    + ", ".join("%s=%s" % (k, v) for k, v in last_state.items())
+                )
+            out(
+                "                    previous run: %s%s%s"
+                % (
+                    prev.get("verdict"),
+                    ", last heartbeat %s before this start" % duration(since)
+                    if since is not None
+                    else "",
+                    ", PHONE REBOOTED" if prev.get("device_rebooted") else "",
+                )
+            )
 
         elif kind == "setting_changed":
             late = e.get("observed_late_ms")
-            out("%s  CHANGED  %s (seen by %s%s)" % (
-                when,
-                ", ".join("%s: %s -> %s" % (k, v[0], v[1]) for k, v in e.get("changes", {}).items()),
-                e.get("source"),
-                ", %s after the previous check" % duration(late / 1000) if late else ""))
+            out(
+                "%s  CHANGED  %s (seen by %s%s)"
+                % (
+                    when,
+                    ", ".join(
+                        "%s: %s -> %s" % (k, v[0], v[1]) for k, v in e.get("changes", {}).items()
+                    ),
+                    e.get("source"),
+                    ", %s after the previous check" % duration(late / 1000) if late else "",
+                )
+            )
 
         elif kind == "alarm_heartbeat":
             late = (e.get("late_by_ms") or 0) / 1000
-            out("%s  ALARM    pid=%s due %s%s%s" % (
-                when, pid, "on time" if late < 60 else "LATE by " + duration(late),
-                " (Doze/standby deferral)" if late > 300 else "",
-                "; process was started for this alarm" if e.get("process_started_for_alarm") else ""))
+            out(
+                "%s  ALARM    pid=%s due %s%s%s"
+                % (
+                    when,
+                    pid,
+                    "on time" if late < 60 else "LATE by " + duration(late),
+                    " (Doze/standby deferral)" if late > 300 else "",
+                    "; process was started for this alarm"
+                    if e.get("process_started_for_alarm")
+                    else "",
+                )
+            )
 
         elif kind in ("screen_on", "screen_off"):
             out("%s  SCREEN   %s%s" % (when, kind[7:], " (locked)" if e.get("locked") else ""))
 
         elif kind in ("doze_changed", "light_doze_changed"):
-            out("%s  DOZE     %s doze=%s" % (when, "light" if kind.startswith("light") else "deep",
-                                           e.get("doze", "?")))
+            out(
+                "%s  DOZE     %s doze=%s"
+                % (when, "light" if kind.startswith("light") else "deep", e.get("doze", "?"))
+            )
 
         elif kind in ("power_connected", "power_disconnected"):
             out("%s  POWER    %s battery=%s%%" % (when, kind[6:], e.get("battery_pct")))
 
         elif kind == "exit_info":
-            out("%s  KILLED   %s (code %s) pid=%s importance=%s status=%s desc=%r pss=%sKB rss=%sKB" % (
-                stamp(e.get("event_ms", t)), e.get("reason"), e.get("reason_code"), e.get("exit_pid"),
-                e.get("importance"), e.get("status"), e.get("description"), e.get("pss_kb"),
-                e.get("rss_kb")))
+            out(
+                "%s  KILLED   %s (code %s) pid=%s importance=%s status=%s desc=%r pss=%sKB rss=%sKB"
+                % (
+                    stamp(e.get("event_ms", t)),
+                    e.get("reason"),
+                    e.get("reason_code"),
+                    e.get("exit_pid"),
+                    e.get("importance"),
+                    e.get("status"),
+                    e.get("description"),
+                    e.get("pss_kb"),
+                    e.get("rss_kb"),
+                )
+            )
             if e.get("trace"):
                 out("                    trace: " + e["trace"].strip().splitlines()[0][:120])
 
         elif kind == "crash":
-            out("%s  CRASH    pid=%s thread=%s %s: %s" % (
-                when, pid, e.get("thread"), e.get("exception"), e.get("message")))
+            out(
+                "%s  CRASH    pid=%s thread=%s %s: %s"
+                % (when, pid, e.get("thread"), e.get("exception"), e.get("message"))
+            )
             for line in (e.get("stack") or "").splitlines()[1:6]:
                 out("                    " + line.strip())
 
@@ -205,12 +269,16 @@ def summary(events, out):
     """Time-weighted share of the observed time in each state, from consecutive heartbeats."""
     beats = [e for e in events if e["type"] == "diag_heartbeat"]
     total = {"observed": 0.0, "screen on": 0.0, "charging": 0.0, "doze": 0.0, "app visible": 0.0}
-    for a, b in zip(beats, beats[1:]):
+    for a, b in zip(beats, beats[1:], strict=False):
         dt = (b["t_ms"] - a["t_ms"]) / 1000
         if a.get("pid") != b.get("pid") or dt > 300:
             continue  # a kill or a long gap: do not guess what happened in between
         total["observed"] += dt
-        for key, field in (("screen on", "interactive"), ("charging", "charging"), ("doze", "doze")):
+        for key, field in (
+            ("screen on", "interactive"),
+            ("charging", "charging"),
+            ("doze", "doze"),
+        ):
             if a.get(field) is True:
                 total[key] += dt
         if a.get("importance") in ("FOREGROUND", "VISIBLE"):
@@ -221,11 +289,22 @@ def summary(events, out):
             kills[e.get("reason")] = kills.get(e.get("reason"), 0) + 1
     starts = sum(1 for e in events if e["type"] == "process_start")
     out("")
-    out("Summary: %d process starts; kills by reason: %s" % (
-        starts, ", ".join("%s x%d" % kv for kv in sorted(kills.items())) or "none"))
+    out(
+        "Summary: %d process starts; kills by reason: %s"
+        % (starts, ", ".join("%s x%d" % kv for kv in sorted(kills.items())) or "none")
+    )
     if total["observed"]:
-        out("Observed %s between heartbeats: %s" % (duration(total["observed"]), ", ".join(
-            "%s %d%%" % (k, 100 * v / total["observed"]) for k, v in total.items() if k != "observed")))
+        out(
+            "Observed %s between heartbeats: %s"
+            % (
+                duration(total["observed"]),
+                ", ".join(
+                    "%s %d%%" % (k, 100 * v / total["observed"])
+                    for k, v in total.items()
+                    if k != "observed"
+                ),
+            )
+        )
 
 
 def main(argv=None):

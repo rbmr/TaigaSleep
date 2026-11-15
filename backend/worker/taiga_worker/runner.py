@@ -44,7 +44,9 @@ class JobRunner:
     ) -> None:
         self.memory_mb = memory_mb
         self.timeout_s = timeout_s
-        self.command = list(command) if command else [python or sys.executable, "-m", "taiga_worker.job"]
+        self.command = (
+            list(command) if command else [python or sys.executable, "-m", "taiga_worker.job"]
+        )
         self._process: subprocess.Popen[str] | None = None
 
     def _preexec(self) -> None:  # pragma: no cover - exercised via the real subprocess
@@ -125,7 +127,9 @@ class JobRunner:
             detail = (stderr or stdout or "").strip()[-2000:]
             return Outcome(
                 ok=False,
-                error=f"job output was not valid JSON: {detail}" if detail else "job output was not valid JSON",
+                error=f"job output was not valid JSON: {detail}"
+                if detail
+                else "job output was not valid JSON",
             )
 
         if not isinstance(result, dict):

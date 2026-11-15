@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from taiga_worker.analysis.contract import (
     AASM4_STAGES,
     CONTRACT_VERSION,
@@ -17,6 +16,7 @@ from taiga_worker.analysis.contract import (
 )
 from taiga_worker.analysis.pipeline import run_analysis
 from taiga_worker.analysis.registry import Registry
+
 from tests import analysis_fixture as fx
 
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from taiga_worker.analysis.contract import (
     AASM4_STAGES,
     WAKE_SLEEP_STAGES,
@@ -47,7 +46,10 @@ def test_stage_scheme_cannot_declare_foreign_stages() -> None:
     with pytest.raises(ValueError):
         _info(stage_scheme="wake-sleep", supported_stages=("wake", "sleep", "light", "unknown"))
     with pytest.raises(ValueError):
-        _info(stage_scheme="wake-rem-nrem", supported_stages=("wake", "rem", "nrem", "deep", "unknown"))
+        _info(
+            stage_scheme="wake-rem-nrem",
+            supported_stages=("wake", "rem", "nrem", "deep", "unknown"),
+        )
 
 
 def test_wake_sleep_scheme_is_valid() -> None:

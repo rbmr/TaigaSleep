@@ -123,10 +123,7 @@ class FrameGap:
     def describe(self) -> str:
         """One line for a warning: why the bytes were skipped and how many."""
 
-        return (
-            f"{self.reason} at byte {self.start}; "
-            f"skipped {self.size} bytes to byte {self.end}"
-        )
+        return f"{self.reason} at byte {self.start}; skipped {self.size} bytes to byte {self.end}"
 
 
 def _damage(data: bytes, stream: int, offset: int) -> str:
@@ -230,9 +227,8 @@ def hr_payload(
     """One HR sample; flags bit0 = contact supported, bit1 = contact, bit2 = RR."""
 
     rr = [int(value) for value in rr_ms]
-    return (
-        struct.pack("<qqHBB", phone_ns, elapsed_ns, int(hr_bpm), flags, len(rr))
-        + struct.pack(f"<{len(rr)}H", *rr)
+    return struct.pack("<qqHBB", phone_ns, elapsed_ns, int(hr_bpm), flags, len(rr)) + struct.pack(
+        f"<{len(rr)}H", *rr
     )
 
 
@@ -357,9 +353,7 @@ def _read_batch(payload: bytes, values_per_sample: int, value_format: str) -> Ba
         offset += 8 * count
     else:
         raise ValueError("unknown ts_mode %d" % mode)
-    values = struct.unpack_from(
-        f"<{count * values_per_sample}{value_format}", payload, offset
-    )
+    values = struct.unpack_from(f"<{count * values_per_sample}{value_format}", payload, offset)
     offset += count * values_per_sample * struct.calcsize(value_format)
     if offset != len(payload):
         raise ValueError("batch payload length mismatch")

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from taiga_worker.analysis.smoothing import (
     smooth_labels,
     smooth_probabilities,

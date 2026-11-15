@@ -110,7 +110,9 @@ class RealtimeServer:
 
             def _authorized(self) -> bool:
                 if self._token() in stub.revoked or not self._token():
-                    self._answer(401, {"status": 401, "message": "the token is not valid", "data": {}})
+                    self._answer(
+                        401, {"status": 401, "message": "the token is not valid", "data": {}}
+                    )
                     return False
                 return True
 
@@ -124,7 +126,9 @@ class RealtimeServer:
                     with stub.lock:
                         stub.logins += 1
                         token = f"token-{stub.logins}"
-                    self._answer(200, {"token": token, "record": {"id": "w1", "email": "w@example.com"}})
+                    self._answer(
+                        200, {"token": token, "record": {"id": "w1", "email": "w@example.com"}}
+                    )
                 elif self.path == "/api/realtime" and self._authorized():
                     try:
                         payload = json.loads(body or b"{}")
@@ -213,7 +217,7 @@ class RealtimeServer:
                     self._chunk(
                         (
                             f"id:{client_id}\nevent:PB_CONNECT\n"
-                            f'data:{json.dumps({"clientId": client_id})}\n\n'
+                            f"data:{json.dumps({'clientId': client_id})}\n\n"
                         ).encode()
                     )
                     if plan.then in ("end", "cut"):
@@ -252,7 +256,9 @@ class RealtimeServer:
         """Block until ``count`` streams were opened; returns all of them."""
 
         if not wait_until(lambda: len(self.connections) >= count, timeout_s):
-            raise AssertionError(f"expected {count} realtime stream(s), saw {len(self.connections)}")
+            raise AssertionError(
+                f"expected {count} realtime stream(s), saw {len(self.connections)}"
+            )
         with self.lock:
             return list(self.connections)
 

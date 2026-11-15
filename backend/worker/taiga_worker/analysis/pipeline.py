@@ -12,7 +12,7 @@ import platform
 import resource
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
@@ -143,7 +143,9 @@ def _serialize_stages(
 ) -> dict[str, Any]:
     stages = list(result.stages)
     if sum(segment["count"] for segment in _segments(stages)) != grid.count:
-        raise AnalysisError("invalid_result", "stage timeline does not cover every 30-second interval")
+        raise AnalysisError(
+            "invalid_result", "stage timeline does not cover every 30-second interval"
+        )
     probabilities = None
     if result.probabilities is not None:
         probabilities = {
@@ -156,7 +158,9 @@ def _serialize_stages(
         "count": grid.count,
         "segments": _segments(stages),
         "confidence": confidence,
-        "artifacts": None if result.artifacts is None else [bool(value) for value in result.artifacts],
+        "artifacts": None
+        if result.artifacts is None
+        else [bool(value) for value in result.artifacts],
         "probabilities": probabilities,
     }
 
@@ -165,8 +169,7 @@ def _serialize_hr(recording: Recording, grid: EpochGrid) -> dict[str, Any]:
     """The epoch-aligned HR series, with nulls for epochs without valid samples."""
 
     means = [
-        None if not np.isfinite(value) else round(float(value), 1)
-        for value in grid.hr_mean_bpm
+        None if not np.isfinite(value) else round(float(value), 1) for value in grid.hr_mean_bpm
     ]
     return {
         "epoch_seconds": grid.epoch_seconds,
@@ -280,11 +283,13 @@ def run_analysis(
         "supported_stages": list(result.supported_stages or info.supported_stages),
         "needs": [need.name for need in info.needs],
     }
-    warnings = list(dict.fromkeys(
-        list(recording.quality.warnings)
-        + list(result.warnings)
-        + list((source or {}).get("warnings") or [])
-    ))
+    warnings = list(
+        dict.fromkeys(
+            list(recording.quality.warnings)
+            + list(result.warnings)
+            + list((source or {}).get("warnings") or [])
+        )
+    )
     algorithm_provenance = {
         "id": info.id,
         "version": info.version,

@@ -5,11 +5,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import pytest
-
 from taiga_worker.api import ApiError
 from taiga_worker.runner import Outcome
 from taiga_worker.upload import verify_recording_file
 from taiga_worker.worker import Worker
+
 from tests import analysis_fixture as fx
 from tests.test_worker import FakeApi, FakeRunner, analysis, config
 
@@ -196,9 +196,7 @@ def test_a_corrupt_tail_is_cut_off_whatever_the_encoding(tmp_path: Path, encodin
 
 
 @pytest.mark.parametrize("encoding", ["identity", "gzip"])
-def test_a_bad_crc_in_the_middle_keeps_the_frames_after_it(
-    tmp_path: Path, encoding: str
-) -> None:
+def test_a_bad_crc_in_the_middle_keeps_the_frames_after_it(tmp_path: Path, encoding: str) -> None:
     bodies = recording_bytes(tmp_path, duration_s=60)
     good = fx.hr_log(duration_s=10)
     bad = fx.frame(fx.hr_payload(fx.START_NS, 0, 60), bad_crc=True)

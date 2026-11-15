@@ -220,7 +220,9 @@ class Worker:
         self._report(analysis, outcome)
         return True
 
-    def _keep_lease(self, analysis_id: str, stop: threading.Event, dropped: threading.Event) -> None:
+    def _keep_lease(
+        self, analysis_id: str, stop: threading.Event, dropped: threading.Event
+    ) -> None:
         """Renew the lease while the job runs, or stop the job when it is refused."""
 
         interval = self.config.lease_seconds / 3

@@ -68,7 +68,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--memory-mb",
         type=int,
-        help="Address-space limit for the analysis subprocess (env: TAIGA_JOB_MEMORY_MB, 0 disables)",
+        help=(
+            "Address-space limit for the analysis subprocess (env: TAIGA_JOB_MEMORY_MB, 0 disables)"
+        ),
     )
     parser.add_argument(
         "--timeout",
@@ -161,15 +163,21 @@ def from_env(
     if not email:
         raise ConfigError("worker email is required (TAIGA_WORKER_EMAIL or --email)")
 
-    worker_id = args.worker_id or _env(env, "TAIGA_WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
+    worker_id = (
+        args.worker_id or _env(env, "TAIGA_WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
+    )
 
     poll_interval = _float(
-        str(args.poll_interval) if args.poll_interval is not None else _env(env, "TAIGA_POLL_INTERVAL_S"),
+        str(args.poll_interval)
+        if args.poll_interval is not None
+        else _env(env, "TAIGA_POLL_INTERVAL_S"),
         60.0,
         "poll interval",
     )
     lease_seconds = _int(
-        str(args.lease_seconds) if args.lease_seconds is not None else _env(env, "TAIGA_JOB_LEASE_S"),
+        str(args.lease_seconds)
+        if args.lease_seconds is not None
+        else _env(env, "TAIGA_JOB_LEASE_S"),
         1800,
         "lease seconds",
     )

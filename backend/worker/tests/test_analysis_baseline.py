@@ -3,11 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from taiga_worker.analysis.algorithms import baseline
 from taiga_worker.analysis.contract import AnalysisError
 from taiga_worker.analysis.decode import load_recording
 from taiga_worker.analysis.pipeline import run_analysis
+
 from tests import analysis_fixture as fx
 
 WAKE_SLEEP_UNKNOWN = {"wake", "sleep", "unknown"}

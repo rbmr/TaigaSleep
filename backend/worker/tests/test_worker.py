@@ -7,13 +7,14 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 import pytest
-
 from taiga_worker.api import ApiClient, ApiError
 from taiga_worker.config import Config
 from taiga_worker.runner import Outcome
 from taiga_worker.worker import ANNOUNCE_INTERVAL_S, Worker
+
 from tests import analysis_fixture as fx
-from tests.realtime_server import RealtimeServer as EventServer, change, queued, wait_until
+from tests.realtime_server import RealtimeServer as EventServer
+from tests.realtime_server import change, queued, wait_until
 
 
 def config(**changes: Any) -> Config:
@@ -156,7 +157,9 @@ class FakeApi:
         return self._report(self.completed, {"id": analysis_id, "result": result})
 
     def fail(self, analysis_id: str, error: str, retryable: bool) -> dict[str, Any]:
-        return self._report(self.failed, {"id": analysis_id, "error": error, "retryable": retryable})
+        return self._report(
+            self.failed, {"id": analysis_id, "error": error, "retryable": retryable}
+        )
 
 
 class FakeRunner:
@@ -239,7 +242,9 @@ def test_claim_asks_for_the_installed_versions_only() -> None:
 
 def test_a_worker_without_algorithms_claims_nothing() -> None:
     api = FakeApi(analyses=[analysis()])
-    worker = Worker(config(algorithms=("no-such-algorithm",)), api, FakeRunner(), sleep=lambda _: None)
+    worker = Worker(
+        config(algorithms=("no-such-algorithm",)), api, FakeRunner(), sleep=lambda _: None
+    )
 
     assert not worker.run_once()
     assert api.claims == []
@@ -596,7 +601,9 @@ def test_an_event_wakes_an_idle_worker_long_before_the_poll_interval() -> None:
 
 def test_run_forever_recovers_from_api_errors() -> None:
     class FlakyApi(FakeApi):
-        def claim(self, algorithms: list[dict[str, str]], lease_seconds: int) -> dict[str, Any] | None:
+        def claim(
+            self, algorithms: list[dict[str, str]], lease_seconds: int
+        ) -> dict[str, Any] | None:
             if not self.claims:
                 self.claims.append({})
                 raise ApiError("down", status=502)
@@ -655,7 +662,9 @@ def listening_worker(api_stub: EventServer) -> Iterator[tuple[Worker, Listening,
 
     wake = Listening()
     api = ApiClient(api_stub.url, timeout_s=5)
-    worker = Worker(config(api_url=api_stub.url, poll_interval_s=3600), api, FakeRunner(), wake=wake)
+    worker = Worker(
+        config(api_url=api_stub.url, poll_interval_s=3600), api, FakeRunner(), wake=wake
+    )
     thread = threading.Thread(target=worker.run_forever, daemon=True)
     thread.start()
     try:
@@ -666,7 +675,9 @@ def listening_worker(api_stub: EventServer) -> Iterator[tuple[Worker, Listening,
         assert not thread.is_alive()
 
 
-def test_the_worker_claims_when_connected_and_when_an_analysis_is_queued(api_stub, listening_worker) -> None:
+def test_the_worker_claims_when_connected_and_when_an_analysis_is_queued(
+    api_stub, listening_worker
+) -> None:
     worker, wake, _ = listening_worker
     (connection,) = api_stub.wait_for_connections(1)
     assert wait_until(lambda: wake.waits >= 1)
@@ -696,7 +707,9 @@ def test_the_worker_claims_after_every_reconnect(api_stub, listening_worker) -> 
     assert first.gone.is_set()
 
 
-def test_a_rejected_token_is_replaced_once_for_the_stream_and_the_worker(api_stub, listening_worker) -> None:
+def test_a_rejected_token_is_replaced_once_for_the_stream_and_the_worker(
+    api_stub, listening_worker
+) -> None:
     worker, wake, _ = listening_worker
     (first,) = api_stub.wait_for_connections(1)
     assert wait_until(lambda: wake.waits >= 1)

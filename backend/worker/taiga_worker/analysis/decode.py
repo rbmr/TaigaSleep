@@ -132,7 +132,16 @@ def _scan(path: Path, expected_stream: int, on_payload) -> FrameLogInfo:
     )
 
 
-def _decode_hr(path: Path) -> tuple[list[np.ndarray], list[np.ndarray], list[np.ndarray], list[np.ndarray], list[np.ndarray], FrameLogInfo]:
+def _decode_hr(
+    path: Path,
+) -> tuple[
+    list[np.ndarray],
+    list[np.ndarray],
+    list[np.ndarray],
+    list[np.ndarray],
+    list[np.ndarray],
+    FrameLogInfo,
+]:
     phone: list[np.ndarray] = []
     elapsed: list[np.ndarray] = []
     bpm: list[np.ndarray] = []
@@ -217,14 +226,12 @@ def _anchored_times(
 
     if elapsed_ns.size and np.any(elapsed_ns > 0):
         elapsed = elapsed_ns.astype(np.int64)
-        residual_ns = (
-            phone_ns.astype(np.int64) - np.int64(start_unix_ns) - elapsed
-        ).astype(np.float64)
+        residual_ns = (phone_ns.astype(np.int64) - np.int64(start_unix_ns) - elapsed).astype(
+            np.float64
+        )
         backwards = np.diff(elapsed) < 0
         if np.any(backwards):
-            warnings.append(
-                f"{label}: device clock moved backwards; using a new anchor"
-            )
+            warnings.append(f"{label}: device clock moved backwards; using a new anchor")
             segment = np.concatenate(([0], np.cumsum(backwards)))
             offsets = np.empty(elapsed.size, dtype=np.float64)
             for index in np.unique(segment):
@@ -396,9 +403,7 @@ def load_recording(directory: str | Path) -> Recording:
         (acc_phone_batches, acc_elapsed),
     ):
         if phone.size and elapsed.size and np.any(elapsed > 0):
-            residuals.append(
-                (phone - np.int64(start_unix_ns) - elapsed).astype(np.float64)
-            )
+            residuals.append((phone - np.int64(start_unix_ns) - elapsed).astype(np.float64))
     if not residuals:
         warnings.append("no monotonic elapsed timestamps; using the phone wall clock")
         elapsed_offset_ns = 0.0
@@ -409,9 +414,7 @@ def load_recording(directory: str | Path) -> Recording:
     hr_t = np.empty(0, dtype=np.float64)
     hr_byte_gaps: list[Gap] = []
     if hr_info.present and hr_phone.size:
-        hr_t = _anchored_times(
-            hr_phone, hr_elapsed, start_unix_ns, warnings, "hr"
-        )
+        hr_t = _anchored_times(hr_phone, hr_elapsed, start_unix_ns, warnings, "hr")
         hr_byte_gaps = _byte_gaps("hr", hr_info.gap_samples, hr_t)
         order = np.argsort(hr_t, kind="stable")
         hr_t = hr_t[order]
@@ -438,9 +441,7 @@ def load_recording(directory: str | Path) -> Recording:
     ecg_anchor_s = np.empty(0, dtype=np.float64)
     if ecg_info.present and ecg_raw.values_uv:
         ecg_phone = ecg_phone_batches
-        ecg_anchor_s = _anchored_times(
-            ecg_phone, ecg_elapsed, start_unix_ns, warnings, "ecg"
-        )
+        ecg_anchor_s = _anchored_times(ecg_phone, ecg_elapsed, start_unix_ns, warnings, "ecg")
         ecg_t = _sample_times_from_batches(
             ecg_raw.t_polar,
             ecg_anchor_s,
@@ -469,9 +470,7 @@ def load_recording(directory: str | Path) -> Recording:
     acc_anchor_s = np.empty(0, dtype=np.float64)
     if acc_info.present and acc_raw.values_mg:
         acc_phone = acc_phone_batches
-        acc_anchor_s = _anchored_times(
-            acc_phone, acc_elapsed, start_unix_ns, warnings, "acc"
-        )
+        acc_anchor_s = _anchored_times(acc_phone, acc_elapsed, start_unix_ns, warnings, "acc")
         acc_t = _sample_times_from_batches(
             acc_raw.t_polar,
             acc_anchor_s,
@@ -641,9 +640,7 @@ def _clock_events(
 
         # How far the phone wall clock is from the monotonic clock. A stable
         # recording has a constant offset; an NTP/manual change moves it.
-        residual = (
-            phone.astype(np.float64) - start_unix_ns - elapsed.astype(np.float64)
-        ) / 1e9
+        residual = (phone.astype(np.float64) - start_unix_ns - elapsed.astype(np.float64)) / 1e9
         phone_changes = np.diff(residual)
         device_resets = np.diff(elapsed) < 0
 
