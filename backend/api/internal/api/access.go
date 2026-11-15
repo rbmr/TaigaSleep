@@ -2,6 +2,8 @@ package api
 
 import (
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/hook"
+	"github.com/pocketbase/pocketbase/tools/router"
 )
 
 // Roles an endpoint can require. A request's role comes from the auth collection its
@@ -67,4 +69,24 @@ func callerID(e *core.RequestEvent) string {
 		return e.Auth.GetString("owner")
 	}
 	return e.Auth.Id
+}
+
+// bindAccessTokenCaller makes that account the caller the record rules see. A rule
+// compares an owner against @request.auth.id, one comparison an index answers; an
+// access token would otherwise need a second comparison against @request.auth.owner,
+// which PocketBase resolves through a join and a database cannot answer from an index.
+// The token keeps its collection, so every rule that asks for a user still refuses it
+// and writes stay closed.
+func bindAccessTokenCaller(router *router.Router[*core.RequestEvent]) {
+	router.Bind(&hook.Handler[*core.RequestEvent]{
+		Id: "taigaAccessTokenCaller",
+		Func: func(e *core.RequestEvent) error {
+			if e.Auth != nil && e.Auth.Collection().Name == "access_tokens" {
+				caller := e.Auth.Clone()
+				caller.Id = callerID(e)
+				e.Auth = caller
+			}
+			return e.Next()
+		},
+	})
 }

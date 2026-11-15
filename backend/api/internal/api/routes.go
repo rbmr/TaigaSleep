@@ -72,6 +72,7 @@ func RegisterRoutes(router *router.Router[*core.RequestEvent]) {
 		Priority: apis.DefaultLoadAuthTokenMiddlewarePriority + 1,
 		Func:     dropExpiredAccessToken,
 	})
+	bindAccessTokenCaller(router)
 	for _, route := range Routes() {
 		mounted := router.Route(route.Method, route.Path, handle(route.Handler))
 		// PocketBase loads the token and refuses a token from another collection; the
