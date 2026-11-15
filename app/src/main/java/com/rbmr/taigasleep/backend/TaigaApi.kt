@@ -90,8 +90,14 @@ interface TaigaClient {
   /** The account's read-only access tokens. A token itself is never in a list. */
   suspend fun listAccessTokens(): AccessTokenListDto
 
-  /** Creates a read-only access token; the answer is the only time its secret is visible. */
-  suspend fun createAccessToken(name: String): AccessTokenDto
+  /**
+   * Creates a read-only access token that works for [lifetime]; the answer is the only time its
+   * secret is visible.
+   */
+  suspend fun createAccessToken(
+      name: String,
+      lifetime: TokenLifetime = TokenLifetime.NEVER,
+  ): AccessTokenDto
 
   /** Revokes a token, which stops it working at once. */
   suspend fun deleteAccessToken(id: String)
@@ -332,8 +338,13 @@ class OkHttpTaigaApi(
   override suspend fun listAccessTokens(): AccessTokenListDto =
       decode(execute(request("/v1/tokens").get().build()))
 
-  override suspend fun createAccessToken(name: String): AccessTokenDto {
-    val payload = buildJsonObject { put("name", name) }.toString()
+  override suspend fun createAccessToken(name: String, lifetime: TokenLifetime): AccessTokenDto {
+    val payload =
+        buildJsonObject {
+              put("name", name)
+              put("lifetime", lifetime.wire)
+            }
+            .toString()
     return decode(
         execute(request("/v1/tokens").post(payload.toRequestBody(JSON_MEDIA_TYPE)).build())
     )
@@ -644,8 +655,22 @@ data class AlgorithmDto(
 data class AlgorithmListDto(val items: List<AlgorithmDto> = emptyList())
 
 /**
+ * How long a new access token may be used. [wire] is the value the server takes; [NEVER] keeps the
+ * token working until it is revoked, which is also what a creation without a lifetime gets.
+ */
+enum class TokenLifetime(val wire: String) {
+  DAYS_7("7d"),
+  DAYS_30("30d"),
+  DAYS_90("90d"),
+  YEAR("1y"),
+  NEVER("never"),
+}
+
+/**
  * A read-only access token. [token] is set only in the answer that creates it: the server stores a
- * hash, so a list shows the name, the [hint] and when it was made and nothing more.
+ * hash, so a list shows the name, the [hint], when it was made and when it stops working, and
+ * nothing more. [expires_at] is null for a token that never expires, and [expired] says the server
+ * refuses it now.
  */
 @Serializable
 data class AccessTokenDto(
@@ -654,6 +679,8 @@ data class AccessTokenDto(
     /** The last characters of the token, to tell two tokens apart. */
     val hint: String = "",
     val created: String = "",
+    val expires_at: String? = null,
+    val expired: Boolean = false,
     val token: String? = null,
 )
 

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -1302,11 +1303,17 @@ func TestLeaseRenewal(t *testing.T) {
 	s.expectCode(409, "not_leased", http.MethodPost, "/v1/analyses/"+analysis.ID+"/lease", worker, LeaseRequest{LeaseSeconds: 600}, nil)
 }
 
-// createToken makes an access token for the account and returns what the creation
-// answered: the only time the token itself is visible.
+// createToken makes an access token without a lifetime, so it never expires.
 func createToken(s *server, account, name string) TokenView {
 	s.t.Helper()
-	status, header, body := s.call(http.MethodPost, "/v1/tokens", s.tokens[account], TokenRequest{Name: name}, nil)
+	return createTokenWithLifetime(s, account, name, "")
+}
+
+// createTokenWithLifetime makes an access token for the account and returns what the
+// creation answered: the only time the token itself is visible.
+func createTokenWithLifetime(s *server, account, name, lifetime string) TokenView {
+	s.t.Helper()
+	status, header, body := s.call(http.MethodPost, "/v1/tokens", s.tokens[account], TokenRequest{Name: name, Lifetime: lifetime}, nil)
 	if status != 201 {
 		s.t.Fatalf("create token = %d %s", status, body)
 	}
@@ -1451,6 +1458,111 @@ func TestAccessTokensAreReadOnly(t *testing.T) {
 	s.expect(401, http.MethodGet, "/v1/recordings/x/files", created.Token, nil, nil)
 	s.expect(404, http.MethodGet, analysesAPI+"/"+analysis.ID, created.Token, nil, nil)
 	s.expect(404, http.MethodDelete, "/v1/tokens/"+created.ID, alice, nil, nil)
+}
+
+// TestAccessTokenLifetimes covers the choice a creation has: no lifetime keeps a token
+// valid until it is revoked, an offered lifetime sets its expiry, an unknown one is
+// refused, and a token whose expiry has passed is refused like one that never existed.
+func TestAccessTokenLifetimes(t *testing.T) {
+	s := newServer(t)
+	alice := s.tokens["alice"]
+
+	// Without a lifetime the token is unchanged: no expiry, and it works.
+	open := createToken(s, "alice", "open")
+	if open.ExpiresAt != nil || open.Expired {
+		t.Fatalf("a token without a lifetime = %+v", open)
+	}
+	if _, err := s.app.FindAuthRecordByToken(open.Token, core.TokenTypeAuth); err != nil {
+		t.Fatalf("the created token is not accepted: %v", err)
+	}
+
+	// A lifetime is stored with the token and answered by the creation.
+	week := createTokenWithLifetime(s, "alice", "short", "7d")
+	if week.ExpiresAt == nil || week.Expired {
+		t.Fatalf("a token with 7d = %+v", week)
+	}
+	expires, err := time.Parse(time.RFC3339, *week.ExpiresAt)
+	if err != nil {
+		t.Fatalf("expires_at = %q: %v", *week.ExpiresAt, err)
+	}
+	if want := time.Now().Add(7 * 24 * time.Hour); expires.Sub(want) > time.Minute || expires.Sub(want) < -time.Minute {
+		t.Fatalf("expires_at = %v, want about %v", expires, want)
+	}
+	// The token itself carries the same expiry, so PocketBase refuses it once the
+	// lifetime ends even before the record's expiry is consulted.
+	parts := strings.Split(week.Token, ".")
+	if len(parts) != 3 {
+		t.Fatalf("token = %q", week.Token)
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode token payload: %v", err)
+	}
+	var claims struct {
+		Expires int64 `json:"exp"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil || claims.Expires == 0 {
+		t.Fatalf("token claims = %s: %v", payload, err)
+	}
+	if at := time.Unix(claims.Expires, 0); at.Sub(expires) > 2*time.Second || at.Sub(expires) < -2*time.Second {
+		t.Fatalf("token expiry = %v, stored expiry = %v", at, expires)
+	}
+
+	list := decode[TokenList](t, s.expect(200, http.MethodGet, "/v1/tokens", alice, nil, nil))
+	if len(list.Items) != 2 {
+		t.Fatalf("list = %+v", list)
+	}
+	for _, item := range list.Items {
+		switch item.ID {
+		case open.ID:
+			if item.ExpiresAt != nil || item.Expired {
+				t.Fatalf("open token in the list = %+v", item)
+			}
+		case week.ID:
+			if item.ExpiresAt == nil || *item.ExpiresAt != *week.ExpiresAt || item.Expired {
+				t.Fatalf("7d token in the list = %+v", item)
+			}
+		}
+	}
+
+	// Each offered lifetime is accepted, and nothing else is.
+	for _, lifetime := range []string{"30d", "90d", "1y", "never"} {
+		created := createTokenWithLifetime(s, "alice", "lifetime "+lifetime, lifetime)
+		if lifetime == "never" && created.ExpiresAt != nil {
+			t.Fatalf("a never token = %+v", created)
+		}
+		if lifetime != "never" && created.ExpiresAt == nil {
+			t.Fatalf("a %s token = %+v", lifetime, created)
+		}
+	}
+	s.expectCode(400, "invalid_lifetime", http.MethodPost, "/v1/tokens", alice, TokenRequest{Name: "bad", Lifetime: "2h"}, nil)
+
+	// Time passing moves the stored expiry into the past. The token is then refused as
+	// an invalid one is: a custom route answers 401 and the record API sees a visitor.
+	record, err := s.app.FindRecordById("access_tokens", week.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Set("expires_at", pbDateMillis(time.Now().Add(-time.Minute).UnixMilli()))
+	if err := s.app.Save(record); err != nil {
+		t.Fatal(err)
+	}
+	s.expect(401, http.MethodGet, "/v1/recordings/x/files", "not-a-token", nil, nil)
+	s.expect(401, http.MethodGet, "/v1/recordings/x/files", week.Token, nil, nil)
+	if got := listRecordings(s, week.Token, ""); got.TotalItems != 0 {
+		t.Fatalf("an expired token sees %d recordings", got.TotalItems)
+	}
+	// It still works nowhere, while the token without an expiry is untouched.
+	s.expect(401, http.MethodGet, "/v1/tokens", week.Token, nil, nil)
+	list = decode[TokenList](t, s.expect(200, http.MethodGet, "/v1/tokens", alice, nil, nil))
+	for _, item := range list.Items {
+		if item.ID == week.ID && !item.Expired {
+			t.Fatalf("the expired token in the list = %+v", item)
+		}
+	}
+	if _, err := s.app.FindAuthRecordByToken(open.Token, core.TokenTypeAuth); err != nil {
+		t.Fatalf("the token without an expiry stopped working: %v", err)
+	}
 }
 
 func TestAllErrorsUseOneShape(t *testing.T) {

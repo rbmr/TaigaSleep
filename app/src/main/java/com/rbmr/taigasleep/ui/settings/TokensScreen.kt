@@ -35,6 +35,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AccessTokenDto
 import com.rbmr.taigasleep.ui.components.ButtonSize
+import com.rbmr.taigasleep.ui.components.ChoiceButton
 import com.rbmr.taigasleep.ui.components.ConfirmDialog
 import com.rbmr.taigasleep.ui.components.ConfirmDialogStyle
 import com.rbmr.taigasleep.ui.components.ListRow
@@ -47,15 +48,13 @@ import com.rbmr.taigasleep.ui.components.StatusBanner
 import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.components.TaigaScreen
+import com.rbmr.taigasleep.ui.components.TaigaSheet
 import com.rbmr.taigasleep.ui.theme.taiga
-import java.time.OffsetDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 
 /**
  * Settings → Server → Access tokens: make a read-only token for an assistant or a script, copy it
- * once, see the account's tokens and revoke them.
+ * once, see the account's tokens and revoke them. A token may be made to stop working after a
+ * lifetime; the list says when each one ends.
  */
 @Composable
 fun AccessTokensScreen(onBack: () -> Unit) {
@@ -66,6 +65,8 @@ fun AccessTokensScreen(onBack: () -> Unit) {
   val state by viewModel.state.collectAsStateWithLifecycle()
   val clipboard = remember { context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager }
   var name by rememberSaveable { mutableStateOf("") }
+  var lifetime by rememberSaveable { mutableStateOf(AccessTokenLifetime.NEVER) }
+  var choosingLifetime by remember { mutableStateOf(false) }
   var revoking by remember { mutableStateOf<AccessTokenDto?>(null) }
   var copied by remember { mutableStateOf(false) }
 
@@ -104,9 +105,18 @@ fun AccessTokensScreen(onBack: () -> Unit) {
               singleLine = true,
               shape = MaterialTheme.taiga.shape.control,
           )
+          ChoiceButton(
+              label =
+                  stringResource(
+                      R.string.tokens_lifetime_value,
+                      stringResource(lifetimeLabel(lifetime)),
+                  ),
+              action = stringResource(R.string.tokens_lifetime_change),
+              onClick = { choosingLifetime = true },
+          )
           PrimaryButton(
               text = stringResource(R.string.tokens_create),
-              onClick = { viewModel.create(name) },
+              onClick = { viewModel.create(name, lifetime) },
               enabled = name.isNotBlank() && !state.busy,
               size = ButtonSize.Large,
           )
@@ -133,6 +143,31 @@ fun AccessTokensScreen(onBack: () -> Unit) {
               TokenRow(token = token, onRevoke = { revoking = token })
             }
           }
+        }
+      }
+    }
+  }
+
+  if (choosingLifetime) {
+    TaigaSheet(onDismiss = { choosingLifetime = false }) {
+      Column(
+          modifier =
+              Modifier.fillMaxWidth().padding(bottom = MaterialTheme.taiga.space.l),
+      ) {
+        Text(
+            text = stringResource(R.string.tokens_lifetime_title),
+            style = MaterialTheme.taiga.text.section,
+            modifier = Modifier.padding(horizontal = MaterialTheme.taiga.space.m),
+        )
+        AccessTokenLifetime.entries.forEach { option ->
+          ListRow(
+              title = stringResource(lifetimeLabel(option)),
+              trailing = ListRowTrailing.Radio(option == lifetime),
+              onClick = {
+                lifetime = option
+                choosingLifetime = false
+              },
+          )
         }
       }
     }
@@ -205,9 +240,10 @@ private fun TokenRow(token: AccessTokenDto, onRevoke: () -> Unit) {
       subtitle =
           joinParts(
               token.hint.takeIf { it.isNotBlank() }?.let { stringResource(R.string.tokens_row_ends, it) },
-              createdLabel(token.created)
+              dateLabel(token.created)
                   .takeIf { it.isNotBlank() }
                   ?.let { stringResource(R.string.tokens_row_created, it) },
+              expiryLabel(token),
           ),
       trailing =
           ListRowTrailing.Action(
@@ -218,12 +254,24 @@ private fun TokenRow(token: AccessTokenDto, onRevoke: () -> Unit) {
   )
 }
 
-/** The creation time in the phone's zone, or the stamp itself when it cannot be read. */
-private fun createdLabel(stamp: String): String =
-    runCatching {
-          OffsetDateTime.parse(stamp)
-              .atZoneSameInstant(ZoneId.systemDefault())
-              .format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
-        }
-        .getOrDefault(stamp)
+/** What the row says about the token's expiry: when it ends, that it has ended, or that it has none. */
+@Composable
+private fun expiryLabel(token: AccessTokenDto): String? =
+    when (expiryKind(token.expires_at, token.expired)) {
+      TokenExpiry.NEVER -> stringResource(R.string.tokens_row_never)
+      TokenExpiry.ACTIVE ->
+          expiryDate(token.expires_at)?.let { stringResource(R.string.tokens_row_expires, it) }
+      TokenExpiry.EXPIRED ->
+          expiryDate(token.expires_at)?.let { stringResource(R.string.tokens_row_expired, it) }
+    }
+
+/** The name of a lifetime, as the choice and the choice's button say it. */
+private fun lifetimeLabel(lifetime: AccessTokenLifetime): Int =
+    when (lifetime) {
+      AccessTokenLifetime.DAYS_7 -> R.string.tokens_lifetime_7d
+      AccessTokenLifetime.DAYS_30 -> R.string.tokens_lifetime_30d
+      AccessTokenLifetime.DAYS_90 -> R.string.tokens_lifetime_90d
+      AccessTokenLifetime.YEAR -> R.string.tokens_lifetime_year
+      AccessTokenLifetime.NEVER -> R.string.tokens_lifetime_never
+    }
 

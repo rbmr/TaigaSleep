@@ -14,28 +14,67 @@ import (
 // record is its identity, so deleting the record is what revokes it.
 
 const (
-	// accessTokenDuration is how long a token stays valid. A token is meant to be used
-	// until the user revokes it, so this is long enough not to be a surprise.
-	accessTokenDuration = 10 * 365 * 24 * time.Hour
+	// noExpiryDuration is how long a token made without a lifetime stays valid. Without
+	// a lifetime a token is meant to be used until the user revokes it, so this is long
+	// enough not to be a surprise.
+	noExpiryDuration = 10 * 365 * 24 * time.Hour
 )
 
+// tokenLifetime is one lifetime a creation may ask for: the value the request names,
+// and how long the token then works. A zero duration is no expiry.
+type tokenLifetime struct {
+	value    string
+	duration time.Duration
+}
+
+// tokenLifetimes are the lifetimes a token may be made with. Omitting the lifetime is
+// the same as asking for no expiry, which is what a client from before the choice got.
+var tokenLifetimes = []tokenLifetime{
+	{"7d", 7 * 24 * time.Hour},
+	{"30d", 30 * 24 * time.Hour},
+	{"90d", 90 * 24 * time.Hour},
+	{"1y", 365 * 24 * time.Hour},
+	{"never", 0},
+}
+
+// resolveLifetime reads the lifetime a creation asked for. An empty value is the
+// default and means no expiry; anything else has to be one of the offered lifetimes.
+func resolveLifetime(requested string) (tokenLifetime, error) {
+	if requested == "" {
+		return tokenLifetime{value: "never"}, nil
+	}
+	for _, lifetime := range tokenLifetimes {
+		if lifetime.value == requested {
+			return lifetime, nil
+		}
+	}
+	return tokenLifetime{}, badRequest("invalid_lifetime", "lifetime must be 7d, 30d, 90d, 1y or never")
+}
+
 // TokenView is one access token as the API shows it. The token itself is set only in
-// the answer to its creation; afterwards the server cannot show it again.
+// the answer to its creation; afterwards the server cannot show it again. ExpiresAt is
+// empty for a token that never expires, and Expired says the expiry has passed, which
+// is what makes the list show it as no longer usable.
 type TokenView struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Hint    string `json:"hint"`
-	Created string `json:"created"`
-	Token   string `json:"token,omitempty"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Hint      string  `json:"hint"`
+	Created   string  `json:"created"`
+	ExpiresAt *string `json:"expires_at"`
+	Expired   bool    `json:"expired"`
+	Token     string  `json:"token,omitempty"`
 }
 
 type TokenList struct {
 	Items []TokenView `json:"items"`
 }
 
-// TokenRequest is the body of a token's creation: the name the user gives it.
+// TokenRequest is the body of a token's creation: the name the user gives it, and how
+// long it should work. The lifetime is optional; leaving it out keeps the token valid
+// until it is revoked.
 type TokenRequest struct {
-	Name string `json:"name"`
+	Name     string `json:"name"`
+	Lifetime string `json:"lifetime,omitempty"`
 }
 
 // tokenHint is the last characters of a token, which is enough to tell two apart in a
@@ -47,23 +86,55 @@ func tokenHint(token string) string {
 	return token[len(token)-4:]
 }
 
+// tokenExpired says whether a token's stored expiry has passed. A token without one
+// never expires.
+func tokenExpired(record *core.Record) bool {
+	stored := record.GetString("expires_at")
+	if stored == "" {
+		return false
+	}
+	expires, err := time.Parse(pbDateLayout, stored)
+	if err != nil {
+		// An expiry that cannot be read is not trusted to keep the token alive.
+		return true
+	}
+	return !time.Now().Before(expires)
+}
+
+// dropExpiredAccessToken removes the identity of an access token whose expiry has
+// passed before any route sees it. The request is then answered as one with a token
+// that does not exist: the custom routes refuse it with 401 and the record API sees a
+// caller without a token.
+func dropExpiredAccessToken(e *core.RequestEvent) error {
+	if e.Auth != nil && e.Auth.Collection().Name == "access_tokens" && tokenExpired(e.Auth) {
+		e.Auth = nil
+	}
+	return e.Next()
+}
+
 func serializeToken(record *core.Record) TokenView {
 	return TokenView{
-		ID:      record.Id,
-		Name:    record.GetString("name"),
-		Hint:    record.GetString("hint"),
-		Created: derefString(rfc3339(record.GetString("created"))),
+		ID:        record.Id,
+		Name:      record.GetString("name"),
+		Hint:      record.GetString("hint"),
+		Created:   derefString(rfc3339(record.GetString("created"))),
+		ExpiresAt: rfc3339(record.GetString("expires_at")),
+		Expired:   tokenExpired(record),
 	}
 }
 
 func CreateToken(e *core.RequestEvent) error {
 	var body TokenRequest
-	if err := decodeBody(e, bodyLimitSmall, &body, `the body must be {"name": "..."}`, false); err != nil {
+	if err := decodeBody(e, bodyLimitSmall, &body, `the body must be {"name": "...", "lifetime": "..."}`, false); err != nil {
 		return err
 	}
 	name := strings.TrimSpace(body.Name)
 	if name == "" || len(name) > 60 {
 		return badRequest("invalid_body", "name must be 1 to 60 characters")
+	}
+	lifetime, err := resolveLifetime(strings.TrimSpace(body.Lifetime))
+	if err != nil {
+		return err
 	}
 	collection, err := e.App.FindCollectionByNameOrId("access_tokens")
 	if err != nil {
@@ -72,6 +143,9 @@ func CreateToken(e *core.RequestEvent) error {
 	record := core.NewRecord(collection)
 	record.Set("owner", e.Auth.Id)
 	record.Set("name", name)
+	if lifetime.duration > 0 {
+		record.Set("expires_at", pbDateMillis(time.Now().Add(lifetime.duration).UnixMilli()))
+	}
 	// PocketBase requires an auth record to have a password. Nobody logs in with this
 	// collection, so a random one keeps the field filled without being a credential.
 	record.SetRandomPassword()
@@ -80,7 +154,11 @@ func CreateToken(e *core.RequestEvent) error {
 	if err := e.App.Save(record); err != nil {
 		return err
 	}
-	token, err := record.NewStaticAuthToken(accessTokenDuration)
+	duration := lifetime.duration
+	if duration == 0 {
+		duration = noExpiryDuration
+	}
+	token, err := record.NewStaticAuthToken(duration)
 	if err != nil {
 		return err
 	}

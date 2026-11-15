@@ -45,7 +45,8 @@ open class StubTaigaClient : TaigaClient {
 
   override suspend fun listAccessTokens(): AccessTokenListDto = unexpected()
 
-  override suspend fun createAccessToken(name: String): AccessTokenDto = unexpected()
+  override suspend fun createAccessToken(name: String, lifetime: TokenLifetime): AccessTokenDto =
+      unexpected()
 
   override suspend fun deleteAccessToken(id: String): Unit = unexpected()
 
