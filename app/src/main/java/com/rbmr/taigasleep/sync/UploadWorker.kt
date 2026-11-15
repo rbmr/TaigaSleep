@@ -14,6 +14,7 @@ import com.rbmr.taigasleep.backend.TaigaNetworkException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.label
 import com.rbmr.taigasleep.backend.remoteErrorForCode
+import com.rbmr.taigasleep.notifications.ResultNotifications
 import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.RecordingRecovery
 import com.rbmr.taigasleep.recording.RecordingService
@@ -66,7 +67,7 @@ class UploadWorker(
         }
     when (verified) {
       null -> {
-        store.markFailed(
+        markFailed(
             localId,
             UploadFailure.LOGIN,
             "no analysis server is configured",
@@ -78,7 +79,7 @@ class UploadWorker(
         val failure = failureFor(verified.error)
         // A version mismatch is not fixed by waiting: the app or the server has to be updated.
         if (failure == UploadFailure.LOGIN || failure == UploadFailure.VERSION) {
-          store.markFailed(localId, failure, verified.error.label, queuedFor)
+          markFailed(localId, failure, verified.error.label, queuedFor)
           return Result.failure()
         }
         return retryOrFail(store, localId, failure, verified.error.label, queuedFor)
@@ -89,7 +90,7 @@ class UploadWorker(
     val session =
         remote.session()
             ?: run {
-              store.markFailed(
+              markFailed(
                   localId,
                   UploadFailure.LOGIN,
                   "the saved login is no longer valid",
@@ -107,7 +108,7 @@ class UploadWorker(
       val sessions = RecordingStore.of(context)
       val dir = sessions.dir(localId)
       if (!dir.isDirectory) {
-        store.markFailed(
+        markFailed(
             localId,
             UploadFailure.STORAGE,
             "recording directory is missing",
@@ -117,7 +118,7 @@ class UploadWorker(
       }
       val meta = RecordingMeta.read(dir)
       if (meta == null) {
-        store.markFailed(
+        markFailed(
             localId,
             UploadFailure.STORAGE,
             "meta.json is missing or invalid",
@@ -201,13 +202,14 @@ class UploadWorker(
       // The recording is on the server and nothing waits for it here: the analysis is the next
       // catch-up's, which looks at what this recording has and asks for it only when it has none.
       store.markUploaded(localId, account)
+      ResultNotifications(applicationContext).uploadFinished()
       // The server has the bytes now, so an immediate or overdue cleanup may run.
       RawRetention.enforce(context)
       context.appContainer.syncService.catchUp(CatchUpReason.UPLOAD_FINISHED, localId)
       Result.success()
     } catch (e: TaigaUnauthorizedException) {
       if (remote.accountKey == account) remote.logout()
-      store.markFailed(localId, UploadFailure.LOGIN, e.message, account)
+      markFailed(localId, UploadFailure.LOGIN, e.message, account)
       Result.failure()
     } catch (e: TaigaNetworkException) {
       retryOrFail(store, localId, UploadFailure.NETWORK, e.message, account)
@@ -216,7 +218,7 @@ class UploadWorker(
         remoteErrorForCode(e.code) == RemoteError.StorageFull -> {
           // The account's quota is full and waiting does not free space, so the upload fails
           // instead of retrying; the user frees space by deleting a recording.
-          store.markFailed(
+          markFailed(
               localId,
               UploadFailure.SERVER,
               context.getString(R.string.server_error_storage_full),
@@ -232,22 +234,36 @@ class UploadWorker(
         e.status == 429 || e.status >= 500 ->
             retryOrFail(store, localId, UploadFailure.SERVER, e.message, account)
         else -> {
-          store.markFailed(localId, UploadFailure.SERVER, e.message, account)
+          markFailed(localId, UploadFailure.SERVER, e.message, account)
           Result.failure()
         }
       }
     } catch (e: UploadException) {
-      store.markFailed(localId, UploadFailure.SERVER, e.message, account)
+      markFailed(localId, UploadFailure.SERVER, e.message, account)
       Result.failure()
     } catch (e: IOException) {
-      store.markFailed(localId, UploadFailure.STORAGE, e.message, account)
+      markFailed(localId, UploadFailure.STORAGE, e.message, account)
       Result.failure()
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
-      store.markFailed(localId, UploadFailure.STORAGE, e.message, account)
+      markFailed(localId, UploadFailure.STORAGE, e.message, account)
       Result.failure()
     }
+  }
+
+  /**
+   * Stores a final upload failure and adds it to the results summary. Every path that gives up on
+   * an attempt comes through here, so the stored state and the notification never disagree.
+   */
+  private suspend fun markFailed(
+      localId: String,
+      failure: UploadFailure,
+      detail: String?,
+      account: String?,
+  ) {
+    UploadStore.of(applicationContext).markFailed(localId, failure, detail, account)
+    ResultNotifications(applicationContext).uploadFailed()
   }
 
   private suspend fun retryOrFail(
@@ -261,7 +277,7 @@ class UploadWorker(
         store.markQueued(localId, failure, detail, account)
         Result.retry()
       } else {
-        store.markFailed(localId, failure, detail, account)
+        markFailed(localId, failure, detail, account)
         Result.failure()
       }
 

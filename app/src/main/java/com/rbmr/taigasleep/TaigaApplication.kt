@@ -11,6 +11,7 @@ import com.rbmr.taigasleep.guard.Readiness
 import com.rbmr.taigasleep.guard.ReadinessState
 import com.rbmr.taigasleep.notifications.Channels
 import com.rbmr.taigasleep.recording.Exporter
+import com.rbmr.taigasleep.recording.PhoneStorageWatch
 import com.rbmr.taigasleep.recording.RecordingHooks
 import com.rbmr.taigasleep.tracker.RecordingMode
 import kotlinx.coroutines.CoroutineScope
@@ -72,6 +73,9 @@ class TaigaApplication : Application() {
           if (startedActivities++ == 0) {
             Diagnostics.log("app_foreground")
             Diagnostics.checkState("app_foreground")
+            // The app is open: the same free-space answer the recording checks, without waiting
+            // for a recording to run.
+            container.scope.launch { PhoneStorageWatch.check(this@TaigaApplication) }
           }
         }
 

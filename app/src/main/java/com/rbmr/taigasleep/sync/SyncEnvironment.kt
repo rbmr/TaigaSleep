@@ -6,7 +6,9 @@ import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.RemoteSession
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.backend.TaigaClient
+import com.rbmr.taigasleep.notifications.ResultNotifications
 import com.rbmr.taigasleep.profile.PersonalData
+import com.rbmr.taigasleep.recording.PhoneStorageWatch
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
@@ -127,8 +129,10 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
   override suspend fun markProcessing(id: String, account: String?) =
       state.markProcessing(id, account)
 
-  override suspend fun markAnalysisFailed(id: String, detail: String?, account: String?) =
-      state.markFailed(id, UploadFailure.ANALYSIS, detail, account)
+  override suspend fun markAnalysisFailed(id: String, detail: String?, account: String?) {
+    state.markFailed(id, UploadFailure.ANALYSIS, detail, account)
+    ResultNotifications(app).analysisFailed()
+  }
 
   override suspend fun markManualAnalysis(id: String, analysisId: String, account: String?) =
       state.markManualAnalysis(id, analysisId, account)
@@ -158,8 +162,11 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
 
   private val automation = Automation(AppAutomationEnvironment(app))
 
-  override suspend fun catchUp(reason: CatchUpReason, only: String?) =
-      automation.run(reason, only)
+  override suspend fun catchUp(reason: CatchUpReason, only: String?) {
+    automation.run(reason, only)
+    // The pass is over: the same free-space answer the recording checks, without waiting for one.
+    PhoneStorageWatch.check(app)
+  }
 
   override fun schedulePeriodicCatchUp() = CatchUpWorker.schedule(app)
 
@@ -230,6 +237,11 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
       recordingId: String,
       preferred: List<String?>,
   ): RecordingSnapshot =
-      AnalysisSync(api, state, app.appContainer.resultCache, account)
+      AnalysisSync(api, state, app.appContainer.resultCache, account) { outcome ->
+            when (outcome) {
+              AnalysisOutcome.FINISHED -> ResultNotifications(app).analysisFinished()
+              AnalysisOutcome.FAILED -> ResultNotifications(app).analysisFailed()
+            }
+          }
           .refresh(id, recordingId, preferred)
 }

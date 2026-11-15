@@ -41,6 +41,11 @@
         android:name=".diagnostics.AlarmReceiver"
         android:exported="false" />
 
+    <!-- A dismissed results notification only clears the counts it showed. -->
+    <receiver
+        android:name=".notifications.ResultsReceiver"
+        android:exported="false" />
+
     <activity
         android:name=".MainActivity"
         android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
