@@ -199,37 +199,51 @@ def _decode_acc(path: Path) -> tuple[_RawAcc, FrameLogInfo]:
     return raw, info
 
 
-def _relative_from_elapsed(
-    elapsed_ns: np.ndarray,
+def _anchored_times(
     phone_ns: np.ndarray,
+    elapsed_ns: np.ndarray,
     start_unix_ns: int,
-    elapsed0: int,
     warnings: list[str],
     label: str,
 ) -> np.ndarray:
+    """Put one stream's device clock on the recording's time base.
+
+    The device clock (``elapsed_ns``) gives the spacing between samples. The
+    phone wall clock anchors the stream to the recording start through a robust
+    offset: the median of phone time minus start minus elapsed time. A backward
+    move of the device clock starts a new segment with its own anchor, so the
+    stream stays on the phone clock instead of one stream switching bases.
+    """
+
     if elapsed_ns.size and np.any(elapsed_ns > 0):
-        t = (elapsed_ns.astype(np.float64) - float(elapsed0)) / 1e9
-        if np.any(np.diff(t) < -1e-6):
-            warnings.append(f"{label}: elapsed clock moved backwards; using phone clock")
-            t = (phone_ns.astype(np.float64) - float(start_unix_ns)) / 1e9
-        return t
+        elapsed = elapsed_ns.astype(np.int64)
+        residual_ns = (
+            phone_ns.astype(np.int64) - np.int64(start_unix_ns) - elapsed
+        ).astype(np.float64)
+        backwards = np.diff(elapsed) < 0
+        if np.any(backwards):
+            warnings.append(
+                f"{label}: device clock moved backwards; using a new anchor"
+            )
+            segment = np.concatenate(([0], np.cumsum(backwards)))
+            offsets = np.empty(elapsed.size, dtype=np.float64)
+            for index in np.unique(segment):
+                members = segment == index
+                offsets[members] = np.median(residual_ns[members])
+        else:
+            offsets = np.full(elapsed.size, np.median(residual_ns), dtype=np.float64)
+        return (elapsed.astype(np.float64) + offsets) / 1e9
     return (phone_ns.astype(np.float64) - float(start_unix_ns)) / 1e9
 
 
 def _sample_times_from_batches(
-    elapsed_ns: np.ndarray,
-    phone_ns: np.ndarray,
     t_polar: Sequence[np.ndarray],
-    start_unix_ns: int,
-    elapsed0: int,
+    anchor_s: np.ndarray,
     warnings: list[str],
     label: str,
 ) -> np.ndarray:
     """Anchor each batch on the phone clock and use strap time for spacing."""
 
-    anchor_s = _relative_from_elapsed(
-        elapsed_ns, phone_ns, start_unix_ns, elapsed0, warnings, label
-    )
     parts: list[np.ndarray] = []
     for i, polar in enumerate(t_polar):
         if polar.size == 0:
@@ -358,22 +372,45 @@ def load_recording(directory: str | Path) -> Recording:
     ecg_raw, ecg_info = _decode_ecg(root / "ecg.log")
     acc_raw, acc_info = _decode_acc(root / "acc.log")
 
-    elapsed_candidates = [
-        array
-        for array in (hr_elapsed, np.concatenate(ecg_raw.elapsed_ns) if ecg_raw.elapsed_ns else np.empty(0, dtype=np.int64), np.concatenate(acc_raw.elapsed_ns) if acc_raw.elapsed_ns else np.empty(0, dtype=np.int64))
-        if array.size and np.any(array > 0)
-    ]
-    elapsed0 = int(min(int(array.min()) for array in elapsed_candidates)) if elapsed_candidates else 0
     start_unix_ns = meta.start_utc_ms * 1_000_000
-    if not elapsed_candidates:
+    ecg_elapsed = (
+        np.concatenate(ecg_raw.elapsed_ns) if ecg_raw.elapsed_ns else np.empty(0, dtype=np.int64)
+    )
+    ecg_phone_batches = (
+        np.concatenate(ecg_raw.phone_ns) if ecg_raw.phone_ns else np.empty(0, dtype=np.int64)
+    )
+    acc_elapsed = (
+        np.concatenate(acc_raw.elapsed_ns) if acc_raw.elapsed_ns else np.empty(0, dtype=np.int64)
+    )
+    acc_phone_batches = (
+        np.concatenate(acc_raw.phone_ns) if acc_raw.phone_ns else np.empty(0, dtype=np.int64)
+    )
+
+    # One offset from the device clock to the phone clock, robust against the
+    # jitter of individual callbacks. Event times without a phone timestamp use
+    # it too, so every time in a result shares the recording's time base.
+    residuals: list[np.ndarray] = []
+    for phone, elapsed in (
+        (hr_phone, hr_elapsed),
+        (ecg_phone_batches, ecg_elapsed),
+        (acc_phone_batches, acc_elapsed),
+    ):
+        if phone.size and elapsed.size and np.any(elapsed > 0):
+            residuals.append(
+                (phone - np.int64(start_unix_ns) - elapsed).astype(np.float64)
+            )
+    if not residuals:
         warnings.append("no monotonic elapsed timestamps; using the phone wall clock")
+        elapsed_offset_ns = 0.0
+    else:
+        elapsed_offset_ns = float(np.median(np.concatenate(residuals)))
 
     hr: HrStream | None = None
     hr_t = np.empty(0, dtype=np.float64)
     hr_byte_gaps: list[Gap] = []
     if hr_info.present and hr_phone.size:
-        hr_t = _relative_from_elapsed(
-            hr_elapsed, hr_phone, start_unix_ns, elapsed0, warnings, "hr"
+        hr_t = _anchored_times(
+            hr_phone, hr_elapsed, start_unix_ns, warnings, "hr"
         )
         hr_byte_gaps = _byte_gaps("hr", hr_info.gap_samples, hr_t)
         order = np.argsort(hr_t, kind="stable")
@@ -398,15 +435,15 @@ def load_recording(directory: str | Path) -> Recording:
     ecg: EcgStream | None = None
     ecg_t = np.empty(0, dtype=np.float64)
     ecg_byte_gaps: list[Gap] = []
+    ecg_anchor_s = np.empty(0, dtype=np.float64)
     if ecg_info.present and ecg_raw.values_uv:
-        ecg_elapsed = np.concatenate(ecg_raw.elapsed_ns)
-        ecg_phone = np.concatenate(ecg_raw.phone_ns)
+        ecg_phone = ecg_phone_batches
+        ecg_anchor_s = _anchored_times(
+            ecg_phone, ecg_elapsed, start_unix_ns, warnings, "ecg"
+        )
         ecg_t = _sample_times_from_batches(
-            ecg_elapsed,
-            ecg_phone,
             ecg_raw.t_polar,
-            start_unix_ns,
-            elapsed0,
+            ecg_anchor_s,
             warnings,
             "ecg",
         )
@@ -429,15 +466,15 @@ def load_recording(directory: str | Path) -> Recording:
     acc: AccStream | None = None
     acc_t = np.empty(0, dtype=np.float64)
     acc_byte_gaps: list[Gap] = []
+    acc_anchor_s = np.empty(0, dtype=np.float64)
     if acc_info.present and acc_raw.values_mg:
-        acc_elapsed = np.concatenate(acc_raw.elapsed_ns)
-        acc_phone = np.concatenate(acc_raw.phone_ns)
+        acc_phone = acc_phone_batches
+        acc_anchor_s = _anchored_times(
+            acc_phone, acc_elapsed, start_unix_ns, warnings, "acc"
+        )
         acc_t = _sample_times_from_batches(
-            acc_elapsed,
-            acc_phone,
             acc_raw.t_polar,
-            start_unix_ns,
-            elapsed0,
+            acc_anchor_s,
             warnings,
             "acc",
         )
@@ -511,7 +548,14 @@ def load_recording(directory: str | Path) -> Recording:
     gaps.extend(_merge_gaps(_gaps(acc_t, acc_rate or meta.acc_rate_hz, "acc") + acc_byte_gaps))
 
     clock_syncs, clock_jumps = _clock_events(
-        events, start_unix_ns, elapsed0, ecg_raw, acc_raw, warnings
+        events,
+        start_unix_ns,
+        elapsed_offset_ns,
+        ecg_raw,
+        ecg_anchor_s,
+        acc_raw,
+        acc_anchor_s,
+        warnings,
     )
     for name, info in (
         ("hr.log", hr_info),
@@ -556,9 +600,11 @@ def load_recording(directory: str | Path) -> Recording:
 def _clock_events(
     events: Sequence[RecordingEvent],
     start_unix_ns: int,
-    elapsed0: int,
+    elapsed_offset_ns: float,
     ecg_raw: _RawEcg,
+    ecg_anchor_s: np.ndarray,
     acc_raw: _RawAcc,
+    acc_anchor_s: np.ndarray,
     warnings: list[str],
 ) -> tuple[list[ClockSync], list[ClockJump]]:
     syncs: list[ClockSync] = []
@@ -567,7 +613,7 @@ def _clock_events(
             if event.phone_ns:
                 at_s = (event.phone_ns - start_unix_ns) / 1e9
             else:
-                at_s = (event.elapsed_ns - elapsed0) / 1e9
+                at_s = (event.elapsed_ns + elapsed_offset_ns) / 1e9
             syncs.append(
                 ClockSync(
                     stream="strap",
@@ -578,9 +624,9 @@ def _clock_events(
             )
 
     jumps: list[ClockJump] = []
-    for label, phone_batches, elapsed_batches, polar_batches in (
-        ("ecg", ecg_raw.phone_ns, ecg_raw.elapsed_ns, ecg_raw.t_polar),
-        ("acc", acc_raw.phone_ns, acc_raw.elapsed_ns, acc_raw.t_polar),
+    for label, phone_batches, elapsed_batches, polar_batches, anchors in (
+        ("ecg", ecg_raw.phone_ns, ecg_raw.elapsed_ns, ecg_raw.t_polar, ecg_anchor_s),
+        ("acc", acc_raw.phone_ns, acc_raw.elapsed_ns, acc_raw.t_polar, acc_anchor_s),
     ):
         if not phone_batches or not elapsed_batches or not polar_batches:
             continue
@@ -588,15 +634,18 @@ def _clock_events(
         elapsed = np.concatenate(elapsed_batches).astype(np.int64)
         if not np.any(elapsed > 0) or phone.size != len(polar_batches):
             continue
+        if anchors.size != elapsed.size:
+            continue
         if any(polar.size == 0 for polar in polar_batches):
             continue
 
         # How far the phone wall clock is from the monotonic clock. A stable
         # recording has a constant offset; an NTP/manual change moves it.
-        residual = (phone.astype(np.float64) - start_unix_ns) / 1e9 - (
-            elapsed.astype(np.float64) - elapsed0
+        residual = (
+            phone.astype(np.float64) - start_unix_ns - elapsed.astype(np.float64)
         ) / 1e9
         phone_changes = np.diff(residual)
+        device_resets = np.diff(elapsed) < 0
 
         # How far the strap's last sample is from the phone wall clock. A
         # battery reset or reconnect can move this without moving the phone.
@@ -610,10 +659,12 @@ def _clock_events(
         strap_changes = np.diff(strap_offsets)
 
         for index in range(phone_changes.size):
-            at_s = float((elapsed[index + 1] - elapsed0) / 1e9)
+            at_s = float(anchors[index + 1])
             phone_delta = float(phone_changes[index])
             strap_delta = float(strap_changes[index])
-            if abs(phone_delta) > 5.0:
+            # A backward move of the device clock is a new segment, not a phone
+            # clock change, so it is not reported as one.
+            if not device_resets[index] and abs(phone_delta) > 5.0:
                 jumps.append(
                     ClockJump(
                         stream=label,

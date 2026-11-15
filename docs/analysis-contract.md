@@ -77,6 +77,12 @@ client renders it without knowing the algorithm or a local catalog:
 - Contract version 6 removed the `total_duration_s` item. Recording length describes the
   recording rather than the sleep, and clients show it from the recording's own metadata. A result
   stored under an older contract version may still carry the item; clients ignore it.
+- Contract version 7 put every stream on one time base: seconds since the recording's start. A
+  stream that began after the recording started no longer shifts its stages, heart-rate series and
+  figures earlier, and clock-sync and jump times use the same base as the samples. Figures that
+  depend on sample times can change for recordings where a stream did not start at the first
+  sample. A result stored under an older contract version keeps the older times until it is
+  analysed again.
 
 ## Canonical stages and epochs
 
@@ -140,10 +146,20 @@ Stream units and shapes:
 | ECG | `voltage_mv` (float32), `saturated` | 1D, native rate (usually 130 Hz) |
 | ACC | `xyz_g` (float32) | `(n, 3)`, native rate (usually 50 Hz) |
 
-Time is `t_s`, seconds relative to `start_unix_ns`. Absolute time is
-`start_unix_ns + t_s * 1e9`. Strap timestamps are used only for sample spacing
-inside a batch; phone `elapsed_ns` anchors batches, so a wrong or reset strap
-clock does not move the recording.
+Every stream shares one time base: `t_s` is seconds since `start_unix_ns`, which
+is `meta.start_utc_ms`. Absolute time is `start_unix_ns + t_s * 1e9`. `t_s` is
+therefore zero at the recording's start, not at the first sample, so a stream
+that connects later keeps its place on the clock.
+
+Within a stream, the spacing between samples comes from its own clock:
+`elapsed_ns` between callbacks, and the strap timestamps inside an ECG or
+accelerometer batch. The phone wall clock anchors the stream to the recording
+start through a robust offset, the median of phone time minus start minus
+elapsed time across the stream, so jitter in when a callback ran does not enter
+the spacing. A backward move of `elapsed_ns` starts a new segment with its own
+anchor instead of switching that stream to another clock, and time without
+samples stays a gap. A wrong or reset strap clock therefore does not move the
+recording. Clock-sync and clock-jump times use the same base as the samples.
 
 Helpers:
 

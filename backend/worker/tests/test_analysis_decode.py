@@ -204,12 +204,15 @@ def test_clock_sync_is_not_a_clock_jump(tmp_path: Path) -> None:
 
     assert len(recording.quality.clock_syncs) == 1
     sync = recording.quality.clock_syncs[0]
+    assert sync.at_s == pytest.approx(1.0, abs=0.001)
     assert sync.source == "event"
     assert sync.message == "strap clock set"
     assert recording.quality.clock_jumps == ()
 
 
-def test_phone_wall_clock_jump_is_reported_but_elapsed_time_wins(tmp_path: Path) -> None:
+def test_phone_wall_clock_jump_is_reported_and_does_not_change_the_spacing(
+    tmp_path: Path,
+) -> None:
     fx.write_recording(tmp_path, duration_s=120)
     (tmp_path / "ecg.log").write_bytes(_two_batch_ecg(phone_jump_s=10.0))
     recording = load_recording(tmp_path)
@@ -220,7 +223,11 @@ def test_phone_wall_clock_jump_is_reported_but_elapsed_time_wins(tmp_path: Path)
     assert jumps[0].stream == "ecg"
     assert jumps[0].delta_s == pytest.approx(10.0, abs=0.1)
     assert recording.ecg is not None
-    assert float(recording.ecg.t_s[-1]) < 125.0
+    # The device clock still spaces the samples: the two batches stay 60 s
+    # apart. The stream is anchored at the median phone offset, so the jump
+    # moves the whole stream by half of it instead of moving the samples apart.
+    assert float(recording.ecg.t_s[-1] - recording.ecg.t_s[0]) == pytest.approx(120.0, abs=0.2)
+    assert float(recording.ecg.t_s[-1]) == pytest.approx(125.0, abs=0.2)
     assert any("phone wall-clock" in warning for warning in recording.quality.warnings)
 
 
@@ -238,3 +245,127 @@ def test_strap_clock_jump_is_reported_and_does_not_move_the_timeline(tmp_path: P
     assert float(recording.ecg.t_s[0]) == pytest.approx(0.0, abs=0.2)
     assert float(recording.ecg.t_s[-1]) == pytest.approx(120.0, abs=0.2)
     assert any("strap" in warning for warning in recording.quality.warnings)
+
+
+def test_a_late_first_sample_keeps_the_recording_clock(tmp_path: Path) -> None:
+    # The strap connects two minutes after the recording started.
+    fx.write_recording(tmp_path, duration_s=120, stream_start_s=120)
+    recording = load_recording(tmp_path)
+
+    assert recording.hr is not None
+    assert recording.ecg is not None
+    assert float(recording.hr.t_s[0]) == pytest.approx(120.0, abs=0.01)
+    assert float(recording.ecg.t_s[0]) == pytest.approx(120.0, abs=0.1)
+
+    grid = recording.epochs(30)
+    assert grid.count == 8
+    assert float(grid.starts_s[4]) == pytest.approx(120.0)
+    assert np.all(grid.hr_sample_count[:4] == 0)
+    assert grid.hr_sample_count[4] > 0
+    assert np.isfinite(grid.hr_mean_bpm[4])
+    # No empty epoch is added after the last sample.
+    assert grid.hr_sample_count[-1] > 0
+
+
+def test_an_ecg_beat_and_its_hr_sample_share_one_time_base(tmp_path: Path) -> None:
+    fx.write_recording(tmp_path, duration_s=120, stream_start_s=120, include_acc=False)
+    rate = 130
+    samples = 120 * rate
+    spacing = 1_000_000_000 // rate
+    first = fx.POLAR_START_NS + 120 * 1_000_000_000
+    values = [0] * samples
+    beat_index = 60 * rate
+    values[beat_index] = 10_000
+    (tmp_path / "ecg.log").write_bytes(
+        fx.frame_header(fx.STREAM_ECG)
+        + fx.frame(
+            fx.ecg_payload(
+                fx.START_NS + 240 * 1_000_000_000,
+                240 * 1_000_000_000,
+                first,
+                first + (samples - 1) * spacing,
+                values,
+            )
+        )
+    )
+
+    recording = load_recording(tmp_path)
+
+    assert recording.hr is not None
+    assert recording.ecg is not None
+    beat = int(np.argmax(np.abs(recording.ecg.voltage_mv)))
+    assert beat == beat_index
+    hr_time = float(recording.hr.t_s[60])
+    assert hr_time == pytest.approx(180.0, abs=0.01)
+    # The batch timestamps are whole nanoseconds, so allow a few microseconds of
+    # rounding on top of one sample interval.
+    interval = float(np.median(np.diff(recording.ecg.t_s)))
+    assert abs(float(recording.ecg.t_s[beat]) - hr_time) <= interval + 1e-5
+
+
+def _write_reconnect_logs(root: Path) -> None:
+    """Two 60 s segments; the device clock restarts at the 70 s wall time."""
+
+    fx.write_recording(root, duration_s=130)
+    seconds = [(second, second) for second in range(60)]
+    seconds += [(70 + second, second) for second in range(60)]
+
+    hr = bytearray(fx.frame_header(fx.STREAM_HR))
+    for wall_s, elapsed_s in seconds:
+        hr += fx.frame(
+            fx.hr_payload(
+                fx.START_NS + wall_s * 1_000_000_000,
+                elapsed_s * 1_000_000_000,
+                60,
+            )
+        )
+    (root / "hr.log").write_bytes(bytes(hr))
+
+    ecg = bytearray(fx.frame_header(fx.STREAM_ECG))
+    acc = bytearray(fx.frame_header(fx.STREAM_ACC))
+    for wall_s, elapsed_s in seconds:
+        phone_ns = fx.START_NS + (wall_s + 1) * 1_000_000_000
+        elapsed_ns = (elapsed_s + 1) * 1_000_000_000
+        first = fx.POLAR_START_NS + wall_s * 1_000_000_000
+        ecg_last = first + 129 * (1_000_000_000 // 130)
+        ecg += fx.frame(
+            fx.ecg_payload(phone_ns, elapsed_ns, first, ecg_last, [0] * 130)
+        )
+        acc_last = first + 49 * (1_000_000_000 // 50)
+        acc += fx.frame(
+            fx.acc_payload(phone_ns, elapsed_ns, first, acc_last, [0, 0, 1000] * 50)
+        )
+    (root / "ecg.log").write_bytes(bytes(ecg))
+    (root / "acc.log").write_bytes(bytes(acc))
+
+
+def test_a_device_clock_jump_and_reconnect_keep_streams_aligned(tmp_path: Path) -> None:
+    _write_reconnect_logs(tmp_path)
+    recording = load_recording(tmp_path)
+
+    assert recording.hr is not None
+    assert recording.ecg is not None
+    assert recording.acc is not None
+    assert float(recording.hr.t_s[0]) == pytest.approx(0.0, abs=0.01)
+    assert float(recording.hr.t_s[59]) == pytest.approx(59.0, abs=0.01)
+    assert float(recording.hr.t_s[60]) == pytest.approx(70.0, abs=0.01)
+    assert float(recording.hr.t_s[-1]) == pytest.approx(129.0, abs=0.01)
+
+    for stream, rate_hz in ((recording.ecg, 130.0), (recording.acc, 50.0)):
+        before = float(stream.t_s[stream.t_s <= 60.0].max())
+        after = float(stream.t_s[stream.t_s >= 69.9].min())
+        assert before == pytest.approx(60.0, abs=2.0 / rate_hz)
+        assert after == pytest.approx(70.0, abs=2.0 / rate_hz)
+
+        target = float(recording.hr.t_s[70])
+        index = int(np.argmin(np.abs(stream.t_s - target)))
+        assert abs(float(stream.t_s[index]) - target) <= 1.0 / rate_hz
+
+    assert any(
+        "device clock moved backwards" in warning
+        for warning in recording.quality.warnings
+    )
+    # A restart of the device clock is a new segment, not a phone clock change.
+    assert recording.quality.clock_jumps == ()
+    gaps = [gap for gap in recording.quality.gaps if gap.stream == "hr"]
+    assert any(gap.start_s <= 59.0 and gap.end_s >= 70.0 for gap in gaps)
