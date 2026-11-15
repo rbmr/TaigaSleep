@@ -1,18 +1,22 @@
 package api
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/binary"
 	"fmt"
+	"io"
 )
 
-// Gzip framing checks.
+// Gzip member checks.
 //
 // The compressed upload mode stores one complete gzip member per appended
 // chunk, so the chunk boundary is the member boundary. The API validates that
-// framing without inflating anything: the header, the deflate block type, the
-// trailer and the declared uncompressed size. It deliberately does not verify
-// the member CRC or the decompressed bytes; the worker decompresses and checks
-// every frame, which is the only place where the full stream is needed.
+// framing and inflates the member to a discard sink, bounded by the size the
+// member declares in its trailer: the header, the deflate block type, the
+// trailer and the declared uncompressed size, and then the CRC and the real
+// size against that declaration. A member that understates what it holds is
+// rejected before anything is stored, so the stored declaration stays true.
 
 const (
 	gzipHeaderSize  = 10
@@ -60,5 +64,30 @@ func validateGzipChunk(data []byte, maxUncompressed int64, maxRatio float64) (gz
 	if float64(uncompressed) > float64(len(payload))*maxRatio {
 		return gzipChunk{}, fmt.Errorf("gzip member expansion ratio is too high")
 	}
+	if err := inflateMember(data, uncompressed); err != nil {
+		return gzipChunk{}, err
+	}
 	return gzipChunk{Uncompressed: uncompressed}, nil
+}
+
+// inflateMember inflates one chunk to a discard sink, limited to the size its
+// trailer declares plus one byte. Every member is verified, so the declared
+// size is the size that was really stored: a CRC or declared size that does not
+// match, a stream that ends early, or a member that keeps expanding past its
+// declaration is rejected. The limit is what stops an understated member from
+// inflating without bound.
+func inflateMember(data []byte, declared int64) error {
+	reader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("gzip member cannot be inflated: %v", err)
+	}
+	defer reader.Close()
+	inflated, err := io.Copy(io.Discard, io.LimitReader(reader, declared+1))
+	if err != nil {
+		return fmt.Errorf("gzip member fails its CRC or size check: %v", err)
+	}
+	if inflated != declared {
+		return fmt.Errorf("gzip member inflates to %d bytes, not the declared %d", inflated, declared)
+	}
+	return nil
 }

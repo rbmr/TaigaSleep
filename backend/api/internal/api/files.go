@@ -315,6 +315,8 @@ func totalUncompressed(app core.App, record *core.Record) int64 {
 
 // GetFile serves a file. A gzip file is sent as stored when the client says it
 // accepts gzip, and inflated otherwise, so every client gets the original bytes.
+// An inflated download is bounded by and checked against the recorded
+// uncompressed size.
 func GetFile(e *core.RequestEvent) error {
 	record, err := recordingFor(e, e.Request.PathValue("id"))
 	if err != nil {
@@ -350,8 +352,23 @@ func GetFile(e *core.RequestEvent) error {
 		return err
 	}
 	defer reader.Close()
-	_, err = io.Copy(e.Response, reader)
-	return err
+	if view.UncompressedSize > 0 {
+		header.Set("Content-Length", strconv.FormatInt(view.UncompressedSize, 10))
+	}
+	return copyInflated(e.Response, reader, view.UncompressedSize)
+}
+
+// copyInflated writes a stored gzip stream inflated, bounded by the uncompressed
+// size the recording declares. A stream that does not inflate to exactly that
+// size, or that fails a member's CRC, aborts the connection: the response has
+// already started by then, so the client must see a failed download instead of a
+// short file that ends like a complete one.
+func copyInflated(destination io.Writer, reader io.Reader, declared int64) error {
+	written, err := io.Copy(destination, io.LimitReader(reader, declared+1))
+	if err == nil && written == declared {
+		return nil
+	}
+	panic(http.ErrAbortHandler)
 }
 
 func acceptsGzip(header string) bool {

@@ -62,6 +62,30 @@ func TestValidateGzipChunkEnforcesTheExpansionRatio(t *testing.T) {
 	}
 }
 
+func TestValidateGzipChunkInflatesAndVerifiesTheMember(t *testing.T) {
+	payload := bytes.Repeat([]byte("taiga"), 1000)
+	data := gzipMember(t, payload)
+
+	member, err := validateGzipChunk(data, 1<<20, 200)
+	if err != nil || member.Uncompressed != int64(len(payload)) {
+		t.Fatalf("member = %+v, err = %v", member, err)
+	}
+
+	// The trailer claims 100 bytes, the member really holds 5000.
+	understated := append([]byte(nil), data...)
+	binaryLittleEndian(understated[len(understated)-4:], 100)
+	if _, err := validateGzipChunk(understated, 1<<20, 200); err == nil {
+		t.Fatal("a member that inflates past its declared size was accepted")
+	}
+
+	// The CRC in the trailer does not match the inflated bytes.
+	badCRC := append([]byte(nil), data...)
+	badCRC[len(badCRC)-8] ^= 0xff
+	if _, err := validateGzipChunk(badCRC, 1<<20, 200); err == nil {
+		t.Fatal("a member with a wrong CRC was accepted")
+	}
+}
+
 func binaryLittleEndian(target []byte, value uint32) {
 	target[0] = byte(value)
 	target[1] = byte(value >> 8)
