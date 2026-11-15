@@ -54,4 +54,10 @@ class MainScreenTest {
     assertEquals(MainOverlay.REMOTE, mainOverlay(remote = true, night = true, about = true))
     assertEquals(MainOverlay.GUIDANCE, mainOverlay(guidance = true, about = true))
   }
+
+  @Test
+  fun `the licences are on top of About, which they were opened from`() {
+    assertEquals(MainOverlay.LICENCES, mainOverlay(about = true, licences = true))
+    assertEquals(MainOverlay.ABOUT, mainOverlay(about = true))
+  }
 }

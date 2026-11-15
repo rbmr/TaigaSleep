@@ -29,7 +29,7 @@ import com.rbmr.taigasleep.ui.theme.taiga
 
 /** Settings → About: what the app is, where its code is and what it is built on. */
 @Composable
-fun AboutScreen(onBack: () -> Unit) {
+fun AboutScreen(onBack: () -> Unit, onLicences: () -> Unit) {
   BackHandler(onBack = onBack)
   val uriHandler = LocalUriHandler.current
   val space = MaterialTheme.taiga.space
@@ -72,6 +72,12 @@ fun AboutScreen(onBack: () -> Unit) {
               uriHandler.openUri("https://github.com/rbmr/TaigaSleep/blob/main/LICENSE")
             },
         )
+        SettingsDivider()
+        ListRow(
+            title = stringResource(R.string.about_licences_title),
+            subtitle = stringResource(R.string.about_licences_subtitle),
+            onClick = onLicences,
+        )
       }
     }
     TaigaCard {
@@ -87,6 +93,12 @@ fun AboutScreen(onBack: () -> Unit) {
       Spacer(Modifier.height(space.s))
       Text(
           text = stringResource(R.string.about_built_body),
+          style = MaterialTheme.taiga.text.body,
+      )
+    }
+    TaigaCard {
+      Text(
+          text = stringResource(R.string.about_affiliation),
           style = MaterialTheme.taiga.text.body,
       )
     }

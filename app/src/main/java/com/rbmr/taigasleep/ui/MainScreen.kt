@@ -33,6 +33,7 @@ internal enum class MainOverlay {
   ANALYSIS,
   NIGHT,
   GUIDANCE,
+  LICENCES,
   ABOUT,
   NONE,
 }
@@ -46,6 +47,7 @@ internal fun mainOverlay(
     analysis: Boolean = false,
     night: Boolean = false,
     guidance: Boolean = false,
+    licences: Boolean = false,
     about: Boolean = false,
 ): MainOverlay =
     when {
@@ -56,6 +58,7 @@ internal fun mainOverlay(
       analysis -> MainOverlay.ANALYSIS
       night -> MainOverlay.NIGHT
       guidance -> MainOverlay.GUIDANCE
+      licences -> MainOverlay.LICENCES
       about -> MainOverlay.ABOUT
       else -> MainOverlay.NONE
     }

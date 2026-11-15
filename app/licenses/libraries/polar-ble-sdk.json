@@ -1,0 +1,9 @@
+{
+  "uniqueId": "com.github.polarofficial:polar-ble-sdk",
+  "name": "Polar BLE SDK",
+  "description": "Bluetooth LE software development kit for Polar sensors. Copyright Polar Electro Oy. Conveyed in object code form under the Polar SDK License Agreement, which requires this copyright and licence notice and forbids using Polar's marks or implying affiliation.",
+  "website": "https://github.com/polarofficial/polar-ble-sdk",
+  "licenses": [
+    "polar-sdk"
+  ]
+}
