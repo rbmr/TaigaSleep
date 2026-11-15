@@ -159,16 +159,16 @@ is created, and the server keeps the record, not the secret. See
 
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
-| `POST /v1/tokens` | user | Body `{ "name" }`. Answers `201` with the token (`id`, `name`, `hint`, `created`, `token`), which is the only time `token` is in an answer. |
-| `GET /v1/tokens` | user | The account's tokens without the secret (`id`, `name`, `hint`, `created`). |
+| `POST /v1/tokens` | user | Body `{ "name", "lifetime" }`. `lifetime` is one of `7d`, `30d`, `90d`, `1y` or `never`; leaving it out means `never`, so the token works until it is revoked. Answers `201` with the token (`id`, `name`, `hint`, `created`, `expires_at`, `expired`, `token`), which is the only time `token` is in an answer. |
+| `GET /v1/tokens` | user | The account's tokens without the secret (`id`, `name`, `hint`, `created`, `expires_at`, `expired`). `expires_at` is `null` for a token that never expires, and `expired` marks one whose lifetime has ended. |
 | `DELETE /v1/tokens/{id}` | user | Revokes it by deleting its record; it stops working at once. `204`. |
 
 A token may read through the record API for its owner: their recordings (metadata, not the
 raw files), analyses and results. Every write is refused: a record create rule refuses the
 collection, an update or delete rule hides the record, and the `/v1` routes answer `403`.
-A recording or analysis of another account is `404`, like any other caller's. A revoked
-token has no identity any more, so the record API answers as it does to a caller with no
-token (and the custom routes answer `401`).
+A recording or analysis of another account is `404`, like any other caller's. A token whose
+lifetime has ended, or one that was revoked, has no identity any more, so the record API
+answers as it does to a caller with no token (and the custom routes answer `401`).
 
 ## Recordings
 

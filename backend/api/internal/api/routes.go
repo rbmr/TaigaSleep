@@ -6,6 +6,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/router"
 )
 
@@ -63,6 +64,14 @@ func Register(app core.App) {
 // included.
 func RegisterRoutes(router *router.Router[*core.RequestEvent]) {
 	router.Bind(accountRateLimitMiddleware())
+	// The token is loaded by PocketBase's own middleware; this runs right after it and
+	// drops one whose expiry has passed, so every route answers as it does to a token
+	// that no longer exists.
+	router.Bind(&hook.Handler[*core.RequestEvent]{
+		Id:       "taigaExpiredAccessToken",
+		Priority: apis.DefaultLoadAuthTokenMiddlewarePriority + 1,
+		Func:     dropExpiredAccessToken,
+	})
 	for _, route := range Routes() {
 		mounted := router.Route(route.Method, route.Path, handle(route.Handler))
 		// PocketBase loads the token and refuses a token from another collection; the
@@ -165,9 +174,10 @@ func Routes() []openAPIRoute {
 			Summary: "Create a read-only access token",
 			Description: "A token a user's own assistant or script can read with. It reads the account's recordings " +
 				"(metadata, not the raw files), analyses and results, and every write is refused. The token is shown " +
-				"once, in this answer.",
+				"once, in this answer. `lifetime` is one of `7d`, `30d`, `90d`, `1y` or `never`; leaving it out " +
+				"means `never`, and a token stops working when its lifetime ends.",
 			Access: accessUser,
-			Body:   jsonBody(TokenRequest{}, "A name for the token, so it can be told apart in the list."),
+			Body:   jsonBody(TokenRequest{}, "A name for the token, so it can be told apart in the list, and how long it should work."),
 			Responses: withErrors([]routeResponse{{
 				Status: 201, Description: "The token, this once.", Headers: map[string]string{"Location": "The token's URL."},
 				Schema: func(r *schemaReflector) map[string]any { return r.schemaOf(reflect.TypeOf(TokenView{})) },
@@ -176,11 +186,12 @@ func Routes() []openAPIRoute {
 		},
 		{
 			Method: http.MethodGet, Path: apiPrefix + "/tokens", OperationID: "listTokens", Tag: tagTokens,
-			Summary:     "List the account's access tokens",
-			Description: "Their names, hints and creation times. A token itself is never shown again.",
-			Access:      accessUser,
-			Responses:   withErrors([]routeResponse{jsonResponse(200, "The tokens.", TokenList{})}, 401, 403),
-			Handler:     ListTokens,
+			Summary: "List the account's access tokens",
+			Description: "Their names, hints, creation times and expiry, with `expired` set on one that no longer " +
+				"works. A token that never expires has no `expires_at`, and a token itself is never shown again.",
+			Access:    accessUser,
+			Responses: withErrors([]routeResponse{jsonResponse(200, "The tokens.", TokenList{})}, 401, 403),
+			Handler:   ListTokens,
 		},
 		{
 			Method: http.MethodDelete, Path: apiPrefix + "/tokens/{id}", OperationID: "deleteToken", Tag: tagTokens,
