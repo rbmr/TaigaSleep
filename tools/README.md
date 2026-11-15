@@ -32,8 +32,24 @@ These use only the standard library and run with the system interpreter:
 python3 tools/read_diagnostics.py /tmp/diag
 python3 tools/check_version_bump.py
 python3 tools/release_plan.py --self-test
+python3 tools/ci_areas.py --self-test
 ```
 
 `read_diagnostics.py` is the reader for the diagnostics directory documented in
-[`docs/diagnostics.md`](../docs/diagnostics.md). The other two are the release checks
-described in [`docs/versioning.md`](../docs/versioning.md).
+[`docs/diagnostics.md`](../docs/diagnostics.md). The other three are the checks
+described in [`docs/versioning.md`](../docs/versioning.md) and
+[`docs/ci.md`](../docs/ci.md).
+
+## Check scripts
+
+[`check_kotlin.sh`](check_kotlin.sh) runs detekt over the app's Kotlin sources
+with the config and baseline in [`detekt/`](detekt). CI calls the same script, so
+the local and the CI run agree. It needs a JDK; CI uses 21:
+
+```bash
+./tools/check_kotlin.sh
+```
+
+The Go and Python checks are plain commands rather than scripts, because their
+tool versions come from the Go toolchain and the worker's lock file. They are
+listed in [`docs/ci.md`](../docs/ci.md#running-the-checks-locally).
