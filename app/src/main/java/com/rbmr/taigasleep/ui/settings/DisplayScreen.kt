@@ -16,6 +16,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
+import com.rbmr.taigasleep.insights.TimeFormat
+import com.rbmr.taigasleep.insights.Units
 import com.rbmr.taigasleep.ui.components.SegmentedControl
 import com.rbmr.taigasleep.ui.components.Section
 import com.rbmr.taigasleep.ui.components.SettingsDivider
@@ -27,13 +29,15 @@ import com.rbmr.taigasleep.ui.theme.ThemeMode
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
- * What the Display screen draws: the three choices, resolved, and the action that changes one.
- * One section per choice, so a later display setting is one more section in the same list.
+ * What the Display screen draws: the choices, resolved, and the action that changes one. One
+ * section per choice, so a later display setting is one more section in the same list.
  */
 internal data class DisplayUiState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val textSize: TextSize = TextSize.SYSTEM,
     val animations: AnimationMode = AnimationMode.SYSTEM,
+    val timeFormat: TimeFormat = TimeFormat.SYSTEM,
+    val units: Units = Units.SYSTEM,
 )
 
 /** One display choice the user made. */
@@ -43,9 +47,13 @@ internal sealed interface DisplayChange {
   data class Text(val size: TextSize) : DisplayChange
 
   data class Motion(val mode: AnimationMode) : DisplayChange
+
+  data class Time(val format: TimeFormat) : DisplayChange
+
+  data class Measurement(val units: Units) : DisplayChange
 }
 
-/** Settings → Display: the theme, the text size and the animations, each on its own card. */
+/** Settings → Display: theme, text size, animations, time format and units, each on its card. */
 @Composable
 fun DisplayScreen(onBack: () -> Unit) {
   BackHandler(onBack = onBack)
@@ -53,13 +61,24 @@ fun DisplayScreen(onBack: () -> Unit) {
   val themeMode by display.themeMode.collectAsStateWithLifecycle()
   val textSize by display.textSize.collectAsStateWithLifecycle()
   val animations by display.animations.collectAsStateWithLifecycle()
+  val timeFormat by display.timeFormat.collectAsStateWithLifecycle()
+  val units by display.units.collectAsStateWithLifecycle()
   DisplayContent(
-      state = DisplayUiState(themeMode = themeMode, textSize = textSize, animations = animations),
+      state =
+          DisplayUiState(
+              themeMode = themeMode,
+              textSize = textSize,
+              animations = animations,
+              timeFormat = timeFormat,
+              units = units,
+          ),
       onChange = { change ->
         when (change) {
           is DisplayChange.Theme -> display.setThemeMode(change.mode)
           is DisplayChange.Text -> display.setTextSize(change.size)
           is DisplayChange.Motion -> display.setAnimations(change.mode)
+          is DisplayChange.Time -> display.setTimeFormat(change.format)
+          is DisplayChange.Measurement -> display.setUnits(change.units)
         }
       },
       onBack = onBack,
@@ -96,6 +115,28 @@ internal fun DisplayContent(
             ),
         selectedIndex = AnimationMode.entries.indexOf(state.animations),
         onSelect = { onChange(DisplayChange.Motion(AnimationMode.entries[it])) },
+    )
+    ChoiceSection(
+        title = stringResource(R.string.display_time_format_title),
+        options =
+            listOf(
+                stringResource(R.string.display_time_format_system),
+                stringResource(R.string.display_time_format_12),
+                stringResource(R.string.display_time_format_24),
+            ),
+        selectedIndex = TimeFormat.entries.indexOf(state.timeFormat),
+        onSelect = { onChange(DisplayChange.Time(TimeFormat.entries[it])) },
+    )
+    ChoiceSection(
+        title = stringResource(R.string.display_units_title),
+        options =
+            listOf(
+                stringResource(R.string.display_units_system),
+                stringResource(R.string.display_units_metric),
+                stringResource(R.string.display_units_imperial),
+            ),
+        selectedIndex = Units.entries.indexOf(state.units),
+        onSelect = { onChange(DisplayChange.Measurement(Units.entries[it])) },
     )
   }
 }

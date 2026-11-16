@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalView
@@ -16,9 +17,11 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.rbmr.taigasleep.notifications.resultsOpened
 import com.rbmr.taigasleep.ui.TaigaApp
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 import com.rbmr.taigasleep.ui.theme.ThemeMode
 import com.rbmr.taigasleep.ui.theme.rememberContrastLevel
+import com.rbmr.taigasleep.ui.theme.rememberFormats
 import com.rbmr.taigasleep.ui.theme.rememberMotionScale
 import kotlinx.coroutines.launch
 
@@ -47,6 +50,7 @@ class MainActivity : ComponentActivity() {
             ThemeMode.DARK -> true
           }
       val motionScale = rememberMotionScale(animations)
+      val formats = rememberFormats()
       val contrast = rememberContrastLevel()
       val view = LocalView.current
       if (!view.isInEditMode) {
@@ -62,7 +66,7 @@ class MainActivity : ComponentActivity() {
           textSize = textSize,
           motionScale = motionScale,
       ) {
-        TaigaApp()
+        CompositionLocalProvider(LocalFormats provides formats) { TaigaApp() }
       }
     }
   }

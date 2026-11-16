@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.ui.theme
 
+import android.text.format.DateFormat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -12,7 +13,9 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.unit.Density
 
 // The two schemes are internal so the contrast test can measure the values they ship.
@@ -154,11 +157,25 @@ fun TaigaTheme(
   val scaledDensity = remember(density, fontScale) { Density(density.density, fontScale) }
   val palette = remember(darkTheme, contrast) { paletteFor(darkTheme, contrast) }
 
+  // A preview or a test that draws a screen without the activity's formatter gets the app's own
+  // words and the phone's settings as they are at that moment; the activity overrides it.
+  val context = LocalContext.current
+  val locale = LocalLocale.current.platformLocale
+  val systemFormats =
+      remember(context, locale) {
+        formatsFor(
+            context = context,
+            locale = locale,
+            phoneIs24Hour = DateFormat.is24HourFormat(context),
+        )
+      }
+
   CompositionLocalProvider(
       LocalTaigaColors provides palette.colors,
       LocalDensity provides scaledDensity,
       LocalReduceMotion provides (motionScale <= 0f),
       LocalMotionScale provides motionScale,
+      LocalFormats provides systemFormats,
   ) {
     MaterialTheme(
         colorScheme = palette.scheme,

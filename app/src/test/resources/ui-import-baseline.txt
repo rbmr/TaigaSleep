@@ -71,6 +71,7 @@ theme/Color.kt 0
 theme/ContrastLevel.kt 0
 theme/DisplayChoices.kt 0
 theme/DisplaySettings.kt 0
+theme/Formatting.kt 0
 theme/Motion.kt 0
 theme/Theme.kt 0
 theme/ThemeMode.kt 0
