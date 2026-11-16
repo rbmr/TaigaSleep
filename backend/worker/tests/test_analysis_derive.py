@@ -60,11 +60,10 @@ def test_metrics_from_a_known_stage_timeline(tmp_path: Path) -> None:
     assert metrics["hr_mean_bpm"] == 60.0
     assert metrics["hr_min_bpm"] == 60.0
     assert metrics["hr_max_bpm"] == 60.0
-    # Only the three sleep epochs contribute, 30 one-second samples with three
-    # intervals each; the wake epoch is excluded.
-    assert metrics["hrv_rr_count"] == 270
-    assert metrics["hrv_rmssd_ms"] > 0.0
-    assert metrics["hrv_sdnn_ms"] > 0.0
+    # HRV is computed over 5-minute windows, and this recording is two minutes long.
+    assert metrics["hrv_rmssd_ms"] is None
+    assert metrics["hrv_rr_count"] == 0
+    assert derived.support["hrv_rmssd_ms"]["reason"] == "recording_shorter_than_one_hrv_window"
     assert metrics["movement_index"] == 0.25
     assert metrics["movement_mean_g"] > 0.02
     assert metrics["movement_epochs"] == 1
@@ -309,36 +308,6 @@ def test_leading_unknown_epochs_do_not_change_latency(tmp_path: Path) -> None:
 
     assert without_derived.metrics["sleep_latency_s"] == 30.0
     assert with_leading_derived.metrics["sleep_latency_s"] == 30.0
-
-
-def _rmssd(values: list[int]) -> float:
-    diffs = np.diff(np.asarray(values, dtype=np.float64))
-    return float(np.sqrt(np.mean(diffs**2)))
-
-
-def test_rr_data_with_a_gap_combines_the_halves_instead_of_spanning_the_gap(
-    tmp_path: Path,
-) -> None:
-    first = [(1000, 980)] * 35
-    second = [(820, 800)] * 35
-    recording = _recording(
-        tmp_path,
-        duration_s=80,
-        rr_per_sample=first + [()] * 10 + second,
-    )
-    grid = recording.epochs(30)
-    derived = derive(recording, grid, ["light"] * grid.count, AASM4_INFO)
-
-    first_rr = [value for pair in first for value in pair]
-    second_rr = [value for pair in second for value in pair]
-    expected = (len(first_rr) * _rmssd(first_rr) + len(second_rr) * _rmssd(second_rr)) / (
-        len(first_rr) + len(second_rr)
-    )
-
-    assert derived.metrics["hrv_rr_count"] == len(first_rr) + len(second_rr)
-    assert derived.metrics["hrv_rmssd_ms"] == pytest.approx(expected, abs=0.05)
-    # A successive difference taken across the gap would report a larger figure.
-    assert _rmssd(first_rr + second_rr) > expected + 1.0
 
 
 def test_a_constant_accelerometer_offset_does_not_change_the_movement_classification(
