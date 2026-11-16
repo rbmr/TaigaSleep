@@ -5,7 +5,7 @@ import androidx.compose.ui.test.onNodeWithText
 import com.rbmr.taigasleep.insights.Formats
 import com.rbmr.taigasleep.insights.TimeFormat
 import com.rbmr.taigasleep.testFormats
-import com.rbmr.taigasleep.ui.theme.TaigaTheme
+import com.rbmr.taigasleep.ui.theme.TaigaThemeWithFormats
 import java.time.LocalTime
 import org.junit.Rule
 import org.junit.Test
@@ -21,7 +21,7 @@ class TimeFormatDialogsTest {
 
   private fun show(formats: Formats) {
     compose.setContent {
-      TaigaTheme(formats = formats) {
+      TaigaThemeWithFormats(formats = formats) {
         TimeOfDayDialog(
             field = PersonalTime.BEDTIME,
             current = LocalTime.of(23, 15),

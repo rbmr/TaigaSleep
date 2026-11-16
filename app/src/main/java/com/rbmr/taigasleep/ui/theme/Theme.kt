@@ -17,7 +17,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.unit.Density
-import com.rbmr.taigasleep.insights.Formats
 
 // The two schemes are internal so the contrast test can measure the values they ship.
 internal val LightColors =
@@ -149,7 +148,6 @@ fun TaigaTheme(
     contrast: ContrastLevel = ContrastLevel.STANDARD,
     textSize: TextSize = TextSize.SYSTEM,
     motionScale: Float = 1f,
-    formats: Formats? = null,
     content: @Composable () -> Unit,
 ) {
   // The one place the app's text size is decided: the density carries the font scale every style
@@ -159,8 +157,8 @@ fun TaigaTheme(
   val scaledDensity = remember(density, fontScale) { Density(density.density, fontScale) }
   val palette = remember(darkTheme, contrast) { paletteFor(darkTheme, contrast) }
 
-  // The activity hands in the formatter it keeps current. A preview or a test that draws a screen
-  // without it gets the app's own words and the phone's settings as they are at that moment.
+  // A preview or a test that draws a screen without the activity's formatter gets the app's own
+  // words and the phone's settings as they are at that moment; the activity overrides it.
   val context = LocalContext.current
   val locale = LocalLocale.current.platformLocale
   val systemFormats =
@@ -177,7 +175,7 @@ fun TaigaTheme(
       LocalDensity provides scaledDensity,
       LocalReduceMotion provides (motionScale <= 0f),
       LocalMotionScale provides motionScale,
-      LocalFormats provides (formats ?: systemFormats),
+      LocalFormats provides systemFormats,
   ) {
     MaterialTheme(
         colorScheme = palette.scheme,

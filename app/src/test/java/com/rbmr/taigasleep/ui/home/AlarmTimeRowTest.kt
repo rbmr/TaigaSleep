@@ -6,7 +6,7 @@ import androidx.compose.ui.test.performClick
 import com.rbmr.taigasleep.insights.Formats
 import com.rbmr.taigasleep.insights.TimeFormat
 import com.rbmr.taigasleep.testFormats
-import com.rbmr.taigasleep.ui.theme.TaigaTheme
+import com.rbmr.taigasleep.ui.theme.TaigaThemeWithFormats
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,7 +22,7 @@ class AlarmTimeRowTest {
   private fun show(formats: Formats) {
     val minute = 6 * 60 + 30
     compose.setContent {
-      TaigaTheme(formats = formats) {
+      TaigaThemeWithFormats(formats = formats) {
         TimeRow(label = "Start time", minute = minute, enabled = true, onChange = {})
       }
     }

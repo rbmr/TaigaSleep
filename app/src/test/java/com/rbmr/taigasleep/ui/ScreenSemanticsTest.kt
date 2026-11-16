@@ -29,7 +29,7 @@ import com.rbmr.taigasleep.ui.history.HistoryUiState
 import com.rbmr.taigasleep.ui.history.ServerWarning
 import com.rbmr.taigasleep.ui.history.TrendsContent
 import com.rbmr.taigasleep.ui.history.TrendsUiState
-import com.rbmr.taigasleep.ui.theme.TaigaTheme
+import com.rbmr.taigasleep.ui.theme.TaigaThemeWithFormats
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -70,7 +70,7 @@ class ScreenSemanticsTest {
   @Test
   fun `history shows the same rows and the same warning`() {
     compose.setContent {
-      TaigaTheme(formats = formats) {
+      TaigaThemeWithFormats(formats = formats) {
         HistoryScreen(
             state = historyState,
             onOpenRecording = { _, _, _ -> },
@@ -86,7 +86,7 @@ class ScreenSemanticsTest {
   @Test
   fun `trends show the same charts`() {
     compose.setContent {
-      TaigaTheme(formats = formats) { TrendsContent(state = trendsState, onRangeChange = {}) }
+      TaigaThemeWithFormats(formats = formats) { TrendsContent(state = trendsState, onRangeChange = {}) }
     }
     compose.waitForIdle()
 
@@ -96,7 +96,7 @@ class ScreenSemanticsTest {
   @Test
   fun `the charts of a night describe the same night`() {
     compose.setContent {
-      TaigaTheme(formats = formats) {
+      TaigaThemeWithFormats(formats = formats) {
         Column(Modifier.fillMaxWidth()) {
           SleepStagesChart(
               segments = Stages,
