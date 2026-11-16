@@ -23,14 +23,21 @@ import sys
 AREAS = ("app", "go", "worker", "python", "integration")
 
 # A change to these rebuilds or rechecks the app: its sources, its Gradle
-# inputs, the package table ArchitectureTest enforces, and the detekt setup that
-# checks its style.
+# inputs, the package table ArchitectureTest enforces, the detekt setup that
+# checks its style, and the Python files its unit tests run (the two reader tools
+# and the worker's frame module that read_recording.py imports).
 APP_PREFIXES = (
     "app/",
     "gradle/",
     "tools/detekt/",
 )
-APP_FILES = ("gradle.properties", "docs/architecture.md")
+APP_FILES = (
+    "gradle.properties",
+    "docs/architecture.md",
+    "tools/read_recording.py",
+    "tools/read_diagnostics.py",
+    "backend/worker/taiga_worker/frames.py",
+)
 APP_SUFFIXES = (".gradle.kts",)
 
 GO_PREFIX = "backend/api/"
@@ -108,6 +115,9 @@ SELF_TEST_CASES: tuple[tuple[list[str], set[str]], ...] = (
     (["app/src/main/java/com/rbmr/taigasleep/MainActivity.kt"], {"app"}),
     (["app/lint-baseline.xml"], {"app"}),
     (["gradle/libs.versions.toml"], {"app"}),
+    (["tools/read_recording.py"], {"app", "python"}),
+    (["tools/read_diagnostics.py"], {"app", "python"}),
+    (["backend/worker/taiga_worker/frames.py"], {"app", "worker", "python", "integration"}),
     (["build.gradle.kts"], {"app"}),
     (["gradle.properties"], {"app"}),
     (["docs/architecture.md"], {"app"}),

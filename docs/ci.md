@@ -25,14 +25,65 @@ nothing else validates the checks themselves.
 
 | Job | Applies to | Runs |
 | --- | --- | --- |
-| `App tests and Android lint` | the app and its Gradle inputs | `:app:testDebugUnitTest`, `:app:assembleDebug`, `:app:lintDebug` |
+| `App unit tests` | the app and its Gradle inputs | `:app:testDebugUnitTest`, in four test JVMs |
+| `App build and Android lint` | the app and its Gradle inputs | `:app:assembleDebug`, `:app:lintDebug` |
 | `Kotlin static analysis` | the app, `tools/detekt/` | `tools/check_kotlin.sh` |
-| `Go tests` | `backend/api/` | `go vet`, `go test` |
+| `Go tests` | `backend/api/` | `go vet` and the tests of every package except `internal/api` |
+| `Go tests (1/4)` … `Go tests (4/4)` | `backend/api/` | that shard of the `internal/api` tests |
 | `Go static analysis` | `backend/api/` | `staticcheck`, `govulncheck` |
-| `Worker tests` | `backend/worker/` | `uv run --frozen pytest` |
+| `Worker tests` | `backend/worker/` | `uv run --frozen pytest` in four workers, then `tests/test_realtime.py` on its own |
 | `Python lint` | `backend/worker/`, `tools/` | `ruff check`, `ruff format --check` |
-| `Integration tests` | `backend/` | the API and worker integration suite |
+| `Integration tests (1/4)` … `(4/4)` | `backend/` | that shard of the API and worker integration suite, with its own server |
 | `Workflow lint` | every change | `actionlint`, including shellcheck on `run:` scripts |
+
+## How the parallelism is configured
+
+The runner has 4 vCPUs and about 16 GB of memory, and every count below is
+chosen for that: four Gradle test JVMs, four Go shards and four pytest workers.
+The jobs are independent of each other, so the wall clock is the slowest of
+them rather than their sum.
+
+- **Gradle.** `org.gradle.parallel` and `org.gradle.caching` are on in
+  [`gradle.properties`](../gradle.properties). The app's unit tests run in
+  several JVMs at once (`maxParallelForks` in
+  [`app/build.gradle.kts`](../app/build.gradle.kts), at most four and fewer on a
+  smaller machine). The JVM is the isolation boundary: every test class stays
+  whole in one JVM and no class shares process state with another, so splitting
+  the classes over JVMs changes nothing about what a test can see. The build
+  cache is what lets a re-run, and the app jobs on later runs, reuse compilation
+  and test outputs instead of repeating the work. A cached test result is only
+  correct if every file a test reads is declared as an input of the test task,
+  so a test that reads a file outside `app/src` needs that file listed there
+  (today `docs/architecture.md`, `tools/read_diagnostics.py`,
+  `tools/read_recording.py` and the worker's `frames.py` that it imports), and
+  `tools/ci_areas.py` must run the app jobs when one of those files changes. The
+  Gradle daemon keeps its 2 GB heap and a test JVM its default heap, so four of
+  them together stay well inside the runner's 16 GB.
+- **Go.** `go test` already runs packages side by side, but `internal/api` is one
+  package and the largest part of the suite. Its tests cannot safely call
+  `t.Parallel()`: many of them set package-level variables or environment
+  variables, which would race with a test beside them in the same process. They
+  can run in separate processes, so
+  [`tools/go_test_shard.py`](../tools/go_test_shard.py) splits the package's test
+  names over the matrix. The split is deterministic, and the `Go tests` job runs
+  the script's `--self-test`, which fails when a test is in no shard or in two.
+  The other packages are unchanged and run in one job together with `go vet`.
+- **Python.** The worker's tests are independent, so
+  `uv run --frozen pytest -n 4` runs them in four processes (pytest-xdist, in the
+  worker's dev dependencies). `tests/test_realtime.py` drives real sockets and
+  timers and is timing-sensitive, so it runs afterwards on its own instead of
+  beside the rest. The integration suite shares one API server between the tests
+  of a process, so it is sharded across jobs instead of run in parallel inside
+  one: [`tools/pytest_shard.py`](../tools/pytest_shard.py) lists the collected
+  tests and gives each job a contiguous slice of them in collection order, so
+  every job starts its own server, data directory and worker processes, its
+  tests run in the order the whole suite runs them, and the shards together are
+  the whole suite.
+
+Every job has a `timeout-minutes` (20 in `ci.yml`, 40 for the CodeQL analyses), so
+a job that hangs fails after that long instead of running for GitHub's default of
+six hours. A test that waits for a signal from the code under test carries its own
+short guard for the same reason.
 
 ## Static checks and their baselines
 
@@ -81,17 +132,27 @@ existing findings are recorded:
 
 # Go
 cd backend/api && go vet ./... && go test -count=1 ./...
+python3 ../../tools/go_test_shard.py --self-test
+python3 ../../tools/go_test_shard.py --index 0 --shards 4
 go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
 go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
 export PATH="$(go env GOPATH)/bin:$PATH"
 staticcheck ./... && govulncheck ./...
 
 # worker and tools
-cd backend/worker && uv sync --frozen && uv run --frozen pytest
+cd backend/worker && uv sync --frozen
+uv run --frozen pytest -n 4 --ignore tests/test_realtime.py
+uv run --frozen pytest tests/test_realtime.py
 cd ../.. && uv run --project backend/worker --frozen ruff check --config tools/ruff.toml \
   backend/worker tools
 uv run --project backend/worker --frozen ruff format --check \
   --config tools/ruff.toml backend/worker tools
+
+# one shard of the integration suite
+cd backend
+mapfile -t tests < <(uv run --project worker --frozen python \
+  ../tools/pytest_shard.py --index 0 --shards 4 tests/test_integration.py)
+uv run --project worker --frozen pytest -v "${tests[@]}"
 
 # workflows
 actionlint
