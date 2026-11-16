@@ -248,11 +248,14 @@ Two analyses of one recording therefore report the same HRV whatever stages they
 **Beat series.** The strap reports R-R intervals in bursts, and the burst's arrival time
 jitters by tens to hundreds of milliseconds. The shared beat series
 (`analysis/beats.py`) chains the intervals themselves, so the beat times are exact and
-the timestamps are used only to anchor a run and to find its breaks. A run ends where the
-chain drifts more than 1.5 s from the clock, which is what a lost notification or a real
-gap looks like; a burst without intervals is normal below about 60 bpm and does not end a
-run. The series keeps a `nan` entry at every break, so no successive difference is ever
-taken across one.
+the timestamps are used only to anchor a run and to find its breaks. A run ends where a
+burst covers more than one recent interval's worth less time than elapsed since the
+previous burst, plus a margin for the notification's arrival jitter: that is the time no
+interval accounts for, which only a real gap makes large. The phase of a notification,
+and a burst without intervals below about 60 bpm, do not end a run. A stream that reports
+fewer intervals than real time is put back on the clock without a break once that time is
+more than a phase could explain, so it cannot drift away from the recording. The series
+keeps a `nan` entry at every break, so no successive difference is ever taken across one.
 
 **Artifacts.** Each run is classified with the adaptive decision rules of Lipponen &
 Tarvainen (2019), *A robust algorithm for heart rate variability time series artefact

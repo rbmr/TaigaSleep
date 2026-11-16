@@ -8,6 +8,7 @@ from taiga_worker.analysis.beats import (
     MISSED,
     NORMAL,
     SHORT,
+    BeatSeries,
     build_beat_series,
     classify_artifacts,
 )
@@ -51,6 +52,7 @@ def test_the_intervals_are_chained_exactly_through_arrival_jitter() -> None:
     # The reconstructed intervals are the reported ones, not the distance between the
     # times the notifications arrived.
     assert np.diff(series.times_s) * 1000.0 == pytest.approx(rr_ms, abs=1e-6)
+    assert series.rr_ms == pytest.approx(rr_ms, abs=1e-6)
     assert series.count == rr_ms.size
     assert np.all(np.diff(series.times_s) > 0)
 
@@ -84,6 +86,31 @@ def test_a_gap_starts_a_new_run_and_no_difference_spans_it() -> None:
     boundary = int(np.nonzero(series.run_start)[0][0])
     assert np.isnan(series.rr_ms[boundary])
     assert series.times_s[boundary + 1] - series.times_s[boundary] > 1.0
+
+
+def test_the_break_bound_follows_the_recent_interval() -> None:
+    def bursts(mean_rr_ms: float, uncovered_s: float) -> BeatSeries | None:
+        # One interval per notification, delivered every ``mean_rr + uncovered`` seconds:
+        # the time no interval accounts for is exactly ``uncovered_s`` at every burst.
+        count = 40
+        step_s = mean_rr_ms / 1000.0 + uncovered_s
+        times = np.arange(1, count + 1, dtype=np.float64) * step_s
+        return build_beat_series(times, [[mean_rr_ms]] * count)
+
+    # At 45 bpm a shortfall of 1.7 s is phase and delivery jitter, which the old fixed
+    # 1.5 s bound broke on; at 140 bpm a shortfall of 1.2 s is more than a whole interval
+    # and does mean beats are missing, which a fixed 1.5 s bound would have accepted.
+    slow = bursts(1333.0, 1.7)
+    assert slow is not None
+    assert slow.run_start.sum() == 0
+
+    fast_loss = bursts(428.6, 1.2)
+    assert fast_loss is not None
+    assert fast_loss.run_start.sum() == fast_loss.count - 1
+
+    slow_loss = bursts(1333.0, 2.0)
+    assert slow_loss is not None
+    assert slow_loss.run_start.sum() == slow_loss.count - 1
 
 
 def test_a_clean_resting_series_has_no_artifact() -> None:

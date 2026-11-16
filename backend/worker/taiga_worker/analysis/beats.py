@@ -10,11 +10,16 @@ interval of a burst on one time and made the reported variability depend on when
 phone happened to receive it.
 
 A **run** is a stretch of intervals that were reported without a break. A new run starts
-when the chain and the clock disagree by more than :data:`MAX_CHAIN_DRIFT_S`, which is
-what a lost notification or a gap in the stream looks like; no successive difference is
-taken across that boundary. A notification without intervals is normal below about
-60 bpm and does not start a new run: the next notification simply carries the intervals
-that completed in the meantime.
+when a burst covers more than one recent interval's worth less time than elapsed since the
+previous burst, which is what a lost notification or a real gap leaves behind; the phase of
+a notification and its arrival jitter do not. No successive difference is taken across that
+boundary. A notification without intervals is normal below about 60 bpm and does not start a
+new run: the next notification simply carries the intervals that completed in the meantime.
+
+Each burst is anchored where its own notification puts it once the time no interval covers
+is more than a notification's phase could explain, so a stream that reports fewer intervals
+than real time never drifts away from the recording's clock. A healthy stream is chained
+exactly, so its beat-to-beat times stay exact.
 
 :func:`beat_series` and :func:`classify_artifacts` are shared, so every consumer of
 beats reads the same series. The HRV derivation uses both, and the stagers can use the
@@ -30,12 +35,23 @@ import numpy as np
 
 from .contract import Recording
 
-# A run continues while the chained beats stay within this distance of the clock. A
-# heart-rate notification arrives about once a second and its last complete interval can
-# end anywhere in that second, so a healthy chain trails the clock by up to one second.
-# One and a half seconds leaves room for arrival jitter and still catches a break of a
-# whole beat at a slow heart rate or of several beats at a fast one.
-MAX_CHAIN_DRIFT_S = 1.5
+# A burst can cover less time than has elapsed since the previous one without any beat
+# being lost: the phone stamps a whole SDK batch with one arrival time, a burst may carry
+# no complete interval, and the last beat of a burst sits somewhere inside the interval
+# before it. The allowed shortfall therefore follows the interval actually being reported
+# instead of a fixed number of seconds; a break means more than a whole interval of time
+# is unaccounted for, not that the notification's phase moved.
+MAX_CHAIN_DRIFT_INTERVALS = 1.0
+MAX_CHAIN_DRIFT_MARGIN_S = 0.5
+# A stream that reports fewer intervals than real time would otherwise drift away from the
+# clock until every run breaks. Once the lag is more than this many intervals, no phase can
+# explain it, so the next burst is placed back on the clock and the run goes on without a
+# break. It is above the phase a healthy notification can have (less than one interval)
+# and below the break bound above.
+CHAIN_RESYNC_INTERVALS = 1.25
+# The shortfall is scaled by the median of this many most recent intervals, so a single
+# artifact or a burst of two beats does not set it.
+DRIFT_INTERVAL_HISTORY = 31
 
 # The artifact classifier: Lipponen & Tarvainen (2019), "A robust algorithm for heart
 # rate variability time series artefact correction using novel beat classification",
@@ -73,8 +89,10 @@ class BeatSeries:
 
     #: Beat times in seconds since the recording's start, in increasing order.
     times_s: np.ndarray
-    #: The interval ending at ``times_s[i + 1]``, in milliseconds. A break between runs
-    #: is ``nan``: there is no interval there and no difference may be taken across it.
+    #: The interval the strap reported between the beats at ``times_s[i]`` and
+    #: ``times_s[i + 1]``, in milliseconds. At a burst boundary the two times can sit
+    #: slightly closer or further apart than the interval, by the time the burst did not
+    #: account for. A break between runs is ``nan``.
     rr_ms: np.ndarray
     #: True where ``rr_ms`` is the break between two runs.
     run_start: np.ndarray
@@ -128,6 +146,11 @@ def build_beat_series(
     when the device reports contact at all, because the intervals of a lost contact are
     not beats. A non-finite or non-positive interval is not a beat interval and is
     dropped.
+
+    A burst starts a new run when it covers more than one recent interval's worth less
+    time than elapsed since the previous burst. The comparison is against the previous
+    burst's own time, so a constant delay in stamping cancels: what is left is the time no
+    interval accounts for, which only a real gap makes large.
     """
 
     times = np.asarray(times_s, dtype=np.float64)
@@ -144,6 +167,7 @@ def build_beat_series(
     beat_times: list[np.ndarray] = []
     rr_parts: list[np.ndarray] = []
     run_start_parts: list[np.ndarray] = []
+    history: list[float] = []
     last_beat_s: float | None = None
 
     for index in order:
@@ -154,13 +178,32 @@ def build_beat_series(
         if values.size == 0:
             continue
         rr_s = values / 1000.0
+        history.extend(float(value) for value in values)
+        if len(history) > DRIFT_INTERVAL_HISTORY:
+            del history[: len(history) - DRIFT_INTERVAL_HISTORY]
+        interval_s = float(np.median(history)) / 1000.0
+        drift_limit_s = MAX_CHAIN_DRIFT_INTERVALS * interval_s + MAX_CHAIN_DRIFT_MARGIN_S
+
         # The interval series of a burst ends at the notification's own time, so the
-        # burst's first beat sits one total interval before it.
+        # burst's first beat sits one total interval before it. Comparing that with the
+        # previous burst's time leaves exactly the time that no interval covers.
         frame_start_s = float(times[index]) - float(rr_s.sum())
-        new_run = last_beat_s is None or abs(frame_start_s - last_beat_s) > MAX_CHAIN_DRIFT_S
+        if last_beat_s is None:
+            new_run = True
+            start_s = frame_start_s
+        else:
+            lag_s = frame_start_s - last_beat_s
+            new_run = abs(lag_s) > drift_limit_s
+            if new_run or abs(lag_s) > CHAIN_RESYNC_INTERVALS * interval_s:
+                # Either a real gap, or a stream that keeps reporting fewer intervals than
+                # real time: place the burst where its own notification puts it, so the
+                # missing time is absorbed instead of accumulating over the night.
+                start_s = max(frame_start_s, last_beat_s)
+            else:
+                # A healthy burst: chaining keeps every beat-to-beat time exact.
+                start_s = last_beat_s
+        beats = start_s + np.cumsum(rr_s)
         if new_run:
-            start_s = frame_start_s if last_beat_s is None else max(frame_start_s, last_beat_s)
-            beats = start_s + np.cumsum(rr_s)
             run_starts = np.zeros(values.size, dtype=bool)
             if last_beat_s is None:
                 beat_times.append(np.concatenate(([start_s], beats)).astype(np.float64))
@@ -175,9 +218,9 @@ def build_beat_series(
                 beat_times.append(beats.astype(np.float64))
                 rr_parts.append(values)
                 run_start_parts.append(run_starts)
+                history = [float(value) for value in values]
         else:
             assert last_beat_s is not None
-            beats = last_beat_s + np.cumsum(rr_s)
             beat_times.append(beats.astype(np.float64))
             rr_parts.append(values)
             run_start_parts.append(np.zeros(values.size, dtype=bool))
@@ -331,11 +374,13 @@ __all__ = [
     "ARTIFACT_MIN_THRESHOLD_MS",
     "BeatArtifacts",
     "BeatSeries",
+    "CHAIN_RESYNC_INTERVALS",
     "ECTOPIC",
     "EXTRA",
     "GAP",
     "LONG",
-    "MAX_CHAIN_DRIFT_S",
+    "MAX_CHAIN_DRIFT_INTERVALS",
+    "MAX_CHAIN_DRIFT_MARGIN_S",
     "MISSED",
     "NORMAL",
     "SHORT",

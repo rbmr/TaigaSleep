@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from taiga_worker.analysis.beats import beat_series
 from taiga_worker.analysis.contract import (
     AASM4_STAGES,
     WAKE_SLEEP_STAGES,
@@ -321,6 +322,96 @@ def test_a_recording_shorter_than_one_window_has_no_hrv(tmp_path: Path) -> None:
     assert derived.metrics["hrv_rmssd_ms"] is None
     assert derived.support["hrv_rmssd_ms"]["reason"] == "recording_shorter_than_one_hrv_window"
     assert derived.hrv_windows is None
+
+
+NIGHT_SECONDS = int(8.6 * 3600)
+NIGHT_GAPS = (
+    (2400.0, 2408.0),
+    (7200.0, 7206.0),
+    (11700.0, 11712.0),
+    (19800.0, 19810.0),
+)
+NIGHT_BPM = (45.0, 90.0, 140.0)
+
+
+def _notification_recording(tmp_path: Path, notifications: fx.RrNotifications, *, bpm: float):
+    """A recording whose HR frames carry exactly the notifications the fixture produced."""
+
+    fx.write_recording(
+        tmp_path,
+        duration_s=NIGHT_SECONDS,
+        rr_per_sample=[()] * NIGHT_SECONDS,
+        include_ecg=False,
+        include_acc=False,
+    )
+    recording = load_recording(tmp_path)
+    times = notifications.times_s
+    hr = HrStream(
+        t_s=times,
+        hr_bpm=np.full(times.size, bpm),
+        contact_supported=np.ones(times.size, dtype=bool),
+        contact=np.ones(times.size, dtype=bool),
+        valid=np.ones(times.size, dtype=bool),
+        rr_ms=tuple(np.asarray(batch, dtype=np.float64) for batch in notifications.batches),
+        phone_ns=(recording.start_unix_ns + times * 1_000_000_000).astype(np.int64),
+    )
+    return replace(recording, hr=hr)
+
+
+def _raw_closed_form(notifications: fx.RrNotifications, start_s: float) -> float:
+    """Closed-form RMSSD of one window's underlying beat intervals, before cleaning."""
+
+    intervals = notifications.intervals_ms
+    ends = notifications.interval_ends_s
+    positions = np.nonzero(
+        (ends >= start_s) & (ends < start_s + WINDOW_S) & notifications.kept
+    )[0]
+    differences = np.diff(intervals[positions]).astype(float)
+    return float(np.sqrt(np.mean(differences**2)))
+
+
+@pytest.mark.parametrize("bpm", NIGHT_BPM)
+def test_a_whole_night_keeps_its_beat_chain_and_its_windows(
+    tmp_path: Path, bpm: float
+) -> None:
+    """A slow or fast night must not lose its chain to notification phase or jitter."""
+
+    notifications = fx.rr_notifications(
+        duration_s=NIGHT_SECONDS,
+        mean_rr_ms=60000.0 / bpm,
+        spread=0.025,
+        gaps=NIGHT_GAPS,
+        seed=5,
+    )
+    recording = _notification_recording(tmp_path, notifications, bpm=bpm)
+
+    series = beat_series(recording)
+    assert series is not None
+    assert series.count == int(np.count_nonzero(notifications.kept))
+
+    # Every genuine gap is a break, and nothing else is: the phase of the notifications
+    # and their arrival jitter must not count as missing beats.
+    breaks = int(np.count_nonzero(series.run_start))
+    assert breaks >= len(NIGHT_GAPS)
+    assert breaks - len(NIGHT_GAPS) < 0.01 * series.rr_ms.size
+
+    result = hrv_metrics(recording)
+    clean = [
+        window
+        for window in result.windows
+        if not any(window.start_s < end and window.start_s + WINDOW_S > start
+                   for start, end in NIGHT_GAPS)
+    ]
+    assert len(clean) > 0.9 * len(result.windows)
+    included = [window for window in clean if window.included]
+    assert len(included) >= 0.9 * len(clean)
+
+    # The windowed RMSSD is the closed form for the underlying beats. The few intervals the
+    # artifact step removes are the only difference; the beat chain itself must not change it.
+    for window in clean:
+        assert window.rmssd_ms == pytest.approx(
+            _raw_closed_form(notifications, window.start_s), abs=3.0
+        )
 
 
 STAGE_PROBES = {

@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
+
+import numpy as np
 
 from taiga_worker import frames
 
@@ -172,6 +175,84 @@ def rr_frames(
             break
         per_frame[frame_index].append(int(interval))
     return [tuple(values) for values in per_frame], [float(second) for second in range(duration_s)]
+
+
+@dataclass(frozen=True)
+class RrNotifications:
+    """A synthetic R-R stream laid out as the strap reports it.
+
+    ``intervals_ms[i]`` ends at ``interval_ends_s[i]``. ``times_s`` and ``batches`` are the
+    notifications that reached the phone: one per second, carrying the intervals that
+    completed since the previous one, with the ones inside a gap lost on the way.
+    """
+
+    intervals_ms: np.ndarray
+    interval_ends_s: np.ndarray
+    kept: np.ndarray
+    times_s: np.ndarray
+    batches: tuple[tuple[int, ...], ...]
+    gaps: tuple[tuple[float, float], ...]
+
+
+def rr_notifications(
+    *,
+    duration_s: int,
+    mean_rr_ms: float,
+    spread: float = 0.03,
+    jitter_s: float = 0.2,
+    gaps: Sequence[tuple[float, float]] = (),
+    seed: int = 0,
+) -> RrNotifications:
+    """A resting night's R-R stream and the notifications the phone received.
+
+    The intervals vary by ``spread`` of their mean. A notification arrives once a second
+    and carries the intervals whose beat completed in the second before it, so a slow
+    heart rate leaves some notifications without an interval and puts two in others;
+    ``times_s`` jitters by ``jitter_s`` around that second. A gap drops the notifications
+    in its range, so the beats of those seconds are lost and the next notification keeps
+    its own time.
+    """
+
+    rng = np.random.default_rng(seed)
+    intervals: list[int] = []
+    ends: list[float] = []
+    elapsed_ms = 0.0
+    while True:
+        interval = int(round(float(mean_rr_ms) * (1.0 + rng.normal(0.0, spread))))
+        if interval <= 0:
+            continue
+        elapsed_ms += interval
+        if elapsed_ms > duration_s * 1000:
+            break
+        intervals.append(interval)
+        ends.append(elapsed_ms / 1000.0)
+
+    carried: dict[int, list[int]] = {}
+    kept = np.zeros(len(intervals), dtype=bool)
+    for position, (interval, end_s) in enumerate(zip(intervals, ends)):
+        second = int(math.ceil(end_s))
+        if second >= duration_s:
+            continue
+        if any(start <= second < end for start, end in gaps):
+            continue
+        kept[position] = True
+        carried.setdefault(second, []).append(interval)
+
+    times: list[float] = []
+    batches: list[tuple[int, ...]] = []
+    for second in range(duration_s):
+        if any(start <= second < end for start, end in gaps):
+            continue
+        times.append(second + float(rng.uniform(-jitter_s, jitter_s)))
+        batches.append(tuple(carried.get(second, ())))
+    return RrNotifications(
+        intervals_ms=np.asarray(intervals, dtype=np.int64),
+        interval_ends_s=np.asarray(ends, dtype=np.float64),
+        kept=kept,
+        times_s=np.asarray(times, dtype=np.float64),
+        batches=tuple(batches),
+        gaps=tuple(gaps),
+    )
 
 
 def hr_log(
