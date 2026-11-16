@@ -29,7 +29,9 @@ no extra checkout, runner start or dependency setup.
 
 | Job | Applies to | Runs |
 | --- | --- | --- |
-| `App tests, build and lint` | the app and its Gradle inputs | `:app:testDebugUnitTest`, `:app:assembleDebug` and `:app:lintDebug` in one invocation |
+| `App unit tests` | the app and its Gradle inputs | `:app:testDebugUnitTest`, in four test JVMs |
+| `Android lint` | the app and its Gradle inputs | `:app:lintDebug` |
+| `App build` | the app and its Gradle inputs | `:app:assembleDebug`: packaging, dex and manifest merging |
 | `Kotlin static analysis` | the app, `tools/detekt/` | `tools/check_kotlin.sh` |
 | `Go tests` | `backend/api/` | `go vet` and `go test ./...` |
 | `Go static analysis` | `backend/api/` | `staticcheck`, `govulncheck` |
@@ -39,9 +41,10 @@ no extra checkout, runner start or dependency setup.
 | `Workflow lint` | every change | `actionlint`, including shellcheck on `run:` scripts |
 
 The jobs are independent of each other, so the wall clock is the slowest of
-them rather than their sum. The app job is declared first, immediately after
-`changes`, because it is the longest and a runner should start it as early as
-the queue allows.
+them rather than their sum. The three app jobs are declared first, immediately after
+`changes`, because they are the longest and a runner should start them as early
+as the queue allows. Unit tests and lint do not need the APK, so packaging is
+its own job instead of time added to the other two.
 
 ## How the parallelism is configured
 
@@ -49,10 +52,12 @@ The runner has 4 vCPUs and about 16 GB of memory, and every count below is
 chosen for that.
 
 - **Kotlin and Android.** `org.gradle.parallel` and `org.gradle.caching` are on
-  in [`gradle.properties`](../gradle.properties). The unit tests, the debug APK
-  and Android lint run in one invocation in one job, so the app's sources are
-  compiled once: the tasks that depend on the compilation overlap instead of
-  being repeated on a second runner. The unit tests run in several JVMs at once
+  in [`gradle.properties`](../gradle.properties). The unit tests, Android lint
+  and the debug APK are three jobs, because none of them needs another's
+  output: lint and the tests do not need the APK, and packaging (dex and
+  manifest merging) is the slow step that would otherwise sit on the critical
+  path of the other two. Each job recompiles the sources, which is cheap beside
+  that. The unit tests run in several JVMs at once
   (`maxParallelForks` in [`app/build.gradle.kts`](../app/build.gradle.kts), at
   most four and fewer on a smaller machine). The JVM is the isolation boundary:
   every test class stays whole in one JVM and no class shares process state with
@@ -64,7 +69,7 @@ chosen for that.
   reads is declared as an input, so a test that reads a file outside `app/src`
   needs that file listed there (today `docs/architecture.md`,
   `tools/read_diagnostics.py`, `tools/read_recording.py` and the worker's
-  `frames.py` that it imports), and `tools/ci_areas.py` must run the app job
+  `frames.py` that it imports), and `tools/ci_areas.py` must run the app jobs
   when one of those files changes. The Gradle daemon keeps its 2 GB heap and a
   test JVM its default heap, so four of them together stay well inside the
   runner's 16 GB.
@@ -138,8 +143,8 @@ existing findings are recorded:
 ## Running the checks locally
 
 ```bash
-# app, in one invocation as CI runs it
-./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+# app (CI runs these as three parallel jobs)
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 ./tools/check_kotlin.sh
 
 # Go

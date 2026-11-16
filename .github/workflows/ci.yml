@@ -59,8 +59,8 @@ jobs:
           # direction: a merge validates the whole tree.
           python3 tools/ci_areas.py "${args[@]}" --github-output "$GITHUB_OUTPUT"
 
-  app:
-    name: App tests, build and lint
+  app-tests:
+    name: App unit tests
     needs: changes
     if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
@@ -75,13 +75,10 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
 
-      # One invocation compiles the app once and runs the unit tests, the debug
-      # build and Android lint from that compilation. The unit test classes run
-      # in four JVMs and the task graphs overlap (`org.gradle.parallel`); the
-      # build cache carries compilation, packaging and lint outputs between
-      # runs. See docs/ci.md.
-      - name: Run the unit tests, build the APK and run lint
-        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+      # The unit test classes run in four JVMs (`maxParallelForks`). Nothing here needs
+      # the APK. See docs/ci.md.
+      - name: Run the unit tests
+        run: ./gradlew :app:testDebugUnitTest
 
       - name: Upload the unit test report
         if: failure()
@@ -92,6 +89,26 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  app-lint:
+    name: Android lint
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+
+      # Lint reads sources and compiled classes; it does not need the APK.
+      - name: Run Android lint
+        run: ./gradlew :app:lintDebug
+
       - name: Upload the lint report
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -100,6 +117,27 @@ jobs:
           path: app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
           retention-days: 7
+
+  app-build:
+    name: App build
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+
+      # Packaging catches what neither tests nor lint do (dex merging, manifest merging).
+      # Nothing else waits for it.
+      - name: Build the debug APK
+        run: ./gradlew :app:assembleDebug
 
   kotlin:
     name: Kotlin static analysis
@@ -321,7 +359,9 @@ jobs:
     name: gate
     needs:
       - changes
-      - app
+      - app-tests
+      - app-lint
+      - app-build
       - kotlin
       - go-tests
       - go-analysis
