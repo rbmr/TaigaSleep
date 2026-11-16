@@ -3,23 +3,23 @@
 The strap reports R-R intervals in bursts: every heart-rate notification carries the
 intervals of the beats that completed since the previous notification, and the
 notification's own timestamp jitters by tens to hundreds of milliseconds. Chaining the
-intervals gives exact beat-to-beat times; the timestamps are used only to anchor a run
-on the recording's clock and to find its breaks. Reading an interval's time from the
-notification that carried it, as the old per-frame reconstruction did, put every
-interval of a burst on one time and made the reported variability depend on when the
-phone happened to receive it.
+intervals gives exact beat-to-beat times; the timestamps are used only to place a run on
+the recording's clock and to find where beats were really lost. Reading an interval's
+time from the notification that carried it, as the old per-frame reconstruction did, put
+every interval of a burst on one time and made the reported variability depend on when
+the phone happened to receive it.
 
-A **run** is a stretch of intervals that were reported without a break. A new run starts
-when a burst covers more than one recent interval's worth less time than elapsed since the
-previous burst, which is what a lost notification or a real gap leaves behind; the phase of
-a notification and its arrival jitter do not. No successive difference is taken across that
-boundary. A notification without intervals is normal below about 60 bpm and does not start a
-new run: the next notification simply carries the intervals that completed in the meantime.
+A **run** is a stretch of beats that were reported without a loss. A loss shows as a
+persistent step up in the offset between the notification clock and the chained beats:
+the chain misses the beats of several seconds, so it stays behind the clock afterwards.
+A backlog (a notification carrying more time than elapsed), a stretch of sparse
+notifications and a late timestamp all move the offset down or up only for a while and
+come back to where they were; none of them is a loss and none of them ends a run. No
+successive difference is taken across a break.
 
-Each burst is anchored where its own notification puts it once the time no interval covers
-is more than a notification's phase could explain, so a stream that reports fewer intervals
-than real time never drifts away from the recording's clock. A healthy stream is chained
-exactly, so its beat-to-beat times stay exact.
+Each run is anchored on the clock with the median offset of its own bursts, so the beats
+keep their place across the whole recording even when the stream reports fewer intervals
+than real time for a while.
 
 :func:`beat_series` and :func:`classify_artifacts` are shared, so every consumer of
 beats reads the same series. The HRV derivation uses both, and the stagers can use the
@@ -35,23 +35,18 @@ import numpy as np
 
 from .contract import Recording
 
-# A burst can cover less time than has elapsed since the previous one without any beat
-# being lost: the phone stamps a whole SDK batch with one arrival time, a burst may carry
-# no complete interval, and the last beat of a burst sits somewhere inside the interval
-# before it. The allowed shortfall therefore follows the interval actually being reported
-# instead of a fixed number of seconds; a break means more than a whole interval of time
-# is unaccounted for, not that the notification's phase moved.
+# A loss must be a step that stays: the median offset of the bursts after it is above the
+# median before it by more than one recent interval plus this margin, and it is still above
+# it after a second window. A backlog or a late timestamp moves the offset by less than
+# that or only for a while, so neither counts as a loss.
 MAX_CHAIN_DRIFT_INTERVALS = 1.0
 MAX_CHAIN_DRIFT_MARGIN_S = 0.5
-# A stream that reports fewer intervals than real time would otherwise drift away from the
-# clock until every run breaks. Once the lag is more than this many intervals, no phase can
-# explain it, so the next burst is placed back on the clock and the run goes on without a
-# break. It is above the phase a healthy notification can have (less than one interval)
-# and below the break bound above.
-CHAIN_RESYNC_INTERVALS = 1.25
-# The shortfall is scaled by the median of this many most recent intervals, so a single
-# artifact or a burst of two beats does not set it.
-DRIFT_INTERVAL_HISTORY = 31
+# The offset is compared over this many bursts on each side of a possible break; the second
+# window after the candidate is the same length. A transient of up to one window therefore
+# cannot pass as a persistent step.
+OFFSET_WINDOW_BURSTS = 6
+# A window needs this many bursts before it can carry a verdict.
+OFFSET_MIN_BURSTS = 3
 
 # The artifact classifier: Lipponen & Tarvainen (2019), "A robust algorithm for heart
 # rate variability time series artefact correction using novel beat classification",
@@ -89,10 +84,8 @@ class BeatSeries:
 
     #: Beat times in seconds since the recording's start, in increasing order.
     times_s: np.ndarray
-    #: The interval the strap reported between the beats at ``times_s[i]`` and
-    #: ``times_s[i + 1]``, in milliseconds. At a burst boundary the two times can sit
-    #: slightly closer or further apart than the interval, by the time the burst did not
-    #: account for. A break between runs is ``nan``.
+    #: The interval ending at ``times_s[i + 1]``, in milliseconds. A break between runs
+    #: is ``nan``: there is no interval there and no difference may be taken across it.
     rr_ms: np.ndarray
     #: True where ``rr_ms`` is the break between two runs.
     run_start: np.ndarray
@@ -147,10 +140,10 @@ def build_beat_series(
     not beats. A non-finite or non-positive interval is not a beat interval and is
     dropped.
 
-    A burst starts a new run when it covers more than one recent interval's worth less
-    time than elapsed since the previous burst. The comparison is against the previous
-    burst's own time, so a constant delay in stamping cancels: what is left is the time no
-    interval accounts for, which only a real gap makes large.
+    Every interval is chained exactly. A run ends only where the offset between the
+    notification clock and the chained beats steps up and stays up: that is the time of
+    the beats that were never reported. A run is placed on the clock by the median offset
+    of its bursts.
     """
 
     times = np.asarray(times_s, dtype=np.float64)
@@ -163,74 +156,127 @@ def build_beat_series(
     else:
         contact_array = None
 
-    order = np.argsort(times, kind="stable")
-    beat_times: list[np.ndarray] = []
-    rr_parts: list[np.ndarray] = []
-    run_start_parts: list[np.ndarray] = []
-    history: list[float] = []
-    last_beat_s: float | None = None
-
-    for index in order:
+    bursts: list[tuple[float, np.ndarray]] = []
+    for index in np.argsort(times, kind="stable"):
         if contact_array is not None and not contact_array[index]:
             continue
         values = np.asarray(intervals_ms[index], dtype=np.float64)
         values = values[np.isfinite(values) & (values > 0)]
-        if values.size == 0:
-            continue
-        rr_s = values / 1000.0
-        history.extend(float(value) for value in values)
-        if len(history) > DRIFT_INTERVAL_HISTORY:
-            del history[: len(history) - DRIFT_INTERVAL_HISTORY]
-        interval_s = float(np.median(history)) / 1000.0
-        drift_limit_s = MAX_CHAIN_DRIFT_INTERVALS * interval_s + MAX_CHAIN_DRIFT_MARGIN_S
-
-        # The interval series of a burst ends at the notification's own time, so the
-        # burst's first beat sits one total interval before it. Comparing that with the
-        # previous burst's time leaves exactly the time that no interval covers.
-        frame_start_s = float(times[index]) - float(rr_s.sum())
-        if last_beat_s is None:
-            new_run = True
-            start_s = frame_start_s
-        else:
-            lag_s = frame_start_s - last_beat_s
-            new_run = abs(lag_s) > drift_limit_s
-            if new_run or abs(lag_s) > CHAIN_RESYNC_INTERVALS * interval_s:
-                # Either a real gap, or a stream that keeps reporting fewer intervals than
-                # real time: place the burst where its own notification puts it, so the
-                # missing time is absorbed instead of accumulating over the night.
-                start_s = max(frame_start_s, last_beat_s)
-            else:
-                # A healthy burst: chaining keeps every beat-to-beat time exact.
-                start_s = last_beat_s
-        beats = start_s + np.cumsum(rr_s)
-        if new_run:
-            run_starts = np.zeros(values.size, dtype=bool)
-            if last_beat_s is None:
-                beat_times.append(np.concatenate(([start_s], beats)).astype(np.float64))
-                rr_parts.append(values)
-                run_start_parts.append(run_starts)
-            else:
-                # The break itself is one entry without an interval, so the interval
-                # list stays aligned with every pair of beats.
-                beat_times.append(np.asarray([start_s], dtype=np.float64))
-                rr_parts.append(np.asarray([np.nan]))
-                run_start_parts.append(np.asarray([True]))
-                beat_times.append(beats.astype(np.float64))
-                rr_parts.append(values)
-                run_start_parts.append(run_starts)
-                history = [float(value) for value in values]
-        else:
-            assert last_beat_s is not None
-            beat_times.append(beats.astype(np.float64))
-            rr_parts.append(values)
-            run_start_parts.append(np.zeros(values.size, dtype=bool))
-        last_beat_s = float(beats[-1])
-
-    if not rr_parts:
+        if values.size:
+            bursts.append((float(times[index]), values))
+    if not bursts:
         return None
+
+    offsets = _burst_offsets(bursts)
+    breaks = _loss_breaks(bursts, offsets)
+    return _anchored_series(bursts, offsets, breaks)
+
+
+def _burst_offsets(bursts: Sequence[tuple[float, np.ndarray]]) -> np.ndarray:
+    """Notification time minus chained time of the burst's last beat, per burst.
+
+    A healthy stream wanders inside one interval (the phase of the last beat and the
+    arrival jitter). A backlog or a late timestamp moves the offset for a while; a loss
+    raises it and it stays raised.
+    """
+
+    offsets = np.empty(len(bursts), dtype=np.float64)
+    chained_s = 0.0
+    for index, (time_s, values) in enumerate(bursts):
+        chained_s += float(values.sum()) / 1000.0
+        offsets[index] = time_s - chained_s
+    return offsets
+
+
+def _loss_breaks(bursts: Sequence[tuple[float, np.ndarray]], offsets: np.ndarray) -> list[int]:
+    """Burst indices where beats were really lost, in order."""
+
+    first_interval = [0]
+    flat: list[np.ndarray] = []
+    for _, values in bursts:
+        flat.append(values)
+        first_interval.append(first_interval[-1] + values.size)
+    interval_ms = np.concatenate(flat)
+
+    count = offsets.size
+    persistent: dict[int, float] = {}
+    for index in range(1, count):
+        before = offsets[max(0, index - OFFSET_WINDOW_BURSTS) : index]
+        near = offsets[index : min(count, index + OFFSET_WINDOW_BURSTS)]
+        far = offsets[
+            min(count, index + OFFSET_WINDOW_BURSTS) : min(count, index + 2 * OFFSET_WINDOW_BURSTS)
+        ]
+        if before.size < OFFSET_MIN_BURSTS or near.size < OFFSET_MIN_BURSTS:
+            continue
+        local = interval_ms[
+            first_interval[max(0, index - OFFSET_WINDOW_BURSTS)] : first_interval[
+                min(count, index + 2 * OFFSET_WINDOW_BURSTS)
+            ]
+        ]
+        if local.size == 0:
+            continue
+        limit = (
+            MAX_CHAIN_DRIFT_INTERVALS * float(np.median(local)) / 1000.0 + MAX_CHAIN_DRIFT_MARGIN_S
+        )
+        # A loss makes the offset jump up at one burst, where the beats of the missing
+        # stretch would have been.
+        if offsets[index] - offsets[index - 1] <= limit:
+            continue
+        base = float(np.median(before))
+        step_near = float(np.median(near)) - base
+        step_far = float(np.median(far)) - base if far.size >= OFFSET_MIN_BURSTS else step_near
+        step = min(step_near, step_far)
+        if step > limit:
+            persistent[index] = step
+
+    chosen: list[int] = []
+    for index in sorted(persistent, key=lambda candidate: persistent[candidate], reverse=True):
+        if all(abs(index - taken) > OFFSET_WINDOW_BURSTS for taken in chosen):
+            chosen.append(index)
+    return sorted(chosen)
+
+
+def _anchored_series(
+    bursts: Sequence[tuple[float, np.ndarray]],
+    offsets: np.ndarray,
+    breaks: Sequence[int],
+) -> BeatSeries:
+    """Place each run on the clock at its median offset and join them with breaks."""
+
+    bounds = [0, *breaks, len(bursts)]
+    beat_times: list[np.ndarray] = []
+    rr_parts: list[np.ndarray] = []
+    run_start_parts: list[np.ndarray] = []
+    chained_s = 0.0
+
+    for run, (first, last) in enumerate(zip(bounds[:-1], bounds[1:], strict=True)):
+        anchor_s = float(np.median(offsets[first:last]))
+        beats = [chained_s + anchor_s]
+        values: list[float] = []
+        for index in range(first, last):
+            for value in bursts[index][1]:
+                chained_s += float(value) / 1000.0
+                values.append(float(value))
+                beats.append(chained_s + anchor_s)
+        beat_array = np.asarray(beats, dtype=np.float64)
+        value_array = np.asarray(values, dtype=np.float64)
+        if run == 0:
+            beat_times.append(beat_array)
+            rr_parts.append(value_array)
+            run_start_parts.append(np.zeros(value_array.size, dtype=bool))
+        else:
+            # The break itself is one entry without an interval, so the interval list
+            # stays aligned with every pair of beats.
+            beat_times.append(beat_array[:1])
+            rr_parts.append(np.asarray([np.nan]))
+            run_start_parts.append(np.asarray([True]))
+            beat_times.append(beat_array[1:])
+            rr_parts.append(value_array)
+            run_start_parts.append(np.zeros(value_array.size, dtype=bool))
+
     return BeatSeries(
-        times_s=np.concatenate(beat_times).astype(np.float64),
-        rr_ms=np.concatenate(rr_parts).astype(np.float64),
+        times_s=np.concatenate(beat_times),
+        rr_ms=np.concatenate(rr_parts),
         run_start=np.concatenate(run_start_parts),
     )
 
@@ -374,7 +420,6 @@ __all__ = [
     "ARTIFACT_MIN_THRESHOLD_MS",
     "BeatArtifacts",
     "BeatSeries",
-    "CHAIN_RESYNC_INTERVALS",
     "ECTOPIC",
     "EXTRA",
     "GAP",
@@ -383,6 +428,7 @@ __all__ = [
     "MAX_CHAIN_DRIFT_MARGIN_S",
     "MISSED",
     "NORMAL",
+    "OFFSET_WINDOW_BURSTS",
     "SHORT",
     "beat_series",
     "build_beat_series",

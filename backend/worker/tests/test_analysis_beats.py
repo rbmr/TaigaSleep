@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 from taiga_worker.analysis.beats import (
@@ -8,7 +10,6 @@ from taiga_worker.analysis.beats import (
     MISSED,
     NORMAL,
     SHORT,
-    BeatSeries,
     build_beat_series,
     classify_artifacts,
 )
@@ -88,29 +89,56 @@ def test_a_gap_starts_a_new_run_and_no_difference_spans_it() -> None:
     assert series.times_s[boundary + 1] - series.times_s[boundary] > 1.0
 
 
-def test_the_break_bound_follows_the_recent_interval() -> None:
-    def bursts(mean_rr_ms: float, uncovered_s: float) -> BeatSeries | None:
-        # One interval per notification, delivered every ``mean_rr + uncovered`` seconds:
-        # the time no interval accounts for is exactly ``uncovered_s`` at every burst.
-        count = 40
-        step_s = mean_rr_ms / 1000.0 + uncovered_s
-        times = np.arange(1, count + 1, dtype=np.float64) * step_s
-        return build_beat_series(times, [[mean_rr_ms]] * count)
+def _packets(rr_ms: np.ndarray, duration_s: int) -> list[list[float]]:
+    """One notification per second, carrying the intervals that completed in it."""
 
-    # At 45 bpm a shortfall of 1.7 s is phase and delivery jitter, which the old fixed
-    # 1.5 s bound broke on; at 140 bpm a shortfall of 1.2 s is more than a whole interval
-    # and does mean beats are missing, which a fixed 1.5 s bound would have accepted.
-    slow = bursts(1333.0, 1.7)
-    assert slow is not None
-    assert slow.run_start.sum() == 0
+    packets: list[list[float]] = [[] for _ in range(duration_s)]
+    for interval, end_s in zip(rr_ms, np.cumsum(rr_ms) / 1000.0, strict=True):
+        second = int(math.ceil(end_s))
+        if second >= duration_s:
+            break
+        packets[second].append(float(interval))
+    return packets
 
-    fast_loss = bursts(428.6, 1.2)
-    assert fast_loss is not None
-    assert fast_loss.run_start.sum() == fast_loss.count - 1
 
-    slow_loss = bursts(1333.0, 2.0)
-    assert slow_loss is not None
-    assert slow_loss.run_start.sum() == slow_loss.count - 1
+def test_a_backlog_does_not_break_the_run() -> None:
+    # Four notifications carry no interval, then one carries the intervals that completed
+    # in the meantime. The chain runs ahead of the clock for a moment and the offset comes
+    # back by itself; no beat was lost.
+    rr_ms = np.full(200, 1333.0)
+    packets = _packets(rr_ms, 200)
+    backlog: list[float] = []
+    for second in range(60, 64):
+        backlog.extend(packets[second])
+        packets[second] = []
+    packets[64] = backlog + packets[64]
+
+    series = build_beat_series(np.arange(1, len(packets) + 1), packets)
+    assert series is not None
+    assert series.run_start.sum() == 0
+    assert series.count == int(sum(len(packet) for packet in packets))
+
+
+def test_a_persistent_step_after_lost_beats_breaks_the_run() -> None:
+    # Fifteen seconds of notifications and the beats in them really disappear; the offset
+    # stays up by that time afterwards, which is the only thing that makes a break.
+    rr_ms = np.full(200, 1333.0)
+    packets = _packets(rr_ms, 200)
+    for second in range(61, 76):
+        packets[second] = []
+
+    times = np.concatenate(
+        [np.arange(1, 61, dtype=np.float64), np.arange(76, 201, dtype=np.float64)]
+    )
+    schedule = packets[:60] + packets[75:]
+    series = build_beat_series(times, schedule)
+    assert series is not None
+
+    breaks = np.nonzero(series.run_start)[0]
+    assert breaks.size == 1
+    boundary = int(breaks[0])
+    assert series.times_s[boundary + 1] - series.times_s[boundary] > 10.0
+    assert series.count == int(sum(len(packet) for packet in schedule))
 
 
 def test_a_clean_resting_series_has_no_artifact() -> None:

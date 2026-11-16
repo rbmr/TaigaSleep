@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 import numpy as np
-
 from taiga_worker import frames
 
 POLAR_EPOCH_OFFSET_NS = frames.POLAR_EPOCH_OFFSET_NS
@@ -201,6 +200,7 @@ def rr_notifications(
     spread: float = 0.03,
     jitter_s: float = 0.2,
     gaps: Sequence[tuple[float, float]] = (),
+    catchups: Sequence[tuple[float, float]] = (),
     seed: int = 0,
 ) -> RrNotifications:
     """A resting night's R-R stream and the notifications the phone received.
@@ -210,7 +210,9 @@ def rr_notifications(
     heart rate leaves some notifications without an interval and puts two in others;
     ``times_s`` jitters by ``jitter_s`` around that second. A gap drops the notifications
     in its range, so the beats of those seconds are lost and the next notification keeps
-    its own time.
+    its own time. A catch-up ``(start_s, span_s)`` empties the notifications of ``span_s``
+    seconds and delivers their intervals all at once in the next one, the way a buffered
+    backlog arrives; no beat is lost.
     """
 
     rng = np.random.default_rng(seed)
@@ -229,7 +231,7 @@ def rr_notifications(
 
     carried: dict[int, list[int]] = {}
     kept = np.zeros(len(intervals), dtype=bool)
-    for position, (interval, end_s) in enumerate(zip(intervals, ends)):
+    for position, (interval, end_s) in enumerate(zip(intervals, ends, strict=True)):
         second = int(math.ceil(end_s))
         if second >= duration_s:
             continue
@@ -237,6 +239,15 @@ def rr_notifications(
             continue
         kept[position] = True
         carried.setdefault(second, []).append(interval)
+
+    for start, span in catchups:
+        target = int(start + span)
+        if target >= duration_s or any(a <= target < b for a, b in gaps):
+            continue
+        moved: list[int] = []
+        for second in range(int(start), target):
+            moved.extend(carried.pop(second, ()))
+        carried[target] = moved + carried.get(target, [])
 
     times: list[float] = []
     batches: list[tuple[int, ...]] = []

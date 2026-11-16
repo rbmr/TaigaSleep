@@ -247,15 +247,18 @@ Two analyses of one recording therefore report the same HRV whatever stages they
 
 **Beat series.** The strap reports R-R intervals in bursts, and the burst's arrival time
 jitters by tens to hundreds of milliseconds. The shared beat series
-(`analysis/beats.py`) chains the intervals themselves, so the beat times are exact and
-the timestamps are used only to anchor a run and to find its breaks. A run ends where a
-burst covers more than one recent interval's worth less time than elapsed since the
-previous burst, plus a margin for the notification's arrival jitter: that is the time no
-interval accounts for, which only a real gap makes large. The phase of a notification,
-and a burst without intervals below about 60 bpm, do not end a run. A stream that reports
-fewer intervals than real time is put back on the clock without a break once that time is
-more than a phase could explain, so it cannot drift away from the recording. The series
-keeps a `nan` entry at every break, so no successive difference is ever taken across one.
+(`analysis/beats.py`) chains every interval exactly and watches the offset between the
+notification clock and the chained beats. In a healthy stream that offset wanders by less
+than one interval: it is the phase of the last beat inside its notification plus the
+arrival jitter. A backlog (a notification carrying more time than elapsed), a late
+timestamp or a stretch of sparse notifications moves the offset down or up for a while and
+it comes back. A real loss raises it by the missing time and it stays raised. A run ends
+only at such a persistent step: the medians of the bursts after it and after a second
+window are both more than one recent interval plus half a second above the median before
+it. The chain being ahead of the clock, a negative offset, never ends a run. Each run is
+then placed on the clock at the median offset of its own bursts, so the beats keep their
+place across the whole recording. The series keeps a `nan` entry at every break, so no
+successive difference is ever taken across one.
 
 **Artifacts.** Each run is classified with the adaptive decision rules of Lipponen &
 Tarvainen (2019), *A robust algorithm for heart rate variability time series artefact
