@@ -244,6 +244,7 @@ func scenarioWithout(name, method, path, role string, status int, forbidden []st
 }
 
 func TestRecordingRules(t *testing.T) {
+	t.Parallel()
 	aliceMeta := testMeta(ruleOpenRecording, "stopped")
 	scenarios := []tests.ApiScenario{
 		scenario("Alice lists her recordings", http.MethodGet, recordingsAPI, "alice", nil, 200,
@@ -289,8 +290,14 @@ func TestRecordingRules(t *testing.T) {
 		scenario("A worker cannot delete a recording", http.MethodDelete, recordingsAPI+"/"+ruleAliceRecording, "worker", nil, 404),
 	}
 
+	// Every scenario seeds its own app, so they can run beside each other; the
+	// process-wide cap (-parallel) decides how many at once.
 	for i := range scenarios {
-		scenarios[i].Test(t)
+		scenario := scenarios[i]
+		t.Run(scenario.Name, func(t *testing.T) {
+			t.Parallel()
+			scenario.Test(t)
+		})
 	}
 }
 
@@ -298,6 +305,7 @@ func TestRecordingRules(t *testing.T) {
 // account's running total with the recording, and that total is what the upload path
 // enforces the quota from. Alice starts at 106, of which this recording holds 100.
 func TestDeleteRecordingFreesTheQuota(t *testing.T) {
+	t.Parallel()
 	s := scenario("Deleting a recording takes its bytes off the account", http.MethodDelete,
 		recordingsAPI+"/"+ruleAliceRecording, "alice", nil, 204)
 	s.AfterTestFunc = func(t testing.TB, app *tests.TestApp, _ *http.Response) {
@@ -313,6 +321,7 @@ func TestDeleteRecordingFreesTheQuota(t *testing.T) {
 }
 
 func TestRecordingHooks(t *testing.T) {
+	t.Parallel()
 	scenarios := []tests.ApiScenario{
 		scenario("A sealed recording cannot change its metadata", http.MethodPatch,
 			recordingsAPI+"/"+ruleAliceRecording, "alice",
@@ -337,12 +346,19 @@ func TestRecordingHooks(t *testing.T) {
 			map[string]any{"id": "rec_mismatch", "meta": testMeta("rec_other", "stopped")}, 422,
 			`"code":"invalid_meta"`),
 	}
+	// Every scenario seeds its own app, so they can run beside each other; the
+	// process-wide cap (-parallel) decides how many at once.
 	for i := range scenarios {
-		scenarios[i].Test(t)
+		scenario := scenarios[i]
+		t.Run(scenario.Name, func(t *testing.T) {
+			t.Parallel()
+			scenario.Test(t)
+		})
 	}
 }
 
 func TestAnalysisRules(t *testing.T) {
+	t.Parallel()
 	scenarios := []tests.ApiScenario{
 		scenarioWithout("Alice lists her analyses", http.MethodGet, analysesAPI, "alice", 200,
 			[]string{`"bobanalysis0001"`}, `"id":"`+ruleLeasedAnalysis+`"`, `"id":"`+ruleSucceededAnalysis+`"`, `"totalItems":2`),
@@ -377,12 +393,19 @@ func TestAnalysisRules(t *testing.T) {
 		scenario("An access token cannot delete an analysis", http.MethodDelete, analysesAPI+"/"+ruleSucceededAnalysis, "token", nil, 404),
 		scenario("A worker cannot delete an analysis it holds", http.MethodDelete, analysesAPI+"/"+ruleLeasedAnalysis, "worker", nil, 404),
 	}
+	// Every scenario seeds its own app, so they can run beside each other; the
+	// process-wide cap (-parallel) decides how many at once.
 	for i := range scenarios {
-		scenarios[i].Test(t)
+		scenario := scenarios[i]
+		t.Run(scenario.Name, func(t *testing.T) {
+			t.Parallel()
+			scenario.Test(t)
+		})
 	}
 }
 
 func TestAnalysisHooks(t *testing.T) {
+	t.Parallel()
 	scenarios := []tests.ApiScenario{
 		scenario("An analysis request must name an announced algorithm", http.MethodPost, analysesAPI, "alice",
 			map[string]any{"recording": ruleAliceRecording, "algorithm": "nobody-offers-this"}, 422,
@@ -403,7 +426,13 @@ func TestAnalysisHooks(t *testing.T) {
 			map[string]any{"recording": ruleAliceRecording, "algorithm": "baseline", "params": map[string]any{"window": 5}}, 200,
 			`"status":"queued"`, `"attempts":0`, `"params":{"window":5}`, `"error":""`),
 	}
+	// Every scenario seeds its own app, so they can run beside each other; the
+	// process-wide cap (-parallel) decides how many at once.
 	for i := range scenarios {
-		scenarios[i].Test(t)
+		scenario := scenarios[i]
+		t.Run(scenario.Name, func(t *testing.T) {
+			t.Parallel()
+			scenario.Test(t)
+		})
 	}
 }

@@ -16,6 +16,7 @@ import (
 // noticed in a browser.
 
 func TestOpenAPIDocumentIsValid(t *testing.T) {
+	t.Parallel()
 	document := OpenAPIDocument()
 
 	if version, _ := document["openapi"].(string); version != "3.1.0" {
@@ -148,6 +149,7 @@ func TestOpenAPIDocumentIsValid(t *testing.T) {
 // serves the stream, so there is no route of this API to describe, only the topics a
 // client subscribes to.
 func TestOpenAPIDocumentDescribesRealtime(t *testing.T) {
+	t.Parallel()
 	document := OpenAPIDocument()
 	realtime, ok := document["x-realtime"].(map[string]any)
 	if !ok {
@@ -176,6 +178,7 @@ func TestOpenAPIDocumentDescribesRealtime(t *testing.T) {
 }
 
 func TestOpenAPIDocumentIsDeterministic(t *testing.T) {
+	t.Parallel()
 	encode := func() string {
 		data, err := json.MarshalIndent(OpenAPIDocument(), "", "  ")
 		if err != nil {
@@ -193,6 +196,7 @@ func TestOpenAPIDocumentIsDeterministic(t *testing.T) {
 // generated from the collection schema: the record routes exist, and the fields they
 // describe are the fields the server validates.
 func TestOpenAPIDocumentDescribesTheRecordAPI(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	document := decode[map[string]any](t, s.expect(200, http.MethodGet, "/v1/openapi.json", "", nil, nil))
 
@@ -277,6 +281,7 @@ func containsString(values []any, want string) bool {
 }
 
 func TestDocsPageServesVendoredSwaggerUI(t *testing.T) {
+	t.Parallel()
 	for _, want := range []string{
 		docsAssetPrefix + "swagger-ui.css",
 		docsAssetPrefix + "swagger-ui-bundle.js",
@@ -308,6 +313,7 @@ func TestDocsPageServesVendoredSwaggerUI(t *testing.T) {
 }
 
 func TestNoCommittedOpenAPISpec(t *testing.T) {
+	t.Parallel()
 	// The document is generated per process. A checked-in copy would silently
 	// drift from the routes, so it must not come back.
 	if _, err := os.Stat("../../openapi.json"); err == nil {

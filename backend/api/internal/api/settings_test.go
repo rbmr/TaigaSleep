@@ -237,6 +237,7 @@ func TestAppNameChangedInTheDashboardSurvivesARestart(t *testing.T) {
 // from its first start: the migration enables the rules, and a rule the operator changes
 // through the settings API afterwards is not written over by a later start.
 func TestRateLimitDefaultsAreSetOnceAndTheOperatorKeepsTheChoice(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	fresh := migratedApp(t, dir)
 	if !fresh.Settings().RateLimits.Enabled {

@@ -7,9 +7,10 @@ name: ci
 # failure. tools/ci_areas.py decides which areas a change touches, so a
 # documentation pull request runs no build job and still gets a green gate.
 #
-# Every other job is gated on one area, so no job both applies and stays
-# pending. Checks that apply to the whole repository (the workflow lint) always
-# run.
+# Every job is gated on one area, so no job both applies and stays pending.
+# Checks that apply to the whole repository (the workflow lint) always run.
+# The longest job (the app) is declared first so it starts as early as the
+# runner queue allows.
 
 on:
   pull_request:
@@ -74,7 +75,9 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
 
-      - name: Run unit tests
+      # The unit test classes run in four JVMs (`maxParallelForks`). Nothing here needs
+      # the APK. See docs/ci.md.
+      - name: Run the unit tests
         run: ./gradlew :app:testDebugUnitTest
 
       - name: Upload the unit test report
@@ -86,8 +89,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  app-build:
-    name: App build and Android lint
+  app-lint:
+    name: Android lint
     needs: changes
     if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
@@ -102,10 +105,9 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
 
-      # One invocation, so Gradle runs the two task graphs side by side and the
-      # code they both need is compiled once.
-      - name: Build the debug APK and run Android lint
-        run: ./gradlew :app:assembleDebug :app:lintDebug
+      # Lint reads sources and compiled classes; it does not need the APK.
+      - name: Run Android lint
+        run: ./gradlew :app:lintDebug
 
       - name: Upload the lint report
         if: failure()
@@ -115,6 +117,27 @@ jobs:
           path: app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
           retention-days: 7
+
+  app-build:
+    name: App build
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+
+      # Packaging catches what neither tests nor lint do (dex merging, manifest merging).
+      # Nothing else waits for it.
+      - name: Build the debug APK
+        run: ./gradlew :app:assembleDebug
 
   kotlin:
     name: Kotlin static analysis
@@ -151,54 +174,14 @@ jobs:
           go-version-file: backend/api/go.mod
           cache-dependency-path: backend/api/go.sum
 
-      # The matrix shards below are derived from the test list, so this check
-      # fails when a test exists that no shard would run.
-      - name: Check that the shards cover every test
-        run: python3 ../../tools/go_test_shard.py --self-test
-
       - name: Run go vet
         run: go vet ./...
 
-      # internal/api is split over the matrix below; every other package runs
-      # here, together with the vet that has to see the whole module.
-      - name: Run the unit tests of the other packages
-        run: |
-          set -euo pipefail
-          mapfile -t packages < <(go list ./... | grep -v '/internal/api$')
-          go test -count=1 "${packages[@]}"
-
-  go-tests-api:
-    name: Go tests (${{ matrix.shard }}/4)
-    needs: changes
-    if: needs.changes.outputs.go == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      # Every shard reports, so a failure names the tests that broke instead of
-      # cancelling the shards that would have covered the rest.
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3]
-    defaults:
-      run:
-        working-directory: backend/api
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: backend/api/go.mod
-          cache-dependency-path: backend/api/go.sum
-
-      - name: Work out this shard's tests
-        id: shard
-        run: |
-          set -euo pipefail
-          pattern="$(python3 ../../tools/go_test_shard.py --index "${{ matrix.shard }}" --shards 4)"
-          echo "pattern=$pattern" >> "$GITHUB_OUTPUT"
-
-      - name: Run the shard's unit tests
-        run: go test -count=1 -run '${{ steps.shard.outputs.pattern }}' ./internal/api
+      # One process per package, packages side by side (`-p` defaults to the
+      # runner's core count). The API's tests that share no state call
+      # t.Parallel(), so the largest package runs several tests at once too.
+      - name: Run the unit tests
+        run: go test -count=1 ./...
 
   go-analysis:
     name: Go static analysis
@@ -301,17 +284,11 @@ jobs:
             --config tools/ruff.toml backend/worker tools
 
   integration:
-    name: Integration tests (${{ matrix.shard }}/4)
+    name: Integration tests
     needs: changes
     if: needs.changes.outputs.integration == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    strategy:
-      # Every shard reports, so a failure names the tests that broke instead of
-      # cancelling the shards that would have covered the rest.
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3]
     defaults:
       run:
         working-directory: backend
@@ -343,16 +320,12 @@ jobs:
       - name: Sync the worker environment
         run: uv sync --project worker --frozen
 
-      # The suite shares one server between the tests of a process, so each job
-      # gets its own shard and therefore its own server, data directory and
-      # worker processes.
-      - name: Run this shard of the integration tests
-        run: |
-          set -euo pipefail
-          mapfile -t tests < <(uv run --project worker --frozen python \
-            ../tools/pytest_shard.py --index "${{ matrix.shard }}" --shards 4 \
-            tests/test_integration.py)
-          uv run --project worker --frozen pytest -v "${tests[@]}"
+      # Every pytest worker is a separate process, so the session fixture starts
+      # its own API server on an OS-assigned port with its own data directory
+      # and worker processes. Tests share one server only within a worker, where
+      # they still run one after the other.
+      - name: Run the integration tests in four workers
+        run: uv run --project worker --frozen pytest -n 4 tests/test_integration.py
 
   workflows:
     name: Workflow lint
@@ -387,10 +360,10 @@ jobs:
     needs:
       - changes
       - app-tests
+      - app-lint
       - app-build
       - kotlin
       - go-tests
-      - go-tests-api
       - go-analysis
       - worker-tests
       - python-lint
