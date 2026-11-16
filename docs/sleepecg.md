@@ -31,12 +31,21 @@ Set `TAIGA_JOB_MEMORY_MB=2048`; 1024 MiB fails during the Keras/torch import.
 
 ## How the adapter works
 
-1. **Beat source.** When ECG is present and `prefer_ecg=true` (default), the
-   adapter runs `sleepecg.detect_heartbeats()` on the normalized ECG. This is
-   the most reliable path. If ECG is absent, the adapter reconstructs beat
-   times from the H10 RR intervals, anchored to the HR sample times and using
-   the shared 300–2000 ms RR validity rules. This is the path for HR-only
-   nights.
+1. **Beat source.** Both paths read the raw streams only. When ECG is present
+   and `prefer_ecg=true` (default), the adapter runs
+   `sleepecg.detect_heartbeats()` on each contiguous stretch of the normalized
+   ECG. A stretch ends at a gap the decoder reports, at a saturated or
+   non-finite sample, and at a moment the strap reports no skin contact; a
+   stretch shorter than 2 s carries no beat. Every detected position is placed
+   on the clock through that stretch's own sample timestamps, so a dropout or a
+   reconnect cannot move the beats after it. This is the most reliable path. If
+   ECG is absent, the adapter takes its beat times from the shared R-R beat
+   series ([`analysis-contract.md`](analysis-contract.md#heart-rate-variability)):
+   the strap's intervals are chained exactly within a run, a run is placed on
+   the clock at the median offset of its own notifications, and a new run starts
+   only where beats were really lost. An interval is never removed from the
+   chain, because removing one would move every beat after it. This is the path
+   for HR-only nights.
 2. **Record.** The beats are passed to `SleepRecord(heartbeat_times=...,`
    `recording_start_time=...)`. The start time is converted from the recording
    UTC start into the recording timezone. Age, gender and weight are passed only
@@ -135,7 +144,7 @@ The `algorithm` block adds:
 ```json
 "algorithm": {
   "id": "sleep-ecg",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "package": "sleepecg",
   "package_version": "0.6.0",
   "classifier": "wrn-gru-mesa",
@@ -162,10 +171,12 @@ accuracy. The ECG path is preferred; the RR path is forced with
 | B (9.41 h) | ECG | 7.7 s | 653 MiB | 90.8 | 128.5 min | 42.5 min | 377.0 min | 17.0 min |
 | B (9.41 h) | RR | 7.4 s | 651 MiB | 93.0 | 378.0 min | 0.0 min | 170.5 min | 16.5 min |
 
-The RR path is clearly less reliable than the ECG detector on these nights.
-Prefer ECG whenever it is available; the RR path is the fallback for HR-only
-recordings, where there is no ECG to compare against. Deep sleep is intentionally
-absent, so `light`/`deep` are `null` and `nrem` is the NREM total.
+The RR rows were measured with the per-frame reconstruction the adapter used
+before version 1.2.0 and have not been re-measured since the beats moved to the
+shared series, so they describe the older output. Prefer ECG whenever it is
+available; the RR path is the fallback for HR-only recordings, where there is no
+ECG to compare against. Deep sleep is intentionally absent, so `light`/`deep` are
+`null` and `nrem` is the NREM total.
 
 Synthetic 120 s fixture (pass `{"min_usable_epochs":1}`): 3.4 s, 409 MiB,
 quality 86.9, stages wake 90 s + unknown 30 s. This proves the path; it is not

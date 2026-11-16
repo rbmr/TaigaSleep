@@ -68,6 +68,7 @@ settings/SettingsScreen.kt 2
 settings/TokensScreen.kt 1
 settings/UploadsScreen.kt 2
 theme/Color.kt 0
+theme/ContrastLevel.kt 0
 theme/DisplayChoices.kt 0
 theme/DisplaySettings.kt 0
 theme/Formatting.kt 0

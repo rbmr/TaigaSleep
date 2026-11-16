@@ -19,6 +19,7 @@ import com.rbmr.taigasleep.ui.TaigaApp
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 import com.rbmr.taigasleep.ui.theme.ThemeMode
 import com.rbmr.taigasleep.ui.theme.rememberFormats
+import com.rbmr.taigasleep.ui.theme.rememberContrastLevel
 import com.rbmr.taigasleep.ui.theme.rememberMotionScale
 import kotlinx.coroutines.launch
 
@@ -48,6 +49,7 @@ class MainActivity : ComponentActivity() {
           }
       val motionScale = rememberMotionScale(animations)
       val formats = rememberFormats()
+      val contrast = rememberContrastLevel()
       val view = LocalView.current
       if (!view.isInEditMode) {
         SideEffect {
@@ -58,6 +60,7 @@ class MainActivity : ComponentActivity() {
       }
       TaigaTheme(
           darkTheme = darkTheme,
+          contrast = contrast,
           textSize = textSize,
           motionScale = motionScale,
           formats = formats,
