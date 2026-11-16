@@ -18,11 +18,10 @@ import com.rbmr.taigasleep.notifications.resultsOpened
 import com.rbmr.taigasleep.ui.TaigaApp
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 import com.rbmr.taigasleep.ui.theme.ThemeMode
+import com.rbmr.taigasleep.ui.theme.rememberMotionScale
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-  private val settings by lazy { AppSettings(this) }
-
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     // A start from the results notification read its counts; any other start changes nothing.
@@ -33,14 +32,20 @@ class MainActivity : ComponentActivity() {
     lifecycleScope.launch {
       repeatOnLifecycle(Lifecycle.State.STARTED) { appContainer.liveSync.run() }
     }
+    // The display choices are one store of the app, so this screen and the Display screen that
+    // changes them always agree.
+    val display = appContainer.displaySettings
     setContent {
-      val themeMode by settings.themeMode.collectAsStateWithLifecycle()
+      val themeMode by display.themeMode.collectAsStateWithLifecycle()
+      val textSize by display.textSize.collectAsStateWithLifecycle()
+      val animations by display.animations.collectAsStateWithLifecycle()
       val darkTheme =
           when (themeMode) {
             ThemeMode.SYSTEM -> isSystemInDarkTheme()
             ThemeMode.LIGHT -> false
             ThemeMode.DARK -> true
           }
+      val motionScale = rememberMotionScale(animations)
       val view = LocalView.current
       if (!view.isInEditMode) {
         SideEffect {
@@ -49,11 +54,8 @@ class MainActivity : ComponentActivity() {
           controller.isAppearanceLightNavigationBars = !darkTheme
         }
       }
-      TaigaTheme(darkTheme = darkTheme) {
-        TaigaApp(
-            themeMode = themeMode,
-            onThemeModeChange = settings::setThemeMode,
-        )
+      TaigaTheme(darkTheme = darkTheme, textSize = textSize, motionScale = motionScale) {
+        TaigaApp()
       }
     }
   }

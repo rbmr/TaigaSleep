@@ -25,6 +25,7 @@ import com.rbmr.taigasleep.sync.UploadScheduler
 import com.rbmr.taigasleep.sync.UploadSettings
 import com.rbmr.taigasleep.sync.UploadStore
 import com.rbmr.taigasleep.sync.db.TaigaDatabase
+import com.rbmr.taigasleep.ui.theme.DisplaySettings
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -108,6 +109,9 @@ class AppContainer(private val application: Application) {
 
   /** The personal data the user entered, kept on the phone and read when SleepECG is requested. */
   val personalDataStore: PersonalDataStore by offMain { PersonalDataStore(application) }
+
+  /** The theme, the text size and the animations: one store, read by the activity and the screen. */
+  val displaySettings: DisplaySettings by offMain { DisplaySettings(application) }
 
   val recordingLibrary: RecordingLibrary by offMain { RecordingLibrary(application) }
 
