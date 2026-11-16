@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 /** A source that hands out the library's list and cached payloads; only reading a recording works. */
@@ -39,6 +40,11 @@ private class FakeRecordingSource(
   override suspend fun cachedResult(key: String, analysisId: String?): AnalysisDto? {
     cachedKeys += key
     return cached[key]
+  }
+
+  /** A payload that lands on the phone, as the result cache stores it. */
+  fun cache(key: String, result: AnalysisDto) {
+    cached[key] = result
   }
 
   /** The results a server read stores: reading a recording makes its result cached. */
@@ -255,5 +261,76 @@ class TrendsViewModelTest {
     val drawn = viewModel(FakeRecordingSource(listOf(late))).state.value.data.nights.filterNotNull().single()
 
     assertEquals(evening, drawn.date)
+  }
+
+  @Test
+  fun `an upload that moves on neither computes the trends again nor reads a result`() {
+    val wake = LocalDate.now(zone).minusDays(1)
+    val start = at(wake.minusDays(1), "23:00")
+    val end = at(wake, "07:00")
+    val uploading =
+        night(
+                key = "uploading",
+                localId = "uploading",
+                remoteId = "r1",
+                startUtcMs = start,
+                endUtcMs = end,
+                durationMs = end - start,
+                analysisId = "a1",
+            )
+            .copy(progress = 0.25f)
+    val source =
+        FakeRecordingSource(
+            listOf(uploading),
+            mapOf("uploading" to analysis("a1", mapOf(TrendItems.TOTAL_SLEEP to 6.0 * 3600))),
+        )
+    val model = viewModel(source)
+    val computed = model.state.value
+    val reads = source.cachedKeys.size
+
+    // The same recording with a new progress: what an upload tick hands to the library.
+    source.recordings.value = listOf(uploading.copy(progress = 0.9f))
+
+    assertSame("a progress tick recomputed the trends", computed, model.state.value)
+    assertEquals("a progress tick read a result from the phone", reads, source.cachedKeys.size)
+  }
+
+  @Test
+  fun `a night whose chosen analysis changes is read again and drawn from it`() {
+    val wake = LocalDate.now(zone).minusDays(1)
+    val start = at(wake.minusDays(1), "23:00")
+    val end = at(wake, "07:00")
+    val withoutResult =
+        night(
+            key = "night",
+            localId = "night",
+            remoteId = "r1",
+            startUtcMs = start,
+            endUtcMs = end,
+            durationMs = end - start,
+        )
+    val source = FakeRecordingSource(listOf(withoutResult))
+    val model = viewModel(source)
+    assertNull(model.state.value.data.totalSleep.value)
+    val reads = source.cachedKeys.size
+
+    // The user chooses an analysis whose payload is on the phone.
+    source.cache(
+        "night",
+        analysis(
+            "a2",
+            mapOf(TrendItems.TOTAL_SLEEP to 7.0 * 3600, TrendItems.DATA_QUALITY to 90.0),
+        ),
+    )
+    source.recordings.value =
+        listOf(
+            withoutResult.copy(
+                analyses = listOf(Analysis("a2", "stager", "1", AnalysisStatus.DONE)),
+                selectedAnalysisId = "a2",
+            )
+        )
+
+    assertEquals(reads + 1, source.cachedKeys.size)
+    assertEquals(7.0 * 3600, model.state.value.data.totalSleep.value ?: 0.0, 0.001)
   }
 }

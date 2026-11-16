@@ -21,9 +21,9 @@ import com.rbmr.taigasleep.insights.formatDuration
 import com.rbmr.taigasleep.insights.TrendNight
 import com.rbmr.taigasleep.insights.TrendRanges
 import com.rbmr.taigasleep.insights.Trends
-import com.rbmr.taigasleep.insights.clockMinuteOfNightMinute
 import com.rbmr.taigasleep.insights.nightMinuteOfDay
 import com.rbmr.taigasleep.ui.components.ChoiceChip
+import com.rbmr.taigasleep.ui.components.ClockAxisFormat
 import com.rbmr.taigasleep.ui.components.ClockSteps
 import com.rbmr.taigasleep.ui.components.HourSteps
 import com.rbmr.taigasleep.ui.components.Section
@@ -34,10 +34,10 @@ import com.rbmr.taigasleep.ui.components.TrendReference
 import com.rbmr.taigasleep.ui.components.TrendSeries
 import com.rbmr.taigasleep.ui.components.TrendSpanPoint
 import com.rbmr.taigasleep.ui.components.TrendSummary
+import com.rbmr.taigasleep.ui.components.WholeAxisFormat
 import com.rbmr.taigasleep.ui.components.WholeSteps
 import com.rbmr.taigasleep.ui.components.totalSleepHours
 import com.rbmr.taigasleep.ui.components.trendClock
-import com.rbmr.taigasleep.ui.components.trendWhole
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -127,7 +127,7 @@ private fun ScoreChart(data: Trends) {
       summary = listOf(TrendSummary(averageLabel(), value.toString())),
       description = stringResource(R.string.trends_description_whole, title, value, average.nights),
       emptyMessage = moreRecordings(average.enough),
-      axisFormat = ::trendWhole,
+      axisFormat = WholeAxisFormat,
       steps = WholeSteps,
   )
 }
@@ -224,7 +224,7 @@ private fun ScheduleChart(data: Trends) {
                 )
               },
           ),
-      axisFormat = { trendClock(clockMinuteOfNightMinute(it.roundToInt())) },
+      axisFormat = ClockAxisFormat,
       steps = ClockSteps,
       minStep = 60.0,
   )
@@ -244,7 +244,7 @@ private fun EfficiencyChart(data: Trends) {
       description =
           stringResource(R.string.trends_description_percent, title, value, average.nights),
       emptyMessage = moreRecordings(average.enough),
-      axisFormat = ::trendWhole,
+      axisFormat = WholeAxisFormat,
       valueFormat = { "${it.roundToInt()}%" },
       topLabel = { "$it%" },
       steps = WholeSteps,
@@ -286,7 +286,7 @@ private fun HeartRateChart(data: Trends) {
               nights,
           ),
       emptyMessage = moreRecordings(minimum.enough && mean.enough),
-      axisFormat = ::trendWhole,
+      axisFormat = WholeAxisFormat,
       valueFormat = { "${it.roundToInt()} bpm" },
       topLabel = { "$it bpm" },
       steps = WholeSteps,
@@ -306,7 +306,7 @@ private fun HrvChart(data: Trends) {
       summary = listOf(TrendSummary(averageLabel(), "$value ms")),
       description = stringResource(R.string.trends_description_hrv, title, value, average.nights),
       emptyMessage = moreRecordings(average.enough),
-      axisFormat = ::trendWhole,
+      axisFormat = WholeAxisFormat,
       valueFormat = { "${it.roundToInt()} ms" },
       topLabel = { "$it ms" },
       steps = WholeSteps,

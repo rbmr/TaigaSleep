@@ -4,6 +4,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.rbmr.taigasleep.R
 
@@ -32,6 +37,7 @@ internal enum class MainOverlay {
   UPLOADS,
   ANALYSIS,
   NOTIFICATIONS,
+  DISPLAY,
   NIGHT,
   GUIDANCE,
   LICENCES,
@@ -39,32 +45,78 @@ internal enum class MainOverlay {
   NONE,
 }
 
-/** The one thing open above the pager, from what is open. */
-internal fun mainOverlay(
-    remote: Boolean = false,
-    tokens: Boolean = false,
-    personal: Boolean = false,
-    uploads: Boolean = false,
-    analysis: Boolean = false,
-    notifications: Boolean = false,
-    night: Boolean = false,
-    guidance: Boolean = false,
-    licences: Boolean = false,
-    about: Boolean = false,
-): MainOverlay =
-    when {
-      remote -> MainOverlay.REMOTE
-      tokens -> MainOverlay.TOKENS
-      personal -> MainOverlay.PERSONAL
-      uploads -> MainOverlay.UPLOADS
-      analysis -> MainOverlay.ANALYSIS
-      notifications -> MainOverlay.NOTIFICATIONS
-      night -> MainOverlay.NIGHT
-      guidance -> MainOverlay.GUIDANCE
-      licences -> MainOverlay.LICENCES
-      about -> MainOverlay.ABOUT
-      else -> MainOverlay.NONE
+/** The one thing open above the pager, from every page the user opened. */
+internal fun mainOverlay(open: Collection<MainOverlay>): MainOverlay =
+    MainOverlay.entries.firstOrNull { it != MainOverlay.NONE && it in open } ?: MainOverlay.NONE
+
+/**
+ * What the user opened above the tabs: pages stacked on the tabs, and the recording a History row
+ * opened. Only the one that is on top is drawn, and Back closes it to the page beneath, so the
+ * licences open from About return to About. It is the screen's own state, saved with it.
+ */
+internal class MainNavigation(
+    open: List<MainOverlay> = emptyList(),
+    detailLocal: String? = null,
+    detailRemote: String? = null,
+    detailAnalysis: String? = null,
+) {
+  var open: List<MainOverlay> by mutableStateOf(open)
+    private set
+
+  var detailLocal: String? by mutableStateOf(detailLocal)
+    private set
+
+  var detailRemote: String? by mutableStateOf(detailRemote)
+    private set
+
+  var detailAnalysis: String? by mutableStateOf(detailAnalysis)
+    private set
+
+  /** The page on top of the tabs, or [MainOverlay.NONE] when the tabs are. */
+  val top: MainOverlay
+    get() = mainOverlay(open)
+
+  /** Opens [overlay] above what is already open. */
+  fun show(overlay: MainOverlay) {
+    if (overlay != MainOverlay.NONE && overlay !in open) open = open + overlay
+  }
+
+  /** Closes the page on top, showing the one it was opened from. */
+  fun hide() {
+    val closed = top
+    if (closed == MainOverlay.NONE) return
+    open = open - closed
+    if (closed == MainOverlay.NIGHT) {
+      detailLocal = null
+      detailRemote = null
+      detailAnalysis = null
     }
+  }
+
+  /** Opens the recording a row names: the local id, the server id and the analysis, if any. */
+  fun openRecording(local: String?, remote: String?, analysis: String?) {
+    detailLocal = local
+    detailRemote = remote
+    detailAnalysis = analysis
+    show(MainOverlay.NIGHT)
+  }
+
+  companion object {
+    /** Its state survives a rotation as the state of the screen it belongs to. */
+    val Saver: Saver<MainNavigation, Any> =
+        listSaver(
+            save = { listOf(it.open, it.detailLocal, it.detailRemote, it.detailAnalysis) },
+            restore = {
+              MainNavigation(
+                  open = it[0] as List<MainOverlay>,
+                  detailLocal = it[1] as String?,
+                  detailRemote = it[2] as String?,
+                  detailAnalysis = it[3] as String?,
+              )
+            },
+        )
+  }
+}
 
 /**
  * Whether Back on [tab] returns to Home instead of leaving the app. It does on every tab but Home:

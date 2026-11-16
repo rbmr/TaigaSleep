@@ -13,6 +13,7 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/hook"
+	"github.com/pocketbase/pocketbase/tools/types"
 )
 
 // The record API's rules decide who may reach a record; these hooks decide what
@@ -27,6 +28,9 @@ func registerRecordHooks(app core.App) {
 	app.OnRecordUpdateRequest("recordings").BindFunc(updateRecordingHook)
 	app.OnRecordDeleteRequest("recordings").BindFunc(deleteRecordingHook)
 	app.OnRecordCreateRequest("analyses").BindFunc(createAnalysisHook)
+	// The result is stored apart from the queue, so reading one analysis by id
+	// attaches it to the record the client already knows. Lists never call this.
+	app.OnRecordViewRequest("analyses").BindFunc(viewAnalysisHook)
 	// The columns the rules compare are filled here, whichever path saves the row:
 	// an analysis belongs to its recording's account, and a recording names the worker
 	// whose lease is live so its list rule needs no back-relation.
@@ -38,6 +42,23 @@ func registerRecordHooks(app core.App) {
 	} {
 		save.BindFunc(leaseSyncHook)
 	}
+}
+
+// viewAnalysisHook attaches an analysis's result to the one record the view route
+// returns. The result lives in its own collection, so this is the only place that
+// reads it for a record API answer; a list and a queue claim never do.
+func viewAnalysisHook(e *core.RecordRequestEvent) error {
+	raw, err := analysisResult(e.App, e.Record.Id)
+	switch {
+	case err == nil:
+		e.Record.Set("result", types.JSONRaw(raw))
+	case errors.Is(err, sql.ErrNoRows):
+		e.Record.Set("result", nil)
+	default:
+		return err
+	}
+	e.Record.WithCustomData(true)
+	return e.Next()
 }
 
 // ownAnalysisHook fills an analysis's owner from its recording. The column is the
@@ -312,7 +333,6 @@ func createAnalysisHook(e *core.RecordRequestEvent) error {
 	e.Record.Set("worker", "")
 	e.Record.Set("lease_until", "")
 	e.Record.Set("finished_at", "")
-	e.Record.Set("result", nil)
 	e.Record.Set("summary", nil)
 	if err := e.Next(); err != nil {
 		// Two identical requests can pass the lookup above before either has saved;

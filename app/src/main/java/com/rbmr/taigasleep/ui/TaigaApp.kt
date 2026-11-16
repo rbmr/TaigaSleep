@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -33,12 +34,13 @@ import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.guard.GuidanceFlows
 import com.rbmr.taigasleep.ui.components.BottomBarItem
 import com.rbmr.taigasleep.ui.components.TaigaBottomBar
+import com.rbmr.taigasleep.ui.history.HistoryScreen
 import com.rbmr.taigasleep.ui.home.HomeScreen
 import com.rbmr.taigasleep.ui.recording.RecordingDetailScreen
-import com.rbmr.taigasleep.ui.history.HistoryScreen
 import com.rbmr.taigasleep.ui.settings.AboutScreen
 import com.rbmr.taigasleep.ui.settings.AccessTokensScreen
 import com.rbmr.taigasleep.ui.settings.AnalysisScreen
+import com.rbmr.taigasleep.ui.settings.DisplayScreen
 import com.rbmr.taigasleep.ui.settings.FlowScreen
 import com.rbmr.taigasleep.ui.settings.LicencesScreen
 import com.rbmr.taigasleep.ui.settings.NotificationsScreen
@@ -46,52 +48,28 @@ import com.rbmr.taigasleep.ui.settings.PersonalDataScreen
 import com.rbmr.taigasleep.ui.settings.RemoteScreen
 import com.rbmr.taigasleep.ui.settings.SettingsScreen
 import com.rbmr.taigasleep.ui.settings.UploadsScreen
-import com.rbmr.taigasleep.ui.theme.ThemeMode
+import com.rbmr.taigasleep.ui.theme.LocalMotionScale
+import com.rbmr.taigasleep.ui.theme.animated
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
+/**
+ * The app after the theme: the tabs, and whatever the user opened above them. The tabs keep their
+ * page, and a page above them closes back to the one it was opened from.
+ */
 @Composable
-fun TaigaApp(
-    themeMode: ThemeMode,
-    onThemeModeChange: (ThemeMode) -> Unit,
-) {
+fun TaigaApp() {
+  val context = LocalContext.current
+  val nav = rememberSaveable(saver = MainNavigation.Saver) { MainNavigation() }
   val pagerState =
       rememberPagerState(initialPage = MainTab.HOME.ordinal, pageCount = { MainTab.entries.size })
   val snackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
-  val context = LocalContext.current
-  val guidanceStore = context.appContainer.guidanceStore
+  val motionScale = LocalMotionScale.current
   val remote = remember { context.appContainer.remoteRepository }
   val remoteStatus by remote.status.collectAsStateWithLifecycle()
-  var showAbout by rememberSaveable { mutableStateOf(false) }
-  var showLicences by rememberSaveable { mutableStateOf(false) }
-  var showGuidance by rememberSaveable { mutableStateOf(false) }
-  var showRemote by rememberSaveable { mutableStateOf(false) }
-  var showTokens by rememberSaveable { mutableStateOf(false) }
-  var showPersonal by rememberSaveable { mutableStateOf(false) }
-  var showUploads by rememberSaveable { mutableStateOf(false) }
-  var showAnalysis by rememberSaveable { mutableStateOf(false) }
-  var showNotifications by rememberSaveable { mutableStateOf(false) }
-  var detailLocal by rememberSaveable { mutableStateOf<String?>(null) }
-  var detailRemote by rememberSaveable { mutableStateOf<String?>(null) }
-  var detailAnalysis by rememberSaveable { mutableStateOf<String?>(null) }
+  val top = nav.top
   val tab = MainTab.entries[pagerState.currentPage]
-  val top =
-      mainOverlay(
-          remote = showRemote,
-          tokens = showTokens,
-          personal = showPersonal,
-          uploads = showUploads,
-          analysis = showAnalysis,
-          notifications = showNotifications,
-          night = detailLocal != null || detailRemote != null,
-          guidance = showGuidance,
-          licences = showLicences,
-          about = showAbout,
-      )
-  // Prompt once per process; a successful check arms it again for a later expiry.
-  var promptedLogin by remember { mutableStateOf(false) }
-  val loginPrompt = stringResource(R.string.server_login_prompt)
-  val loginAction = stringResource(R.string.server_login_prompt_action)
 
   // The same check as the Remote screen, without a password. Recording never waits for it.
   LifecycleResumeEffect(Unit) {
@@ -104,15 +82,136 @@ fun TaigaApp(
     onPauseOrDispose {}
   }
 
-  // The prompt follows the shared state, wherever the rejected token was noticed.
-  LaunchedEffect(remoteStatus) {
-    when (val status = remoteStatus) {
+  LoginPrompt(
+      status = remoteStatus,
+      remoteOpen = top == MainOverlay.REMOTE,
+      snackbarHostState = snackbarHostState,
+      onOpenRemote = { nav.show(MainOverlay.REMOTE) },
+  )
+
+  // Back selects Home from any tab other than Home, and leaves the app on Home as it always has.
+  // What is open above the pager answers Back itself, so it is closed first.
+  BackHandler(enabled = backReturnsHome(top, tab)) {
+    pagerState.moveTo(MainTab.HOME.ordinal, motionScale, scope)
+  }
+
+  if (top == MainOverlay.NONE) {
+    Tabs(
+        pagerState = pagerState,
+        snackbarHostState = snackbarHostState,
+        nav = nav,
+        onSelect = { page -> pagerState.moveTo(page, motionScale, scope) },
+    )
+  } else {
+    Overlays(top = top, nav = nav)
+  }
+}
+
+/** The three tabs and the bottom bar, drawn over the state each screen holds. */
+@Composable
+private fun Tabs(
+    pagerState: PagerState,
+    snackbarHostState: SnackbarHostState,
+    nav: MainNavigation,
+    onSelect: (Int) -> Unit,
+) {
+  Scaffold(
+      containerColor = MaterialTheme.colorScheme.background,
+      contentWindowInsets = WindowInsets(0, 0, 0, 0),
+      snackbarHost = { SnackbarHost(snackbarHostState) },
+      bottomBar = {
+        TaigaBottomBar(
+            items = MainTab.entries.map { BottomBarItem(stringResource(it.labelRes), it.icon) },
+            selectedIndex = pagerState.currentPage,
+            onSelect = onSelect,
+        )
+      },
+  ) { padding ->
+    HorizontalPager(
+        state = pagerState,
+        // The bottom bar already sits above the navigation bar, so a tab never adds that inset again.
+        modifier = Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize(),
+    ) { page ->
+      when (MainTab.entries[page]) {
+        MainTab.HISTORY ->
+            HistoryScreen(
+                onOpenRecording = { local, server, analysis ->
+                  nav.openRecording(local, server, analysis)
+                },
+                onOpenServer = { nav.show(MainOverlay.REMOTE) },
+            )
+        MainTab.HOME ->
+            HomeScreen(
+                onGuidanceClick = { nav.show(MainOverlay.GUIDANCE) },
+                onOpenRecording = { recordingId ->
+                  nav.openRecording(local = recordingId, remote = null, analysis = null)
+                },
+            )
+        MainTab.SETTINGS -> SettingsScreen(onOpen = nav::show)
+      }
+    }
+  }
+}
+
+/** The one page drawn above the tabs, from what the user opened. */
+@Composable
+private fun Overlays(top: MainOverlay, nav: MainNavigation) {
+  when (top) {
+    MainOverlay.REMOTE -> RemoteScreen(onBack = nav::hide)
+    MainOverlay.TOKENS -> AccessTokensScreen(onBack = nav::hide)
+    MainOverlay.PERSONAL -> PersonalDataScreen(onBack = nav::hide)
+    MainOverlay.UPLOADS -> UploadsScreen(onBack = nav::hide)
+    MainOverlay.ANALYSIS -> AnalysisScreen(onBack = nav::hide)
+    MainOverlay.NOTIFICATIONS -> NotificationsScreen(onBack = nav::hide)
+    MainOverlay.DISPLAY -> DisplayScreen(onBack = nav::hide)
+    MainOverlay.NIGHT ->
+        RecordingDetailScreen(
+            localId = nav.detailLocal,
+            remoteId = nav.detailRemote,
+            analysisId = nav.detailAnalysis,
+            onBack = nav::hide,
+            onLogin = { nav.show(MainOverlay.REMOTE) },
+        )
+    MainOverlay.GUIDANCE -> GuidanceOverlay(onClose = nav::hide)
+    MainOverlay.LICENCES -> LicencesScreen(onBack = nav::hide)
+    MainOverlay.ABOUT ->
+        AboutScreen(onBack = nav::hide, onLicences = { nav.show(MainOverlay.LICENCES) })
+    MainOverlay.NONE -> Unit
+  }
+}
+
+/** The preventing-shutdown flow, drawn from the answers the guidance store holds. */
+@Composable
+private fun GuidanceOverlay(onClose: () -> Unit) {
+  val store = LocalContext.current.appContainer.guidanceStore
+  val preview = GuidanceFlows.previewOf(store)
+  val match = remember(preview) { GuidanceFlows.currentMatch(preview) }
+  FlowScreen(match = match, store = store, preview = preview != null, onClose = onClose)
+}
+
+/**
+ * The prompt that offers the Remote screen when the token was rejected, wherever that was noticed.
+ * It asks once per process; a successful check arms it again for a later expiry.
+ */
+@Composable
+private fun LoginPrompt(
+    status: RemoteStatus,
+    remoteOpen: Boolean,
+    snackbarHostState: SnackbarHostState,
+    onOpenRemote: () -> Unit,
+) {
+  var promptedLogin by remember { mutableStateOf(false) }
+  val loginPrompt = stringResource(R.string.server_login_prompt)
+  val loginAction = stringResource(R.string.server_login_prompt_action)
+
+  LaunchedEffect(status) {
+    when (status) {
       is RemoteStatus.Connected -> promptedLogin = false
       is RemoteStatus.LoginNeeded -> {
         val rejectedToken =
             status.reason == RemoteError.SessionExpired ||
                 status.reason == RemoteError.BadCredentials
-        if (rejectedToken && !promptedLogin && !showRemote) {
+        if (rejectedToken && !promptedLogin && !remoteOpen) {
           promptedLogin = true
           // The Remote screen already shows the state, so the snackbar is only for the tabs.
           val answer =
@@ -122,106 +221,18 @@ fun TaigaApp(
                   withDismissAction = true,
                   duration = SnackbarDuration.Long,
               )
-          if (answer == SnackbarResult.ActionPerformed) showRemote = true
+          if (answer == SnackbarResult.ActionPerformed) onOpenRemote()
         }
       }
       else -> Unit
     }
   }
+}
 
-  // Back selects Home from any tab other than Home, and leaves the app on Home as it always has.
-  // What is open above the pager answers Back itself, so it is closed first.
-  BackHandler(
-      enabled = backReturnsHome(top, tab),
-      onBack = { scope.launch { pagerState.animateScrollToPage(MainTab.HOME.ordinal) } },
-  )
-
-  when (top) {
-    MainOverlay.REMOTE -> RemoteScreen(onBack = { showRemote = false })
-    MainOverlay.TOKENS -> AccessTokensScreen(onBack = { showTokens = false })
-    MainOverlay.PERSONAL -> PersonalDataScreen(onBack = { showPersonal = false })
-    MainOverlay.UPLOADS -> UploadsScreen(onBack = { showUploads = false })
-    MainOverlay.ANALYSIS -> AnalysisScreen(onBack = { showAnalysis = false })
-    MainOverlay.NOTIFICATIONS -> NotificationsScreen(onBack = { showNotifications = false })
-    MainOverlay.NIGHT ->
-        RecordingDetailScreen(
-            localId = detailLocal,
-            remoteId = detailRemote,
-            analysisId = detailAnalysis,
-            onBack = {
-              detailLocal = null
-              detailRemote = null
-              detailAnalysis = null
-            },
-            onLogin = { showRemote = true },
-        )
-    MainOverlay.GUIDANCE -> {
-      val preview = GuidanceFlows.previewOf(guidanceStore)
-      val match = remember(preview) { GuidanceFlows.currentMatch(preview) }
-      FlowScreen(
-          match = match,
-          store = guidanceStore,
-          preview = preview != null,
-          onClose = { showGuidance = false },
-      )
-    }
-    MainOverlay.LICENCES -> LicencesScreen(onBack = { showLicences = false })
-    MainOverlay.ABOUT -> AboutScreen(onBack = { showAbout = false }, onLicences = { showLicences = true })
-    MainOverlay.NONE ->
-        Scaffold(
-            containerColor = MaterialTheme.colorScheme.background,
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            bottomBar = {
-              TaigaBottomBar(
-                  items =
-                      MainTab.entries.map {
-                        BottomBarItem(stringResource(it.labelRes), it.icon)
-                      },
-                  selectedIndex = pagerState.currentPage,
-                  onSelect = { scope.launch { pagerState.animateScrollToPage(it) } },
-              )
-            },
-        ) { padding ->
-          HorizontalPager(
-              state = pagerState,
-              // The bottom bar already sits above the navigation bar, so a tab never adds that inset again.
-              modifier = Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize(),
-          ) { page ->
-            when (MainTab.entries[page]) {
-              MainTab.HISTORY ->
-                  HistoryScreen(
-                      onOpenRecording = { local, server, analysis ->
-                        detailLocal = local
-                        detailRemote = server
-                        detailAnalysis = analysis
-                      },
-                      onOpenServer = { showRemote = true },
-                  )
-              MainTab.HOME ->
-                  HomeScreen(
-                      onGuidanceClick = { showGuidance = true },
-                      onOpenRecording = { recordingId ->
-                        detailLocal = recordingId
-                        detailRemote = null
-                        detailAnalysis = null
-                      },
-                  )
-              MainTab.SETTINGS ->
-                  SettingsScreen(
-                      themeMode = themeMode,
-                      onThemeModeChange = onThemeModeChange,
-                      onAboutClick = { showAbout = true },
-                      onGuidanceClick = { showGuidance = true },
-                      onRemoteClick = { showRemote = true },
-                      onTokensClick = { showTokens = true },
-                      onPersonalClick = { showPersonal = true },
-                      onUploadsClick = { showUploads = true },
-                      onAnalysisClick = { showAnalysis = true },
-                      onNotificationsClick = { showNotifications = true },
-                  )
-            }
-          }
-        }
+/** Moves the pager to [page]: a slide at the app's animation scale, or a jump when it is off. */
+private fun PagerState.moveTo(page: Int, motionScale: Float, scope: CoroutineScope) {
+  scope.launch {
+    if (motionScale <= 0f) scrollToPage(page)
+    else animated(motionScale) { animateScrollToPage(page) }
   }
 }

@@ -9,6 +9,12 @@ import com.rbmr.taigasleep.tracker.SimulatedSensor
 import com.rbmr.taigasleep.tracker.SleepSensor
 import java.time.Instant
 import java.time.ZoneId
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -17,10 +23,23 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
+/** How long a wait may last before the test fails instead of hanging the build. */
+private const val HANG_GUARD_MS = 60_000L
+
+/** What the fake host did, in the order the recording did it: the tests wait on these, not on time. */
+private enum class HostSignal {
+  DISARMED,
+  REFRESHED,
+  FINISHED,
+}
+
 /**
  * A wake-up window on a real recording: the simulated sensor always moves, so a window around "now"
  * rings a minute after the recording starts, and the end of the window is armed with the system for
  * the case where nothing is left running to decide.
+ *
+ * Time only moves through [TestClock] and the sensor's [SimulatedSensor.pump]; the tests wait for a
+ * signal of the code under test, never for a duration or a polled condition.
  */
 class WakeAlarmSimulatedSensorTest {
   @get:Rule val tmp = TemporaryFolder()
@@ -38,9 +57,10 @@ class WakeAlarmSimulatedSensorTest {
     val store = RecordingStore(tmp.newFolder())
     val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
     val host = FakeHost(sensor)
+    val mark = host.mark()
     control = RecordingControl(store, clock, host).also { it.start(request(sensor, windowAroundNow())) }
-    // The window is armed before the streams open; samples pumped in between would reach nobody.
-    await("the window to be armed and the streams open") { host.armed != null && host.refreshed > 0 }
+    // The last step of a start: the window is armed and the streams are open.
+    host.awaitAfter(mark, HostSignal.REFRESHED)
 
     sensor.connect()
     repeat(1_200) {
@@ -48,7 +68,8 @@ class WakeAlarmSimulatedSensorTest {
       sensor.pump(clock.elapsedNs())
     }
 
-    await("the alarm to ring") { host.firedAlarms == 1 }
+    // The trigger is handed to the control thread; the screen's update is the last thing it does.
+    awaitStatus { it.wakeRangAtUtcMs != null }
     // The window rang for this night and will not ring again: the recording goes on.
     assertNull(host.armed)
     assertTrue(host.activeSessionId != null)
@@ -62,8 +83,11 @@ class WakeAlarmSimulatedSensorTest {
     val host = FakeHost(sensor)
     val window = windowAroundNow()
     val nowMs = clock.phoneNs / 1_000_000
+    val mark = host.mark()
     control = RecordingControl(store, clock, host).also { it.start(request(sensor, window)) }
-    await("the window to be armed") { host.armed != null && host.activeSessionId != null }
+    host.awaitAfter(mark, HostSignal.REFRESHED)
+    assertTrue(host.armed != null)
+    assertTrue(host.activeSessionId != null)
 
     val armed = host.armed!!
     assertEquals(window.bounds(nowMs).endUtcMs, armed.endUtcMs)
@@ -73,8 +97,10 @@ class WakeAlarmSimulatedSensorTest {
   @Test
   fun `stopping a recording drops its window`() {
     val host = startWithWindow()
+    val mark = host.mark()
     control!!.stop()
-    await("the recording to end") { host.activeSessionId == null }
+    host.awaitAfter(mark, HostSignal.DISARMED)
+    assertTrue("the recording ended", host.activeSessionId == null)
 
     assertNull("a stopped recording does not ring", host.armed)
   }
@@ -82,8 +108,10 @@ class WakeAlarmSimulatedSensorTest {
   @Test
   fun `force stopping a recording drops its window`() {
     val host = startWithWindow()
+    val mark = host.mark()
     control!!.forceStop()
-    await("the recording to end") { host.activeSessionId == null }
+    host.awaitAfter(mark, HostSignal.DISARMED)
+    assertTrue("the recording ended", host.activeSessionId == null)
 
     assertNull("a force-stopped recording does not ring", host.armed)
   }
@@ -91,8 +119,10 @@ class WakeAlarmSimulatedSensorTest {
   @Test
   fun `discarding a recording drops its window`() {
     val host = startWithWindow()
+    val mark = host.mark()
     control!!.discard()
-    await("the recording to end") { host.activeSessionId == null }
+    host.awaitAfter(mark, HostSignal.DISARMED)
+    assertTrue("the recording ended", host.activeSessionId == null)
 
     assertNull("a discarded recording does not ring", host.armed)
   }
@@ -102,8 +132,10 @@ class WakeAlarmSimulatedSensorTest {
     val store = RecordingStore(tmp.newFolder())
     val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
     val host = FakeHost(sensor)
+    val started = host.mark()
     val first = RecordingControl(store, clock, host).also { it.start(request(sensor, windowAroundNow())) }
-    await("the window to be armed") { host.armed != null && host.activeSessionId != null }
+    host.awaitAfter(started, HostSignal.REFRESHED)
+    assertTrue(host.armed != null)
     val armed = host.armed!!
     val id = host.activeSessionId!!
 
@@ -111,9 +143,12 @@ class WakeAlarmSimulatedSensorTest {
     first.shutdown()
     host.running = false
 
+    val resumed = host.mark()
     control = RecordingControl(store, clock, host)
     control!!.resume()
-    await("the recording to resume") { host.running && host.activeSessionId == id }
+    host.awaitAfter(resumed, HostSignal.REFRESHED)
+    assertTrue("the recording resumed", host.running)
+    assertEquals(id, host.activeSessionId)
 
     assertEquals("a restart must not drop the window", armed, host.armed)
   }
@@ -129,8 +164,10 @@ class WakeAlarmSimulatedSensorTest {
     host.activeSessionId = "GONE0001"
     control = RecordingControl(store, clock, host)
 
+    val resumed = host.mark()
     control!!.resume()
-    await("the marker to be dropped") { host.activeSessionId == null }
+    host.awaitAfter(resumed, HostSignal.DISARMED)
+    assertTrue("the marker was dropped", host.activeSessionId == null)
 
     assertNull("a recording that cannot be resumed does not ring", host.armed)
   }
@@ -140,11 +177,14 @@ class WakeAlarmSimulatedSensorTest {
     val store = RecordingStore(tmp.newFolder())
     val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
     val host = FakeHost(sensor)
+    val mark = host.mark()
     control =
         RecordingControl(store, clock, host).also {
           it.start(request(sensor, windowAroundNow(), RecordingMode.ON_DEVICE))
         }
-    await("the tracker to hold the night") { sensor.storedEntryCount() == 1 }
+    // The tracker answers at once and the service lets go of it: the last step of that is the end.
+    host.awaitAfter(mark, HostSignal.FINISHED)
+    assertEquals(1, sensor.storedEntryCount())
 
     assertNull(host.armed)
     assertEquals(0, host.firedAlarms)
@@ -156,8 +196,10 @@ class WakeAlarmSimulatedSensorTest {
     val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
     val host = FakeHost(sensor)
     val window = WakeWindow(6 * 60 + 30, 30, heartRate = false, movement = false)
+    val mark = host.mark()
     control = RecordingControl(store, clock, host).also { it.start(request(sensor, window)) }
-    await("the window to be armed") { host.armed != null }
+    host.awaitAfter(mark, HostSignal.REFRESHED)
+    assertTrue(host.armed != null)
 
     val nowMs = clock.phoneNs / 1_000_000
     assertEquals(window.bounds(nowMs).endUtcMs, host.armed!!.endUtcMs)
@@ -171,11 +213,12 @@ class WakeAlarmSimulatedSensorTest {
     val later = WakeWindow((windowAroundNow().startMinute + 60) % (24 * 60), 20, heartRate = false, movement = true)
 
     control!!.changeWake(later)
-    await("the new window to be armed and shown") {
-      host.armed?.window == later && RecordingRepository.status.value.wake?.window == later
-    }
+    // The screen is updated after the end alarm and the live watch: once it shows the new window,
+    // both follow it.
+    awaitStatus { it.wake?.window == later }
 
     val nowMs = clock.phoneNs / 1_000_000
+    assertEquals(later, host.armed!!.window)
     assertEquals(later.bounds(nowMs).endUtcMs, host.armed!!.endUtcMs)
     assertEquals(id, host.armed!!.recordingId)
     assertEquals("the screen shows the new window", host.armed, RecordingRepository.status.value.wake)
@@ -188,7 +231,8 @@ class WakeAlarmSimulatedSensorTest {
     val sensor = host.sensor as SimulatedSensor
 
     control!!.changeWake(null)
-    await("the window to be dropped") { host.armed == null }
+    // Off is published after the live watch is dropped: samples pumped from here reach no alarm.
+    awaitStatus { it.wake == null }
     sensor.connect()
     repeat(1_200) {
       clock.advanceMs(100)
@@ -208,20 +252,23 @@ class WakeAlarmSimulatedSensorTest {
     val store = RecordingStore(tmp.newFolder())
     val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
     val host = FakeHost(sensor)
+    val mark = host.mark()
     control = RecordingControl(store, clock, host).also { it.start(request(sensor, null)) }
-    await("the recording to start") { host.activeSessionId != null && host.refreshed > 0 }
+    host.awaitAfter(mark, HostSignal.REFRESHED)
     assertNull(host.armed)
 
     control!!.changeWake(windowAroundNow())
-    await("the window to be armed") { host.armed != null }
+    // The screen shows the window after the watch has it: samples pumped from here reach the alarm.
+    awaitStatus { it.wake != null }
     sensor.connect()
     repeat(1_200) {
       clock.advanceMs(100)
       sensor.pump(clock.elapsedNs())
     }
 
-    await("the alarm to ring") { host.firedAlarms == 1 }
+    awaitStatus { it.wakeRangAtUtcMs != null }
     assertTrue("the screen says it rang", RecordingRepository.status.value.wakeRangAtUtcMs != null)
+    assertEquals(1, host.firedAlarms)
   }
 
   @Test
@@ -233,16 +280,18 @@ class WakeAlarmSimulatedSensorTest {
       clock.advanceMs(100)
       sensor.pump(clock.elapsedNs())
     }
-    await("the first alarm") { host.firedAlarms == 1 }
+    awaitStatus { it.wakeRangAtUtcMs != null }
 
     control!!.changeWake(windowAroundNow())
-    await("the window to be armed again") { host.armed != null }
+    // The move is applied when the screen shows an armed, not yet rung, window.
+    awaitStatus { it.wake != null && it.wakeRangAtUtcMs == null }
     repeat(1_200) {
       clock.advanceMs(100)
       sensor.pump(clock.elapsedNs())
     }
 
-    await("the second alarm") { host.firedAlarms == 2 }
+    awaitStatus { it.wakeRangAtUtcMs != null }
+    assertEquals(2, host.firedAlarms)
   }
 
   @Test
@@ -250,29 +299,31 @@ class WakeAlarmSimulatedSensorTest {
     val store = RecordingStore(tmp.newFolder())
     val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
     val host = FakeHost(sensor)
+    val started = host.mark()
     val first = RecordingControl(store, clock, host).also { it.start(request(sensor, windowAroundNow())) }
-    await("the streams to open") { host.armed != null && host.refreshed > 0 }
+    host.awaitAfter(started, HostSignal.REFRESHED)
     sensor.connect()
     repeat(1_200) {
       clock.advanceMs(100)
       sensor.pump(clock.elapsedNs())
     }
-    await("the alarm to ring") { RecordingRepository.status.value.wakeRangAtUtcMs != null }
-    val rang = RecordingRepository.status.value.wakeRangAtUtcMs!!
+    val rang = awaitStatus { it.wakeRangAtUtcMs != null }.wakeRangAtUtcMs!!
     val id = host.activeSessionId!!
 
     // The process died: only the recording on disk is left to say that the alarm rang.
     first.shutdown()
     host.running = false
     RecordingRepository.setIdle()
+    val resumed = host.mark()
     control = RecordingControl(store, clock, host)
     control!!.resume()
-    await("the recording to resume") { host.running && host.activeSessionId == id }
+    host.awaitAfter(resumed, HostSignal.REFRESHED)
+    assertTrue("the recording resumed", host.running)
+    assertEquals(id, host.activeSessionId)
 
     // The screen shows the minute; the event and the screen read the clock a moment apart.
-    await("the ring to be read back") {
-      RecordingRepository.status.value.wakeRangAtUtcMs?.let { kotlin.math.abs(it - rang) < 60_000 } == true
-    }
+    val back = awaitStatus { it.wakeRangAtUtcMs != null }.wakeRangAtUtcMs!!
+    assertTrue("the ring is read back", kotlin.math.abs(back - rang) < 60_000)
     assertNull(RecordingRepository.status.value.wake)
   }
 
@@ -283,9 +334,22 @@ class WakeAlarmSimulatedSensorTest {
 
     control!!.wakeWindowEnded()
 
-    await("the screen to say it rang") { RecordingRepository.status.value.wakeRangAtUtcMs != null }
+    // The event is written before the screen says the alarm rang.
+    awaitStatus { it.wakeRangAtUtcMs != null }
     assertTrue(eventsOf(id).contains("\"wake_rang\""))
     assertTrue(eventsOf(id).contains("the alarm window ended"))
+  }
+
+  /**
+   * Waits until the screen carries the state the code under test publishes last, so whatever the
+   * test reads next is already visible. It suspends on the repository: the recording decides when
+   * the wait ends. [HANG_GUARD_MS] is only a guard so that a regression fails the test with a
+   * message instead of hanging the build; a run needs a fraction of a second, and no result
+   * depends on how long it takes.
+   */
+  private fun awaitStatus(predicate: (CaptureStatus) -> Boolean): CaptureStatus = runBlocking {
+    withTimeoutOrNull(HANG_GUARD_MS) { RecordingRepository.status.first(predicate) }
+        ?: error("the recording never reached the state the test waits for")
   }
 
   private fun eventsOf(id: String): String =
@@ -308,10 +372,11 @@ class WakeAlarmSimulatedSensorTest {
     val store = RecordingStore(tmp.newFolder())
     val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
     val host = FakeHost(sensor)
+    val mark = host.mark()
     control = RecordingControl(store, clock, host).also { it.start(request(sensor, windowAroundNow())) }
-    await("the window to be armed and the streams open") {
-      host.armed != null && host.activeSessionId != null && host.refreshed > 0
-    }
+    host.awaitAfter(mark, HostSignal.REFRESHED)
+    assertTrue("the window is armed", host.armed != null)
+    assertTrue("the streams are open", host.activeSessionId != null)
     return host
   }
 
@@ -330,15 +395,6 @@ class WakeAlarmSimulatedSensorTest {
           wake = window,
       )
 
-  private fun await(what: String, condition: () -> Boolean) {
-    val deadline = System.currentTimeMillis() + 10_000
-    while (System.currentTimeMillis() < deadline) {
-      if (condition()) return
-      Thread.sleep(10)
-    }
-    assertTrue("timed out waiting for $what", condition())
-  }
-
   private class FakeLock : RecordingWakeLock {
     override var isHeld = false
       private set
@@ -353,11 +409,34 @@ class WakeAlarmSimulatedSensorTest {
   }
 
   private class FakeHost(val sensor: SleepSensor) : RecordingHost {
-    override var activeSessionId: String? = null
-    override var heartbeatMs = 0L
-    var armed: ArmedWake? = null
-    var firedAlarms = 0
-    var running = false
+    @Volatile override var activeSessionId: String? = null
+    @Volatile override var heartbeatMs = 0L
+    @Volatile var armed: ArmedWake? = null
+    @Volatile var firedAlarms = 0
+    @Volatile var running = false
+
+    private val signals = LinkedBlockingQueue<Pair<Long, HostSignal>>()
+    private val issued = AtomicLong()
+
+    /** Where the host's history stands now: a wait looks only at what comes after it. */
+    fun mark(): Long = issued.get()
+
+    /**
+     * Blocks until this host reports [signal] after [mark]. The recording decides when that is;
+     * [HANG_GUARD_MS] only turns a regression into a failure instead of a hung build.
+     */
+    fun awaitAfter(mark: Long, signal: HostSignal) {
+      while (true) {
+        val (at, seen) =
+            signals.poll(HANG_GUARD_MS, TimeUnit.MILLISECONDS)
+                ?: error("the host never reported $signal")
+        if (at > mark && seen == signal) return
+      }
+    }
+
+    private fun signal(signal: HostSignal) {
+      signals.put(issued.incrementAndGet() to signal)
+    }
 
     override fun obtain(kind: SensorKind, id: String, name: String): SleepSensor = sensor
 
@@ -379,6 +458,7 @@ class WakeAlarmSimulatedSensorTest {
 
     override fun disarmWake() {
       armed = null
+      signal(HostSignal.DISARMED)
     }
 
     override fun fireWakeAlarm(reason: WakeReason) {
@@ -406,6 +486,7 @@ class WakeAlarmSimulatedSensorTest {
 
     override fun refreshRecordings() {
       refreshed++
+      signal(HostSignal.REFRESHED)
     }
 
     override fun onState(state: RecordingState) = Unit
@@ -414,6 +495,8 @@ class WakeAlarmSimulatedSensorTest {
 
     override fun onFetchCompleted(recordingId: String) = Unit
 
-    override fun finishService() = Unit
+    override fun finishService() {
+      signal(HostSignal.FINISHED)
+    }
   }
 }

@@ -134,8 +134,8 @@ class ArchitectureTest {
             """
             package com.rbmr.taigasleep.ui
 
-            import com.rbmr.taigasleep.AppSettings
             import com.rbmr.taigasleep.MainActivity
+            import com.rbmr.taigasleep.TaigaApplication
             """
                 .trimIndent(),
         )
