@@ -23,62 +23,75 @@ Two rules make it trustworthy:
 including uncommitted work. A change to a workflow file runs every area, because
 nothing else validates the checks themselves.
 
+Each logical area is one job. There is no matrix and no shard tooling: a test
+suite that can split its work does so inside its own job, where the split costs
+no extra checkout, runner start or dependency setup.
+
 | Job | Applies to | Runs |
 | --- | --- | --- |
-| `App unit tests` | the app and its Gradle inputs | `:app:testDebugUnitTest`, in four test JVMs |
-| `App build and Android lint` | the app and its Gradle inputs | `:app:assembleDebug`, `:app:lintDebug` |
+| `App tests, build and lint` | the app and its Gradle inputs | `:app:testDebugUnitTest`, `:app:assembleDebug` and `:app:lintDebug` in one invocation |
 | `Kotlin static analysis` | the app, `tools/detekt/` | `tools/check_kotlin.sh` |
-| `Go tests` | `backend/api/` | `go vet` and the tests of every package except `internal/api` |
-| `Go tests (1/4)` … `Go tests (4/4)` | `backend/api/` | that shard of the `internal/api` tests |
+| `Go tests` | `backend/api/` | `go vet` and `go test ./...` |
 | `Go static analysis` | `backend/api/` | `staticcheck`, `govulncheck` |
 | `Worker tests` | `backend/worker/` | `uv run --frozen pytest` in four workers, then `tests/test_realtime.py` on its own |
 | `Python lint` | `backend/worker/`, `tools/` | `ruff check`, `ruff format --check` |
-| `Integration tests (1/4)` … `(4/4)` | `backend/` | that shard of the API and worker integration suite, with its own server |
+| `Integration tests` | `backend/` | the API and worker integration suite in four pytest workers |
 | `Workflow lint` | every change | `actionlint`, including shellcheck on `run:` scripts |
+
+The jobs are independent of each other, so the wall clock is the slowest of
+them rather than their sum. The app job is declared first, immediately after
+`changes`, because it is the longest and a runner should start it as early as
+the queue allows.
 
 ## How the parallelism is configured
 
 The runner has 4 vCPUs and about 16 GB of memory, and every count below is
-chosen for that: four Gradle test JVMs, four Go shards and four pytest workers.
-The jobs are independent of each other, so the wall clock is the slowest of
-them rather than their sum.
+chosen for that.
 
-- **Gradle.** `org.gradle.parallel` and `org.gradle.caching` are on in
-  [`gradle.properties`](../gradle.properties). The app's unit tests run in
-  several JVMs at once (`maxParallelForks` in
-  [`app/build.gradle.kts`](../app/build.gradle.kts), at most four and fewer on a
-  smaller machine). The JVM is the isolation boundary: every test class stays
-  whole in one JVM and no class shares process state with another, so splitting
-  the classes over JVMs changes nothing about what a test can see. The build
-  cache is what lets a re-run, and the app jobs on later runs, reuse compilation
-  and test outputs instead of repeating the work. A cached test result is only
-  correct if every file a test reads is declared as an input of the test task,
-  so a test that reads a file outside `app/src` needs that file listed there
-  (today `docs/architecture.md`, `tools/read_diagnostics.py`,
-  `tools/read_recording.py` and the worker's `frames.py` that it imports), and
-  `tools/ci_areas.py` must run the app jobs when one of those files changes. The
-  Gradle daemon keeps its 2 GB heap and a test JVM its default heap, so four of
-  them together stay well inside the runner's 16 GB.
-- **Go.** `go test` already runs packages side by side, but `internal/api` is one
-  package and the largest part of the suite. Its tests cannot safely call
-  `t.Parallel()`: many of them set package-level variables or environment
-  variables, which would race with a test beside them in the same process. They
-  can run in separate processes, so
-  [`tools/go_test_shard.py`](../tools/go_test_shard.py) splits the package's test
-  names over the matrix. The split is deterministic, and the `Go tests` job runs
-  the script's `--self-test`, which fails when a test is in no shard or in two.
-  The other packages are unchanged and run in one job together with `go vet`.
+- **Kotlin and Android.** `org.gradle.parallel` and `org.gradle.caching` are on
+  in [`gradle.properties`](../gradle.properties). The unit tests, the debug APK
+  and Android lint run in one invocation in one job, so the app's sources are
+  compiled once: the tasks that depend on the compilation overlap instead of
+  being repeated on a second runner. The unit tests run in several JVMs at once
+  (`maxParallelForks` in [`app/build.gradle.kts`](../app/build.gradle.kts), at
+  most four and fewer on a smaller machine). The JVM is the isolation boundary:
+  every test class stays whole in one JVM and no class shares process state with
+  another, so splitting the classes over JVMs changes nothing about what a test
+  can see. Android lint analyzes the main and the test sources as separate
+  tasks, which Gradle schedules beside the rest of the build. The build cache
+  is what lets a re-run reuse compilation, packaging and lint outputs instead
+  of repeating the work. A cached result is only correct if every file a task
+  reads is declared as an input, so a test that reads a file outside `app/src`
+  needs that file listed there (today `docs/architecture.md`,
+  `tools/read_diagnostics.py`, `tools/read_recording.py` and the worker's
+  `frames.py` that it imports), and `tools/ci_areas.py` must run the app job
+  when one of those files changes. The Gradle daemon keeps its 2 GB heap and a
+  test JVM its default heap, so four of them together stay well inside the
+  runner's 16 GB.
+- **Go.** `go test ./...` runs one process per package, and `-p` (by default the
+  runner's core count) runs several packages at once. The API's tests live in
+  one package, so the tests that share no state call `t.Parallel()` and run
+  beside each other in that process, up to `-parallel` (again the core count by
+  default). The tests that cannot share a process with another stay sequential:
+  they set an environment variable, replace a package-level function, measure
+  wall-clock time, or drive realtime sockets and timers. Go runs those before it
+  resumes the parallel ones, so a parallel test never overlaps a sequential test
+  that is changing the environment. One job runs the whole module; splitting it
+  into shards bought no time, because most of each shard's run was checkout and
+  setup on a fresh runner.
 - **Python.** The worker's tests are independent, so
   `uv run --frozen pytest -n 4` runs them in four processes (pytest-xdist, in the
   worker's dev dependencies). `tests/test_realtime.py` drives real sockets and
   timers and is timing-sensitive, so it runs afterwards on its own instead of
-  beside the rest. The integration suite shares one API server between the tests
-  of a process, so it is sharded across jobs instead of run in parallel inside
-  one: [`tools/pytest_shard.py`](../tools/pytest_shard.py) lists the collected
-  tests and gives each job a contiguous slice of them in collection order, so
-  every job starts its own server, data directory and worker processes, its
-  tests run in the order the whole suite runs them, and the shards together are
-  the whole suite.
+  beside the rest.
+- **Integration.** The suite runs in one job with `pytest -n 4`. Every pytest
+  worker is a separate process, so the session fixture starts its own API server
+  on an operating-system-assigned port with its own temporary data directory and
+  its own worker processes: the workers share no server, data or port. Within a
+  worker the tests still share that worker's server and run one after the other,
+  with the helpers that clear the queue before a test that needs it. The port,
+  the data directory and the recording ids are unique per run, so the four
+  workers cannot collide.
 
 Every job has a `timeout-minutes` (20 in `ci.yml`, 40 for the CodeQL analyses), so
 a job that hangs fails after that long instead of running for GitHub's default of
@@ -125,15 +138,12 @@ existing findings are recorded:
 ## Running the checks locally
 
 ```bash
-# app
-./gradlew :app:testDebugUnitTest :app:assembleDebug
-./gradlew :app:lintDebug
+# app, in one invocation as CI runs it
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ./tools/check_kotlin.sh
 
 # Go
 cd backend/api && go vet ./... && go test -count=1 ./...
-python3 ../../tools/go_test_shard.py --self-test
-python3 ../../tools/go_test_shard.py --index 0 --shards 4
 go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
 go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
 export PATH="$(go env GOPATH)/bin:$PATH"
@@ -148,11 +158,8 @@ cd ../.. && uv run --project backend/worker --frozen ruff check --config tools/r
 uv run --project backend/worker --frozen ruff format --check \
   --config tools/ruff.toml backend/worker tools
 
-# one shard of the integration suite
-cd backend
-mapfile -t tests < <(uv run --project worker --frozen python \
-  ../tools/pytest_shard.py --index 0 --shards 4 tests/test_integration.py)
-uv run --project worker --frozen pytest -v "${tests[@]}"
+# the integration suite, in four workers as CI runs it
+cd backend && uv run --project worker --frozen pytest -n 4 tests/test_integration.py
 
 # workflows
 actionlint
