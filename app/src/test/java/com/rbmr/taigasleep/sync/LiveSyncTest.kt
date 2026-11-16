@@ -2,21 +2,25 @@ package com.rbmr.taigasleep.sync
 
 import com.rbmr.taigasleep.backend.RemoteEvent
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,18 +30,31 @@ private class RecordingTarget : LiveSyncTarget {
   var onReconcile: suspend () -> Unit = {}
   var failRefresh = false
 
+  /** Ticks on every recorded call, so a test can wait for a call instead of polling for one. */
+  private val callsMade = MutableStateFlow(0)
+
+  private fun record(call: String) {
+    calls += call
+    callsMade.update { it + 1 }
+  }
+
+  /** Suspends until the calls recorded so far satisfy [condition]. No time passes while it waits. */
+  suspend fun awaitCalls(condition: (List<String>) -> Boolean) {
+    callsMade.first { condition(calls) }
+  }
+
   override suspend fun reconcile() {
-    calls += "reconcile"
+    record("reconcile")
     onReconcile()
   }
 
   override suspend fun refreshRecording(recordingId: String) {
-    calls += "refresh:$recordingId"
+    record("refresh:$recordingId")
     if (failRefresh) throw IllegalStateException("boom")
   }
 
   override suspend fun recordingDeleted(recordingId: String) {
-    calls += "deleted:$recordingId"
+    record("deleted:$recordingId")
   }
 }
 
@@ -157,199 +174,205 @@ class SyncQueueTest {
   }
 }
 
-/** The gating and lifecycle of the live sync: when a stream runs, what it triggers, when it stops. */
+/**
+ * The gating and lifecycle of the live sync: when a stream runs, what it triggers, when it stops.
+ *
+ * Everything runs on the test dispatcher, so the grace period and the refresh interval are virtual
+ * time: a test advances it by an amount and nothing waits on the wall clock. Each check waits on a
+ * signal, either one the fake stream counts or one the target's calls produce.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
 class LiveSyncTest {
-  private val scope = CoroutineScope(Dispatchers.Default)
   private val target = RecordingTarget()
   private val gate = MutableStateFlow<String?>(null)
   private val shared = MutableSharedFlow<RemoteEvent>(extraBufferCapacity = 64)
-  private val opened = AtomicInteger()
-  private val closed = AtomicInteger()
+  private val opened = MutableStateFlow(0)
+  private val closed = MutableStateFlow(0)
 
   /** A stream that is "connected" for as long as it is collected. */
   private var connectOnOpen = true
   private val events: Flow<RemoteEvent> = flow {
-    opened.incrementAndGet()
+    opened.update { it + 1 }
     try {
       if (connectOnOpen) emit(RemoteEvent.Connected)
       emitAll(shared)
     } finally {
-      closed.incrementAndGet()
+      closed.update { it + 1 }
     }
   }
 
   private var job: Job? = null
 
-  @After
-  fun tearDown() {
-    runBlocking { job?.cancelAndJoin() }
-  }
-
-  private fun start(graceMs: Long = 150, intervalMs: Long = 20) {
+  /** Starts the live sync on the test dispatcher, with the clock reading the virtual time. */
+  private fun TestScope.start(graceMs: Long = 150, intervalMs: Long = 20) {
     job =
-        scope.launch {
+        backgroundScope.launch {
           LiveSync(
                   gate = gate,
                   events = events,
                   target = target,
                   connectGraceMs = graceMs,
                   refreshIntervalMs = intervalMs,
+                  clock = { testScheduler.currentTime },
               )
               .run()
         }
-  }
-
-  private fun await(what: String, timeoutMs: Long = 3_000, condition: () -> Boolean) {
-    val deadline = System.nanoTime() + timeoutMs * 1_000_000
-    while (!condition()) {
-      if (System.nanoTime() > deadline) throw AssertionError("timed out waiting for $what")
-      Thread.sleep(10)
-    }
   }
 
   /**
    * Sends an event the way the server would, once the stream listens. The fake stream announces
    * `Connected` before it subscribes, and a shared flow without replay drops what nobody hears yet.
    */
-  private fun emit(event: RemoteEvent) {
-    await("the stream to listen") { shared.subscriptionCount.value > 0 }
-    runBlocking { shared.emit(event) }
+  private suspend fun emit(event: RemoteEvent) {
+    shared.subscriptionCount.first { it > 0 }
+    shared.emit(event)
   }
 
   @Test
-  fun `no stream runs while no account may stream`() {
+  fun `no stream runs while no account may stream`() = runTest {
     start()
+    advanceTimeBy(1_000)
+    runCurrent()
 
-    Thread.sleep(300)
-
-    assertEquals(0, opened.get())
+    assertEquals(0, opened.value)
     assertTrue(target.calls.isEmpty())
   }
 
   @Test
-  fun `a stream opens for an account and its connect is one reconcile`() {
+  fun `a stream opens for an account and its connect is one reconcile`() = runTest {
     start()
     gate.value = "server|me"
 
-    await("the stream to open") { opened.get() == 1 }
-    await("the reconcile") { target.calls.contains("reconcile") }
+    opened.first { it >= 1 }
+    target.awaitCalls { "reconcile" in it }
     // The grace period for a stream that does not connect must not add a second one.
-    Thread.sleep(400)
+    advanceTimeBy(1_000)
+    runCurrent()
 
     assertEquals(listOf("reconcile"), target.calls.toList())
   }
 
   @Test
-  fun `an analysis event refreshes its recording and a recording event its own id`() {
+  fun `an analysis event refreshes its recording and a recording event its own id`() = runTest {
     start()
     gate.value = "server|me"
-    await("the reconcile") { target.calls.contains("reconcile") }
+    target.awaitCalls { "reconcile" in it }
 
     emit(RemoteEvent.AnalysisChanged("a1", "r1", "succeeded"))
     emit(RemoteEvent.RecordingChanged("r2", "updated"))
 
-    await("both refreshes") { target.calls.containsAll(listOf("refresh:r1", "refresh:r2")) }
+    target.awaitCalls { it.containsAll(listOf("refresh:r1", "refresh:r2")) }
   }
 
   @Test
-  fun `a deleted recording event drops the recording without reading it`() {
+  fun `a deleted recording event drops the recording without reading it`() = runTest {
     start()
     gate.value = "server|me"
-    await("the reconcile") { target.calls.contains("reconcile") }
+    target.awaitCalls { "reconcile" in it }
 
     emit(RemoteEvent.RecordingChanged("r3", "deleted"))
 
-    await("the drop") { target.calls.contains("deleted:r3") }
+    target.awaitCalls { "deleted:r3" in it }
     assertTrue("refresh:r3" !in target.calls)
   }
 
   @Test
-  fun `a stream that does not connect still refreshes once, and again when it does`() {
+  fun `a stream that does not connect still refreshes once, and again when it does`() = runTest {
     connectOnOpen = false
     start(graceMs = 100)
     gate.value = "server|me"
 
-    await("the refresh after the grace period") { target.calls == listOf("reconcile") }
-    Thread.sleep(250)
+    target.awaitCalls { it == listOf("reconcile") }
+    advanceTimeBy(1_000)
+    runCurrent()
     assertEquals(listOf("reconcile"), target.calls.toList())
 
     emit(RemoteEvent.Connected)
 
-    await("the reconcile on connecting") { target.calls.count { it == "reconcile" } == 2 }
+    target.awaitCalls { it.count { call -> call == "reconcile" } == 2 }
   }
 
   @Test
-  fun `every reconnect is a reconcile`() {
+  fun `every reconnect is a reconcile`() = runTest {
     start()
     gate.value = "server|me"
-    await("the first reconcile") { target.calls.count { it == "reconcile" } == 1 }
+    target.awaitCalls { it.count { call -> call == "reconcile" } == 1 }
 
     // The transport reconnected by itself: the stream announces it again.
     emit(RemoteEvent.Connected)
 
-    await("the second reconcile") { target.calls.count { it == "reconcile" } == 2 }
+    target.awaitCalls { it.count { call -> call == "reconcile" } == 2 }
   }
 
   @Test
-  fun `the stream closes when the account may no longer stream`() {
+  fun `the stream closes when the account may no longer stream`() = runTest {
     start()
     gate.value = "server|me"
-    await("the stream to open") { opened.get() == 1 }
+    opened.first { it >= 1 }
 
     gate.value = null
 
-    await("the stream to close") { closed.get() == 1 }
-    Thread.sleep(200)
-    assertEquals(1, opened.get())
+    closed.first { it >= 1 }
+    advanceTimeBy(1_000)
+    runCurrent()
+    assertEquals(1, opened.value)
   }
 
   @Test
-  fun `the stream restarts for another account`() {
+  fun `the stream restarts for another account`() = runTest {
     start()
     gate.value = "server|me"
-    await("the first stream") { opened.get() == 1 }
+    opened.first { it >= 1 }
 
     gate.value = "server|you"
 
-    await("the second stream") { opened.get() == 2 }
-    assertEquals(1, closed.get())
-    await("a reconcile for each") { target.calls.count { it == "reconcile" } == 2 }
+    opened.first { it >= 2 }
+    assertEquals(1, closed.value)
+    target.awaitCalls { it.count { call -> call == "reconcile" } == 2 }
   }
 
   @Test
-  fun `cancelling the foreground closes the stream and nothing is left running`() {
+  fun `cancelling the foreground closes the stream and nothing is left running`() = runTest {
     start()
     gate.value = "server|me"
-    await("the stream to open") { opened.get() == 1 }
+    opened.first { it >= 1 }
 
-    runBlocking { job?.cancelAndJoin() }
+    job?.cancelAndJoin()
 
-    assertEquals(1, closed.get())
+    assertEquals(1, closed.value)
     val calls = target.calls.size
     // Nothing listens any more, so the event is sent without waiting for a listener.
-    runBlocking { shared.emit(RemoteEvent.RecordingChanged("late", "updated")) }
-    Thread.sleep(200)
+    shared.emit(RemoteEvent.RecordingChanged("late", "updated"))
+    advanceUntilIdle()
     assertEquals(calls, target.calls.size)
   }
 
   @Test
-  fun `a stream that breaks does not take the app down and starts again with the gate`() {
-    var attempts = 0
+  fun `a stream that breaks does not take the app down and starts again with the gate`() = runTest {
+    val attempts = MutableStateFlow(0)
     val breaking: Flow<RemoteEvent> = flow {
-      attempts++
+      attempts.update { it + 1 }
       throw IllegalStateException("boom")
     }
     job =
-        scope.launch {
-          LiveSync(gate, breaking, target, connectGraceMs = 50, refreshIntervalMs = 10).run()
+        backgroundScope.launch {
+          LiveSync(
+                  gate = gate,
+                  events = breaking,
+                  target = target,
+                  connectGraceMs = 50,
+                  refreshIntervalMs = 10,
+                  clock = { testScheduler.currentTime },
+              )
+              .run()
         }
 
     gate.value = "server|me"
-    await("the failed stream") { attempts == 1 }
-    Thread.sleep(100)
+    attempts.first { it >= 1 }
+    advanceUntilIdle()
 
     assertTrue(job?.isActive == true)
     gate.value = "server|you"
-    await("the next stream") { attempts == 2 }
+    attempts.first { it >= 2 }
   }
 }
