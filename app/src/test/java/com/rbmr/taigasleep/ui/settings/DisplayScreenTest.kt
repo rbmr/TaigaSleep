@@ -7,6 +7,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.rbmr.taigasleep.insights.TimeFormat
+import com.rbmr.taigasleep.insights.Units
 import com.rbmr.taigasleep.ui.theme.AnimationMode
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 import com.rbmr.taigasleep.ui.theme.TextSize
@@ -39,6 +41,8 @@ class DisplayScreenTest {
     compose.onNodeWithText("Theme").assertIsDisplayed()
     compose.onNodeWithText("Text size").assertIsDisplayed()
     compose.onNodeWithText("Animations").assertIsDisplayed()
+    compose.onNodeWithText("Time format").assertIsDisplayed()
+    compose.onNodeWithText("Units").assertIsDisplayed()
     compose.onNodeWithText("This is how text looks.").assertIsDisplayed()
   }
 
@@ -54,6 +58,12 @@ class DisplayScreenTest {
 
     compose.onNodeWithText("Off").performClick()
     assertEquals(DisplayChange.Motion(AnimationMode.OFF), change)
+
+    compose.onNodeWithText("12-hour").performClick()
+    assertEquals(DisplayChange.Time(TimeFormat.TWELVE_HOUR), change)
+
+    compose.onNodeWithText("Imperial").performClick()
+    assertEquals(DisplayChange.Measurement(Units.IMPERIAL), change)
   }
 
   @Test

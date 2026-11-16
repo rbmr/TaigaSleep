@@ -18,6 +18,7 @@ import com.rbmr.taigasleep.notifications.resultsOpened
 import com.rbmr.taigasleep.ui.TaigaApp
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 import com.rbmr.taigasleep.ui.theme.ThemeMode
+import com.rbmr.taigasleep.ui.theme.rememberFormats
 import com.rbmr.taigasleep.ui.theme.rememberMotionScale
 import kotlinx.coroutines.launch
 
@@ -46,6 +47,7 @@ class MainActivity : ComponentActivity() {
             ThemeMode.DARK -> true
           }
       val motionScale = rememberMotionScale(animations)
+      val formats = rememberFormats()
       val view = LocalView.current
       if (!view.isInEditMode) {
         SideEffect {
@@ -54,7 +56,12 @@ class MainActivity : ComponentActivity() {
           controller.isAppearanceLightNavigationBars = !darkTheme
         }
       }
-      TaigaTheme(darkTheme = darkTheme, textSize = textSize, motionScale = motionScale) {
+      TaigaTheme(
+          darkTheme = darkTheme,
+          textSize = textSize,
+          motionScale = motionScale,
+          formats = formats,
+      ) {
         TaigaApp()
       }
     }

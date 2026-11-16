@@ -1,7 +1,7 @@
 package com.rbmr.taigasleep.backend
 
 import com.rbmr.taigasleep.insights.applicableStages
-import com.rbmr.taigasleep.insights.formatItemValue
+import com.rbmr.taigasleep.testFormats
 import com.rbmr.taigasleep.insights.metricSpec
 import com.rbmr.taigasleep.ui.components.hrSeriesPoints
 import kotlinx.serialization.json.Json
@@ -77,7 +77,7 @@ class WorkerResultFixtureTest {
     result.items.filter { it.kind == "number" }.forEach { item ->
       val spec = item.metricSpec()
       assertNotNull("no spec for ${item.id}", spec)
-      assertNotNull("no value for ${item.id}", formatItemValue(spec!!.kind, spec.itemValue))
+      assertNotNull("no value for ${item.id}", testFormats().itemValue(spec!!.kind, spec.itemValue))
       assertTrue(item.label.isNotBlank())
       assertTrue(item.explanation.isNotBlank())
     }

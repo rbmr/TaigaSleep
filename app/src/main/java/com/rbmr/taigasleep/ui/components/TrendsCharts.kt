@@ -50,8 +50,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.insights.Formats
 import com.rbmr.taigasleep.insights.TrendNight
 import com.rbmr.taigasleep.insights.clockMinuteOfNightMinute
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -99,12 +101,6 @@ sealed interface TrendChartKind {
 
   /** One floating bar per recording, from [TrendSpanPoint.start] to [TrendSpanPoint.end]. */
   data class FloatingBars(val spans: List<TrendSpanPoint?>) : TrendChartKind
-}
-
-/** Minutes since noon draw as a clock time, crossing midnight. */
-fun trendClock(minuteOfDay: Int): String {
-  val minute = (minuteOfDay % 1440 + 1440) % 1440
-  return String.format(Locale.getDefault(), "%02d:%02d", minute / 60, minute % 60)
 }
 
 /**
@@ -218,12 +214,12 @@ fun trendNumber(value: Double): String {
 fun totalSleepHours(seconds: Double?): Double? = seconds?.div(3600.0)
 
 /** The total-sleep axis in hours, covering the values and the intended duration. */
-fun hoursAxis(values: List<Double?>, targetHours: Double?): TrendAxis {
+fun hoursAxis(values: List<Double?>, targetHours: Double?, formats: Formats): TrendAxis {
   val highest = maxOf(values.filterNotNull().maxOfOrNull { it } ?: 0.0, targetHours ?: 0.0, 1.0)
   return trendAxis(
       min = 0.0,
       max = highest,
-      format = { "${trendNumber(it)} h" },
+      format = { formats.hours(trendNumber(it)) },
       steps = HourSteps,
       minStep = 1.0,
   )
@@ -939,8 +935,8 @@ val NumberAxisFormat: (Double) -> String = ::trendNumber
 val WholeAxisFormat: (Double) -> String = ::trendWhole
 
 /** The schedule chart's axis: minutes since noon, read as a time of day. */
-val ClockAxisFormat: (Double) -> String = { value ->
-  trendClock(clockMinuteOfNightMinute(value.roundToInt()))
+fun clockAxisFormat(formats: Formats): (Double) -> String = { value ->
+  formats.minuteOfDay(clockMinuteOfNightMinute(value.roundToInt()))
 }
 
 private fun previewNight(date: LocalDate): TrendNight =
@@ -970,6 +966,7 @@ private fun previewNight(date: LocalDate): TrendNight =
 @Composable
 private fun TrendChartPreview() {
   PreviewTheme {
+    val formats = LocalFormats.current
     val days = List(7) { LocalDate.of(2026, 11, 5).plusDays(it.toLong()) }
     val nights = days.map(::previewNight)
     val primary = MaterialTheme.colorScheme.primary
@@ -1004,10 +1001,10 @@ private fun TrendChartPreview() {
                     },
                 average = 7.1,
             ),
-        summary = listOf(TrendSummary("Average", "7h 6m")),
+        summary = listOf(TrendSummary("Average", formats.duration(7 * 3_600_000L + 6 * 60_000L))),
         description = "Total sleep over seven recordings",
         references = listOf(TrendReference("Intended", 7.5)),
-        topLabel = { "$it h" },
+        topLabel = { formats.hours(it) },
         steps = HourSteps,
         minStep = 1.0,
     )
@@ -1020,8 +1017,8 @@ private fun TrendChartPreview() {
             ),
         summary =
             listOf(
-                TrendSummary("Average bedtime", "23:12"),
-                TrendSummary("Average wake time", "07:04"),
+                TrendSummary("Average bedtime", formats.clockTime(23, 12)),
+                TrendSummary("Average wake time", formats.clockTime(7, 4)),
             ),
         description = "Sleep schedule over seven recordings",
         references =
@@ -1029,7 +1026,7 @@ private fun TrendChartPreview() {
                 TrendReference("Usual bedtime", 400.0),
                 TrendReference("Usual wake time", 1120.0),
             ),
-        axisFormat = ClockAxisFormat,
+        axisFormat = clockAxisFormat(formats),
         steps = ClockSteps,
         minStep = 60.0,
     )

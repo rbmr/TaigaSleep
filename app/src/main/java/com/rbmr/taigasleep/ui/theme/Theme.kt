@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.ui.theme
 
+import android.text.format.DateFormat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -10,8 +11,11 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.unit.Density
+import com.rbmr.taigasleep.insights.Formats
 
 // The two schemes are internal so the contrast test can measure the values they ship.
 internal val LightColors =
@@ -87,6 +91,7 @@ fun TaigaTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     textSize: TextSize = TextSize.SYSTEM,
     motionScale: Float = 1f,
+    formats: Formats? = null,
     content: @Composable () -> Unit,
 ) {
   // The one place the app's text size is decided: the density carries the font scale every style
@@ -95,11 +100,25 @@ fun TaigaTheme(
   val fontScale = textSize.fontScale(density.fontScale)
   val scaledDensity = remember(density, fontScale) { Density(density.density, fontScale) }
 
+  // The activity hands in the formatter it keeps current. A preview or a test that draws a screen
+  // without it gets the app's own words and the phone's settings as they are at that moment.
+  val context = LocalContext.current
+  val locale = LocalLocale.current.platformLocale
+  val systemFormats =
+      remember(context, locale) {
+        formatsFor(
+            context = context,
+            locale = locale,
+            phoneIs24Hour = DateFormat.is24HourFormat(context),
+        )
+      }
+
   CompositionLocalProvider(
       LocalTaigaColors provides if (darkTheme) DarkTaigaColors else LightTaigaColors,
       LocalDensity provides scaledDensity,
       LocalReduceMotion provides (motionScale <= 0f),
       LocalMotionScale provides motionScale,
+      LocalFormats provides (formats ?: systemFormats),
   ) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,

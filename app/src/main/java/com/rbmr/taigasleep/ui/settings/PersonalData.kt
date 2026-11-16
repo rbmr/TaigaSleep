@@ -44,12 +44,14 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.insights.Formats
 import com.rbmr.taigasleep.profile.PersonalData
 import com.rbmr.taigasleep.profile.Sex
 import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.components.TaigaScreen
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 import java.time.Instant
 import java.time.LocalDate
@@ -57,11 +59,6 @@ import java.time.LocalTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
-import java.util.Locale
-
-/** The weight the app accepts and sends, in kilograms. */
-private const val MIN_WEIGHT_KG = 1.0
-private const val MAX_WEIGHT_KG = 500.0
 
 /**
  * Settings → Personal details. Optional values that some analysis methods use, kept on the
@@ -75,6 +72,7 @@ fun PersonalDataScreen(onBack: () -> Unit) {
   val factory = remember { PersonalDataViewModel.Factory(context) }
   val viewModel: PersonalDataViewModel = viewModel(factory = factory)
   val data by viewModel.data.collectAsStateWithLifecycle()
+  val formats = LocalFormats.current
   var showDate by rememberSaveable { mutableStateOf(false) }
   var showSex by rememberSaveable { mutableStateOf(false) }
   var showWeight by rememberSaveable { mutableStateOf(false) }
@@ -97,19 +95,19 @@ fun PersonalDataScreen(onBack: () -> Unit) {
       SettingsDivider()
       ListRow(
           title = stringResource(R.string.personal_weight_title),
-          value = weightLabel(data),
+          value = weightLabel(data, formats),
           onClick = { showWeight = true },
       )
       SettingsDivider()
       ListRow(
           title = stringResource(R.string.personal_usual_bedtime_title),
-          value = timeLabel(data.usualBedtime),
+          value = timeLabel(data.usualBedtime, formats),
           onClick = { showBedtime = true },
       )
       SettingsDivider()
       ListRow(
           title = stringResource(R.string.personal_usual_wake_time_title),
-          value = timeLabel(data.usualWakeTime),
+          value = timeLabel(data.usualWakeTime, formats),
           onClick = { showWakeTime = true },
       )
     }
@@ -134,6 +132,7 @@ fun PersonalDataScreen(onBack: () -> Unit) {
   if (showWeight) {
     WeightDialog(
         current = data.weightKg,
+        formats = formats,
         onSave = viewModel::setWeightKg,
         onDismiss = { showWeight = false },
     )
@@ -141,9 +140,9 @@ fun PersonalDataScreen(onBack: () -> Unit) {
 
   if (showBedtime) {
     TimeOfDayDialog(
-        title = stringResource(R.string.personal_usual_bedtime_title),
+        field = PersonalTime.BEDTIME,
         current = data.usualBedtime,
-        defaultHour = 23,
+        formats = formats,
         onSave = viewModel::setUsualBedtime,
         onDismiss = { showBedtime = false },
     )
@@ -151,9 +150,9 @@ fun PersonalDataScreen(onBack: () -> Unit) {
 
   if (showWakeTime) {
     TimeOfDayDialog(
-        title = stringResource(R.string.personal_usual_wake_time_title),
+        field = PersonalTime.WAKE,
         current = data.usualWakeTime,
-        defaultHour = 7,
+        formats = formats,
         onSave = viewModel::setUsualWakeTime,
         onDismiss = { showWakeTime = false },
     )
@@ -291,8 +290,14 @@ private fun SexDialog(current: Sex?, onSave: (Sex?) -> Unit, onDismiss: () -> Un
 }
 
 @Composable
-private fun WeightDialog(current: Double?, onSave: (Double?) -> Unit, onDismiss: () -> Unit) {
-  var text by remember { mutableStateOf(current?.let(::formatWeight).orEmpty()) }
+private fun WeightDialog(
+    current: Double?,
+    formats: Formats,
+    onSave: (Double?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+  val prefilled = current?.let(formats::weightNumber).orEmpty()
+  var text by remember { mutableStateOf(prefilled) }
   var invalid by remember { mutableStateOf(false) }
 
   AlertDialog(
@@ -304,37 +309,21 @@ private fun WeightDialog(current: Double?, onSave: (Double?) -> Unit, onDismiss:
         )
       },
       text = {
-        Column {
-          Text(
-              text = stringResource(R.string.personal_body),
-              style = MaterialTheme.taiga.text.body,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.padding(bottom = MaterialTheme.taiga.space.m),
-          )
-          OutlinedTextField(
-              value = text,
-              onValueChange = {
-                text = it
-                invalid = false
-              },
-              label = { Text(stringResource(R.string.personal_weight_label)) },
-              keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-              isError = invalid,
-              supportingText =
-                  if (invalid) {
-                    { Text(stringResource(R.string.personal_weight_invalid)) }
-                  } else {
-                    null
-                  },
-              singleLine = true,
-          )
-        }
+        WeightField(
+            text = text,
+            invalid = invalid,
+            formats = formats,
+            onChange = {
+              text = it
+              invalid = false
+            },
+        )
       },
       confirmButton = {
         TextButton(
             onClick = {
-              val value = text.trim().replace(',', '.').toDoubleOrNull()
-              if (value == null || value < MIN_WEIGHT_KG || value > MAX_WEIGHT_KG) {
+              val value = weightToSave(current, prefilled, text, formats)
+              if (value == null) {
                 invalid = true
               } else {
                 onSave(value)
@@ -359,25 +348,84 @@ private fun WeightDialog(current: Double?, onSave: (Double?) -> Unit, onDismiss:
   )
 }
 
+/** The weight field: the explanation, the number in the unit the app uses and why it was refused. */
+@Composable
+private fun WeightField(
+    text: String,
+    invalid: Boolean,
+    formats: Formats,
+    onChange: (String) -> Unit,
+) {
+  Column {
+    Text(
+        text = stringResource(R.string.personal_body),
+        style = MaterialTheme.taiga.text.body,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = MaterialTheme.taiga.space.m),
+    )
+    OutlinedTextField(
+        value = text,
+        onValueChange = onChange,
+        label = { Text(formats.weightFieldLabel) },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        isError = invalid,
+        supportingText =
+            if (invalid) {
+              {
+                Text(
+                    stringResource(
+                        R.string.personal_weight_invalid,
+                        formats.weightBounds.start.toInt().toString(),
+                        formats.weightBounds.endInclusive.toInt().toString(),
+                        formats.weightUnit,
+                    )
+                )
+              }
+            } else {
+              null
+            },
+        singleLine = true,
+    )
+  }
+}
+
+/**
+ * The weight a save keeps: the stored one when the field still reads the value it was given, else
+ * what the user typed, in kilograms. Null when the text is not a weight the app accepts.
+ */
+internal fun weightToSave(
+    current: Double?,
+    prefilled: String,
+    text: String,
+    formats: Formats,
+): Double? =
+    if (text.trim() == prefilled) current else formats.parseWeight(text)
+
+/** The two times on the page, each with the hour a field that was never set opens at. */
+internal enum class PersonalTime(val titleRes: Int, val defaultHour: Int) {
+  BEDTIME(R.string.personal_usual_bedtime_title, 23),
+  WAKE(R.string.personal_usual_wake_time_title, 7),
+}
+
 /**
  * A time picker for the usual bedtime or wake time. The value is optional and can be cleared; a
  * field that was never set opens at a sensible hour for the field it belongs to.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimeOfDayDialog(
-    title: String,
+internal fun TimeOfDayDialog(
+    field: PersonalTime,
     current: LocalTime?,
-    defaultHour: Int,
+    formats: Formats,
     onSave: (LocalTime?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-  val is24Hour = android.text.format.DateFormat.is24HourFormat(LocalContext.current)
+  val title = stringResource(field.titleRes)
   val state =
       rememberTimePickerState(
-          initialHour = current?.hour ?: defaultHour,
+          initialHour = current?.hour ?: field.defaultHour,
           initialMinute = current?.minute ?: 0,
-          is24Hour = is24Hour,
+          is24Hour = formats.is24Hour,
       )
 
   Dialog(onDismissRequest = onDismiss) {
@@ -422,10 +470,9 @@ private fun TimeOfDayDialog(
 }
 
 @Composable
-private fun timeLabel(time: LocalTime?): String {
+private fun timeLabel(time: LocalTime?, formats: Formats): String {
   val value = time ?: return stringResource(R.string.personal_not_set)
-  val locale = LocalLocale.current.platformLocale
-  return value.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale))
+  return formats.clockTime(value.hour, value.minute)
 }
 
 @Composable
@@ -448,13 +495,8 @@ private fun sexLabelRes(sex: Sex): Int =
     }
 
 @Composable
-private fun weightLabel(data: PersonalData): String =
-    data.weightKg?.let { stringResource(R.string.personal_weight_value, formatWeight(it)) }
-        ?: stringResource(R.string.personal_not_set)
-
-private fun formatWeight(value: Double): String =
-    if (value % 1.0 == 0.0) value.toInt().toString()
-    else String.format(Locale.getDefault(), "%.1f", value)
+private fun weightLabel(data: PersonalData, formats: Formats): String =
+    data.weightKg?.let(formats::weight) ?: stringResource(R.string.personal_not_set)
 
 /** The date picker works in UTC midnight, so the chosen calendar day survives every timezone. */
 private fun utcMillis(date: LocalDate): Long =

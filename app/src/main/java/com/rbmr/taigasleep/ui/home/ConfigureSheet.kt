@@ -24,6 +24,7 @@ import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.ListRowTrailing
 import com.rbmr.taigasleep.ui.components.SegmentedControl
 import com.rbmr.taigasleep.ui.components.TaigaSheet
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
@@ -266,11 +267,12 @@ private fun LengthRow(minutes: Int, enabled: Boolean, onChange: (Int) -> Unit) {
 /** The time of day the window opens at; the picker is one dialog and one value. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimeRow(label: String, minute: Int, enabled: Boolean, onChange: (Int) -> Unit) {
+internal fun TimeRow(label: String, minute: Int, enabled: Boolean, onChange: (Int) -> Unit) {
   var editing by remember { mutableStateOf(false) }
+  val formats = LocalFormats.current
   ListRow(
       title = label,
-      value = stringResource(R.string.wake_time, minute / 60, minute % 60),
+      value = formats.minuteOfDay(minute),
       trailing = ListRowTrailing.None,
       enabled = enabled,
       onClick = { editing = true },
@@ -280,7 +282,7 @@ private fun TimeRow(label: String, minute: Int, enabled: Boolean, onChange: (Int
         rememberTimePickerState(
             initialHour = minute / 60,
             initialMinute = minute % 60,
-            is24Hour = true,
+            is24Hour = formats.is24Hour,
         )
     AlertDialog(
         onDismissRequest = { editing = false },

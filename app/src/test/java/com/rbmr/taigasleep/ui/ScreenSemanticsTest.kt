@@ -18,7 +18,9 @@ import com.rbmr.taigasleep.library.AnalysisStatus
 import com.rbmr.taigasleep.library.BackupState
 import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.library.RecordingView
+import com.rbmr.taigasleep.insights.TimeFormat
 import com.rbmr.taigasleep.sync.UploadFailure
+import com.rbmr.taigasleep.testFormats
 import com.rbmr.taigasleep.ui.components.HeartRateChart
 import com.rbmr.taigasleep.ui.components.SleepStagesChart
 import com.rbmr.taigasleep.ui.components.StageBreakdown
@@ -53,6 +55,10 @@ import org.robolectric.annotation.GraphicsMode
 class ScreenSemanticsTest {
   @get:Rule val compose = createComposeRule()
 
+  // The lists below carry clock times, so the formatter writes a 24-hour clock as they do.
+  private val formats =
+      testFormats(timeFormat = TimeFormat.TWENTY_FOUR_HOUR, zone = ZoneId.of("UTC"))
+
   // The rows and the charts print clock times, so the zone and the language are pinned: the lists
   // below are the same on every machine.
   @Before
@@ -64,7 +70,7 @@ class ScreenSemanticsTest {
   @Test
   fun `history shows the same rows and the same warning`() {
     compose.setContent {
-      TaigaTheme {
+      TaigaTheme(formats = formats) {
         HistoryScreen(
             state = historyState,
             onOpenRecording = { _, _, _ -> },
@@ -79,7 +85,9 @@ class ScreenSemanticsTest {
 
   @Test
   fun `trends show the same charts`() {
-    compose.setContent { TaigaTheme { TrendsContent(state = trendsState, onRangeChange = {}) } }
+    compose.setContent {
+      TaigaTheme(formats = formats) { TrendsContent(state = trendsState, onRangeChange = {}) }
+    }
     compose.waitForIdle()
 
     assertEquals(TrendsSemantics, semantics())
@@ -88,7 +96,7 @@ class ScreenSemanticsTest {
   @Test
   fun `the charts of a night describe the same night`() {
     compose.setContent {
-      TaigaTheme {
+      TaigaTheme(formats = formats) {
         Column(Modifier.fillMaxWidth()) {
           SleepStagesChart(
               segments = Stages,
