@@ -6,6 +6,12 @@ not distinguish light and deep sleep. This adapter prefers the ECG heartbeat
 detector when ECG is available, falls back to the H10 RR intervals for HR-only
 recordings, and applies the same five-epoch probability smoothing as wav2sleep.
 
+Both beat sources read the raw streams only. The ECG is detected per contiguous
+segment and every detected position is placed on the clock through the samples'
+own times, so a dropout does not move the beats after it. The R-R path uses the
+shared beat series, which chains the strap's intervals exactly and re-anchors a
+run only where beats were really lost.
+
 The package and its bundled classifier weights are BSD-3-Clause. They are an
 optional extra, so a base worker does not install Keras or PyTorch.
 """
@@ -15,6 +21,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -23,16 +30,17 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
+from ..beats import beat_series
 from ..contract import (
     AlgorithmInfo,
     AnalysisError,
+    EcgStream,
     Recording,
     Stage,
     Stager,
     StagingResult,
     StreamNeed,
 )
-from ..decode import RR_MAX_MS, RR_MIN_MS
 from ..smoothing import smooth_probabilities, unknown_runs
 
 CLASSIFIERS = {
@@ -47,10 +55,19 @@ CLASSIFIER_MODE = {
 }
 SMOOTHING_EPOCHS = 5
 
+# A beat cannot be detected across a gap, a saturated sample or a moment without contact,
+# so each contiguous usable stretch is detected on its own. A fragment at the edge of a
+# dropout is filter ringing rather than a heartbeat, so it is left out.
+ECG_MIN_SEGMENT_S = 2.0
+
+#: A detector applies to one contiguous stretch of samples and returns the sample
+#: indices of the beats it found.
+BeatDetector = Callable[[np.ndarray, float], np.ndarray]
+
 
 INFO = AlgorithmInfo(
     id="sleep-ecg",
-    version="1.1.0",
+    version="1.2.0",
     name="SleepECG",
     description=(
         "Uses the time between heartbeats to estimate awake, REM and light sleep. "
@@ -330,54 +347,116 @@ def _local_start_time(recording: Recording) -> Any:
     return datetime.fromtimestamp(recording.meta.start_utc_ms / 1000, tz=zone).time()
 
 
-def ecg_heartbeats(recording: Recording) -> np.ndarray:
-    """Detect heartbeat times from the normalized ECG, in seconds."""
+def _sleepecg_detector(voltage_mv: np.ndarray, rate_hz: float) -> np.ndarray:
+    """SleepECG's R-peak detector, imported only when a segment is detected."""
 
     from sleepecg.heartbeats import detect_heartbeats
+
+    return np.asarray(detect_heartbeats(voltage_mv, rate_hz), dtype=np.float64)
+
+
+def _ecg_contact(recording: Recording, ecg: EcgStream) -> np.ndarray | None:
+    """The strap's skin-contact report for every ECG sample, or ``None`` without one.
+
+    The ECG carries no contact flag of its own, so each sample takes the report of the
+    nearest heart-rate frame in time. A recording whose HR stream does not report
+    contact leaves the ECG unjudged.
+    """
+
+    hr = recording.hr
+    if hr is None or hr.t_s.size == 0 or not np.any(hr.contact_supported):
+        return None
+    right = np.clip(np.searchsorted(hr.t_s, ecg.t_s), 0, hr.t_s.size - 1)
+    left = np.clip(right - 1, 0, hr.t_s.size - 1)
+    use_left = np.abs(ecg.t_s - hr.t_s[left]) <= np.abs(hr.t_s[right] - ecg.t_s)
+    return np.asarray(hr.contact[np.where(use_left, left, right)], dtype=bool)
+
+
+def _ecg_segments(recording: Recording) -> list[tuple[int, int]]:
+    """The usable, contiguous stretches of the ECG, as half-open sample ranges.
+
+    A beat cannot be detected across a gap the decoder reported, across a saturated
+    sample, across a sample that is not a number, or across a moment without the skin
+    contact the strap reports: none of them is a signal. Each stretch is therefore
+    detected on its own and keeps its own place on the clock.
+    """
+
+    ecg = recording.ecg
+    if ecg is None or ecg.t_s.size == 0:
+        return []
+    usable = np.isfinite(ecg.voltage_mv) & ~ecg.saturated
+    contact = _ecg_contact(recording, ecg)
+    if contact is not None:
+        usable &= contact
+    breaks = np.zeros(ecg.t_s.size, dtype=bool)
+    breaks[0] = True
+    breaks[1:] = ~usable[1:] | ~usable[:-1]
+    for gap in recording.quality.gaps:
+        if gap.stream != "ecg":
+            continue
+        # The first sample at or after the end of the gap starts a new stretch.
+        index = int(np.searchsorted(ecg.t_s, gap.end_s, side="left"))
+        if 0 < index < ecg.t_s.size:
+            breaks[index] = True
+
+    starts = np.flatnonzero(breaks)
+    ends = np.append(starts[1:], ecg.t_s.size)
+    segments: list[tuple[int, int]] = []
+    for start, end in zip(starts, ends, strict=True):
+        if ecg.t_s[end - 1] - ecg.t_s[start] >= ECG_MIN_SEGMENT_S:
+            segments.append((int(start), int(end)))
+    return segments
+
+
+def ecg_heartbeats(recording: Recording, *, detect: BeatDetector | None = None) -> np.ndarray:
+    """Detect heartbeat times from the ECG, in seconds.
+
+    ``detect(voltage_mv, rate_hz)`` detects the beats of one contiguous stretch and
+    returns their sample indices. It defaults to SleepECG's detector; a caller can pass
+    a known one to check the segmentation and the timing without the optional stack.
+
+    Every detected sample index is placed on the clock through the stretch's own sample
+    times, so a dropout, a reconnect or a rate that is not perfectly uniform does not
+    move the beats after it.
+    """
 
     ecg = recording.ecg
     if ecg is None or ecg.t_s.size == 0:
         return np.empty(0, dtype=np.float64)
-    try:
-        indices = detect_heartbeats(ecg.voltage_mv.astype(np.float64), ecg.rate_hz)
-    except Exception:  # noqa: BLE001 - fall back to the RR path
-        return np.empty(0, dtype=np.float64)
-    beats = np.asarray(indices, dtype=np.float64) / max(ecg.rate_hz, 1e-6)
-    beats = beats[(beats >= 0) & (beats <= recording.duration_s)]
-    return np.sort(beats)
-
-
-def rr_heartbeats(recording: Recording) -> np.ndarray:
-    """Reconstruct heartbeat times from the H10 RR intervals, in seconds."""
-
-    hr = recording.hr
-    if hr is None:
-        return np.empty(0, dtype=np.float64)
+    detector = detect or _sleepecg_detector
     parts: list[np.ndarray] = []
-    for time_s, intervals, valid, contact in zip(
-        hr.t_s, hr.rr_ms, hr.valid, hr.contact, strict=True
-    ):
-        if not valid or not contact or len(intervals) == 0:
+    for start, end in _ecg_segments(recording):
+        t_seg = ecg.t_s[start:end]
+        try:
+            indices = detector(ecg.voltage_mv[start:end].astype(np.float64), ecg.rate_hz)
+        except Exception:  # noqa: BLE001 - one unusable stretch must not lose the others
             continue
-        rr = np.asarray(intervals, dtype=np.float64) / 1000.0
-        rr = rr[(rr >= RR_MIN_MS / 1000.0) & (rr <= RR_MAX_MS / 1000.0)]
-        if rr.size:
-            # The last beat of the batch is at (or immediately before) the
-            # sample time; walk backwards through the intervals.
-            parts.append(time_s - np.cumsum(rr[::-1])[::-1])
+        indices = np.asarray(indices, dtype=np.float64)
+        indices = indices[np.isfinite(indices) & (indices >= 0) & (indices < t_seg.size)]
+        if indices.size == 0:
+            continue
+        positions = np.arange(t_seg.size, dtype=np.float64)
+        parts.append(np.interp(indices, positions, t_seg))
     if not parts:
         return np.empty(0, dtype=np.float64)
     beats = np.sort(np.concatenate(parts))
-    beats = beats[(beats >= 0) & (beats <= recording.duration_s)]
-    if beats.size == 0:
-        return beats
-    # Adjacent batches overlap by one beat; remove near-duplicates without
-    # collapsing genuinely fast beats.
-    keep = [float(beats[0])]
-    for beat in beats[1:]:
-        if beat - keep[-1] >= 0.2:
-            keep.append(float(beat))
-    return np.asarray(keep, dtype=np.float64)
+    return beats[(beats >= 0) & (beats <= recording.duration_s)]
+
+
+def rr_heartbeats(recording: Recording) -> np.ndarray:
+    """Heartbeat times from the shared R-R beat series, in seconds.
+
+    The series chains every reported interval exactly, so the spacing between beats
+    comes from the strap's intervals and not from when each notification reached the
+    phone. A stretch of beats that was really lost stays a break in the series, and the
+    beats on either side keep their place on the clock.
+    """
+
+    series = beat_series(recording)
+    if series is None:
+        return np.empty(0, dtype=np.float64)
+    beats = series.times_s
+    return beats[(beats >= 0) & (beats <= recording.duration_s)]
 
 
 def _beats(recording: Recording, config: Mapping[str, Any]) -> tuple[np.ndarray, str]:
