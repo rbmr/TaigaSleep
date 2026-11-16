@@ -22,6 +22,7 @@ func item(kind, id string) resultItem {
 }
 
 func TestValidateItems(t *testing.T) {
+	t.Parallel()
 	valid := []resultItem{item("number", "a"), item("score", "b"), item("series", "c")}
 	if err := validateItems(valid); err != nil {
 		t.Fatalf("valid items: %v", err)
@@ -47,6 +48,7 @@ func TestValidateItems(t *testing.T) {
 }
 
 func TestSummaryHasStagesAndScoresOnly(t *testing.T) {
+	t.Parallel()
 	result := map[string]any{
 		"stages": map[string]any{
 			"epoch_seconds": 30.0, "start_unix_ms": 1.0, "count": 2.0,

@@ -60,6 +60,7 @@ func rateLimitByLabel(settings *core.Settings, label string) (core.RateLimitRule
 
 // TestMigrationsEnableTheRateLimiter checks the rules a fresh data directory gets.
 func TestMigrationsEnableTheRateLimiter(t *testing.T) {
+	t.Parallel()
 	settings := migratedApp(t, t.TempDir()).Settings()
 
 	if !settings.RateLimits.Enabled {
@@ -141,6 +142,7 @@ func TestBootstrapTrustsNoProxyHeaderByDefault(t *testing.T) {
 // its first start: the migration writes the schedule, and what the operator changes or
 // clears in the dashboard afterwards is not written over by a later start.
 func TestBackupDefaultsAreSetOnceAndTheOperatorKeepsTheChoice(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	fresh := migratedApp(t, dir)

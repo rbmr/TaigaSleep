@@ -20,6 +20,7 @@ func gzipMember(t *testing.T, payload []byte) []byte {
 }
 
 func TestValidateGzipChunkAcceptsAMember(t *testing.T) {
+	t.Parallel()
 	data := gzipMember(t, []byte("hello taiga"))
 
 	member, err := validateGzipChunk(data, 1<<20, 200)
@@ -32,6 +33,7 @@ func TestValidateGzipChunkAcceptsAMember(t *testing.T) {
 }
 
 func TestValidateGzipChunkRejectsMalformedMembers(t *testing.T) {
+	t.Parallel()
 	valid := gzipMember(t, []byte("hello taiga"))
 	cases := map[string][]byte{
 		"empty":          nil,
@@ -56,6 +58,7 @@ func TestValidateGzipChunkRejectsMalformedMembers(t *testing.T) {
 }
 
 func TestValidateGzipChunkEnforcesTheExpansionRatio(t *testing.T) {
+	t.Parallel()
 	data := gzipMember(t, make([]byte, 100_000))
 	if _, err := validateGzipChunk(data, 1<<20, 2); err == nil {
 		t.Fatal("expected a ratio error")
@@ -63,6 +66,7 @@ func TestValidateGzipChunkEnforcesTheExpansionRatio(t *testing.T) {
 }
 
 func TestValidateGzipChunkInflatesAndVerifiesTheMember(t *testing.T) {
+	t.Parallel()
 	payload := bytes.Repeat([]byte("taiga"), 1000)
 	data := gzipMember(t, payload)
 

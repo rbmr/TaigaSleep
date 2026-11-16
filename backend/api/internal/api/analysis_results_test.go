@@ -23,6 +23,7 @@ import (
 // once, and listing or claiming never chooses the result column.
 
 func TestAResultOverTheLimitFailsTheAnalysisOnce(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice, worker := s.tokens["alice"], s.tokens["worker"]
 	id := "rec-result-limit"
@@ -62,6 +63,7 @@ func TestAResultOverTheLimitFailsTheAnalysisOnce(t *testing.T) {
 }
 
 func TestListAndClaimNeverReadAResult(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice, worker := s.tokens["alice"], s.tokens["worker"]
 	id := "rec-result-reads"
@@ -100,6 +102,7 @@ func TestListAndClaimNeverReadAResult(t *testing.T) {
 }
 
 func TestDeletingAnAnalysisDeletesItsResult(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice, worker := s.tokens["alice"], s.tokens["worker"]
 	id := "rec-result-cascade"
@@ -123,6 +126,7 @@ func TestDeletingAnAnalysisDeletesItsResult(t *testing.T) {
 // migration and reads every result back through the API, so a moved result is the
 // same result a client sees.
 func TestAnalysisResultsMoveToTheirOwnCollection(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	migration := migrationByFile(t, "1795219200_")
 	if migration.Down == nil || migration.Up == nil {
