@@ -32,6 +32,8 @@ class PolarTrackerProfilesTest {
   private class FakeSeam : PolarSeam {
     val started = mutableListOf<PolarDeviceDataType>()
 
+    override fun register(id: String, listener: PolarSeam.ConnectionListener) = Unit
+
     override fun connect(id: String) = Unit
 
     override fun disconnect(id: String) = Unit

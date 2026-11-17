@@ -158,7 +158,7 @@ internal object RawRetention {
         try {
           val available =
               api.listFiles(recordingId).items.filter {
-                it.name in RecordingStore.RAW_FILES && it.size > 0
+                RecordingStore.isRawName(it.name) && it.size > 0
               }
           if (available.isEmpty()) {
             return@withContext Result.failure(
@@ -198,8 +198,7 @@ internal object RawRetention {
         }
       }
 
-  private fun hasStreams(dir: File): Boolean =
-      RecordingStore.RAW_FILES.any { name -> File(dir, name).let { it.isFile && it.length() > 0 } }
+  private fun hasStreams(dir: File): Boolean = RecordingStore.rawFiles(dir).isNotEmpty()
 
   /**
    * Deletes the raw streams after making sure the end time is in meta.json, because the last HR
@@ -213,9 +212,7 @@ internal object RawRetention {
         throw IOException("could not update ${RecordingMeta.FILE_NAME}")
       }
     }
-    for (name in RecordingStore.RAW_FILES) {
-      val file = File(dir, name)
-      if (!file.isFile) continue
+    for (file in RecordingStore.rawFiles(dir)) {
       if (!file.delete()) throw IOException("could not delete ${file.name}")
     }
   }

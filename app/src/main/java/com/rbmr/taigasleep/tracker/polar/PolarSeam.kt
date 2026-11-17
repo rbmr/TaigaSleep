@@ -3,6 +3,9 @@
 package com.rbmr.taigasleep.tracker.polar
 
 import android.content.Context
+import com.polar.androidcommunications.api.ble.model.DisInfo
+import com.polar.androidcommunications.api.ble.model.gatt.client.BleDisClient
+import com.polar.sdk.api.PolarBleApiCallback
 import com.polar.sdk.api.PolarBleApi
 import com.polar.sdk.api.PolarBleApi.PolarDeviceDataType
 import com.polar.sdk.api.PolarBleApiDefaultImpl
@@ -15,6 +18,8 @@ import com.polar.sdk.api.model.PolarPpgData
 import com.polar.sdk.api.model.PolarPpiData
 import com.polar.sdk.api.model.PolarSensorSetting
 import java.time.LocalDateTime
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -22,6 +27,20 @@ import kotlinx.coroutines.flow.Flow
  * be tested with a fake instead of a strap. [PolarSdkSeam] is the real one; tests supply their own.
  */
 interface PolarSeam {
+  /** What a driver needs to hear from the SDK. */
+  interface ConnectionListener {
+    fun onConnected()
+
+    fun onDisconnected()
+
+    fun onBattery(level: Int?)
+
+    fun onFirmware(value: String?)
+  }
+
+  /** Registers the tracker that owns this device id; one tracker per id. */
+  fun register(id: String, listener: ConnectionListener)
+
   fun connect(id: String)
 
   fun disconnect(id: String)
@@ -56,6 +75,11 @@ interface PolarSeam {
 /** The Polar SDK, one instance for the generic drivers. */
 object PolarSdkSeam : PolarSeam {
   @Volatile private var api: PolarBleApi? = null
+  private val listeners = ConcurrentHashMap<String, PolarSeam.ConnectionListener>()
+
+  override fun register(id: String, listener: PolarSeam.ConnectionListener) {
+    listeners[id] = listener
+  }
 
   private fun api(context: Context): PolarBleApi =
       api
@@ -70,7 +94,44 @@ object PolarSdkSeam : PolarSeam {
                       PolarBleApi.PolarBleSdkFeature.FEATURE_POLAR_DEVICE_TIME_SETUP,
                   ),
               )
-              .also { api = it }
+              .also {
+                it.setAutomaticReconnection(true)
+                it.setApiCallback(callback)
+                api = it
+              }
+
+  private val callback =
+      object : PolarBleApiCallback() {
+        override fun deviceConnected(polarDeviceInfo: PolarDeviceInfo) {
+          listeners[polarDeviceInfo.deviceId]?.onConnected()
+        }
+
+        override fun deviceDisconnected(polarDeviceInfo: PolarDeviceInfo) {
+          listeners[polarDeviceInfo.deviceId]?.onDisconnected()
+        }
+
+        override fun bleSdkFeatureReady(
+            identifier: String,
+            feature: PolarBleApi.PolarBleSdkFeature,
+        ) = Unit
+
+        override fun batteryLevelReceived(identifier: String, level: Int) {
+          listeners[identifier]?.onBattery(level)
+        }
+
+        override fun disInformationReceived(identifier: String, uuid: UUID, value: String) {
+          if (uuid == BleDisClient.SOFTWARE_REVISION_STRING) {
+            listeners[identifier]?.onFirmware(value.trimEnd('\u0000').trim())
+          }
+        }
+
+        override fun disInformationReceived(identifier: String, disInfo: DisInfo) = Unit
+
+        override fun htsNotificationReceived(
+            identifier: String,
+            data: com.polar.sdk.api.model.PolarHealthThermometerData,
+        ) = Unit
+      }
 
   private var context: Context? = null
 

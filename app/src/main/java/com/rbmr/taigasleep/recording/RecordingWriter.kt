@@ -88,7 +88,11 @@ private constructor(
   fun writeFrame(frame: TrackerFrame): Boolean {
     if (closed) return false
     if (frame.clamped > 0) {
-      errorEvent("${frame.stream} values out of range clamped (${frame.clamped})")
+      // The wording the writer used when it encoded these streams itself.
+      errorEvent(
+          if (frame.stream == "acc") "acc values outside i16 clamped (${frame.clamped})"
+          else "hr values out of range clamped (${frame.clamped})"
+      )
     }
     val log = streamLogs[frame.stream] ?: meta.stream(frame.stream)?.let { StreamId.forType(it.type) }
     if (log == null) return false

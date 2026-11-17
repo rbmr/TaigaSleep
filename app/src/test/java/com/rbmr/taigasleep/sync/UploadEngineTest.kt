@@ -172,6 +172,18 @@ class UploadEngineTest {
   }
 
   @Test
+  fun aStreamTheTrackerAddedIsUploadedLikeTheOriginalOnes() = runBlocking {
+    File(dir, "hr.log").writeBytes(ByteArray(4))
+    File(dir, "ppg.log").writeBytes(ByteArray(6))
+    val client = FakeClient()
+
+    engine(client).run()
+
+    assertTrue("ppg.log" in client.heads)
+    assertArrayEquals(ByteArray(6), client.stored.getValue("ppg.log"))
+  }
+
+  @Test
   fun aConflictIsRecoveredFromTheOffsetTheServerReports() = runBlocking {
     File(dir, "hr.log").writeBytes(ByteArray(10) { it.toByte() })
     val client = FakeClient()

@@ -55,7 +55,7 @@ abstract class PolarGenericTracker(
     override val name: String,
     private val seam: PolarSeam,
     private val clock: Clock = SystemClockSource,
-) : Tracker, OnDeviceTracker {
+) : Tracker, OnDeviceTracker, PolarSeam.ConnectionListener {
   private val _connection = MutableStateFlow(ConnectionState.DISCONNECTED)
   override val connection: StateFlow<ConnectionState> = _connection.asStateFlow()
   private val _battery = MutableStateFlow<Int?>(null)
@@ -93,11 +93,34 @@ abstract class PolarGenericTracker(
     }
   }
 
+  init {
+    seam.register(id, this)
+  }
+
   override fun connect() {
     userDisconnect = false
     _connection.value = ConnectionState.CONNECTING
     runCatching { seam.connect(id) }
         .onFailure { _connection.value = ConnectionState.DISCONNECTED }
+  }
+
+  override fun onConnected() {
+    _connection.value = ConnectionState.CONNECTED
+    if (selected.isNotEmpty()) startLive()
+  }
+
+  override fun onDisconnected() {
+    disposeStreams()
+    _connection.value =
+        if (userDisconnect) ConnectionState.DISCONNECTED else ConnectionState.CONNECTING
+  }
+
+  override fun onBattery(level: Int?) {
+    _battery.value = level
+  }
+
+  override fun onFirmware(value: String?) {
+    _firmware.value = value
   }
 
   override fun disconnect() {
