@@ -5,15 +5,16 @@ import androidx.compose.ui.test.onNodeWithText
 import com.rbmr.taigasleep.insights.Formats
 import com.rbmr.taigasleep.insights.TimeFormat
 import com.rbmr.taigasleep.testFormats
+import com.rbmr.taigasleep.ui.components.TimePickerDialog
+import com.rbmr.taigasleep.ui.components.TimePickerText
 import com.rbmr.taigasleep.ui.theme.TaigaThemeWithFormats
-import java.time.LocalTime
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** The Personal details time pickers are the clock the Display setting chooses. */
+/** The time picker is the clock the Display setting chooses. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xhdpi")
 class TimeFormatDialogsTest {
@@ -22,11 +23,11 @@ class TimeFormatDialogsTest {
   private fun show(formats: Formats) {
     compose.setContent {
       TaigaThemeWithFormats(formats = formats) {
-        TimeOfDayDialog(
-            field = PersonalTime.BEDTIME,
-            current = LocalTime.of(23, 15),
-            formats = formats,
-            onSave = {},
+        TimePickerDialog(
+            minuteOfDay = 23 * 60 + 15,
+            is24Hour = formats.is24Hour,
+            text = TimePickerText(title = "Bedtime", confirm = "Save"),
+            onConfirm = {},
             onDismiss = {},
         )
       }

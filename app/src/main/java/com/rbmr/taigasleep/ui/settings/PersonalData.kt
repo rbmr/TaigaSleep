@@ -7,12 +7,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -21,12 +18,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SelectableDates
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,7 +34,6 @@ import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
@@ -51,6 +44,9 @@ import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.components.TaigaScreen
+import com.rbmr.taigasleep.ui.components.TimePickerClear
+import com.rbmr.taigasleep.ui.components.TimePickerDialog
+import com.rbmr.taigasleep.ui.components.TimePickerText
 import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 import java.time.Instant
@@ -139,21 +135,43 @@ fun PersonalDataScreen(onBack: () -> Unit) {
   }
 
   if (showBedtime) {
-    TimeOfDayDialog(
-        field = PersonalTime.BEDTIME,
-        current = data.usualBedtime,
-        formats = formats,
-        onSave = viewModel::setUsualBedtime,
+    TimePickerDialog(
+        minuteOfDay = data.usualBedtime?.let { it.hour * 60 + it.minute }
+            ?: PersonalTime.BEDTIME.defaultHour * 60,
+        is24Hour = formats.is24Hour,
+        text =
+            TimePickerText(
+                title = stringResource(PersonalTime.BEDTIME.titleRes),
+                confirm = stringResource(R.string.personal_save),
+                clear =
+                    TimePickerClear(
+                        label = stringResource(R.string.personal_remove),
+                        enabled = data.usualBedtime != null,
+                        onClick = { viewModel.setUsualBedtime(null) },
+                    ),
+            ),
+        onConfirm = { minute -> viewModel.setUsualBedtime(timeOfDay(minute)) },
         onDismiss = { showBedtime = false },
     )
   }
 
   if (showWakeTime) {
-    TimeOfDayDialog(
-        field = PersonalTime.WAKE,
-        current = data.usualWakeTime,
-        formats = formats,
-        onSave = viewModel::setUsualWakeTime,
+    TimePickerDialog(
+        minuteOfDay = data.usualWakeTime?.let { it.hour * 60 + it.minute }
+            ?: PersonalTime.WAKE.defaultHour * 60,
+        is24Hour = formats.is24Hour,
+        text =
+            TimePickerText(
+                title = stringResource(PersonalTime.WAKE.titleRes),
+                confirm = stringResource(R.string.personal_save),
+                clear =
+                    TimePickerClear(
+                        label = stringResource(R.string.personal_remove),
+                        enabled = data.usualWakeTime != null,
+                        onClick = { viewModel.setUsualWakeTime(null) },
+                    ),
+            ),
+        onConfirm = { minute -> viewModel.setUsualWakeTime(timeOfDay(minute)) },
         onDismiss = { showWakeTime = false },
     )
   }
@@ -407,73 +425,15 @@ internal enum class PersonalTime(val titleRes: Int, val defaultHour: Int) {
   WAKE(R.string.personal_usual_wake_time_title, 7),
 }
 
-/**
- * A time picker for the usual bedtime or wake time. The value is optional and can be cleared; a
- * field that was never set opens at a sensible hour for the field it belongs to.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun TimeOfDayDialog(
-    field: PersonalTime,
-    current: LocalTime?,
-    formats: Formats,
-    onSave: (LocalTime?) -> Unit,
-    onDismiss: () -> Unit,
-) {
-  val title = stringResource(field.titleRes)
-  val state =
-      rememberTimePickerState(
-          initialHour = current?.hour ?: field.defaultHour,
-          initialMinute = current?.minute ?: 0,
-          is24Hour = formats.is24Hour,
-      )
-
-  Dialog(onDismissRequest = onDismiss) {
-    Surface(
-        shape = MaterialTheme.taiga.shape.card,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 6.dp,
-    ) {
-      Column(
-          modifier = Modifier.padding(MaterialTheme.taiga.space.l).verticalScroll(rememberScrollState()),
-      ) {
-        Text(text = title, style = MaterialTheme.taiga.text.section)
-        Spacer(Modifier.height(MaterialTheme.taiga.space.m))
-        TimePicker(state = state)
-        Spacer(Modifier.height(MaterialTheme.taiga.space.s))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          TextButton(
-              onClick = {
-                onSave(null)
-                onDismiss()
-              },
-              enabled = current != null,
-          ) {
-            Text(stringResource(R.string.personal_remove))
-          }
-          Spacer(Modifier.weight(1f))
-          TextButton(onClick = onDismiss) {
-            Text(stringResource(R.string.personal_cancel))
-          }
-          TextButton(
-              onClick = {
-                onSave(LocalTime.of(state.hour, state.minute))
-                onDismiss()
-              }
-          ) {
-            Text(stringResource(R.string.personal_save))
-          }
-        }
-      }
-    }
-  }
-}
-
 @Composable
 private fun timeLabel(time: LocalTime?, formats: Formats): String {
   val value = time ?: return stringResource(R.string.personal_not_set)
   return formats.clockTime(value.hour, value.minute)
 }
+
+/** The local time at [minuteOfDay], which is how the time picker speaks. */
+private fun timeOfDay(minuteOfDay: Int): LocalTime =
+    LocalTime.of(minuteOfDay / 60, minuteOfDay % 60)
 
 @Composable
 private fun dateOfBirthLabel(data: PersonalData): String {
