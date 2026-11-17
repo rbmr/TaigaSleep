@@ -251,11 +251,7 @@ class BleHrsTracker(
     const val TAG = "BleHrsTracker"
 
     fun bluetoothAdapter(context: Context): BluetoothAdapter? =
-        if (Build.VERSION.SDK_INT >= 31) {
-          context.getSystemService(BluetoothManager::class.java)?.adapter
-        } else {
-          context.getSystemService(BluetoothManager::class.java)?.adapter
-        }
+        context.getSystemService(BluetoothManager::class.java)?.adapter
   }
 }
 
