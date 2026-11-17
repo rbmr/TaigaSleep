@@ -105,3 +105,81 @@ def test_an_invalid_header_is_never_stepped_over() -> None:
 
     with pytest.raises(frames.FrameError):
         list(frames.iter_frames(data, frames.STREAM_HR, []))
+
+
+def _linear_timestamps(count: int) -> list[int]:
+    return [fx.POLAR_START_NS + index * (1_000_000_000 // 130) for index in range(count)]
+
+
+def test_ecg_random_batches_round_trip_as_16_bit() -> None:
+    rng = random.Random(251)
+    for _ in range(200):
+        count = rng.randint(1, 300)
+        timestamps = _linear_timestamps(count)
+        values = [rng.randint(-32768, 32767) for _ in range(count)]
+        payload = frames.ecg_payload(fx.START_NS, 0, timestamps, values)
+
+        assert payload[16] & frames.TS_VALUES_I16
+        batch = frames.read_ecg(payload)
+        assert batch.values == tuple(values)
+        assert batch.timestamps_ns == tuple(timestamps)
+        assert batch.values_i16
+        # A linear grid and two bytes per sample: 19-byte header, 16 timestamp bytes.
+        assert len(payload) == 19 + 16 + 2 * count
+
+
+@pytest.mark.parametrize("value", [-32768, 32767], ids=["min", "max"])
+def test_ecg_values_at_the_16_bit_limits_stay_exact(value: int) -> None:
+    values = [0, value, 0]
+    payload = frames.ecg_payload(fx.START_NS, 0, _linear_timestamps(len(values)), values)
+
+    assert payload[16] & frames.TS_VALUES_I16
+    assert frames.read_ecg(payload).values == tuple(values)
+
+
+@pytest.mark.parametrize("value", [-32769, 32768], ids=["below", "above"])
+def test_ecg_values_beyond_the_16_bit_limits_fall_back_to_32_bit(value: int) -> None:
+    values = [0, value, 1]
+    payload = frames.ecg_payload(fx.START_NS, 0, _linear_timestamps(len(values)), values)
+
+    assert not payload[16] & frames.TS_VALUES_I16
+    batch = frames.read_ecg(payload)
+    assert not batch.values_i16
+    assert batch.values == tuple(values)
+    assert len(payload) == 19 + 16 + 4 * len(values)
+
+
+def test_a_saturated_ecg_batch_is_stored_as_16_bit_and_stays_exact() -> None:
+    values = [18_000, -18_000] * 65
+    payload = frames.ecg_payload(fx.START_NS, 0, _linear_timestamps(len(values)), values)
+
+    batch = frames.read_ecg(payload)
+    assert batch.values_i16
+    assert batch.values == tuple(values)
+
+
+def test_an_ecg_payload_in_the_old_codec_decodes_to_the_same_samples() -> None:
+    values = [1234, -5678, 32767, -32768, 0]
+    timestamps = _linear_timestamps(len(values))
+    old = frames.ecg_payload(fx.START_NS, 0, timestamps, values, values_i16=False)
+    new = frames.ecg_payload(fx.START_NS, 0, timestamps, values)
+
+    assert not old[16] & frames.TS_VALUES_I16
+    old_batch = frames.read_ecg(old)
+    new_batch = frames.read_ecg(new)
+    assert not old_batch.values_i16
+    assert old_batch.values == new_batch.values == tuple(values)
+    assert old_batch.timestamps_ns == new_batch.timestamps_ns
+
+
+def test_forcing_16_bit_for_a_value_that_does_not_fit_is_an_error() -> None:
+    with pytest.raises(ValueError):
+        frames.ecg_payload(fx.START_NS, 0, _linear_timestamps(1), [32768], values_i16=True)
+
+
+def test_an_acc_payload_cannot_carry_the_16_bit_flag() -> None:
+    payload = bytearray(frames.acc_payload(fx.START_NS, 0, _linear_timestamps(1), [1, 2, 3]))
+    payload[16] |= frames.TS_VALUES_I16
+
+    with pytest.raises(ValueError):
+        frames.read_acc(bytes(payload))
