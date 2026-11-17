@@ -173,6 +173,8 @@ nobody asks for is not decoded: `recording.ecg` and the like are `None` for it,
 while `recording.quality.streams` still describes the file it came from, so a
 result says the same thing about its input whatever algorithm ran. A stager that
 reads only what it declares therefore does not pay for a stream it never sees.
+ECG and ACC streams carry no per-sample `phone_ns`: every time a result uses is
+on `t_s`, and the phone timestamp is kept per batch as an internal anchor.
 
 Helpers:
 
