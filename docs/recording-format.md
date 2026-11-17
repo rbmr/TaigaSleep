@@ -75,7 +75,7 @@ step).
   "streams": [
     { "id": "hr", "type": "heart_rate", "codec": "polar-hr-v1", "file": "hr.log", "rate_hz": 1.0, "settings": {} },
     { "id": "rr", "type": "rr_interval", "codec": "polar-hr-v1", "file": "hr.log", "settings": {} },
-    { "id": "ecg", "type": "ecg", "codec": "polar-ecg-v1", "file": "ecg.log", "rate_hz": 130.0,
+    { "id": "ecg", "type": "ecg", "codec": "polar-ecg-v2", "file": "ecg.log", "rate_hz": 130.0,
       "settings": { "resolution_bits": "14" } },
     { "id": "acc", "type": "accelerometer", "codec": "polar-acc-v1", "file": "acc.log", "rate_hz": 50.0,
       "settings": { "range_g": "8" } }
