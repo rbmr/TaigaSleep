@@ -26,8 +26,10 @@ AASM4_STAGES: tuple[Stage, ...] = ("wake", "rem", "light", "deep", "unknown")
 WAKE_REM_NREM_STAGES: tuple[Stage, ...] = ("wake", "rem", "nrem", "unknown")
 WAKE_SLEEP_STAGES: tuple[Stage, ...] = ("wake", "sleep", "unknown")
 
-StreamName = Literal["hr", "ecg", "acc"]
-STREAM_NAMES: tuple[StreamName, ...] = ("hr", "ecg", "acc")
+# A stream's name is the one its recording declares; the analysis paths that
+# existed before trackers reported their own streams keep the three names below.
+StreamName = str
+STREAM_NAMES: tuple[StreamName, ...] = ("hr", "ecg", "acc", "ppg", "ppi", "gyro", "mag")
 
 ALGORITHM_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
@@ -128,6 +130,68 @@ class AlgorithmInfo:
 
 
 @dataclass(frozen=True)
+class RecordingStream:
+    """One stream a recording's meta.json declares."""
+
+    id: str
+    type: str
+    codec: str
+    file: str
+    rate_hz: float | None = None
+    settings: Mapping[str, str] = field(default_factory=dict)
+
+
+def legacy_streams(hr: bool, ecg: bool, acc: bool, ecg_rate: float, acc_rate: float) -> tuple[RecordingStream, ...]:
+    """The streams an H10 recording wrote before meta.json listed them."""
+
+    streams: list[RecordingStream] = []
+    if hr:
+        streams.append(RecordingStream("hr", "heart_rate", "polar-hr-v1", "hr.log", 1.0))
+        streams.append(RecordingStream("rr", "rr_interval", "polar-hr-v1", "hr.log"))
+    if ecg:
+        streams.append(RecordingStream("ecg", "ecg", "polar-ecg-v1", "ecg.log", ecg_rate))
+    if acc:
+        streams.append(RecordingStream("acc", "accelerometer", "polar-acc-v1", "acc.log", acc_rate))
+    return tuple(streams)
+
+
+def _streams_from(meta: Mapping[str, Any], config: Mapping[str, Any]) -> tuple[RecordingStream, ...]:
+    declared = meta.get("streams")
+    if isinstance(declared, list) and declared:
+        streams = []
+        for item in declared:
+            if not isinstance(item, dict):
+                continue
+            try:
+                streams.append(
+                    RecordingStream(
+                        id=str(item["id"]),
+                        type=str(item["type"]),
+                        codec=str(item["codec"]),
+                        file=str(item["file"]),
+                        rate_hz=None
+                        if item.get("rate_hz") is None
+                        else float(item["rate_hz"]),
+                        settings={
+                            str(key): str(value)
+                            for key, value in (item.get("settings") or {}).items()
+                        },
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        if streams:
+            return tuple(streams)
+    return legacy_streams(
+        bool(config.get("hr", True)),
+        bool(config.get("ecg", False)),
+        bool(config.get("acc", False)),
+        float(config.get("ecg_rate_hz") or 130.0),
+        float(config.get("acc_rate_hz") or 50.0),
+    )
+
+
+@dataclass(frozen=True)
 class RecordingMeta:
     format: str
     version: int
@@ -148,6 +212,7 @@ class RecordingMeta:
     ecg_rate_hz: float
     acc_rate_hz: float
     acc_range_g: float
+    streams: tuple[RecordingStream, ...] = ()
     raw: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -177,6 +242,7 @@ class RecordingMeta:
                 ecg_rate_hz=float(config.get("ecg_rate_hz") or 130.0),
                 acc_rate_hz=float(config.get("acc_rate_hz") or 50.0),
                 acc_range_g=float(config.get("acc_range_g") or 8.0),
+                streams=_streams_from(meta, config),
                 raw=dict(meta),
             )
         except (KeyError, TypeError, ValueError) as exc:
@@ -373,6 +439,9 @@ class Recording:
     acc: AccStream | None
     events: tuple[RecordingEvent, ...]
     quality: InputQuality
+    # PPG, pulse intervals and the vector streams are decoded and kept, but no
+    # stager has to use them yet.
+    extra_streams: Mapping[str, Any] = field(default_factory=dict)
     _epoch_cache: dict[int, EpochGrid] = field(default_factory=dict, repr=False, init=False)
 
     @property

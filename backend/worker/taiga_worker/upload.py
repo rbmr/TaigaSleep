@@ -16,11 +16,25 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from .frames import HEADER_SIZE, STREAM_IDS, FrameError, FrameGap, iter_frames, mapped_log
+from .frames import (
+    HEADER_SIZE,
+    STREAM_IDS,
+    FrameError,
+    FrameGap,
+    iter_frames,
+    mapped_log,
+    stream_id_of,
+)
 
 MAX_EVENT_LINE = 8 * 1024
 
 RECORDING_FILES = {"events.jsonl", *STREAM_IDS}
+
+
+def is_recording_file(name: str) -> bool:
+    """A recording file is the event log or any stream log a tracker declared."""
+
+    return name == "events.jsonl" or name.endswith(".log") or name.endswith(".log.gz")
 
 
 @dataclass(frozen=True)
@@ -54,7 +68,12 @@ def verify_recording_file(path: Path, name: str) -> FrameCheck:
         return _verify_events(path, path.read_bytes())
     stream = STREAM_IDS.get(name)
     if stream is None:
-        return FrameCheck(name, size, size, 0, 0, False, None)
+        # A stream a newer tracker added is named by its own meta.json; the
+        # header says which layout its payloads use.
+        with mapped_log(path) as data:
+            stream = stream_id_of(data) if data is not None else None
+        if stream is None:
+            return FrameCheck(name, size, size, 0, 0, False, None)
     return _verify_log(path, size, name, stream)
 
 
@@ -136,5 +155,6 @@ __all__ = [
     "FrameCheck",
     "RECORDING_FILES",
     "STREAM_IDS",
+    "is_recording_file",
     "verify_recording_file",
 ]

@@ -13,7 +13,7 @@ from .api import ApiClient, ApiError
 from .config import Config
 from .realtime import Realtime
 from .runner import JobRunner, Outcome
-from .upload import RECORDING_FILES, STREAM_IDS, verify_recording_file
+from .upload import STREAM_IDS, is_recording_file, verify_recording_file
 
 # The API treats a worker it has not heard from for a while as gone, so the
 # announcement is repeated at least this often.
@@ -295,7 +295,9 @@ class Worker:
         meta = recording.get("meta")
         if not isinstance(meta, dict) or not meta:
             return Outcome(ok=False, error="recording has no meta", retryable=False)
-        entries = [entry for entry in entries if entry.get("name") in RECORDING_FILES]
+        entries = [
+            entry for entry in entries if is_recording_file(str(entry.get("name") or ""))
+        ]
         if not entries:
             return Outcome(ok=False, error="recording has no files", retryable=False)
 

@@ -25,6 +25,7 @@ from typing import Mapping, Sequence
 import numpy as np
 
 from ..frames import (
+    BLE_HRS_CODEC,
     POLAR_EPOCH_OFFSET_NS,
     STREAM_ACC,
     STREAM_ECG,
@@ -36,7 +37,11 @@ from ..frames import (
     batch_layout,
     iter_frames,
     mapped_log,
+    read_ble_hrs,
     read_hr,
+    read_ppg,
+    read_ppi,
+    read_vector,
 )
 from .contract import (
     AccStream,
@@ -154,6 +159,7 @@ def _scan(
     expected_stream: int,
     on_payload,
     checked: Sequence[FrameGap] | None = None,
+    codec: str | None = None,
 ) -> FrameLogInfo:
     """Scan one frame log, keeping every frame that checks out.
 
@@ -176,7 +182,7 @@ def _scan(
         valid_bytes = 0
         frame: Frame | None = None
         try:
-            for frame in iter_frames(data, expected_stream, gaps, checked=checked):
+            for frame in iter_frames(data, expected_stream, gaps, checked=checked, codec=codec):
                 while len(gap_samples) < len(gaps):
                     gap_samples.append((samples - 1 if samples else None, samples))
                 samples += on_payload(frame.payload)
@@ -208,6 +214,7 @@ def _scan(
 def _decode_hr(
     path: Path,
     checked: Sequence[FrameGap] | None = None,
+    codec: str | None = None,
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -223,6 +230,19 @@ def _decode_hr(
     rr: list[np.ndarray] = []
 
     def on_payload(payload: bytes) -> int:
+        if codec == BLE_HRS_CODEC:
+            sample = read_ble_hrs(payload)
+            value = (
+                (FLAG_CONTACT_SUPPORTED if sample.contact_supported else 0)
+                | (FLAG_CONTACT if sample.contact else 0)
+                | (FLAG_RR_AVAILABLE if sample.rr_present else 0)
+            )
+            phone.append(int(sample.phone_ns))
+            elapsed.append(int(sample.elapsed_ns))
+            bpm.append(float(sample.hr_bpm))
+            flags.append(value)
+            rr.append(np.asarray(sample.rr_ms, dtype=np.float32))
+            return 1
         sample = read_hr(payload)
         phone.append(int(sample.phone_ns))
         elapsed.append(int(sample.elapsed_ns))
@@ -231,7 +251,7 @@ def _decode_hr(
         rr.append(np.asarray(sample.rr_ms, dtype=np.float32))
         return 1
 
-    info = _scan(path, STREAM_HR, on_payload, checked)
+    info = _scan(path, STREAM_HR, on_payload, checked, codec)
     return (
         np.asarray(phone, dtype=np.int64),
         np.asarray(elapsed, dtype=np.int64),
@@ -253,7 +273,6 @@ def _decode_batches(
 
     per_sample, value_format, values_i16_allowed = _VALUE_LAYOUT[stream]
     wide = np.dtype("<" + value_format)
-    rail_mv = np.float32(ECG_RAIL_UV / 1000.0)
     batches: list[_Batch] = []
     saturated = 0
     samples = 0
@@ -285,6 +304,7 @@ def _decode_batches(
         ).astype(np.float32)
         values /= np.float32(1000.0)
         if stream == STREAM_ECG:
+            rail_mv = np.float32(ECG_RAIL_UV / 1000.0)
             saturated += int(np.count_nonzero(np.abs(values) >= rail_mv))
         else:
             values = values.reshape(-1, 3)
@@ -312,6 +332,68 @@ def _decode_batches(
         kept=with_values,
         saturated=saturated,
     )
+
+
+def _decode_extra(
+    path: Path,
+    stream_id: int,
+    codec: str,
+    checked: Sequence[FrameGap] | None = None,
+) -> tuple[dict, FrameLogInfo]:
+    """Decode a stream no stager uses yet: PPG, pulse intervals, gyroscope or magnetometer."""
+
+    batches: dict[str, list] = {
+        "phone_ns": [],
+        "elapsed_ns": [],
+        "t": [],
+        "values": [],
+        "status": [],
+        "flags": [],
+        "hr": [],
+    }
+
+    def on_payload(payload: bytes) -> int:
+        if stream_id == 4:
+            batch = read_ppg(payload)
+            batches["phone_ns"].append(np.asarray([batch.phone_ns], dtype=np.int64))
+            batches["elapsed_ns"].append(np.asarray([batch.elapsed_ns], dtype=np.int64))
+            batches["t"].append(np.asarray(batch.timestamps_ns, dtype=np.int64))
+            batches["values"].append(np.asarray(batch.channel, dtype=np.float32))
+            batches["status"].append(np.asarray(batch.status, dtype=np.int32))
+            return len(batch.timestamps_ns)
+        if stream_id == 5:
+            batch = read_ppi(payload)
+            batches["phone_ns"].append(np.asarray([batch.phone_ns], dtype=np.int64))
+            batches["elapsed_ns"].append(np.asarray([batch.elapsed_ns], dtype=np.int64))
+            batches["t"].append(np.asarray(batch.timestamps_ns, dtype=np.int64))
+            batches["values"].append(np.asarray(batch.ppi_ms, dtype=np.float32))
+            batches["status"].append(np.asarray(batch.error_ms, dtype=np.int32))
+            batches["flags"].append(np.asarray(batch.flags, dtype=np.int32))
+            batches["hr"].append(np.asarray(batch.hr_bpm, dtype=np.int32))
+            return len(batch.timestamps_ns)
+        batch = read_vector(payload)
+        batches["phone_ns"].append(np.asarray([batch.phone_ns], dtype=np.int64))
+        batches["elapsed_ns"].append(np.asarray([batch.elapsed_ns], dtype=np.int64))
+        batches["t"].append(np.asarray(batch.timestamps_ns, dtype=np.int64))
+        batches["values"].append(np.asarray(batch.xyz, dtype=np.float32))
+        return len(batch.timestamps_ns)
+
+    info = _scan(path, stream_id, on_payload, checked, codec)
+    decoded = {
+        key: np.concatenate(items).astype(dtype, copy=False)
+        if items
+        else np.empty(0, dtype=dtype)
+        for key, items, dtype in (
+            ("phone_ns", batches["phone_ns"], np.int64),
+            ("elapsed_ns", batches["elapsed_ns"], np.int64),
+            ("t", batches["t"], np.int64),
+            ("values", batches["values"], np.float32),
+            ("status", batches["status"], np.int32),
+            ("flags", batches["flags"], np.int32),
+            ("hr", batches["hr"], np.int32),
+        )
+    }
+    return decoded, info
 
 
 def _anchored_times(
@@ -491,6 +573,31 @@ def _read_meta(path: Path) -> RecordingMeta:
     return RecordingMeta.from_dict(raw)
 
 
+def _stream(meta: RecordingMeta, stream_type: str):
+    for stream in meta.streams:
+        if stream.type == stream_type:
+            return stream
+    return None
+
+
+def _stream_name(stream_type: str) -> str | None:
+    return {
+        "heart_rate": "hr",
+        "rr_interval": "hr",
+        "ecg": "ecg",
+        "accelerometer": "acc",
+        "ppg": "ppg",
+        "pulse_interval": "ppi",
+        "gyroscope": "gyro",
+        "magnetometer": "mag",
+    }.get(stream_type)
+
+
+def _rate(meta: RecordingMeta, stream_type: str, fallback: float) -> float:
+    stream = _stream(meta, stream_type)
+    return stream.rate_hz if stream is not None and stream.rate_hz else fallback
+
+
 def load_recording(
     directory: str | Path,
     *,
@@ -513,24 +620,53 @@ def load_recording(
     if not root.is_dir():
         raise AnalysisError("missing_recording", f"recording directory not found: {root}")
 
-    wanted = set(streams) if streams is not None else {"hr", "ecg", "acc"}
+    meta = _read_meta(root / "meta.json")
+    declared = {_stream_name(stream.type) for stream in meta.streams}
+    declared.discard(None)
+    wanted = set(streams) if streams is not None else declared
     checked = checked or {}
 
-    meta = _read_meta(root / "meta.json")
     warnings: list[str] = []
     events = _read_events(root / "events.jsonl", warnings)
 
+    hr_stream = _stream(meta, "heart_rate") or _stream(meta, "rr_interval")
+    ecg_stream = _stream(meta, "ecg")
+    acc_stream = _stream(meta, "accelerometer")
+    hr_file = hr_stream.file if hr_stream else "hr.log"
+    ecg_file = ecg_stream.file if ecg_stream else "ecg.log"
+    acc_file = acc_stream.file if acc_stream else "acc.log"
     hr_phone, hr_elapsed, hr_bpm, hr_flags, hr_rr, hr_info = _decode_hr(
-        root / "hr.log", checked.get("hr.log")
+        root / hr_file,
+        checked.get(hr_file),
+        hr_stream.codec if hr_stream else None,
     )
     ecg_raw = _decode_batches(
-        root / "ecg.log", STREAM_ECG, with_values="ecg" in wanted, checked=checked.get("ecg.log")
+        root / ecg_file, STREAM_ECG, with_values="ecg" in wanted, checked=checked.get(ecg_file)
     )
     acc_raw = _decode_batches(
-        root / "acc.log", STREAM_ACC, with_values="acc" in wanted, checked=checked.get("acc.log")
+        root / acc_file, STREAM_ACC, with_values="acc" in wanted, checked=checked.get(acc_file)
     )
     ecg_info = ecg_raw.info
     acc_info = acc_raw.info
+
+    extra_streams: dict[str, object] = {}
+    for stream in meta.streams:
+        stream_id = {
+            "ppg": 4,
+            "pulse_interval": 5,
+            "gyroscope": 6,
+            "magnetometer": 7,
+        }.get(stream.type)
+        if stream_id is None:
+            continue
+        # Pulse intervals become the heart-rate series when there is no HR log;
+        # the other extra streams are decoded when the caller asked for them.
+        if stream.type != "pulse_interval" and _stream_name(stream.type) not in wanted:
+            continue
+        decoded, info = _decode_extra(
+            root / stream.file, stream_id, stream.codec, checked.get(stream.file)
+        )
+        extra_streams[stream.type] = {**decoded, "info": info, "codec": stream.codec}
 
     start_unix_ns = meta.start_utc_ms * 1_000_000
     ecg_elapsed = ecg_raw.elapsed_ns()
@@ -583,12 +719,35 @@ def load_recording(
             phone_ns=hr_phone,
         )
 
+    # A device that reports pulse intervals instead of beat intervals still gives the
+    # stagers a heart-rate series: the intervals are the beats and each sample carries
+    # its own heart rate.
+    ppi = extra_streams.get("pulse_interval")
+    if hr is None and isinstance(ppi, dict) and ppi["values"].size:
+        intervals = ppi["values"].astype(np.float64)
+        beats = np.cumsum(intervals) / 1000.0
+        ppi_hr = ppi["hr"].astype(np.float32)
+        ppi_flags = ppi["flags"]
+        hr_t = beats
+        hr_samples = int(beats.size)
+        hr = HrStream(
+            t_s=hr_t,
+            hr_bpm=ppi_hr,
+            contact_supported=(ppi_flags & FLAG_CONTACT_SUPPORTED) != 0,
+            contact=(ppi_flags & FLAG_CONTACT) != 0,
+            valid=(ppi_hr >= HR_MIN_BPM) & (ppi_hr <= HR_MAX_BPM),
+            rr_ms=tuple(np.asarray([value], dtype=np.float32) for value in intervals),
+            phone_ns=np.full(beats.size, np.int64(start_unix_ns), dtype=np.int64),
+        )
+
     ecg: EcgStream | None = None
     ecg_t = np.empty(0, dtype=np.float64)
     ecg_byte_gaps: list[Gap] = []
     ecg_time_gaps: list[Gap] = []
     ecg_anchor_s = np.empty(0, dtype=np.float64)
-    ecg_rate: float | None = meta.ecg_rate_hz if ecg_info.present else None
+    ecg_default = _rate(meta, "ecg", meta.ecg_rate_hz)
+    acc_default = _rate(meta, "accelerometer", meta.acc_rate_hz)
+    ecg_rate: float | None = ecg_default if ecg_info.present else None
     ecg_samples = 0
     if ecg_info.present and ecg_raw.batches:
         ecg_anchor_s = _anchored_times(
@@ -600,7 +759,7 @@ def load_recording(
         if ecg_raw.kept:
             voltage = np.concatenate([batch.values for batch in ecg_raw.batches])
             ecg_t, voltage = _ordered(ecg_t, voltage)
-            ecg_rate = _median_rate(ecg_t, meta.ecg_rate_hz)
+            ecg_rate = _median_rate(ecg_t, ecg_default)
             ecg_time_gaps = _gaps(ecg_t, ecg_rate, "ecg")
             ecg = EcgStream(
                 t_s=ecg_t,
@@ -611,7 +770,7 @@ def load_recording(
         else:
             # Reported, not kept: only the rate and the gaps are read from it.
             ecg_t.sort()
-            ecg_rate = _median_rate(ecg_t, meta.ecg_rate_hz)
+            ecg_rate = _median_rate(ecg_t, ecg_default)
             ecg_time_gaps = _gaps(ecg_t, ecg_rate, "ecg")
             ecg_t = np.empty(0, dtype=np.float64)
 
@@ -620,7 +779,7 @@ def load_recording(
     acc_byte_gaps: list[Gap] = []
     acc_time_gaps: list[Gap] = []
     acc_anchor_s = np.empty(0, dtype=np.float64)
-    acc_rate: float | None = meta.acc_rate_hz if acc_info.present else None
+    acc_rate: float | None = acc_default if acc_info.present else None
     acc_samples = 0
     if acc_info.present and acc_raw.batches:
         acc_anchor_s = _anchored_times(
@@ -632,12 +791,12 @@ def load_recording(
         if acc_raw.kept:
             xyz = np.concatenate([batch.values for batch in acc_raw.batches])
             acc_t, xyz = _ordered(acc_t, xyz)
-            acc_rate = _median_rate(acc_t, meta.acc_rate_hz)
+            acc_rate = _median_rate(acc_t, acc_default)
             acc_time_gaps = _gaps(acc_t, acc_rate, "acc")
             acc = AccStream(t_s=acc_t, xyz_g=xyz, rate_hz=acc_rate)
         else:
             acc_t.sort()
-            acc_rate = _median_rate(acc_t, meta.acc_rate_hz)
+            acc_rate = _median_rate(acc_t, acc_default)
             acc_time_gaps = _gaps(acc_t, acc_rate, "acc")
             acc_t = np.empty(0, dtype=np.float64)
 
@@ -656,7 +815,7 @@ def load_recording(
     hr_rate = hr.rate_hz if hr is not None else (1.0 if hr_info.present else None)
 
     hr_report = StreamReport(
-        hr_info.present,
+        hr_info.present or hr is not None,
         hr_samples,
         hr_rate,
         hr_info.valid_bytes,
@@ -702,13 +861,13 @@ def load_recording(
         warnings,
     )
     for name, info in (
-        ("hr.log", hr_info),
-        ("ecg.log", ecg_info),
-        ("acc.log", acc_info),
+        (hr_file, hr_info),
+        (ecg_file, ecg_info),
+        (acc_file, acc_info),
     ):
         for gap in info.gaps:
             warnings.append(f"{name}: {gap.describe()}")
-    if not hr_report.present and meta.hr_enabled:
+    if hr is None and meta.hr_enabled:
         warnings.append("no HR stream")
     if not ecg_report.present and meta.ecg_enabled:
         warnings.append("no ECG stream")
@@ -736,6 +895,7 @@ def load_recording(
         acc=acc,
         events=events,
         quality=quality,
+        extra_streams=extra_streams,
     )
 
 

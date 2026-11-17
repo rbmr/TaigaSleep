@@ -1,0 +1,470 @@
+{
+  "codec": "ble-hrs-v1",
+  "note": "Every flag combination of the Bluetooth Heart Rate Measurement characteristic (0x2A37). RR units are 1/1024 s and are rounded to the nearest millisecond.",
+  "cases": [
+    {
+      "name": "flags-00",
+      "flags": 0,
+      "value_hex": "003c",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": false,
+        "contact": false,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-01",
+      "flags": 1,
+      "value_hex": "012c01",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": false,
+        "contact": false,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-02",
+      "flags": 2,
+      "value_hex": "023c",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": false,
+        "contact": true,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-03",
+      "flags": 3,
+      "value_hex": "032c01",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": false,
+        "contact": true,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-04",
+      "flags": 4,
+      "value_hex": "043c",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": true,
+        "contact": false,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-05",
+      "flags": 5,
+      "value_hex": "052c01",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": true,
+        "contact": false,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-06",
+      "flags": 6,
+      "value_hex": "063c",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": true,
+        "contact": true,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-07",
+      "flags": 7,
+      "value_hex": "072c01",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": true,
+        "contact": true,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-08",
+      "flags": 8,
+      "value_hex": "083cd204",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": false,
+        "contact": false,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-09",
+      "flags": 9,
+      "value_hex": "092c01d204",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": false,
+        "contact": false,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-10",
+      "flags": 10,
+      "value_hex": "0a3cd204",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": false,
+        "contact": true,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-11",
+      "flags": 11,
+      "value_hex": "0b2c01d204",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": false,
+        "contact": true,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-12",
+      "flags": 12,
+      "value_hex": "0c3cd204",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": true,
+        "contact": false,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-13",
+      "flags": 13,
+      "value_hex": "0d2c01d204",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": true,
+        "contact": false,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-14",
+      "flags": 14,
+      "value_hex": "0e3cd204",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": true,
+        "contact": true,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-15",
+      "flags": 15,
+      "value_hex": "0f2c01d204",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": true,
+        "contact": true,
+        "rr_present": false,
+        "rr_ms": [],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-16",
+      "flags": 16,
+      "value_hex": "103c00040002",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": false,
+        "contact": false,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-17",
+      "flags": 17,
+      "value_hex": "112c0100040002",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": false,
+        "contact": false,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-18",
+      "flags": 18,
+      "value_hex": "123c00040002",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": false,
+        "contact": true,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-19",
+      "flags": 19,
+      "value_hex": "132c0100040002",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": false,
+        "contact": true,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-20",
+      "flags": 20,
+      "value_hex": "143c00040002",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": true,
+        "contact": false,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-21",
+      "flags": 21,
+      "value_hex": "152c0100040002",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": true,
+        "contact": false,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-22",
+      "flags": 22,
+      "value_hex": "163c00040002",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": true,
+        "contact": true,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-23",
+      "flags": 23,
+      "value_hex": "172c0100040002",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": true,
+        "contact": true,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": null
+      }
+    },
+    {
+      "name": "flags-24",
+      "flags": 24,
+      "value_hex": "183cd20400040002",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": false,
+        "contact": false,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-25",
+      "flags": 25,
+      "value_hex": "192c01d20400040002",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": false,
+        "contact": false,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-26",
+      "flags": 26,
+      "value_hex": "1a3cd20400040002",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": false,
+        "contact": true,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-27",
+      "flags": 27,
+      "value_hex": "1b2c01d20400040002",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": false,
+        "contact": true,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-28",
+      "flags": 28,
+      "value_hex": "1c3cd20400040002",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": true,
+        "contact": false,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-29",
+      "flags": 29,
+      "value_hex": "1d2c01d20400040002",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": true,
+        "contact": false,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-30",
+      "flags": 30,
+      "value_hex": "1e3cd20400040002",
+      "expected": {
+        "hr_bpm": 60,
+        "contact_supported": true,
+        "contact": true,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": 1234
+      }
+    },
+    {
+      "name": "flags-31",
+      "flags": 31,
+      "value_hex": "1f2c01d20400040002",
+      "expected": {
+        "hr_bpm": 300,
+        "contact_supported": true,
+        "contact": true,
+        "rr_present": true,
+        "rr_ms": [
+          1000,
+          500
+        ],
+        "energy_expended": 1234
+      }
+    }
+  ]
+}
