@@ -299,6 +299,7 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
 
   testImplementation(libs.junit)
+  testImplementation(libs.kotlinx.coroutines.test)
   testImplementation(libs.okhttp.mockwebserver)
   // The screens are tested as they are drawn, on the JVM through Robolectric.
   testImplementation(libs.androidx.compose.ui.test.junit4)

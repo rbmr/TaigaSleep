@@ -80,15 +80,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.HrSeriesDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
+import com.rbmr.taigasleep.insights.Formats
 import com.rbmr.taigasleep.insights.applicableStages
 import com.rbmr.taigasleep.insights.stageLabelRes
 import com.rbmr.taigasleep.insights.stageSeconds
-import com.rbmr.taigasleep.insights.formatDuration
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.serialization.json.JsonObject
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -446,6 +444,7 @@ private class TimeChartSpec(
     val axis: TimeChartAxis,
     val description: String,
     val valueAt: (Int) -> String,
+    val timeLabel: (Long) -> String,
     val large: Boolean,
 )
 
@@ -570,7 +569,7 @@ private fun BoxScope.TimeTooltip(selection: State<Int?>, spec: TimeChartSpec) {
   val index = selection.value ?: return
   ChartTooltip(
       time =
-          clock(
+          spec.timeLabel(
               epochTimeMs(
                   spec.span.startUnixMs,
                   spec.span.totalSeconds,
@@ -611,10 +610,15 @@ private fun DrawScope.drawTimeLabels(
   if (ticks.isEmpty()) {
     if (spec.span.startUnixMs <= 0) return
     paint.textAlign = Paint.Align.LEFT
-    drawContext.canvas.nativeCanvas.drawText(clock(spec.span.startUnixMs), plot.left, labelY, paint)
+    drawContext.canvas.nativeCanvas.drawText(
+        spec.timeLabel(spec.span.startUnixMs),
+        plot.left,
+        labelY,
+        paint,
+    )
     paint.textAlign = Paint.Align.RIGHT
     drawContext.canvas.nativeCanvas.drawText(
-        clock(spec.span.startUnixMs + spec.span.totalSeconds * 1000L),
+        spec.timeLabel(spec.span.startUnixMs + spec.span.totalSeconds * 1000L),
         plot.left + plot.width,
         labelY,
         paint,
@@ -628,7 +632,7 @@ private fun DrawScope.drawTimeLabels(
   for (tick in ticks) {
     val x = plot.x(tick.fraction)
     drawLine(style.gridColor, Offset(x, plot.top), Offset(x, plot.top + plot.height), 1.dp.toPx())
-    val text = clock(tick.timeMs)
+    val text = spec.timeLabel(tick.timeMs)
     val textWidth = paint.measureText(text)
     val align =
         when {
@@ -689,6 +693,15 @@ private fun stageAtEpoch(segments: List<StageSegmentDto>, epoch: Int): String {
   return "unknown"
 }
 
+/** What a screen reader is told a stage chart spans: its start and its end. */
+@Composable
+private fun stagesDescription(startUnixMs: Long, endUnixMs: Long, formats: Formats): String =
+    stringResource(
+        R.string.night_sleep_stages_description,
+        formats.clockTime(startUnixMs),
+        formats.clockTime(endUnixMs),
+    )
+
 @Composable
 fun SleepStagesChart(
     segments: List<StageSegmentDto>,
@@ -707,12 +720,8 @@ fun SleepStagesChart(
   val total = remember(segments) { segments.sumOf { it.count }.coerceAtLeast(1) }
   val totalSeconds = total.toLong() * epochSeconds.coerceAtLeast(1)
   val endUnixMs = if (startUnixMs > 0) startUnixMs + totalSeconds * 1000L else 0L
-  val description =
-      stringResource(
-          R.string.night_sleep_stages_description,
-          clock(startUnixMs),
-          clock(endUnixMs),
-      )
+  val formats = LocalFormats.current
+  val description = stagesDescription(startUnixMs, endUnixMs, formats)
   val colors = mutableMapOf<String, Color>()
   for (stage in segments.map { it.stage }.distinct()) colors[stage] = stageColor(stage)
   val labels = lanes.associateWith { stringResource(stageLabelRes(it)) }
@@ -732,6 +741,7 @@ fun SleepStagesChart(
           yLabels,
           horizontalLines,
           description,
+          formats,
           fullscreen,
       ) {
         TimeChartSpec(
@@ -744,6 +754,7 @@ fun SleepStagesChart(
                 ),
             description = description,
             valueAt = { index -> labels[stageAtEpoch(segments, index)] ?: unknownLabel },
+            timeLabel = { formats.clockTime(it) },
             large = fullscreen,
         )
       }
@@ -823,6 +834,7 @@ fun HeartRateChart(
 ) {
   // A long night is thousands of points: the points, their range, the runs and the axis are what
   // the chart draws, and all of them are read once for the series they belong to.
+  val formats = LocalFormats.current
   val points = remember(series) { hrSeriesPoints(series) }
   val values = remember(points) { points.filterNotNull() }
   if (values.isEmpty()) return
@@ -835,8 +847,8 @@ fun HeartRateChart(
   val description =
       stringResource(
           R.string.night_heart_rate_chart_description,
-          clock(series.start_unix_ms),
-          clock(endUnixMs),
+          formats.clockTime(series.start_unix_ms),
+          formats.clockTime(endUnixMs),
           low.roundToInt(),
           high.roundToInt(),
       )
@@ -848,10 +860,10 @@ fun HeartRateChart(
       seriesAxisTicks(axis).mapIndexed { index, value ->
         val label = value.toString()
         (index / 4f) to
-            if (index == 0) stringResource(R.string.night_chart_bpm, label) else label
+            if (index == 0) formats.beatsPerMinute(label) else label
       }
   val spec =
-      remember(series, axis, points, yLabels, description, fullscreen, noValue) {
+      remember(series, axis, points, yLabels, description, formats, fullscreen, noValue) {
         TimeChartSpec(
             span = TimeChartSpan(series.start_unix_ms, totalSeconds, series.count),
             axis =
@@ -862,8 +874,9 @@ fun HeartRateChart(
                 ),
             description = description,
             valueAt = { index ->
-              points.getOrNull(index)?.let { "${it.roundToInt()} bpm" } ?: noValue
+              points.getOrNull(index)?.let { formats.beatsPerMinute(it) } ?: noValue
             },
+            timeLabel = { formats.clockTime(it) },
             large = fullscreen,
         )
       }
@@ -954,6 +967,7 @@ fun StageBreakdown(
     capabilities: JsonObject? = null,
 ) {
   val space = MaterialTheme.taiga.space
+  val formats = LocalFormats.current
   val durations = remember(segments, epochSeconds) { stageSeconds(segments, epochSeconds) }
   val total = durations.values.sum().coerceAtLeast(1)
   val stages = remember(segments, capabilities) { applicableStages(segments, capabilities) }
@@ -969,10 +983,10 @@ fun StageBreakdown(
             style = MaterialTheme.taiga.text.body,
             modifier = Modifier.weight(1f),
         )
-        Text(text = formatDuration(seconds * 1000L), style = MaterialTheme.taiga.text.body)
+        Text(text = formats.duration(seconds * 1000L), style = MaterialTheme.taiga.text.body)
         Spacer(Modifier.width(space.m))
         Text(
-            text = "${share}%",
+            text = formats.percent(share.toDouble()),
             style = MaterialTheme.taiga.text.meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -980,10 +994,6 @@ fun StageBreakdown(
     }
   }
 }
-
-private fun clock(ms: Long): String =
-    if (ms <= 0) "-"
-    else SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
 
 @Preview(name = "Light", widthDp = 360)
 @Preview(name = "Dark", widthDp = 360, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)

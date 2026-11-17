@@ -21,13 +21,13 @@ import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.ResultScoreComponentDto
 import com.rbmr.taigasleep.insights.SleepScoreCardState
 import com.rbmr.taigasleep.insights.SleepScoreUnavailableReason
-import com.rbmr.taigasleep.insights.formatItemValue
 import com.rbmr.taigasleep.insights.metricSpec
 import com.rbmr.taigasleep.ui.components.LabeledValue
 import com.rbmr.taigasleep.ui.components.Pressable
 import com.rbmr.taigasleep.ui.components.ScoreRing
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.components.TaigaSheet
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
 
@@ -81,7 +81,7 @@ internal fun RecordingSummary(
 /** A summary figure in the unit the item carries. */
 @Composable
 private fun summaryValue(item: ResultItemDto): String? =
-    item.metricSpec()?.let { spec -> formatItemValue(spec.kind, spec.itemValue) }
+    item.metricSpec()?.let { spec -> LocalFormats.current.itemValue(spec.kind, spec.itemValue) }
 
 /** The reason the result has no sleep score, instead of the number the sheet would show. */
 @Composable

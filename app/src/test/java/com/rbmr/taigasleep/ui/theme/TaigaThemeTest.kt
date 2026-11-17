@@ -1,14 +1,18 @@
 package com.rbmr.taigasleep.ui.theme
 
+import android.app.UiModeManager
 import android.content.Context
 import android.os.Looper
 import android.provider.Settings
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -68,6 +72,36 @@ class TaigaThemeTest {
     shadowOf(Looper.getMainLooper()).idle()
     compose.waitForIdle()
     assertEquals("the change reached the running app", 0f, scale, 0f)
+  }
+
+  @Test
+  fun `the scheme follows the phone's contrast while the app runs`() {
+    val uiMode = context.getSystemService(UiModeManager::class.java)
+    shadowOf(uiMode).setContrast(0f)
+    var scheme: ColorScheme? = null
+    var colors: TaigaColors? = null
+    compose.setContent {
+      TaigaTheme(darkTheme = false, contrast = rememberContrastLevel()) {
+        scheme = MaterialTheme.colorScheme
+        colors = MaterialTheme.taiga
+      }
+    }
+    compose.waitForIdle()
+    assertSame("the unchanged palette at the standard level", LightColors, scheme)
+    assertSame(LightTaigaColors, colors)
+
+    // The user raises the contrast in the phone's settings while the app is open.
+    shadowOf(uiMode).setContrast(1f)
+    shadowOf(Looper.getMainLooper()).idle()
+    compose.waitForIdle()
+    assertSame("the change reached the running app", LightHighColors, scheme)
+    assertSame(LightHighTaigaColors, colors)
+
+    shadowOf(uiMode).setContrast(0.5f)
+    shadowOf(Looper.getMainLooper()).idle()
+    compose.waitForIdle()
+    assertSame("the medium scheme at the medium level", LightMediumColors, scheme)
+    assertSame(LightMediumTaigaColors, colors)
   }
 
   /** The font scale the theme draws at for each of [choices], as the composition measures them. */

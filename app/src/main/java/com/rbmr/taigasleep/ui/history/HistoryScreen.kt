@@ -34,9 +34,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.library.RecordingView
-import com.rbmr.taigasleep.insights.formatDuration
 import com.rbmr.taigasleep.library.formatRecordingDate
-import com.rbmr.taigasleep.library.formatRecordingTime
 import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.ui.components.CardRow
 import com.rbmr.taigasleep.ui.components.CardRowPosition
@@ -51,6 +49,7 @@ import com.rbmr.taigasleep.ui.components.StatusPill
 import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.components.TaigaScreen
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
 
@@ -209,20 +208,21 @@ private fun cardRowPosition(index: Int, count: Int): CardRowPosition =
 @Composable
 private fun RecordingRow(item: RecordingView, onOpen: () -> Unit) {
   val space = MaterialTheme.taiga.space
+  val formats = LocalFormats.current
   val end = item.endUtcMs?.takeIf { it > item.startUtcMs }
   val meta =
       if (end != null) {
         stringResource(
             R.string.history_times,
-            formatRecordingTime(item.startUtcMs),
-            formatRecordingTime(end),
-            formatDuration(end - item.startUtcMs),
+            formats.clockTime(item.startUtcMs),
+            formats.clockTime(end),
+            formats.duration(end - item.startUtcMs),
         )
       } else {
         stringResource(
             R.string.history_started,
-            formatRecordingTime(item.startUtcMs),
-            formatDuration(item.durationMs),
+            formats.clockTime(item.startUtcMs),
+            formats.duration(item.durationMs),
         )
       }
   val date = formatRecordingDate(item.startUtcMs)

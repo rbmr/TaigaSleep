@@ -13,6 +13,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisResultDto
@@ -25,6 +26,17 @@ import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.components.TaigaSheet
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
+
+/** The one row that opens the notes, named for how many there are. */
+@Composable
+private fun NotesRow(count: Int, onClick: () -> Unit) {
+  TaigaCard(contentPadding = PaddingValues(0.dp)) {
+    ListRow(
+        title = pluralStringResource(R.plurals.night_notes_row, count, count),
+        onClick = onClick,
+    )
+  }
+}
 
 /**
  * The data-quality score, what it is made of, the time it covers and anything the analysis warned
@@ -76,12 +88,7 @@ internal fun DataQualityStatsSection(analysis: AnalysisResultDto) {
       val items = numberItems(analysis.items, "quality")
       if (items.isNotEmpty()) MetricGrid(items = items)
       if (analysis.warnings.isNotEmpty()) {
-        TaigaCard(contentPadding = PaddingValues(0.dp)) {
-          ListRow(
-              title = stringResource(R.string.night_notes_row, analysis.warnings.size),
-              onClick = { showNotes = true },
-          )
-        }
+        NotesRow(count = analysis.warnings.size, onClick = { showNotes = true })
       }
     }
   }

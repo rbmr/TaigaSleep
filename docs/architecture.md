@@ -85,7 +85,7 @@ One Gradle module, one package per concern under `com.rbmr.taigasleep`:
 | `backend` | A client for API v1: DTOs, requests, authentication state, the realtime stream. No business logic. | `diagnostics` |
 | `profile` | The personal data the user enters about themselves: date of birth, sex and weight, plus the usual bedtime and wake time. Kept on the phone, optional; the first three go to an analysis, the times only draw the History trends. | nothing |
 | `sync` | Moving recordings to and from the backend: upload queue, retention, deletion, analysis requests, result cache. `SyncService` is its entry point, and the only thing outside the package calls. | `recording`, `backend`, `insights`, `profile`, `notifications`, `diagnostics` |
-| `insights` | Turning analysis results into what is displayed: statistics, series, scores, the algorithm catalogue and the user's algorithm preference. | `backend`, `diagnostics` |
+| `insights` | Turning analysis results into what is displayed: statistics, series, scores, the algorithm catalogue, the user's algorithm preference, and the one way times, lengths, units and weight are written. | `backend`, `diagnostics` |
 | `library` | The recordings the user owns, as one list: local state, sync state and results composed for presentation. | `recording`, `sync`, `insights`, `backend`, `diagnostics` |
 | `ui` | Screens and components. The only package that knows about Compose. | every other package |
 | `diagnostics` | Logging and crash evidence. A leaf. | nothing |
