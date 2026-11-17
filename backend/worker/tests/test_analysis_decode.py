@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from taiga_worker import frames
 from taiga_worker.analysis.decode import load_recording
+from taiga_worker.upload import verify_recording_file
 
 from tests import analysis_fixture as fx
 
@@ -172,6 +173,89 @@ def test_missing_streams_are_reported_without_crashing(tmp_path: Path) -> None:
     assert not recording.quality.streams["hr"].present
     assert not recording.quality.streams["ecg"].present
     assert not recording.quality.streams["acc"].present
+
+
+def test_a_stream_that_is_not_decoded_is_still_reported(tmp_path: Path) -> None:
+    fx.write_recording(tmp_path, duration_s=10)
+    encoded = [fx.frame(fx.stream_payload(fx.STREAM_ECG, index)) for index in range(10)]
+    damaged = bytearray(encoded[4])
+    damaged[6] ^= 0xFF
+    (tmp_path / "ecg.log").write_bytes(
+        fx.frame_header(fx.STREAM_ECG) + b"".join(encoded[:4] + [bytes(damaged)] + encoded[5:])
+    )
+
+    decoded = load_recording(tmp_path)
+    reported = load_recording(tmp_path, streams=("hr", "acc"))
+
+    assert reported.ecg is None
+    assert reported.hr is not None and reported.acc is not None
+    # Everything the result says about the input is the same either way, so
+    # leaving a stream out changes what is held, not what is reported.
+    assert reported.quality.to_dict() == decoded.quality.to_dict()
+    assert reported.end_unix_ns == decoded.end_unix_ns
+    assert reported.quality.streams["ecg"].samples == 9 * 10
+
+
+def test_a_checked_log_is_not_crc_checked_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fx.write_recording(tmp_path, duration_s=6)
+    checked = {
+        name: verify_recording_file(tmp_path / name, name).gaps
+        for name in ("hr.log", "ecg.log", "acc.log")
+    }
+
+    def refuse(*_args: object, **_kwargs: object) -> int:
+        raise AssertionError("a checked log had its CRC computed again")
+
+    monkeypatch.setattr(frames.zlib, "crc32", refuse)
+    recording = load_recording(tmp_path, checked=checked)
+
+    assert recording.hr is not None and recording.hr.t_s.size == 6
+    assert recording.ecg is not None and recording.ecg.t_s.size == 6 * 130
+    assert recording.acc is not None and recording.acc.t_s.size == 6 * 50
+
+
+def test_a_damaged_range_a_check_found_is_stepped_over_the_same_way(tmp_path: Path) -> None:
+    fx.write_recording(tmp_path, duration_s=10)
+    stream, samples, gap_start, gap_end = DAMAGED_FRAME["ecg"]
+    encoded = [fx.frame(fx.stream_payload(stream, index)) for index in range(10)]
+    damaged = bytearray(encoded[4])
+    damaged[6] ^= 0xFF
+    (tmp_path / "ecg.log").write_bytes(
+        fx.frame_header(stream) + b"".join(encoded[:4] + [bytes(damaged)] + encoded[5:])
+    )
+
+    unchecked = load_recording(tmp_path)
+    check = verify_recording_file(tmp_path / "ecg.log", "ecg.log")
+    assert check.gaps
+    checked = load_recording(tmp_path, checked={"ecg.log": check.gaps})
+
+    assert checked.ecg is not None
+    assert checked.ecg.t_s.size == samples == unchecked.ecg.t_s.size
+    assert checked.quality.to_dict() == unchecked.quality.to_dict()
+    gaps = [gap for gap in checked.quality.gaps if gap.stream == "ecg"]
+    assert len(gaps) == 1
+    assert gaps[0].start_s == pytest.approx(gap_start, abs=0.2)
+    assert gaps[0].end_s == pytest.approx(gap_end, abs=0.2)
+
+
+def test_a_checked_log_that_no_longer_fits_is_refused(tmp_path: Path) -> None:
+    fx.write_recording(tmp_path, duration_s=6)
+    # A frame whose length runs past the end of the log: a check would have cut it
+    # back, so a log that says it was checked cannot hold it. It is refused the
+    # way any unreadable log is, by being reported with nothing decoded.
+    (tmp_path / "ecg.log").write_bytes(
+        fx.frame_header(fx.STREAM_ECG) + b"\x00\x10\x00\x00" + fx.stream_payload(fx.STREAM_ECG, 0)
+    )
+    recording = load_recording(tmp_path, checked={"ecg.log": ()})
+
+    assert recording.ecg is None
+    report = recording.quality.streams["ecg"]
+    assert report.present
+    assert report.samples == 0
+    assert report.truncated_tail
+    assert "checked log" in (report.error or "")
 
 
 def test_meta_is_parsed_and_raw_is_preserved(tmp_path: Path) -> None:
