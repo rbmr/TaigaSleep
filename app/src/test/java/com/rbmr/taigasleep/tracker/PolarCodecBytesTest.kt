@@ -1,6 +1,8 @@
 package com.rbmr.taigasleep.tracker
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -24,12 +26,25 @@ class PolarCodecBytesTest {
   }
 
   @Test
-  fun `the ecg payload is the original layout, linear timestamps included`() {
+  fun `the ecg payload is the 16-bit layout, linear timestamps included`() {
     val encoded = PolarCodec.encodeEcg(1, 2, longArrayOf(0, 1_000_000_000), intArrayOf(1000, -1000))
     assertEquals(
-        "01000000000000000200000000000000000200000000000000000000ca9a3b00000000e803000018fcffff",
+        "01000000000000000200000000000000020200000000000000000000ca9a3b00000000e80318fc",
         hex(encoded.bytes),
     )
+    assertTrue(PolarCodec.decodeEcg(encoded.bytes).valuesI16)
+  }
+
+  @Test
+  fun `an old ecg payload without the width flag is still read as 32-bit`() {
+    val legacy =
+        "01000000000000000200000000000000000200000000000000000000ca9a3b00000000e803000018fcffff"
+            .chunked(2)
+            .map { it.toInt(16).toByte() }
+            .toByteArray()
+    val decoded = PolarCodec.decodeEcg(legacy)
+    assertFalse(decoded.valuesI16)
+    assertEquals(listOf(1000, -1000), decoded.values.toList())
   }
 
   @Test
