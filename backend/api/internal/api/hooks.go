@@ -125,7 +125,7 @@ func submittedFields(e *core.RecordRequestEvent) (map[string]any, error) {
 // record id is the client's, and meta.session_id has to agree with it; everything
 // else (owner, state, device, times, duration, file bookkeeping) is the server's.
 func createRecordingHook(e *core.RecordRequestEvent) error {
-	if e.Auth == nil || e.Auth.Collection().Name != "users" {
+	if roleOf(e.RequestEvent) != roleUser {
 		return requestError(e, http.StatusForbidden, "forbidden", "only a user creates a recording")
 	}
 	body, err := submittedFields(e)
@@ -174,7 +174,7 @@ func createRecordingHook(e *core.RecordRequestEvent) error {
 // one change that seals it. A complete recording can no longer change, and a
 // recording whose night is still on the tracker cannot be sealed.
 func updateRecordingHook(e *core.RecordRequestEvent) error {
-	if e.Auth == nil || e.Auth.Collection().Name != "users" {
+	if roleOf(e.RequestEvent) != roleUser {
 		return requestError(e, http.StatusForbidden, "forbidden", "only the recording's owner changes it")
 	}
 	body, err := submittedFields(e)
@@ -252,7 +252,7 @@ func deleteRecordingHook(e *core.RecordRequestEvent) error {
 // the version and the parameter hash, and returns the analysis that already exists
 // for the same input instead of queueing it twice.
 func createAnalysisHook(e *core.RecordRequestEvent) error {
-	if e.Auth == nil || e.Auth.Collection().Name != "users" {
+	if roleOf(e.RequestEvent) != roleUser {
 		return requestError(e, http.StatusForbidden, "forbidden", "only the recording's owner asks for an analysis")
 	}
 	body, err := submittedFields(e)
@@ -305,11 +305,7 @@ func createAnalysisHook(e *core.RecordRequestEvent) error {
 		return requestError(e, http.StatusBadRequest, "invalid_params", "params are invalid")
 	}
 
-	existing, findErr := e.App.FindFirstRecordByFilter(
-		"analyses",
-		"recording = {:recording} && algorithm = {:algorithm} && version = {:version} && params_hash = {:hash}",
-		dbx.Params{"recording": recording.Id, "algorithm": algorithm, "version": offered.Version, "hash": hash},
-	)
+	existing, findErr := equivalentAnalysis(e.App, recording.Id, algorithm, offered.Version, hash)
 	switch {
 	case findErr == nil && existing.GetString("status") != statusFailed:
 		// The same request is answered with the analysis that is already there.
@@ -338,16 +334,22 @@ func createAnalysisHook(e *core.RecordRequestEvent) error {
 		// Two identical requests can pass the lookup above before either has saved;
 		// the unique index keeps one row, and the request that lost the race answers
 		// with that row instead of an error. Asking twice is meant to be one analysis.
-		if raced, findErr := e.App.FindFirstRecordByFilter(
-			"analyses",
-			"recording = {:recording} && algorithm = {:algorithm} && version = {:version} && params_hash = {:hash}",
-			dbx.Params{"recording": recording.Id, "algorithm": algorithm, "version": offered.Version, "hash": hash},
-		); findErr == nil && raced.GetString("status") != statusFailed {
+		if raced, findErr := equivalentAnalysis(e.App, recording.Id, algorithm, offered.Version, hash); findErr == nil && raced.GetString("status") != statusFailed {
 			return e.JSON(http.StatusOK, raced)
 		}
 		return err
 	}
 	return nil
+}
+
+// equivalentAnalysis finds the analysis of the same recording, algorithm, version and
+// parameters, which a repeated request is answered with.
+func equivalentAnalysis(app core.App, recording, algorithm, version, hash string) (*core.Record, error) {
+	return app.FindFirstRecordByFilter(
+		"analyses",
+		"recording = {:recording} && algorithm = {:algorithm} && version = {:version} && params_hash = {:hash}",
+		dbx.Params{"recording": recording, "algorithm": algorithm, "version": version, "hash": hash},
+	)
 }
 
 // recordingMeta validates the meta.json a request carries and returns it with its

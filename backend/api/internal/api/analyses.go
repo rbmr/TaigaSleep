@@ -8,8 +8,8 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-// AnalysisView is an analysis. Result is left out of lists unless asked for, since
-// it is the large part; Summary is the small derived headline.
+// AnalysisView is an analysis. Summary is the small derived headline; the result of a
+// finished analysis is read through the record API, which attaches it to the one record.
 type AnalysisView struct {
 	ID         string         `json:"id"`
 	Recording  string         `json:"recording"`
@@ -23,7 +23,6 @@ type AnalysisView struct {
 	Updated    string         `json:"updated"`
 	FinishedAt *string        `json:"finished_at"`
 	Summary    any            `json:"summary"`
-	Result     any            `json:"result,omitempty"`
 }
 
 const (
@@ -41,13 +40,13 @@ func readAny(record *core.Record, name string) any {
 	return value
 }
 
-func serializeAnalysis(app core.App, record *core.Record, withResult bool) AnalysisView {
+func serializeAnalysis(record *core.Record) AnalysisView {
 	params := map[string]any{}
 	_ = record.UnmarshalJSONField("params", &params)
 	if params == nil {
 		params = map[string]any{}
 	}
-	view := AnalysisView{
+	return AnalysisView{
 		ID:         record.Id,
 		Recording:  record.GetString("recording"),
 		Algorithm:  record.GetString("algorithm"),
@@ -61,15 +60,6 @@ func serializeAnalysis(app core.App, record *core.Record, withResult bool) Analy
 		FinishedAt: rfc3339(record.GetString("finished_at")),
 		Summary:    readAny(record, "summary"),
 	}
-	if withResult {
-		if raw, err := analysisResult(app, record.Id); err == nil {
-			var value any
-			if json.Unmarshal(raw, &value) == nil {
-				view.Result = value
-			}
-		}
-	}
-	return view
 }
 
 func paramsHash(params map[string]any) (string, error) {

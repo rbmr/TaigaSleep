@@ -111,14 +111,6 @@ func fileViews(app core.App, record *core.Record) []FileView {
 	return views
 }
 
-func recordingSize(app core.App, record *core.Record) int64 {
-	var total int64
-	for _, view := range fileViews(app, record) {
-		total += view.Size
-	}
-	return total
-}
-
 // quotaCheck refuses a chunk of add bytes when the account already holds used bytes.
 // It decides from the account's running total alone, so the check does not read the
 // account's recordings or their files.
@@ -156,7 +148,7 @@ func streamBytes(app core.App, record *core.Record) int64 {
 }
 
 func ListFiles(e *core.RequestEvent) error {
-	record, err := recordingFor(e, e.Request.PathValue("id"))
+	record, err := recordingFor(e.App, e, e.Request.PathValue("id"))
 	if err != nil {
 		return err
 	}
@@ -176,7 +168,7 @@ func findFile(app core.App, record *core.Record, name string) (FileView, error) 
 }
 
 func HeadFile(e *core.RequestEvent) error {
-	record, err := recordingFor(e, e.Request.PathValue("id"))
+	record, err := recordingFor(e.App, e, e.Request.PathValue("id"))
 	if err != nil {
 		return err
 	}
@@ -238,7 +230,7 @@ func PatchFile(e *core.RequestEvent) error {
 	// Decide first, write second, record third. The checks read the recording, the
 	// account and the file and no transaction is open while the chunk is written, so
 	// a slow disk holds up this recording instead of every write on the server.
-	record, err := ownRecording(e.App, e, id)
+	record, err := recordingFor(e.App, e, id)
 	if err != nil {
 		return err
 	}
@@ -265,7 +257,7 @@ func PatchFile(e *core.RequestEvent) error {
 	if current+chunkSize > maxFileBytes() {
 		return tooLarge("file_too_large", fmt.Sprintf("a file is at most %d bytes", maxFileBytes()))
 	}
-	if recordingSize(e.App, record)+chunkSize > maxTotalBytes() {
+	if storage.RecordingBytes(e.App, record)+chunkSize > maxTotalBytes() {
 		return tooLarge("recording_too_large", fmt.Sprintf("a recording is at most %d bytes", maxTotalBytes()))
 	}
 	account, err := e.App.FindRecordById("users", record.GetString("owner"))
@@ -302,7 +294,7 @@ func PatchFile(e *core.RequestEvent) error {
 	// here rolls the chunk back, so the file size and the rows agree and the same
 	// offset can be sent again.
 	err = e.App.RunInTransaction(func(txApp core.App) error {
-		record, err := ownRecording(txApp, e, id)
+		record, err := recordingFor(txApp, e, id)
 		if err != nil {
 			return err
 		}
@@ -387,7 +379,7 @@ func totalUncompressed(app core.App, record *core.Record) int64 {
 // An inflated download is bounded by and checked against the recorded
 // uncompressed size.
 func GetFile(e *core.RequestEvent) error {
-	record, err := recordingFor(e, e.Request.PathValue("id"))
+	record, err := recordingFor(e.App, e, e.Request.PathValue("id"))
 	if err != nil {
 		return err
 	}
@@ -460,7 +452,7 @@ func DeleteFile(e *core.RequestEvent) error {
 	release := recordingFileLocks.lock(e.Request.PathValue("id"))
 	defer release()
 	err := e.App.RunInTransaction(func(txApp core.App) error {
-		record, err := ownRecording(txApp, e, e.Request.PathValue("id"))
+		record, err := recordingFor(txApp, e, e.Request.PathValue("id"))
 		if err != nil {
 			return err
 		}

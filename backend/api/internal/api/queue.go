@@ -84,7 +84,7 @@ func ClaimAnalysis(e *core.RequestEvent) error {
 	if claimed == nil {
 		return e.NoContent(http.StatusNoContent)
 	}
-	return e.JSON(http.StatusOK, serializeAnalysis(e.App, claimed, false))
+	return e.JSON(http.StatusOK, serializeAnalysis(claimed))
 }
 
 // RenewAnalysis extends the lease of a running analysis for the worker that holds it.
@@ -120,7 +120,7 @@ func RenewAnalysis(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
-	return e.JSON(http.StatusOK, serializeAnalysis(e.App, record, false))
+	return e.JSON(http.StatusOK, serializeAnalysis(record))
 }
 
 func claim(txApp core.App, worker string, lease int, algorithms []ClaimAlgorithm) (*core.Record, error) {
@@ -130,7 +130,7 @@ func claim(txApp core.App, worker string, lease int, algorithms []ClaimAlgorithm
 	if len(algorithms) > 0 {
 		clauses := make([]string, 0, len(algorithms))
 		for i, algorithm := range algorithms {
-			idKey, versionKey := "a"+itoa(i), "v"+itoa(i)
+			idKey, versionKey := "a"+strconv.Itoa(i), "v"+strconv.Itoa(i)
 			params[idKey] = algorithm.ID
 			if algorithm.Version != "" {
 				params[versionKey] = algorithm.Version
@@ -236,7 +236,7 @@ func CompleteAnalysis(e *core.RequestEvent) error {
 	if invalid != nil {
 		return unprocessable("invalid_result", invalid.Error())
 	}
-	return e.JSON(http.StatusOK, serializeAnalysis(e.App, saved, false))
+	return e.JSON(http.StatusOK, serializeAnalysis(saved))
 }
 
 // failOversizedResult fails the analysis for a result the API cannot store. The
@@ -296,7 +296,7 @@ func FailAnalysis(e *core.RequestEvent) error {
 		if body.Retryable && attempts < maxAttempts() {
 			delay := 30
 			if attempts > 1 {
-				delay = 30 * (1 << minInt(attempts-1, 4))
+				delay = 30 * (1 << min(attempts-1, 4))
 			}
 			if delay > 300 {
 				delay = 300
@@ -327,7 +327,7 @@ func FailAnalysis(e *core.RequestEvent) error {
 			}
 		})
 	}
-	return e.JSON(http.StatusOK, serializeAnalysis(e.App, saved, false))
+	return e.JSON(http.StatusOK, serializeAnalysis(saved))
 }
 
 func requeue(record *core.Record, message string, delaySeconds int) {
@@ -371,12 +371,3 @@ func truncate(value string, max int) string {
 	}
 	return value[:max]
 }
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func itoa(value int) string { return strconv.Itoa(value) }

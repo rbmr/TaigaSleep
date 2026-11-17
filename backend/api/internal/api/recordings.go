@@ -33,9 +33,10 @@ func applyMeta(record *core.Record, meta RecordingMeta, raw []byte) {
 // recordingFor finds a recording the caller may read: a user's own (or one an access
 // token of theirs belongs to), or, for a worker, one it holds the lease of a running
 // analysis for. Anything else is 404 so ids do not leak. The record API's rules make
-// the same decision for its routes; this is what the custom file routes use.
-func recordingFor(e *core.RequestEvent, id string) (*core.Record, error) {
-	record, err := e.App.FindRecordById("recordings", id)
+// the same decision for its routes; this is what the custom file routes use. [app] is
+// the transaction the caller is in, when it has one.
+func recordingFor(app core.App, e *core.RequestEvent, id string) (*core.Record, error) {
+	record, err := app.FindRecordById("recordings", id)
 	if err != nil {
 		return nil, notFound("recording")
 	}
@@ -45,19 +46,10 @@ func recordingFor(e *core.RequestEvent, id string) (*core.Record, error) {
 			return nil, notFound("recording")
 		}
 	case roleWorker:
-		if !holdsLease(e.App, e.Auth.Id, id) {
+		if !holdsLease(app, e.Auth.Id, id) {
 			return nil, notFound("recording")
 		}
 	default:
-		return nil, notFound("recording")
-	}
-	return record, nil
-}
-
-// ownRecording is recordingFor for endpoints only a user may call.
-func ownRecording(app core.App, e *core.RequestEvent, id string) (*core.Record, error) {
-	record, err := app.FindRecordById("recordings", id)
-	if err != nil || record.GetString("owner") != callerID(e) {
 		return nil, notFound("recording")
 	}
 	return record, nil
