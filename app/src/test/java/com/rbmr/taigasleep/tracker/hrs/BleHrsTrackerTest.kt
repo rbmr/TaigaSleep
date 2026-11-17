@@ -83,6 +83,49 @@ class BleHrsTrackerTest {
   }
 
   @Test
+  fun theSetupOperationsAreSerialised() {
+    val seam = FakeSeam()
+    val tracker = BleHrsTracker(context, "AA:BB", "Strap", seam, FakeScheduler())
+    val frames = mutableListOf<TrackerFrame>()
+    tracker.startStreams(setOf("hr"), frameListener(frames))
+    val handle = seam.handles.single()
+    handle.hasBattery = true
+    handle.hasFirmware = true
+
+    handle.connect()
+    handle.discover()
+
+    assertEquals(1, handle.notificationWrites)
+    assertEquals(0, handle.batteryReads)
+    assertEquals(0, handle.firmwareReads)
+
+    handle.descriptorWritten()
+    assertEquals(1, handle.batteryReads)
+    assertEquals(0, handle.firmwareReads)
+
+    handle.characteristicRead(Hrs.BATTERY_LEVEL, byteArrayOf(80))
+    assertEquals(1, handle.firmwareReads)
+  }
+
+  @Test
+  fun aFailedNotificationEnableIsReportedAndRetried() {
+    val seam = FakeSeam()
+    val scheduler = FakeScheduler()
+    val errors = mutableListOf<String>()
+    val tracker = BleHrsTracker(context, "AA:BB", "Strap", seam, scheduler)
+    tracker.startStreams(setOf("hr"), errorListener(errors))
+    val handle = seam.handles.single()
+    handle.failNotifications = true
+
+    handle.connect()
+    handle.discover()
+
+    assertTrue(errors.any { it.contains("could not enable") })
+    assertTrue(handle.closed)
+    assertTrue(scheduler.pending)
+  }
+
+  @Test
   fun framesReachTheListenerThroughTheSeam() {
     val seam = FakeSeam()
     val frames = mutableListOf<TrackerFrame>()
@@ -103,6 +146,17 @@ class BleHrsTrackerTest {
         }
 
         override fun onError(message: String) = Unit
+
+        override fun onNote(type: String, message: String) = Unit
+      }
+
+  private fun errorListener(errors: MutableList<String>) =
+      object : TrackerListener {
+        override fun onFrame(frame: TrackerFrame) = Unit
+
+        override fun onError(message: String) {
+          errors += message
+        }
 
         override fun onNote(type: String, message: String) = Unit
       }
@@ -160,6 +214,18 @@ class BleHrsTrackerTest {
     var failNotifications = false
     var hasBattery = false
     var hasFirmware = false
+    var notificationWrites = 0
+      private set
+    var batteryReads = 0
+      private set
+    var firmwareReads = 0
+      private set
+
+    fun descriptorWritten(status: Int = 0) =
+        onEvent(GattEvent.DescriptorWritten(this, Hrs.CCCD, status))
+
+    fun characteristicRead(characteristic: UUID, value: ByteArray, status: Int = 0) =
+        onEvent(GattEvent.CharacteristicRead(this, characteristic, value, status))
 
     fun connect() = onEvent(GattEvent.Connected(this))
 
@@ -189,11 +255,18 @@ class BleHrsTrackerTest {
         descriptor: UUID,
         enable: Boolean,
     ): Boolean {
+      if (enable) notificationWrites++
       notifications = enable && !failNotifications
       return notifications
     }
 
-    override fun readCharacteristic(service: UUID, characteristic: UUID): Boolean = true
+    override fun readCharacteristic(service: UUID, characteristic: UUID): Boolean {
+      when (characteristic) {
+        Hrs.BATTERY_LEVEL -> batteryReads++
+        Hrs.FIRMWARE_REVISION -> firmwareReads++
+      }
+      return true
+    }
 
     override fun disconnect() = Unit
 

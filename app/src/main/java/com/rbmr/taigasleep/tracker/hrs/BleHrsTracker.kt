@@ -111,6 +111,11 @@ class BleHrsTracker(
   @Volatile private var retryPending = false
   @Volatile private var everConnected = false
 
+  // Android allows one GATT operation at a time. The setup steps wait in this queue and each
+  // one starts when the previous operation's callback arrives.
+  private val operations = ArrayDeque<GattOperation>()
+  @Volatile private var operationInFlight: GattOperation? = null
+
   override fun recordingModes(selected: Set<String>): Set<RecordingMode> =
       if (selected.any { it == "hr" || it == "rr" }) setOf(RecordingMode.STREAM) else emptySet()
 
@@ -133,6 +138,8 @@ class BleHrsTracker(
       it.close()
     }
     gatt = null
+    operations.clear()
+    operationInFlight = null
     if (!seam.isEnabled()) {
       _connection.value = ConnectionState.DISCONNECTED
       return
@@ -158,7 +165,7 @@ class BleHrsTracker(
     this.selected = selected
     this.listener = listener
     if (_connection.value == ConnectionState.CONNECTED) {
-      openMeasurement()
+      gatt?.let { enqueueNotifications(it) }
     } else {
       connect()
     }
@@ -199,11 +206,10 @@ class BleHrsTracker(
           lost(event.handle)
           return
         }
-        readBatteryAndFirmware(event.handle)
-        openMeasurement()
+        startGattSetup(event.handle)
       }
       is GattEvent.CharacteristicRead -> onCharacteristicRead(event)
-      is GattEvent.DescriptorWritten -> Unit
+      is GattEvent.DescriptorWritten -> onDescriptorWritten(event)
       is GattEvent.CharacteristicChanged -> {
         if (event.characteristic == Hrs.MEASUREMENT) onMeasurement(event.value)
       }
@@ -215,6 +221,8 @@ class BleHrsTracker(
     if (handle !== gatt) return
     handle.close()
     gatt = null
+    operations.clear()
+    operationInFlight = null
     if (userDisconnect) {
       _connection.value = ConnectionState.DISCONNECTED
       return
@@ -246,6 +254,10 @@ class BleHrsTracker(
   }
 
   private fun onCharacteristicRead(event: GattEvent.CharacteristicRead) {
+    val operation = operationInFlight
+    if (operation is GattOperation.Read && operation.characteristic == event.characteristic) {
+      operationInFlight = null
+    }
     when (event.characteristic) {
       Hrs.BATTERY_LEVEL ->
           if (event.status == 0 && event.value.isNotEmpty()) {
@@ -256,15 +268,72 @@ class BleHrsTracker(
             _firmware.value = event.value.toString(Charsets.UTF_8).trim()
           }
     }
+    if (operationInFlight == null) nextOperation()
   }
 
-  private fun readBatteryAndFirmware(handle: GattHandle) {
+  /** Queues the setup steps; notifications go first so samples start arriving at once. */
+  private fun startGattSetup(handle: GattHandle) {
+    operations.clear()
+    operationInFlight = null
+    if (selected.any { it == "hr" || it == "rr" }) {
+      operations.addLast(GattOperation.Notifications(handle))
+    }
     if (handle.hasCharacteristic(Hrs.BATTERY_SERVICE, Hrs.BATTERY_LEVEL)) {
-      handle.readCharacteristic(Hrs.BATTERY_SERVICE, Hrs.BATTERY_LEVEL)
+      operations.addLast(
+          GattOperation.Read(handle, Hrs.BATTERY_SERVICE, Hrs.BATTERY_LEVEL)
+      )
     }
     if (handle.hasCharacteristic(Hrs.DEVICE_INFORMATION, Hrs.FIRMWARE_REVISION)) {
-      handle.readCharacteristic(Hrs.DEVICE_INFORMATION, Hrs.FIRMWARE_REVISION)
+      operations.addLast(
+          GattOperation.Read(handle, Hrs.DEVICE_INFORMATION, Hrs.FIRMWARE_REVISION)
+      )
     }
+    nextOperation()
+  }
+
+  private fun enqueueNotifications(handle: GattHandle) {
+    if (operationInFlight is GattOperation.Notifications ||
+        operations.any { it is GattOperation.Notifications }) {
+      return
+    }
+    operations.addFirst(GattOperation.Notifications(handle))
+    nextOperation()
+  }
+
+  private fun nextOperation() {
+    if (operationInFlight != null) return
+    val handle = gatt ?: return
+    val operation = operations.removeFirstOrNull() ?: return
+    operationInFlight = operation
+    val started =
+        when (operation) {
+          is GattOperation.Notifications ->
+              runCatching {
+                    handle.setNotifications(Hrs.SERVICE, Hrs.MEASUREMENT, Hrs.CCCD, true)
+                  }
+                  .getOrDefault(false)
+          is GattOperation.Read -> handle.readCharacteristic(operation.service, operation.characteristic)
+        }
+    if (started) return
+    operationInFlight = null
+    if (operation is GattOperation.Notifications) {
+      listener?.onError("could not enable heart rate notifications")
+      lost(handle)
+    } else {
+      nextOperation()
+    }
+  }
+
+  private fun onDescriptorWritten(event: GattEvent.DescriptorWritten) {
+    val operation = operationInFlight
+    if (operation !is GattOperation.Notifications || event.descriptor != Hrs.CCCD) return
+    operationInFlight = null
+    if (event.status != 0) {
+      listener?.onError("could not enable heart rate notifications (${event.status})")
+      lost(event.handle)
+      return
+    }
+    nextOperation()
   }
 
   private fun onMeasurement(value: ByteArray) {
@@ -275,19 +344,23 @@ class BleHrsTracker(
     l.onFrame(TrackerFrame("hr", stamp, enc.bytes))
   }
 
-  private fun openMeasurement() {
-    if (selected.none { it == "hr" || it == "rr" }) return
-    setNotifications(true)
+  private fun setNotifications(enable: Boolean) {
+    if (!enable) {
+      val handle = gatt ?: return
+      runCatching {
+        handle.setNotifications(Hrs.SERVICE, Hrs.MEASUREMENT, Hrs.CCCD, false)
+      }
+    }
   }
 
-  private fun setNotifications(enable: Boolean) {
-    val handle = gatt ?: return
-    val enabled =
-        runCatching {
-              handle.setNotifications(Hrs.SERVICE, Hrs.MEASUREMENT, Hrs.CCCD, enable)
-            }
-            .getOrDefault(false)
-    if (enable && !enabled) listener?.onError("could not enable heart rate notifications")
+  private sealed interface GattOperation {
+    data class Notifications(val handle: GattHandle) : GattOperation
+
+    data class Read(
+        val handle: GattHandle,
+        val service: UUID,
+        val characteristic: UUID,
+    ) : GattOperation
   }
 
 }
