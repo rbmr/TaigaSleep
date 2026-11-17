@@ -1,3 +1,5 @@
+@file:Suppress("ReturnCount", "LongParameterList", "TooManyFunctions")
+
 package com.rbmr.taigasleep.tracker
 
 import java.nio.ByteBuffer

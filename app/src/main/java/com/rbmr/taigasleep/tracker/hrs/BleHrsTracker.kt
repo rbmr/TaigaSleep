@@ -1,5 +1,8 @@
+@file:Suppress("ReturnCount", "TooGenericExceptionCaught", "NestedBlockDepth")
+
 package com.rbmr.taigasleep.tracker.hrs
 
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -31,6 +34,7 @@ import com.rbmr.taigasleep.tracker.TrackerCapabilities
 import com.rbmr.taigasleep.tracker.TrackerDriver
 import com.rbmr.taigasleep.tracker.TrackerFrame
 import com.rbmr.taigasleep.tracker.TrackerListener
+import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -50,13 +54,14 @@ object Hrs {
   val CCCD: UUID = uuid(0x2902)
 
   private fun uuid(short: Int): UUID =
-      UUID.fromString(String.format("0000%04x-0000-1000-8000-00805f9b34fb", short))
+      UUID.fromString(String.format(Locale.ROOT, "0000%04x-0000-1000-8000-00805f9b34fb", short))
 }
 
 /**
  * A standard chest strap, or any device that exposes the Bluetooth Heart Rate Service. The
  * measurement characteristic's bytes are stored as received under [Codec.BLE_HRS].
  */
+@SuppressLint("MissingPermission")
 class BleHrsTracker(
     context: Context,
     override val id: String,
@@ -260,7 +265,7 @@ class BleHrsDriver : TrackerDriver {
  * Devices that advertise the Heart Rate Service. Polar straps are left to the Polar drivers, which
  * also know their own services.
  */
-@Suppress("MissingPermission")
+@SuppressLint("MissingPermission")
 fun scanHeartRateService(context: Context): Flow<FoundSensor> = callbackFlow {
   val adapter =
       context.getSystemService(BluetoothManager::class.java)?.adapter

@@ -1,3 +1,5 @@
+@file:Suppress("CyclomaticComplexMethod", "ReturnCount")
+
 package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.recording.store.RecordingStream
@@ -109,14 +111,20 @@ class SampleFanout(
     if (n <= 0) return null
     var hr = 0
     val rr = ArrayList<Int>(n)
-    for (i in 0 until n) {
+    repeat(n) {
       b.long
       rr += b.short.toInt() and 0xFFFF
       b.short
       hr = b.get().toInt() and 0xFF
       b.get()
     }
-    return HrSample(hr, contactSupported = false, contact = false, rrAvailable = rr.isNotEmpty(), rrMs = rr.toIntArray())
+    return HrSample(
+        hr,
+        contactSupported = false,
+        contact = false,
+        rrAvailable = rr.isNotEmpty(),
+        rrMs = rr.toIntArray(),
+    )
   }
 
   /** A recording written before streams existed has only its type; the codec is then Polar's. */

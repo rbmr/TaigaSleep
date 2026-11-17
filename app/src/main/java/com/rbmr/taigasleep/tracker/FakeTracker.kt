@@ -1,3 +1,5 @@
+@file:Suppress("ReturnCount", "LongParameterList", "LongMethod", "CyclomaticComplexMethod", "TooManyFunctions")
+
 package com.rbmr.taigasleep.tracker
 
 import java.io.IOException

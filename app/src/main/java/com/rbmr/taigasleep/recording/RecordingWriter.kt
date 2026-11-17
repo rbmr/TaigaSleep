@@ -1,3 +1,5 @@
+@file:Suppress("ReturnCount")
+
 package com.rbmr.taigasleep.recording
 
 import android.util.Log

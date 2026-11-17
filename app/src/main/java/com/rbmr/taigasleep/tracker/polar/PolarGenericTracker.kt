@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions", "LongMethod", "CyclomaticComplexMethod", "TooGenericExceptionCaught")
+
 package com.rbmr.taigasleep.tracker.polar
 
 import android.content.Context
@@ -31,8 +33,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -62,7 +64,6 @@ abstract class PolarGenericTracker(
   override val firmware: StateFlow<String?> = _firmware.asStateFlow()
   override val capabilities = TrackerCapabilities(clock = true, battery = true, firmware = true)
 
-  private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val control = Executors.newSingleThreadScheduledExecutor { Thread(it, "polar-generic-$id") }
   private val jobs = HashMap<String, Job>()
   private var streamScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

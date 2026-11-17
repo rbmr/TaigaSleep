@@ -1,3 +1,5 @@
+@file:Suppress("ReturnCount", "CyclomaticComplexMethod")
+
 package com.rbmr.taigasleep.library
 
 import com.rbmr.taigasleep.backend.RecordingDto

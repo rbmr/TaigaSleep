@@ -42,7 +42,7 @@ sealed interface OnDeviceFetch {
 class OnDeviceImport(
     private val writer: RecordingWriter,
     private val tracker: OnDeviceTracker,
-    private val clock: Clock,
+    @Suppress("UnusedPrivateProperty") private val clock: Clock,
     private val timeoutMs: Long = FETCH_TIMEOUT_MS,
     private val onProgress: (ImportProgress) -> Unit = {},
 ) {

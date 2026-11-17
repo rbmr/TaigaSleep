@@ -33,11 +33,11 @@ class TrackerStreamsTest {
   private val clock = TestClock()
   private val monitor =
       object : SampleMonitor {
-        override fun onHr(stamp: Stamp, sample: HrSample) {}
+        override fun onHr(stamp: Stamp, sample: HrSample) = Unit
 
-        override fun onEcg(stamp: Stamp, batch: EcgBatch) {}
+        override fun onEcg(stamp: Stamp, batch: EcgBatch) = Unit
 
-        override fun onAcc(stamp: Stamp, batch: AccBatch) {}
+        override fun onAcc(stamp: Stamp, batch: AccBatch) = Unit
       }
 
   @Test

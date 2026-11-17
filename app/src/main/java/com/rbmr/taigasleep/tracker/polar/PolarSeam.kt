@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions")
+
 package com.rbmr.taigasleep.tracker.polar
 
 import android.content.Context

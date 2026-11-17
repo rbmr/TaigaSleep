@@ -1,3 +1,5 @@
+@file:Suppress("ReturnCount", "MaxLineLength", "LoopWithTooManyJumpStatements", "NestedBlockDepth", "TooManyFunctions")
+
 package com.rbmr.taigasleep.tracker
 
 import java.io.File
@@ -31,7 +33,8 @@ class ReplayTracker(
 ) : Tracker {
   private val meta = Json.parseToJsonElement(File(dir, "meta.json").readText()).jsonObject
   private val sensor = meta["sensor"]?.jsonObject
-  override val kind: SensorKind = SensorKind.fromWire(sensor?.get("kind")?.jsonPrimitive?.content) ?: SensorKind.SIMULATED
+  override val kind: SensorKind =
+      SensorKind.fromWire(sensor?.get("kind")?.jsonPrimitive?.content) ?: SensorKind.SIMULATED
   override val id: String = sensor?.get("id")?.jsonPrimitive?.content ?: "replay"
   override val name: String = "Replay: ${sensor?.get("name")?.jsonPrimitive?.content ?: dir.name}"
 

@@ -137,6 +137,7 @@ data class RecordingMeta(
     val trackerRemovalFailures: Int = 0,
 ) {
   /** meta.json as this version writes it: every key of the format, null where there is no value. */
+  @Suppress("LongMethod")
   fun toJson(): JsonObject {    val onDevice =
         if (mode != RecordingMode.ON_DEVICE) null
         else

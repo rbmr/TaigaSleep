@@ -32,9 +32,9 @@ class PolarTrackerProfilesTest {
   private class FakeSeam : PolarSeam {
     val started = mutableListOf<PolarDeviceDataType>()
 
-    override fun connect(id: String) {}
+    override fun connect(id: String) = Unit
 
-    override fun disconnect(id: String) {}
+    override fun disconnect(id: String) = Unit
 
     override fun scan(context: Context): Flow<PolarDeviceInfo> = emptyFlow()
 
@@ -58,7 +58,7 @@ class PolarTrackerProfilesTest {
             mapOf(PolarSensorSetting.SettingType.SAMPLE_RATE to 55)
         )
 
-    override suspend fun setLocalTime(id: String, time: LocalDateTime) {}
+    override suspend fun setLocalTime(id: String, time: LocalDateTime) = Unit
 
     override suspend fun getLocalTime(id: String): LocalDateTime = LocalDateTime.now()
 
@@ -70,7 +70,7 @@ class PolarTrackerProfilesTest {
       started += type
     }
 
-    override suspend fun stopOffline(id: String, type: PolarDeviceDataType) {}
+    override suspend fun stopOffline(id: String, type: PolarDeviceDataType) = Unit
 
     override fun listOffline(id: String): Flow<PolarOfflineRecordingEntry> = emptyFlow()
 
@@ -79,7 +79,7 @@ class PolarTrackerProfilesTest {
         entry: PolarOfflineRecordingEntry,
     ): PolarOfflineRecordingData = throw UnsupportedOperationException()
 
-    override suspend fun removeOffline(id: String, entry: PolarOfflineRecordingEntry) {}
+    override suspend fun removeOffline(id: String, entry: PolarOfflineRecordingEntry) = Unit
   }
 
   @Test
@@ -116,9 +116,30 @@ class PolarTrackerProfilesTest {
     val verity = PolarVerityDriver()
     val loop = PolarLoopDriver()
 
-    assertTrue(h10.matches(com.rbmr.taigasleep.tracker.FoundSensor(SensorKind.POLAR_H10, "1", "Polar H10 1", 0)))
-    assertTrue(verity.matches(com.rbmr.taigasleep.tracker.FoundSensor(SensorKind.POLAR_VERITY, "2", "Polar Verity Sense", 0)))
-    assertTrue(loop.matches(com.rbmr.taigasleep.tracker.FoundSensor(SensorKind.POLAR_LOOP, "3", "Polar Loop", 0)))
-    assertFalse(h10.matches(com.rbmr.taigasleep.tracker.FoundSensor(SensorKind.POLAR_LOOP, "3", "Polar Loop", 0)))
+    assertTrue(
+        h10.matches(
+            com.rbmr.taigasleep.tracker.FoundSensor(SensorKind.POLAR_H10, "1", "Polar H10 1", 0)
+        )
+    )
+    assertTrue(
+        verity.matches(
+            com.rbmr.taigasleep.tracker.FoundSensor(
+                SensorKind.POLAR_VERITY,
+                "2",
+                "Polar Verity Sense",
+                0,
+            )
+        )
+    )
+    assertTrue(
+        loop.matches(
+            com.rbmr.taigasleep.tracker.FoundSensor(SensorKind.POLAR_LOOP, "3", "Polar Loop", 0)
+        )
+    )
+    assertFalse(
+        h10.matches(
+            com.rbmr.taigasleep.tracker.FoundSensor(SensorKind.POLAR_LOOP, "3", "Polar Loop", 0)
+        )
+    )
   }
 }
