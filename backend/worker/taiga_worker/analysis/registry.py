@@ -126,6 +126,17 @@ def _load_builtins(registry: Registry) -> Iterable[tuple[str, Stager]]:
         yield module_name, stager
 
 
+def installed_ids() -> tuple[str, ...]:
+    """The ids of the built-in stagers this environment can actually run.
+
+    A stager whose optional extra or checkpoint is missing is not installed, so
+    the ids are what a worker would offer.
+    """
+
+    registry = Registry()
+    return tuple(stager.info.id for _, stager in _load_builtins(registry))
+
+
 def _entry_points() -> Iterable[Any]:
     from importlib.metadata import entry_points
 
@@ -185,4 +196,5 @@ __all__ = [
     "Registry",
     "capabilities_from_env",
     "discover",
+    "installed_ids",
 ]
