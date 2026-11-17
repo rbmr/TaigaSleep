@@ -3,12 +3,10 @@ package com.rbmr.taigasleep.ui.settings
 import com.rbmr.taigasleep.ui.theme.taiga
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -20,22 +18,20 @@ import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.profile.PersonalData
 import com.rbmr.taigasleep.sync.UploadSettings
+import com.rbmr.taigasleep.ui.MainOverlay
 import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.ListRowTrailing
 import com.rbmr.taigasleep.ui.components.Section
-import com.rbmr.taigasleep.ui.components.SegmentedControl
 import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.components.TaigaScreen
-import com.rbmr.taigasleep.ui.theme.ThemeMode
 
 /**
  * What the Settings screen draws: the choices it shows and the facts it reads from the stores.
  * Everything is resolved already, so the screen itself only draws.
  */
 internal data class SettingsUiState(
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val serverStatus: RemoteStatus = RemoteStatus.NotConfigured,
     val serverHost: String? = null,
     val serverEmail: String? = null,
@@ -54,18 +50,7 @@ internal data class SettingsUiState(
  * explains itself; the rare choices live one level deeper, behind Uploads and Analysis.
  */
 @Composable
-fun SettingsScreen(
-    themeMode: ThemeMode,
-    onThemeModeChange: (ThemeMode) -> Unit,
-    onAboutClick: () -> Unit,
-    onGuidanceClick: () -> Unit,
-    onRemoteClick: () -> Unit,
-    onTokensClick: () -> Unit,
-    onPersonalClick: () -> Unit,
-    onUploadsClick: () -> Unit,
-    onAnalysisClick: () -> Unit,
-    onNotificationsClick: () -> Unit,
-) {
+internal fun SettingsScreen(onOpen: (MainOverlay) -> Unit) {
   val context = LocalContext.current
   val remoteRepository = remember { context.appContainer.remoteRepository }
   val remoteStatus by remoteRepository.status.collectAsStateWithLifecycle()
@@ -89,7 +74,6 @@ fun SettingsScreen(
   SettingsContent(
       state =
           SettingsUiState(
-              themeMode = themeMode,
               serverStatus = remoteStatus,
               serverHost = hostLabel(address),
               serverEmail =
@@ -106,15 +90,7 @@ fun SettingsScreen(
               autoAnalysis = analysisSettings.auto,
               personalValue = personalSetValue(personalData),
           ),
-      onThemeModeChange = onThemeModeChange,
-      onAboutClick = onAboutClick,
-      onGuidanceClick = onGuidanceClick,
-      onRemoteClick = onRemoteClick,
-      onTokensClick = onTokensClick,
-      onPersonalClick = onPersonalClick,
-      onUploadsClick = onUploadsClick,
-      onAnalysisClick = onAnalysisClick,
-      onNotificationsClick = onNotificationsClick,
+      onOpen = onOpen,
   )
 }
 
@@ -122,93 +98,85 @@ fun SettingsScreen(
 @Composable
 internal fun SettingsContent(
     state: SettingsUiState,
-    onThemeModeChange: (ThemeMode) -> Unit,
-    onAboutClick: () -> Unit,
-    onGuidanceClick: () -> Unit,
-    onRemoteClick: () -> Unit,
-    onTokensClick: () -> Unit,
-    onPersonalClick: () -> Unit,
-    onUploadsClick: () -> Unit,
-    onAnalysisClick: () -> Unit,
-    onNotificationsClick: () -> Unit,
+    onOpen: (MainOverlay) -> Unit,
 ) {
   TaigaScreen(title = stringResource(R.string.settings_title)) {
-    Section(title = stringResource(R.string.settings_group_server)) {
-      TaigaCard(contentPadding = PaddingValues(0.dp)) {
-        ServerRow(
-            status = state.serverStatus,
-            host = state.serverHost,
-            email = state.serverEmail,
-            onClick = onRemoteClick,
-        )
-        if (state.serverSet) {
-          SettingsDivider()
-          ListRow(
-              title = stringResource(R.string.tokens_title),
-              value = state.tokenCount,
-              onClick = onTokensClick,
-          )
-        }
-        SettingsDivider()
-        ListRow(
-            title = stringResource(R.string.settings_uploads_title),
-            value = automaticOrManual(state.autoUpload),
-            onClick = onUploadsClick,
-        )
-        if (state.serverSet) {
-          SettingsDivider()
-          ListRow(
-              title = stringResource(R.string.settings_analysis_title),
-              value = automaticOrManual(state.autoAnalysis),
-              onClick = onAnalysisClick,
-          )
-        }
-      }
+    Section(title = stringResource(R.string.settings_group_server)) { ServerGroup(state, onOpen) }
+    Section(title = stringResource(R.string.settings_group_app)) { AppGroup(state, onOpen) }
+  }
+}
+
+/** The server the app talks to, its account and what happens without being asked. */
+@Composable
+private fun ServerGroup(
+    state: SettingsUiState,
+    onOpen: (MainOverlay) -> Unit,
+) {
+  TaigaCard(contentPadding = PaddingValues(0.dp)) {
+    ServerRow(
+        status = state.serverStatus,
+        host = state.serverHost,
+        email = state.serverEmail,
+        onClick = { onOpen(MainOverlay.REMOTE) },
+    )
+    if (state.serverSet) {
+      SettingsDivider()
+      ListRow(
+          title = stringResource(R.string.tokens_title),
+          value = state.tokenCount,
+          onClick = { onOpen(MainOverlay.TOKENS) },
+      )
     }
-    Section(title = stringResource(R.string.settings_group_app)) {
-      TaigaCard(contentPadding = PaddingValues(0.dp)) {
-        ListRow(
-            title = stringResource(R.string.settings_personal_title),
-            value = state.personalValue,
-            onClick = onPersonalClick,
-        )
-        SettingsDivider()
-        ListRow(
-            title = stringResource(R.string.settings_appearance_title),
-            trailing = ListRowTrailing.None,
-            below = {
-              SegmentedControl(
-                  options =
-                      listOf(
-                          stringResource(R.string.appearance_system),
-                          stringResource(R.string.appearance_light),
-                          stringResource(R.string.appearance_dark),
-                      ),
-                  selectedIndex = ThemeMode.entries.indexOf(state.themeMode),
-                  onSelect = { onThemeModeChange(ThemeMode.entries[it]) },
-                  modifier = Modifier.fillMaxWidth(),
-                  fillWidth = true,
-              )
-            },
-        )
-        SettingsDivider()
-        ListRow(
-            title = stringResource(R.string.settings_notifications_title),
-            onClick = onNotificationsClick,
-        )
-        SettingsDivider()
-        ListRow(
-            title = stringResource(R.string.settings_prevent_title),
-            onClick = onGuidanceClick,
-        )
-        SettingsDivider()
-        ListRow(
-            title = stringResource(R.string.settings_about_title),
-            value = BuildConfig.VERSION_NAME,
-            onClick = onAboutClick,
-        )
-      }
+    SettingsDivider()
+    ListRow(
+        title = stringResource(R.string.settings_uploads_title),
+        value = automaticOrManual(state.autoUpload),
+        onClick = { onOpen(MainOverlay.UPLOADS) },
+    )
+    if (state.serverSet) {
+      SettingsDivider()
+      ListRow(
+          title = stringResource(R.string.settings_analysis_title),
+          value = automaticOrManual(state.autoAnalysis),
+          onClick = { onOpen(MainOverlay.ANALYSIS) },
+      )
     }
+  }
+}
+
+/** The app itself: the person, the display, what it tells them, and what it is. */
+@Composable
+private fun AppGroup(
+    state: SettingsUiState,
+    onOpen: (MainOverlay) -> Unit,
+) {
+  TaigaCard(contentPadding = PaddingValues(0.dp)) {
+    ListRow(
+        title = stringResource(R.string.settings_personal_title),
+        value = state.personalValue,
+        onClick = { onOpen(MainOverlay.PERSONAL) },
+    )
+    SettingsDivider()
+    ListRow(
+        title = stringResource(R.string.settings_display_title),
+        onClick = { onOpen(MainOverlay.DISPLAY) },
+    )
+    SettingsDivider()
+    ListRow(
+        title = stringResource(R.string.settings_notifications_title),
+        onClick = { onOpen(MainOverlay.NOTIFICATIONS) },
+    )
+    SettingsDivider()
+    ListRow(
+        title = stringResource(R.string.settings_prevent_title),
+        onClick = { onOpen(MainOverlay.GUIDANCE) },
+    )
+    SettingsDivider()
+    ListRow(
+        title = stringResource(R.string.settings_about_title),
+        value = BuildConfig.VERSION_NAME,
+        onClick = { onOpen(MainOverlay.ABOUT) },
+    )
   }
 }
 

@@ -22,6 +22,7 @@ import (
 // as much data for somebody else.
 
 func TestListQueriesAreAnsweredFromAnIndex(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice := s.accountID(t, "alice@example.com")
 	bob := s.accountID(t, "bob@example.com")
@@ -81,6 +82,7 @@ func TestListQueriesAreAnsweredFromAnIndex(t *testing.T) {
 // The recording list rule names the worker whose lease is live, so claiming an analysis
 // is what puts a recording in a worker's list and finishing it takes it out again.
 func TestARecordingNamesItsLessee(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	const id = "rec-lease"
 	completeRecording(s, s.tokens["alice"], id)

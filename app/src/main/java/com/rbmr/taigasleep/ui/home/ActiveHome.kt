@@ -1,6 +1,5 @@
 package com.rbmr.taigasleep.ui.home
 
-import android.animation.ValueAnimator
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -45,6 +44,7 @@ import com.rbmr.taigasleep.ui.components.LogoVariant
 import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.SecondaryButton
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.theme.LocalReduceMotion
 import com.rbmr.taigasleep.ui.theme.taiga
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -232,9 +232,11 @@ private fun WakeRow(wake: LiveWake, enabled: Boolean, onClick: () -> Unit) {
 /** The recording label breathes while data arrives; with animations off it stays still. */
 @Composable
 private fun PulsingLabel(text: String) {
-  val animations = remember { ValueAnimator.areAnimatorsEnabled() }
+  val reduceMotion = LocalReduceMotion.current
   val alpha =
-      if (animations) {
+      if (reduceMotion) {
+        1f
+      } else {
         val transition = rememberInfiniteTransition(label = "recording")
         val pulse by
             transition.animateFloat(
@@ -244,8 +246,6 @@ private fun PulsingLabel(text: String) {
                 label = "pulse",
             )
         pulse
-      } else {
-        1f
       }
   Text(
       text = text,

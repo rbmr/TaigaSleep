@@ -7,8 +7,11 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 
 // The two schemes are internal so the contrast test can measure the values they ship.
 internal val LightColors =
@@ -82,10 +85,21 @@ val MaterialTheme.taiga: TaigaColors
 @Composable
 fun TaigaTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    textSize: TextSize = TextSize.SYSTEM,
+    motionScale: Float = 1f,
     content: @Composable () -> Unit,
 ) {
+  // The one place the app's text size is decided: the density carries the font scale every style
+  // and every sp value in the app is measured with.
+  val density = LocalDensity.current
+  val fontScale = textSize.fontScale(density.fontScale)
+  val scaledDensity = remember(density, fontScale) { Density(density.density, fontScale) }
+
   CompositionLocalProvider(
-      LocalTaigaColors provides if (darkTheme) DarkTaigaColors else LightTaigaColors
+      LocalTaigaColors provides if (darkTheme) DarkTaigaColors else LightTaigaColors,
+      LocalDensity provides scaledDensity,
+      LocalReduceMotion provides (motionScale <= 0f),
+      LocalMotionScale provides motionScale,
   ) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,

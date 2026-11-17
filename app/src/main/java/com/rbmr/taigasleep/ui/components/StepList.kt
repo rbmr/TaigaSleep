@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rbmr.taigasleep.ui.theme.LocalReduceMotion
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /** What one step of a sequence is doing. */
@@ -91,11 +92,15 @@ fun StepList(steps: List<StepItem>, modifier: Modifier = Modifier) {
                 .clip(CircleShape)
         when (progress) {
           StepProgress.Indeterminate ->
-              LinearProgressIndicator(
-                  modifier = line,
-                  color = MaterialTheme.colorScheme.primary,
-                  trackColor = MaterialTheme.taiga.segment,
-              )
+              if (LocalReduceMotion.current) {
+                Box(line.background(MaterialTheme.taiga.segment))
+              } else {
+                LinearProgressIndicator(
+                    modifier = line,
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.taiga.segment,
+                )
+              }
           is StepProgress.Determinate ->
               LinearProgressIndicator(
                   progress = { progress.fraction },
@@ -127,7 +132,11 @@ private fun StepMarker(state: StepState) {
             )
           }
       StepState.Active ->
-          CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+          if (LocalReduceMotion.current) {
+            Box(Modifier.size(20.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+          } else {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+          }
       StepState.Waiting ->
           Box(
               modifier =

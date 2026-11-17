@@ -265,7 +265,6 @@ def run_analysis(
         result.stages,
         info,
         artifacts=result.artifacts,
-        beats_s=result.beats_s,
         supported_stages=result.supported_stages,
     )
     serialized_stages = _serialize_stages(recording, grid, result, confidence)
@@ -343,6 +342,7 @@ def run_analysis(
             derived.quality,
             derived.sleep_quality,
             serialized_hr,
+            derived.hrv_windows,
         ),
         quality=derived.quality,
         sleep_quality=derived.sleep_quality,

@@ -1,8 +1,8 @@
 package com.rbmr.taigasleep.ui.components
 
 import android.content.res.Configuration
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -30,6 +31,8 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rbmr.taigasleep.ui.theme.LocalMotionScale
+import com.rbmr.taigasleep.ui.theme.animated
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
@@ -54,12 +57,20 @@ fun Pressable(
 ) {
   val interactionSource = remember { MutableInteractionSource() }
   val pressed by interactionSource.collectIsPressedAsState()
-  val scale by
-      animateFloatAsState(
-          targetValue = if (pressed && enabled) 0.97f else 1f,
-          animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-          label = "press",
-      )
+  // Press feedback is motion: with it off the shape reaches 0.97 at once and back at once. A press
+  // is one spring of its own, so the scale carries the app's own animator duration scale.
+  val motionScale = LocalMotionScale.current
+  val scale = remember { Animatable(1f) }
+  LaunchedEffect(pressed, enabled, motionScale) {
+    val target = if (pressed && enabled) 0.97f else 1f
+    if (motionScale <= 0f) {
+      scale.snapTo(target)
+    } else {
+      animated(motionScale) {
+        scale.animateTo(target, spring(stiffness = Spring.StiffnessMediumLow))
+      }
+    }
+  }
   Box(
       modifier =
           modifier
@@ -77,7 +88,7 @@ fun Pressable(
       contentAlignment = Alignment.Center,
   ) {
     Box(
-        modifier = Modifier.scale(scale).clip(shape).indication(interactionSource, ripple()),
+        modifier = Modifier.scale(scale.value).clip(shape).indication(interactionSource, ripple()),
         content = content,
     )
   }

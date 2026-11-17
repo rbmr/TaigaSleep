@@ -2,8 +2,9 @@
 
 These functions are intentionally independent of the stager. They take the
 canonical stage timeline plus the normalized recording and produce comparable
-numbers. A stager only supplies stages, confidence, artifacts and optional beat
-times.
+numbers. A stager only supplies stages, confidence and artifacts. The heart-rate
+variability figures are the exception the other way round: they are computed from
+the raw R-R stream alone and read nothing the stager produced.
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from .contract import (
     Recording,
     Stage,
 )
+from .epochs import MOVEMENT_THRESHOLD_G
+from .hrv import hrv_metrics, window_series
 
 SLEEP_STAGES: tuple[Stage, ...] = ("rem", "nrem", "light", "deep", "sleep")
 TIME_STAGES: tuple[Stage, ...] = ("wake", "rem", "nrem", "light", "deep", "sleep")
@@ -55,13 +58,6 @@ USABLE_COVERAGE_THRESHOLD = 0.5
 USABLE_CONTACT_THRESHOLD = 0.5
 ARTIFACT_COVERAGE_THRESHOLD = 0.5
 ARTIFACT_CONTACT_THRESHOLD = 0.5
-MIN_RR_INTERVALS = 120
-RR_MIN_MS = 300.0
-RR_MAX_MS = 2000.0
-# A break between RR intervals longer than this fraction of the following interval
-# means at least one beat is missing, so no difference is taken across it.
-RR_GAP_FRACTION = 1.5
-MOVEMENT_THRESHOLD_G = 0.08
 # Efficiency is a share of the time the algorithm could score. Below this share of
 # the recording, that share is not representative and efficiency is not reported.
 MIN_SCORED_SHARE_FOR_EFFICIENCY = 0.5
@@ -75,6 +71,7 @@ class Derived:
     support: dict[str, Any]
     quality: dict[str, Any]
     sleep_quality: dict[str, Any]
+    hrv_windows: dict[str, Any] | None = None
 
 
 def _support(status: str, reason: str | None = None) -> dict[str, Any]:
@@ -97,111 +94,6 @@ def _segments(mask: np.ndarray) -> list[tuple[int, int]]:
     starts = np.nonzero(changes == 1)[0]
     ends = np.nonzero(changes == -1)[0]
     return list(zip(starts.tolist(), ends.tolist(), strict=True))
-
-
-def _clean_rr_mask(rr_ms: np.ndarray) -> np.ndarray:
-    """Keep finite intervals inside the physiological band and near the median."""
-
-    keep = np.isfinite(rr_ms) & (rr_ms >= RR_MIN_MS) & (rr_ms <= RR_MAX_MS)
-    if np.sum(keep) >= 20:
-        median = float(np.median(rr_ms[keep]))
-        if median > 0:
-            keep &= np.abs(rr_ms - median) <= 0.5 * median
-    return keep
-
-
-def _rr_intervals(
-    recording: Recording, beats_s: Sequence[float] | None
-) -> tuple[np.ndarray | None, np.ndarray | None, str | None]:
-    """RR intervals with the recording time each one ends at, in sample order."""
-
-    if beats_s is not None:
-        beats = np.asarray(beats_s, dtype=np.float64)
-        if beats.size >= 2:
-            return beats[1:], np.diff(beats) * 1000.0, None
-    hr = recording.hr
-    if hr is None:
-        return None, None, "no_hr_stream"
-    if not hr.rr_ms:
-        return None, None, "no_rr_intervals"
-    ends_s: list[np.ndarray] = []
-    rr: list[np.ndarray] = []
-    for sample_time, values in zip(hr.t_s, hr.rr_ms, strict=True):
-        interval_values = np.asarray(values, dtype=np.float64)
-        if interval_values.size == 0:
-            continue
-        ends_s.append(np.full(interval_values.size, float(sample_time)))
-        rr.append(interval_values)
-    if not rr:
-        return None, None, "no_rr_intervals"
-    return np.concatenate(ends_s), np.concatenate(rr), None
-
-
-def _rr_segments(ends_s: np.ndarray, rr_ms: np.ndarray) -> list[np.ndarray]:
-    """Split intervals where a beat is missing, so no difference spans a gap.
-
-    Contiguous beats end one RR interval apart. A break that is clearly longer than
-    the interval that follows it means at least one beat (or a stretch of RR data)
-    is missing there.
-    """
-
-    if ends_s.size < 2:
-        return [rr_ms]
-    gaps = np.diff(ends_s) > RR_GAP_FRACTION * rr_ms[1:] / 1000.0
-    if not np.any(gaps):
-        return [rr_ms]
-    return [segment for segment in np.split(rr_ms, np.nonzero(gaps)[0] + 1) if segment.size]
-
-
-def _hrv_metrics(
-    recording: Recording,
-    beats_s: Sequence[float] | None,
-    *,
-    sleep_mask: np.ndarray,
-    epoch_seconds: int,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    ends_s, rr, reason = _rr_intervals(recording, beats_s)
-    if rr is None or ends_s is None:
-        status = "unsupported_device" if reason == "no_hr_stream" else "insufficient_data"
-        missing = _support(status, reason or "no_rr_intervals")
-        return (
-            {"hrv_rmssd_ms": None, "hrv_sdnn_ms": None, "hrv_rr_count": 0},
-            {"hrv_rmssd_ms": missing, "hrv_sdnn_ms": missing, "hrv_rr_count": missing},
-        )
-
-    keep = _clean_rr_mask(rr)
-    if sleep_mask.size:
-        epochs = np.clip(np.floor(ends_s / epoch_seconds).astype(np.int64), 0, sleep_mask.size - 1)
-        keep &= sleep_mask[epochs]
-    rr = rr[keep]
-    ends_s = ends_s[keep]
-
-    if rr.size < MIN_RR_INTERVALS:
-        missing = _support(
-            "insufficient_data", f"need_at_least_{MIN_RR_INTERVALS}_rr_intervals_in_sleep"
-        )
-        return (
-            {"hrv_rmssd_ms": None, "hrv_sdnn_ms": None, "hrv_rr_count": int(rr.size)},
-            {"hrv_rmssd_ms": missing, "hrv_sdnn_ms": missing, "hrv_rr_count": missing},
-        )
-
-    rmssd_sum = 0.0
-    weight_sum = 0
-    for segment in _rr_segments(ends_s, rr):
-        if segment.size < 2:
-            continue
-        diffs = np.diff(segment)
-        rmssd_sum += float(np.sqrt(np.mean(diffs**2))) * int(segment.size)
-        weight_sum += int(segment.size)
-    rmssd = rmssd_sum / weight_sum if weight_sum else 0.0
-    sdnn = float(np.std(rr, ddof=1)) if rr.size > 1 else 0.0
-    metrics = {
-        "hrv_rmssd_ms": round(rmssd, 1),
-        "hrv_sdnn_ms": round(sdnn, 1),
-        "hrv_rr_count": int(rr.size),
-    }
-    supported = _support("supported")
-    return metrics, {key: supported for key in metrics}
 
 
 def _hr_metrics(recording: Recording) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -282,7 +174,6 @@ def derive(
     info: AlgorithmInfo,
     *,
     artifacts: Sequence[bool] | None = None,
-    beats_s: Sequence[float] | None = None,
     supported_stages: Sequence[Stage] | None = None,
 ) -> Derived:
     if len(stages) != grid.count:
@@ -346,12 +237,8 @@ def derive(
             )
 
     hr_metrics, hr_support = _hr_metrics(recording)
-    hrv_metrics, hrv_support = _hrv_metrics(
-        recording,
-        beats_s,
-        sleep_mask=sleep_mask,
-        epoch_seconds=epoch_seconds,
-    )
+    hrv = hrv_metrics(recording)
+    hrv_windows = window_series(recording, hrv.windows)
     movement_metrics, movement_support = _movement_metrics(recording, grid)
 
     stage_support_status = "supported" if scored_count > 0 else "insufficient_data"
@@ -367,7 +254,7 @@ def derive(
         "final_awakening_s": final_awakening,
         **time_per_stage,
         **hr_metrics,
-        **hrv_metrics,
+        **hrv.metrics,
         **movement_metrics,
     }
 
@@ -388,7 +275,7 @@ def derive(
     support["sleep_efficiency"] = efficiency_support
     support.update(stage_support)
     support.update(hr_support)
-    support.update(hrv_support)
+    support.update(hrv.support)
     support.update(movement_support)
 
     quality = _quality(
@@ -416,6 +303,7 @@ def derive(
         support=support,
         quality=quality,
         sleep_quality=sleep_quality,
+        hrv_windows=hrv_windows,
     )
 
 

@@ -401,8 +401,30 @@
         errorLine1="    prefs.edit().putString(KEY_THEME_MODE, mode.name).apply()"
         errorLine2="    ~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/rbmr/taigasleep/AppSettings.kt"
-            line="17"
+            file="src/main/java/com/rbmr/taigasleep/ui/theme/DisplaySettings.kt"
+            line="30"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="    prefs.edit().putString(KEY_TEXT_SIZE, size.name).apply()"
+        errorLine2="    ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/rbmr/taigasleep/ui/theme/DisplaySettings.kt"
+            line="35"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="    prefs.edit().putString(KEY_ANIMATIONS, mode.name).apply()"
+        errorLine2="    ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/rbmr/taigasleep/ui/theme/DisplaySettings.kt"
+            line="40"
             column="5"/>
     </issue>
 
