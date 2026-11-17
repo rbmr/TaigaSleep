@@ -15,7 +15,7 @@ class LicenceCatalogueTest {
   @Test
   fun `every library with code in the app is in the list`() {
     val listed = catalogue().libraries.map { it.uniqueId }.toSet()
-    val missing = bundled().filterNot { it in listed }.sorted()
+    val missing = bundled().filterNot { it in listed || it.withoutPlatform() in listed }.sorted()
 
     assertTrue(
         "Libraries in the release app but not in the licence metadata:\n" +
@@ -68,6 +68,12 @@ class LicenceCatalogueTest {
           .readLines()
           .map { it.trim() }
           .filter { it.isNotEmpty() }
+
+  /**
+   * The metadata names a multiplatform library by its common module (`animation`), while the
+   * release classpath carries its platform variant (`animation-android`, `annotation-jvm`).
+   */
+  private fun String.withoutPlatform(): String = replace(Regex("-(android|jvm)$"), "")
 
   private fun generated(property: String, path: String): File {
     val file =
