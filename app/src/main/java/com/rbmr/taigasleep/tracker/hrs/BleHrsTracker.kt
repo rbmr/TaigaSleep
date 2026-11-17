@@ -146,8 +146,13 @@ class BleHrsTracker(
     }
     gatt = seam.connect(id) { event -> onEvent(event) }
     if (gatt == null) {
-      _connection.value = ConnectionState.DISCONNECTED
       listener?.onError("the heart rate strap could not be opened")
+      if (!userDisconnect && selected.isNotEmpty()) {
+        _connection.value = ConnectionState.CONNECTING
+        scheduleRetry()
+      } else {
+        _connection.value = ConnectionState.DISCONNECTED
+      }
     }
   }
 
@@ -177,6 +182,7 @@ class BleHrsTracker(
     retry.cancel()
     retryPending = false
     setNotifications(false)
+    if (gatt == null) _connection.value = ConnectionState.DISCONNECTED
   }
 
   override fun readClock(): Long? = null

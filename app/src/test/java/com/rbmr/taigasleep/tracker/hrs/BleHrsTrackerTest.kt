@@ -80,6 +80,23 @@ class BleHrsTrackerTest {
     tracker.stopStreams()
 
     assertFalse(scheduler.pending)
+    assertEquals(ConnectionState.DISCONNECTED, tracker.connection.value)
+  }
+
+  @Test
+  fun aLinkThatCannotBeOpenedIsRetried() {
+    val seam = FakeSeam().apply { failFirst = true }
+    val scheduler = FakeScheduler()
+    val tracker = BleHrsTracker(context, "AA:BB", "Strap", seam, scheduler)
+    tracker.startStreams(setOf("hr"), notesListener(mutableListOf()))
+
+    assertEquals(ConnectionState.CONNECTING, tracker.connection.value)
+    assertTrue(scheduler.pending)
+
+    scheduler.run()
+
+    assertEquals(2, seam.attempts)
+    assertTrue(scheduler.pending.not())
   }
 
   @Test
@@ -197,11 +214,17 @@ class BleHrsTrackerTest {
 
   private class FakeSeam : GattSeam {
     val handles = mutableListOf<FakeHandle>()
+    var attempts = 0
+      private set
+    var failFirst = false
 
     override fun isEnabled(): Boolean = true
 
-    override fun connect(address: String, onEvent: (GattEvent) -> Unit): GattHandle =
-        FakeHandle(onEvent).also { handles += it }
+    override fun connect(address: String, onEvent: (GattEvent) -> Unit): GattHandle? {
+      attempts++
+      if (failFirst && attempts == 1) return null
+      return FakeHandle(onEvent).also { handles += it }
+    }
   }
 
   private class FakeHandle(private val onEvent: (GattEvent) -> Unit) : GattHandle {
