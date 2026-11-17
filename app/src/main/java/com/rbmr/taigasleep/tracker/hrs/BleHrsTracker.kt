@@ -1,24 +1,19 @@
-@file:Suppress("ReturnCount", "TooGenericExceptionCaught", "NestedBlockDepth")
+@file:Suppress("ReturnCount", "TooGenericExceptionCaught", "NestedBlockDepth", "TooManyFunctions")
 
 package com.rbmr.taigasleep.tracker.hrs
 
 import android.annotation.SuppressLint
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCallback
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.pm.PackageManager
-import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelUuid
-import android.util.Log
+import androidx.core.os.HandlerCompat
 import com.rbmr.taigasleep.tracker.BleHrsCodec
 import com.rbmr.taigasleep.tracker.Codec
 import com.rbmr.taigasleep.tracker.ConnectionState
@@ -57,6 +52,30 @@ object Hrs {
       UUID.fromString(String.format(Locale.ROOT, "0000%04x-0000-1000-8000-00805f9b34fb", short))
 }
 
+/** Schedules the tracker's reconnect attempts; a test runs them by hand. */
+interface RetryScheduler {
+  fun schedule(delayMs: Long, action: () -> Unit)
+
+  fun cancel()
+}
+
+private class HandlerRetryScheduler : RetryScheduler {
+  private val handler = Handler(Looper.getMainLooper())
+  private var pending: Runnable? = null
+
+  override fun schedule(delayMs: Long, action: () -> Unit) {
+    cancel()
+    val runnable = Runnable { action() }
+    pending = runnable
+    HandlerCompat.postDelayed(handler, runnable, null, delayMs)
+  }
+
+  override fun cancel() {
+    pending?.let { handler.removeCallbacks(it) }
+    pending = null
+  }
+}
+
 /**
  * A standard chest strap, or any device that exposes the Bluetooth Heart Rate Service. The
  * measurement characteristic's bytes are stored as received under [Codec.BLE_HRS].
@@ -66,6 +85,8 @@ class BleHrsTracker(
     context: Context,
     override val id: String,
     override val name: String,
+    private val seam: GattSeam = AndroidGattSeam(context.applicationContext),
+    private val retry: RetryScheduler = HandlerRetryScheduler(),
 ) : Tracker {
   override val kind = SensorKind.BLE_HRS
   override val streams =
@@ -75,7 +96,6 @@ class BleHrsTracker(
       )
   override val capabilities = TrackerCapabilities(clock = false, battery = true, firmware = true)
 
-  private val appContext = context.applicationContext
   private val _connection = MutableStateFlow(ConnectionState.DISCONNECTED)
   override val connection: StateFlow<ConnectionState> = _connection.asStateFlow()
   private val _battery = MutableStateFlow<Int?>(null)
@@ -85,8 +105,11 @@ class BleHrsTracker(
 
   @Volatile private var listener: TrackerListener? = null
   @Volatile private var selected: Set<String> = emptySet()
-  @Volatile private var gatt: BluetoothGatt? = null
+  @Volatile private var gatt: GattHandle? = null
   @Volatile private var userDisconnect = false
+  @Volatile private var retryAttempt = 0
+  @Volatile private var retryPending = false
+  @Volatile private var everConnected = false
 
   override fun recordingModes(selected: Set<String>): Set<RecordingMode> =
       if (selected.any { it == "hr" || it == "rr" }) setOf(RecordingMode.STREAM) else emptySet()
@@ -94,27 +117,34 @@ class BleHrsTracker(
   override fun connect() {
     if (_connection.value == ConnectionState.CONNECTED) return
     userDisconnect = false
+    retry.cancel()
+    retryPending = false
     _connection.value = ConnectionState.CONNECTING
-    val adapter = bluetoothAdapter(appContext)
-    if (adapter == null || !adapter.isEnabled) {
+    openGatt()
+  }
+
+  /** Opens a fresh GATT connection, closing the one that is no longer usable. */
+  private fun openGatt() {
+    gatt?.let {
+      it.disconnect()
+      it.close()
+    }
+    gatt = null
+    if (!seam.isEnabled()) {
       _connection.value = ConnectionState.DISCONNECTED
       return
     }
-    try {
-      val connected = adapter.getRemoteDevice(id).connectGatt(appContext, false, callback)
-      if (connected == null) {
-        _connection.value = ConnectionState.DISCONNECTED
-      } else {
-        gatt = connected
-      }
-    } catch (e: Exception) {
-      Log.e(TAG, "connect failed", e)
+    gatt = seam.connect(id) { event -> onEvent(event) }
+    if (gatt == null) {
       _connection.value = ConnectionState.DISCONNECTED
+      listener?.onError("the heart rate strap could not be opened")
     }
   }
 
   override fun disconnect() {
     userDisconnect = true
+    retry.cancel()
+    retryPending = false
     gatt?.disconnect()
     gatt?.close()
     gatt = null
@@ -124,100 +154,115 @@ class BleHrsTracker(
   override fun startStreams(selected: Set<String>, listener: TrackerListener) {
     this.selected = selected
     this.listener = listener
-    openMeasurement()
+    if (_connection.value == ConnectionState.CONNECTED) {
+      openMeasurement()
+    } else {
+      connect()
+    }
   }
 
   override fun stopStreams() {
     selected = emptySet()
     listener = null
+    retry.cancel()
+    retryPending = false
     setNotifications(false)
   }
 
   override fun readClock(): Long? = null
 
-  private val callback =
-      object : BluetoothGattCallback() {
-        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-          if (status != BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_DISCONNECTED) {
-            listener?.onError("the heart rate strap refused the connection ($status)")
-          }
-          when (newState) {
-            BluetoothProfile.STATE_CONNECTED -> {
-              _connection.value = ConnectionState.CONNECTED
-              gatt.discoverServices()
-            }
-            BluetoothProfile.STATE_DISCONNECTED -> {
-              _connection.value = ConnectionState.DISCONNECTED
-              if (!userDisconnect) {
-                // Keep the same tracker object; a reconnect restarts what was selected.
-                _connection.value = ConnectionState.CONNECTING
-              }
-            }
-          }
-        }
-
-        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-          val service = gatt.getService(Hrs.SERVICE)
-          if (service == null) {
-            listener?.onError("the device has no heart rate service")
-            return
-          }
-          gatt.getService(Hrs.BATTERY_SERVICE)?.getCharacteristic(Hrs.BATTERY_LEVEL)?.let {
-            if (gatt.readCharacteristic(it)) Unit
-          }
-          gatt
-              .getService(Hrs.DEVICE_INFORMATION)
-              ?.getCharacteristic(Hrs.FIRMWARE_REVISION)
-              ?.let { gatt.readCharacteristic(it) }
-          openMeasurement()
-        }
-
-        @Deprecated("The API before 33 reports the value here.")
-        override fun onCharacteristicChanged(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-        ) {
-          if (Build.VERSION.SDK_INT < 33) {
-            characteristic.value?.let { onMeasurement(it) }
-          }
-        }
-
-        override fun onCharacteristicChanged(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray,
-        ) {
-          if (characteristic.uuid == Hrs.MEASUREMENT) onMeasurement(value)
-        }
-
-        override fun onCharacteristicRead(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray,
-            status: Int,
-        ) {
-          when (characteristic.uuid) {
-            Hrs.BATTERY_LEVEL -> if (value.isNotEmpty()) _battery.value = value[0].toInt() and 0xFF
-            Hrs.FIRMWARE_REVISION -> _firmware.value = value.toString(Charsets.UTF_8).trim()
-          }
-        }
-
-        @Deprecated("The API before 33 reports the value here.")
-        override fun onCharacteristicRead(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            status: Int,
-        ) {
-          if (Build.VERSION.SDK_INT < 33) {
-            characteristic.value?.let {
-              when (characteristic.uuid) {
-                Hrs.BATTERY_LEVEL -> if (it.isNotEmpty()) _battery.value = it[0].toInt() and 0xFF
-                Hrs.FIRMWARE_REVISION -> _firmware.value = it.toString(Charsets.UTF_8).trim()
-              }
-            }
-          }
+  private fun onEvent(event: GattEvent) {
+    if (event.handle !== gatt) return
+    when (event) {
+      is GattEvent.Connected -> {
+        _connection.value = ConnectionState.CONNECTED
+        retryAttempt = 0
+        if (everConnected) listener?.onNote("reconnect", "heart rate strap reconnected")
+        everConnected = true
+        if (!event.handle.discoverServices()) {
+          listener?.onError("the heart rate strap did not start service discovery")
+          lost(event.handle)
         }
       }
+      is GattEvent.Disconnected -> {
+        if (event.status != 0) {
+          listener?.onError("the heart rate strap refused the connection (${event.status})")
+        }
+        lost(event.handle)
+      }
+      is GattEvent.ServicesDiscovered -> {
+        if (event.status != 0 || !event.handle.hasService(Hrs.SERVICE)) {
+          listener?.onError("the heart rate strap has no heart rate service")
+          lost(event.handle)
+          return
+        }
+        readBatteryAndFirmware(event.handle)
+        openMeasurement()
+      }
+      is GattEvent.CharacteristicRead -> onCharacteristicRead(event)
+      is GattEvent.DescriptorWritten -> Unit
+      is GattEvent.CharacteristicChanged -> {
+        if (event.characteristic == Hrs.MEASUREMENT) onMeasurement(event.value)
+      }
+    }
+  }
+
+  /** A dropped link is closed, noted and retried with a bounded backoff. */
+  private fun lost(handle: GattHandle) {
+    if (handle !== gatt) return
+    handle.close()
+    gatt = null
+    if (userDisconnect) {
+      _connection.value = ConnectionState.DISCONNECTED
+      return
+    }
+    _connection.value = ConnectionState.CONNECTING
+    listener?.onNote("disconnect", "heart rate strap disconnected")
+    scheduleRetry()
+  }
+
+  private fun scheduleRetry() {
+    if (userDisconnect || retryPending) return
+    val delay =
+        when (retryAttempt) {
+          0 -> 1_000L
+          1 -> 2_000L
+          2 -> 4_000L
+          3 -> 8_000L
+          4 -> 16_000L
+          else -> 30_000L
+        }
+    retryAttempt++
+    retryPending = true
+    retry.schedule(delay) {
+      retryPending = false
+      if (userDisconnect || _connection.value != ConnectionState.CONNECTING) return@schedule
+      listener?.onNote("reconnect", "trying the heart rate strap again")
+      openGatt()
+    }
+  }
+
+  private fun onCharacteristicRead(event: GattEvent.CharacteristicRead) {
+    when (event.characteristic) {
+      Hrs.BATTERY_LEVEL ->
+          if (event.status == 0 && event.value.isNotEmpty()) {
+            _battery.value = event.value[0].toInt() and 0xFF
+          }
+      Hrs.FIRMWARE_REVISION ->
+          if (event.status == 0) {
+            _firmware.value = event.value.toString(Charsets.UTF_8).trim()
+          }
+    }
+  }
+
+  private fun readBatteryAndFirmware(handle: GattHandle) {
+    if (handle.hasCharacteristic(Hrs.BATTERY_SERVICE, Hrs.BATTERY_LEVEL)) {
+      handle.readCharacteristic(Hrs.BATTERY_SERVICE, Hrs.BATTERY_LEVEL)
+    }
+    if (handle.hasCharacteristic(Hrs.DEVICE_INFORMATION, Hrs.FIRMWARE_REVISION)) {
+      handle.readCharacteristic(Hrs.DEVICE_INFORMATION, Hrs.FIRMWARE_REVISION)
+    }
+  }
 
   private fun onMeasurement(value: ByteArray) {
     val l = listener ?: return
@@ -228,31 +273,20 @@ class BleHrsTracker(
   }
 
   private fun openMeasurement() {
-    val g = gatt ?: return
     if (selected.none { it == "hr" || it == "rr" }) return
     setNotifications(true)
   }
 
   private fun setNotifications(enable: Boolean) {
-    val g = gatt ?: return
-    val characteristic = g.getService(Hrs.SERVICE)?.getCharacteristic(Hrs.MEASUREMENT) ?: return
-    runCatching {
-      g.setCharacteristicNotification(characteristic, enable)
-      characteristic.getDescriptor(Hrs.CCCD)?.let { descriptor ->
-        descriptor.value =
-            if (enable) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            else BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-        g.writeDescriptor(descriptor)
-      }
-    }
+    val handle = gatt ?: return
+    val enabled =
+        runCatching {
+              handle.setNotifications(Hrs.SERVICE, Hrs.MEASUREMENT, Hrs.CCCD, enable)
+            }
+            .getOrDefault(false)
+    if (enable && !enabled) listener?.onError("could not enable heart rate notifications")
   }
 
-  private companion object {
-    const val TAG = "BleHrsTracker"
-
-    fun bluetoothAdapter(context: Context): BluetoothAdapter? =
-        context.getSystemService(BluetoothManager::class.java)?.adapter
-  }
 }
 
 /** Matches a standard Heart Rate Service device and creates [BleHrsTracker]. */
