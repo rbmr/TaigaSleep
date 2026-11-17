@@ -101,14 +101,23 @@ type Report struct {
 // compressed size for a gzip file. It reads the directory, so it is also right after a
 // crash between writing a chunk and recording it in the row.
 func RecordingBytes(app core.App, record *core.Record) int64 {
-	dir := filepath.Join(app.DataDir(), "recordings", record.Id)
+	return recordingBytes(filepath.Join(app.DataDir(), "recordings", record.Id))
+}
+
+// recordingBytes is the stored size of a recording's data files, compressed or not. A
+// file that is not one of them, such as meta.json or a stray file, does not count.
+func recordingBytes(dir string) int64 {
 	var total int64
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		return 0
 	}
 	for _, file := range files {
-		if file.IsDir() || file.Name() == "meta.json" || strings.HasSuffix(file.Name(), ".tmp") {
+		if file.IsDir() {
+			continue
+		}
+		name := strings.TrimSuffix(file.Name(), ".gz")
+		if !IsDataFile(name) {
 			continue
 		}
 		if info, err := file.Info(); err == nil {

@@ -50,3 +50,24 @@ func TestGzipTotalsRefusesADamagedFile(t *testing.T) {
 		t.Fatal("a truncated gzip member must be an error")
 	}
 }
+
+func TestRecordingBytesCountsOnlyDataFiles(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]int{
+		"hr.log":    10,
+		"hr.log.gz": 7,
+		"ppg.log":   5,
+		"meta.json": 3,
+		"notes.txt": 4,
+		"part.part": 2,
+	}
+	for name, size := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), make([]byte, size), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got, want := recordingBytes(dir), int64(10+7+5); got != want {
+		t.Fatalf("recording bytes = %d, want %d", got, want)
+	}
+}
