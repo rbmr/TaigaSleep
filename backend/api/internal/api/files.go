@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -23,13 +22,6 @@ const (
 
 	headerUploadOffset = "Upload-Offset"
 )
-
-// dataFiles are the raw files of a recording. meta.json is not one of them: it lives
-// in the recording itself.
-var dataFiles = storage.DataFiles
-
-// A recording's stream files are every data file except the event log; the names
-// come from its own files map, so a tracker's new stream needs no backend change.
 
 // FileEntry is what the backend tracks about a stored file beyond its size on disk.
 type FileEntry struct {
@@ -53,34 +45,6 @@ type FileList struct {
 
 func isDataFile(name string) bool {
 	return storage.IsDataFile(name)
-}
-
-// storedNames lists a recording's files, the ones every recording used to have first.
-func storedNames(entries map[string]FileEntry) []string {
-	names := make([]string, 0, len(entries))
-	for _, known := range dataFiles {
-		if _, ok := entries[known]; ok {
-			names = append(names, known)
-		}
-	}
-	extra := make([]string, 0, len(entries))
-	for name := range entries {
-		if !isDataFile(name) {
-			continue
-		}
-		found := false
-		for _, known := range names {
-			if known == name {
-				found = true
-				break
-			}
-		}
-		if !found {
-			extra = append(extra, name)
-		}
-	}
-	sort.Strings(extra)
-	return append(names, extra...)
 }
 
 func isStreamFile(name string) bool {
@@ -127,7 +91,7 @@ func fileViews(app core.App, record *core.Record) []FileView {
 	entries := readFiles(record)
 	dir := recordingDir(app, record.Id)
 	views := []FileView{}
-	for _, name := range storedNames(entries) {
+	for _, name := range storage.StoredNames(entries) {
 		entry := entries[name]
 		encoding := entry.Encoding
 		if encoding == "" {

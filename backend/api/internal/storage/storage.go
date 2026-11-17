@@ -48,7 +48,7 @@ func IsDataFile(name string) bool {
 func IsStreamFile(name string) bool { return name != "events.jsonl" && IsDataFile(name) }
 
 // StoredNames lists the data files a recording's bookkeeping names, in a stable order.
-func StoredNames(entries map[string]fileEntry) []string {
+func StoredNames[T any](entries map[string]T) []string {
 	names := make([]string, 0, len(entries))
 	for _, known := range DataFiles {
 		if _, ok := entries[known]; ok {
