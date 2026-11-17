@@ -214,6 +214,8 @@ take up, which is what the account's quota counts.
 
 Raw data, stored verbatim: every stream log the recording declares (`hr.log`, `ecg.log`, `acc.log` and any stream a tracker adds) plus `events.jsonl`. The backend
 does not interpret them; checking frames and CRCs is the worker's job at analysis time.
+A file name is `events.jsonl`, or a stream log of 1–32 lowercase letters, digits,
+underscores or dashes followed by `.log`; the OpenAPI parameter expresses the same rule.
 
 The sender chooses, per file, whether to send it compressed. A compressed file is a
 sequence of complete gzip members, one per chunk, so appending stays valid.

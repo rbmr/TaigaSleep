@@ -87,13 +87,17 @@ func idParam() routeParam {
 	return pathParam("id", "The id of the recording.")
 }
 
+// dataFilePattern is the file-name rule of storage.IsDataFile: the event log, or a
+// stream log whose name is lowercase letters, digits, underscores and dashes.
+const dataFilePattern = `^(events\.jsonl|[a-z0-9_-]{1,32}\.log)$`
+
 func fileParams() []routeParam {
 	return []routeParam{
 		idParam(),
 		{
 			Name: "name", In: "path", Required: true,
-			Description: "A data file of the recording.",
-			Schema:      map[string]any{"type": "string", "enum": dataFiles},
+			Description: "A data file of the recording: events.jsonl, or a stream log named by the recording.",
+			Schema:      map[string]any{"type": "string", "pattern": dataFilePattern},
 		},
 	}
 }
