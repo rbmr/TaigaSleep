@@ -142,6 +142,12 @@ abstract class PolarGenericTracker(
     disposeStreams()
   }
 
+  /** Stops the trackers' own threads when the app forgets it. */
+  fun release() {
+    control.shutdownNow()
+    streamScope.cancel()
+  }
+
   override fun readClock(): Long? =
       runCatching {
             runBlocking {

@@ -9,6 +9,7 @@ import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.TrackerRegistry
 import com.rbmr.taigasleep.tracker.hrs.scanHeartRateService
+import com.rbmr.taigasleep.tracker.polar.PolarGenericTracker
 import com.rbmr.taigasleep.tracker.polar.PolarH10Sensor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -138,6 +139,7 @@ class SensorHub {
     old.stopStreams()
     old.disconnect()
     (old as? PolarH10Sensor)?.release()
+    (old as? PolarGenericTracker)?.release()
   }
 
   private fun <T> MutableStateFlow<T>.getAndSet(v: T): T = value.also { value = v }

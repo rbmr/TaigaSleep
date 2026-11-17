@@ -101,7 +101,12 @@ class BleHrsTracker(
       return
     }
     try {
-      gatt = adapter.getRemoteDevice(id).connectGatt(appContext, false, callback)
+      val connected = adapter.getRemoteDevice(id).connectGatt(appContext, false, callback)
+      if (connected == null) {
+        _connection.value = ConnectionState.DISCONNECTED
+      } else {
+        gatt = connected
+      }
     } catch (e: Exception) {
       Log.e(TAG, "connect failed", e)
       _connection.value = ConnectionState.DISCONNECTED
@@ -133,6 +138,9 @@ class BleHrsTracker(
   private val callback =
       object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+          if (status != BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_DISCONNECTED) {
+            listener?.onError("the heart rate strap refused the connection ($status)")
+          }
           when (newState) {
             BluetoothProfile.STATE_CONNECTED -> {
               _connection.value = ConnectionState.CONNECTED
