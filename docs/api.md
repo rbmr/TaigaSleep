@@ -212,7 +212,7 @@ take up, which is what the account's quota counts.
 
 ## Recording files
 
-Raw data, stored verbatim: `hr.log`, `ecg.log`, `acc.log`, `events.jsonl`. The backend
+Raw data, stored verbatim: every stream log the recording declares (`hr.log`, `ecg.log`, `acc.log` and any stream a tracker adds) plus `events.jsonl`. The backend
 does not interpret them; checking frames and CRCs is the worker's job at analysis time.
 
 The sender chooses, per file, whether to send it compressed. A compressed file is a
