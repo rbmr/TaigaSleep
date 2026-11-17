@@ -1,14 +1,16 @@
 package com.rbmr.taigasleep.ui.theme
 
 import android.content.Context
+import com.rbmr.taigasleep.insights.TimeFormat
+import com.rbmr.taigasleep.insights.Units
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * The three display choices in one store: the theme, the text size and whether the app animates.
- * The app container owns the one instance, so the activity that draws the theme and the screen that
- * changes it read and write the same state.
+ * The display choices in one store: the theme, the text size, whether the app animates, the time
+ * format and the units. The app container owns the one instance, so the activity that draws the
+ * theme and the screen that changes it read and write the same state.
  *
  * The theme is kept under the key it has always used, so a choice made before this store existed is
  * still applied. Every other choice defaults to following the phone.
@@ -26,6 +28,12 @@ class DisplaySettings(context: Context) {
   private val _animations = MutableStateFlow(load(KEY_ANIMATIONS, AnimationMode.SYSTEM))
   val animations: StateFlow<AnimationMode> = _animations.asStateFlow()
 
+  private val _timeFormat = MutableStateFlow(load(KEY_TIME_FORMAT, TimeFormat.SYSTEM))
+  val timeFormat: StateFlow<TimeFormat> = _timeFormat.asStateFlow()
+
+  private val _units = MutableStateFlow(load(KEY_UNITS, Units.SYSTEM))
+  val units: StateFlow<Units> = _units.asStateFlow()
+
   fun setThemeMode(mode: ThemeMode) {
     prefs.edit().putString(KEY_THEME_MODE, mode.name).apply()
     _themeMode.value = mode
@@ -41,6 +49,16 @@ class DisplaySettings(context: Context) {
     _animations.value = mode
   }
 
+  fun setTimeFormat(format: TimeFormat) {
+    prefs.edit().putString(KEY_TIME_FORMAT, format.name).apply()
+    _timeFormat.value = format
+  }
+
+  fun setUnits(units: Units) {
+    prefs.edit().putString(KEY_UNITS, units.name).apply()
+    _units.value = units
+  }
+
   /** The stored choice under [key], or [default] when there is none or it no longer exists. */
   private inline fun <reified T : Enum<T>> load(key: String, default: T): T {
     val stored = prefs.getString(key, null) ?: return default
@@ -51,5 +69,7 @@ class DisplaySettings(context: Context) {
     const val KEY_THEME_MODE = "theme_mode"
     const val KEY_TEXT_SIZE = "text_size"
     const val KEY_ANIMATIONS = "animations"
+    const val KEY_TIME_FORMAT = "time_format"
+    const val KEY_UNITS = "units"
   }
 }

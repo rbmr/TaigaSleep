@@ -1,6 +1,8 @@
 package com.rbmr.taigasleep.ui.theme
 
 import android.content.Context
+import com.rbmr.taigasleep.insights.TimeFormat
+import com.rbmr.taigasleep.insights.Units
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,6 +28,8 @@ class DisplaySettingsTest {
     assertEquals(ThemeMode.SYSTEM, settings.themeMode.value)
     assertEquals(TextSize.SYSTEM, settings.textSize.value)
     assertEquals(AnimationMode.SYSTEM, settings.animations.value)
+    assertEquals(TimeFormat.SYSTEM, settings.timeFormat.value)
+    assertEquals(Units.SYSTEM, settings.units.value)
   }
 
   @Test
@@ -42,11 +46,15 @@ class DisplaySettingsTest {
     settings.setThemeMode(ThemeMode.LIGHT)
     settings.setTextSize(TextSize.LARGE)
     settings.setAnimations(AnimationMode.OFF)
+    settings.setTimeFormat(TimeFormat.TWELVE_HOUR)
+    settings.setUnits(Units.IMPERIAL)
 
     val restarted = DisplaySettings(context)
     assertEquals(ThemeMode.LIGHT, restarted.themeMode.value)
     assertEquals(TextSize.LARGE, restarted.textSize.value)
     assertEquals(AnimationMode.OFF, restarted.animations.value)
+    assertEquals(TimeFormat.TWELVE_HOUR, restarted.timeFormat.value)
+    assertEquals(Units.IMPERIAL, restarted.units.value)
   }
 
   @Test

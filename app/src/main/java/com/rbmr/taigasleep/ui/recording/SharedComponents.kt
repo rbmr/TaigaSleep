@@ -14,10 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.ResultItemDto
-import com.rbmr.taigasleep.insights.formatItemValue
 import com.rbmr.taigasleep.insights.metricSpec as itemSpec
 import com.rbmr.taigasleep.ui.components.InfoContent
 import com.rbmr.taigasleep.ui.components.StatTile
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
@@ -37,6 +37,7 @@ internal fun numberItems(items: List<ResultItemDto>, vararg groups: String): Lis
 @Composable
 internal fun MetricGrid(items: List<ResultItemDto>) {
   val space = MaterialTheme.taiga.space
+  val formats = LocalFormats.current
   val specs = items.mapNotNull { it.itemSpec() }
   Column(verticalArrangement = Arrangement.spacedBy(space.s)) {
     specs.chunked(2).forEach { pair ->
@@ -45,7 +46,7 @@ internal fun MetricGrid(items: List<ResultItemDto>) {
           horizontalArrangement = Arrangement.spacedBy(space.s),
       ) {
         pair.forEach { spec ->
-          val value = formatItemValue(spec.kind, spec.itemValue)
+          val value = formats.itemValue(spec.kind, spec.itemValue)
           StatTile(
               label = spec.label,
               value = value ?: stringResource(R.string.night_value_none),

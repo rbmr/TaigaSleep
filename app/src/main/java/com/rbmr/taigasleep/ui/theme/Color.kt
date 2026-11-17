@@ -103,5 +103,63 @@ val DarkTaigaColors =
         chartHr = Color(0xFFFF9AA8),
     )
 
+/** How far the medium contrast palette moves its text and graphics towards the theme's ink. */
+internal const val CONTRAST_MEDIUM_STRENGTH = 0.45f
+
+/** How far the high contrast palette moves its text and graphics towards the theme's ink. */
+internal const val CONTRAST_HIGH_STRENGTH = 0.7f
+
+val LightMediumTaigaColors = LightTaigaColors.atHigherContrast(CONTRAST_MEDIUM_STRENGTH)
+val LightHighTaigaColors = LightTaigaColors.atHigherContrast(CONTRAST_HIGH_STRENGTH)
+val DarkMediumTaigaColors = DarkTaigaColors.atHigherContrast(CONTRAST_MEDIUM_STRENGTH)
+val DarkHighTaigaColors = DarkTaigaColors.atHigherContrast(CONTRAST_HIGH_STRENGTH)
+
+/**
+ * The same palette with stronger ink: every colour that is read as text or drawn as a graphic moves
+ * [amount] of the way to [ink], so it stands further from the backgrounds it sits on. Backgrounds
+ * and container fills keep their value, and so does the text that sits on a fill, which is already
+ * as strong as it goes against it.
+ */
+internal fun TaigaColors.atHigherContrast(amount: Float, ink: Color = bear): TaigaColors =
+    TaigaColors(
+        dark = dark,
+        ok = ok.towards(ink, amount),
+        okContainer = okContainer,
+        warn = warn.towards(ink, amount),
+        warnContainer = warnContainer,
+        warnBorder = warnBorder.towards(ink, amount),
+        onWarn = onWarn,
+        warnInk = warnInk.towards(ink, amount),
+        warnTrack = warnTrack,
+        warnBar = warnBar.towards(ink, amount),
+        bad = bad.towards(ink, amount),
+        badContainer = badContainer,
+        badBorder = badBorder.towards(ink, amount),
+        hero = hero,
+        disabled = disabled,
+        segment = segment,
+        strong = strong.towards(ink, amount),
+        auroraStart = auroraStart.towards(ink, amount),
+        auroraEnd = auroraEnd.towards(ink, amount),
+        bear = bear,
+        stageWake = stageWake.towards(ink, amount),
+        stageRem = stageRem.towards(ink, amount),
+        stageLight = stageLight.towards(ink, amount),
+        stageDeep = stageDeep.towards(ink, amount),
+        chartHr = chartHr.towards(ink, amount),
+    )
+
+/**
+ * This colour moved [amount] of the way to [ink] in sRGB: the hue stays what it was while the colour
+ * stands further from a background of the opposite brightness.
+ */
+internal fun Color.towards(ink: Color, amount: Float): Color =
+    Color(
+        red = red + (ink.red - red) * amount,
+        green = green + (ink.green - green) * amount,
+        blue = blue + (ink.blue - blue) * amount,
+        alpha = alpha,
+    )
+
 // Night sky of the launcher icon, also used as the dark app background.
 val TaigaNight = Color(0xFF0A1210)

@@ -6,11 +6,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 from taiga_worker.analysis.algorithms import sleepecg
-from taiga_worker.analysis.contract import AnalysisError, HrStream
+from taiga_worker.analysis.beats import beat_series
+from taiga_worker.analysis.contract import AnalysisError, EcgStream, Gap, HrStream
 from taiga_worker.analysis.decode import load_recording
 from taiga_worker.analysis.pipeline import run_analysis
 
 from tests import analysis_fixture as fx
+
+ECG_RATE_HZ = 130.0
 
 
 def _recording(tmp_path: Path, duration_s: int = 120, contact_until: int | None = None):
@@ -32,6 +35,45 @@ def _recording(tmp_path: Path, duration_s: int = 120, contact_until: int | None 
     return replace(recording, hr=hr)
 
 
+def _hr_stream(recording, times_s, batches) -> HrStream:
+    times = np.asarray(times_s, dtype=np.float64)
+    return HrStream(
+        t_s=times,
+        hr_bpm=np.full(times.size, 60.0),
+        contact_supported=np.ones(times.size, dtype=bool),
+        contact=np.ones(times.size, dtype=bool),
+        valid=np.ones(times.size, dtype=bool),
+        rr_ms=tuple(np.asarray(batch, dtype=np.float64) for batch in batches),
+        phone_ns=(recording.start_unix_ns + times * 1_000_000_000).astype(np.int64),
+    )
+
+
+def _impulse_ecg(times_s: np.ndarray, beat_times_s: np.ndarray):
+    """An ECG that is zero except for one sample of 1 mV at every requested beat."""
+
+    indices = np.searchsorted(times_s, np.asarray(beat_times_s, dtype=np.float64))
+    voltage = np.zeros(times_s.size, dtype=np.float32)
+    voltage[indices] = 1.0
+    ecg = EcgStream(
+        t_s=times_s,
+        voltage_mv=voltage,
+        saturated=np.zeros(times_s.size, dtype=bool),
+        rate_hz=ECG_RATE_HZ,
+        phone_ns=np.zeros(times_s.size, dtype=np.int64),
+    )
+    return ecg, times_s[indices]
+
+
+def _impulse_detector(calls: list[int]):
+    """A known detector: every sample above the noise floor is a beat."""
+
+    def detect(voltage_mv: np.ndarray, rate_hz: float) -> np.ndarray:
+        calls.append(int(voltage_mv.size))
+        return np.flatnonzero(voltage_mv >= 0.5)
+
+    return detect
+
+
 def _config(**overrides):
     return sleepecg._params(
         {
@@ -46,10 +88,61 @@ def _config(**overrides):
 def test_rr_heartbeats_are_reconstructed_from_rr_intervals(tmp_path: Path) -> None:
     recording = _recording(tmp_path, duration_s=120)
     beats = sleepecg.rr_heartbeats(recording)
-    assert beats.size >= 118
+    assert beats.size == 120
     assert beats[0] == pytest.approx(0.0, abs=0.1)
-    assert beats[-1] == pytest.approx(118.0, abs=0.1)
+    # Every one-second interval completes at its notification, so the last beat is the
+    # notification at 119 s and not one interval before it.
+    assert beats[-1] == pytest.approx(119.0, abs=0.1)
     assert np.all(np.diff(beats) > 0.9)
+
+
+def test_rr_heartbeats_chain_the_intervals_through_jittered_arrival_times(
+    tmp_path: Path,
+) -> None:
+    recording = _recording(tmp_path, duration_s=400)
+    intervals = np.asarray(fx.default_rr_series(300), dtype=np.float64)
+    ends_s = np.cumsum(intervals) / 1000.0
+    rng = np.random.default_rng(11)
+    # A notification arrives at the beat it carries, jittered by the Bluetooth link.
+    times = ends_s + rng.uniform(-0.2, 0.2, intervals.size)
+    recording = replace(
+        recording,
+        hr=_hr_stream(recording, times, [[value] for value in intervals]),
+    )
+
+    beats = sleepecg.rr_heartbeats(recording)
+
+    # The reconstructed intervals are the reported ones, not the distance between the
+    # times the notifications arrived.
+    intervals_in_beats = np.diff(beats) * 1000.0
+    assert intervals_in_beats == pytest.approx(intervals[-intervals_in_beats.size :], abs=1.0)
+    assert intervals_in_beats.size >= intervals.size - 1
+
+
+def test_rr_path_survives_empty_notifications_and_a_backlog(tmp_path: Path) -> None:
+    recording = _recording(tmp_path, duration_s=200)
+    # Below about 60 bpm a one-second notification carries no interval, and a backlog
+    # delivers several at once; neither loses a beat or breaks the run.
+    rr = fx.rr_notifications(
+        duration_s=200,
+        mean_rr_ms=1300.0,
+        spread=0.03,
+        jitter_s=0.2,
+        catchups=((60.0, 6.0),),
+        seed=5,
+    )
+    recording = replace(recording, hr=_hr_stream(recording, rr.times_s, rr.batches))
+
+    series = beat_series(recording)
+    assert series is not None
+    assert np.count_nonzero(series.run_start) == 0
+    expected = rr.intervals_ms[rr.kept]
+    assert series.rr_ms == pytest.approx(expected, abs=1.0)
+
+    beats, source = sleepecg._beats(recording, _config(prefer_ecg=False))
+    assert source == "rr"
+    assert beats.size >= expected.size
+    assert np.all(np.diff(beats) < 2.0)
 
 
 def test_rr_heartbeats_stop_when_contact_is_lost(tmp_path: Path) -> None:
@@ -57,6 +150,78 @@ def test_rr_heartbeats_stop_when_contact_is_lost(tmp_path: Path) -> None:
     beats = sleepecg.rr_heartbeats(recording)
     assert beats.size >= 58
     assert beats[-1] < 60.5
+
+
+def test_ecg_beats_after_a_gap_keep_their_true_time(tmp_path: Path) -> None:
+    rate = ECG_RATE_HZ
+    times = np.concatenate(
+        [
+            np.arange(0, int(20 * rate)) / rate,
+            # Ten seconds of samples never reached the phone.
+            np.arange(int(28 * rate), int(48 * rate)) / rate,
+        ]
+    )
+    beats = np.concatenate([np.arange(1.0, 20.0, 0.9), np.arange(29.0, 47.0, 0.9)])
+    ecg, true_times = _impulse_ecg(times, beats)
+    recording = _recording(tmp_path, duration_s=48)
+    recording = replace(
+        recording,
+        ecg=ecg,
+        quality=replace(recording.quality, gaps=(Gap("ecg", 20.0, 28.0),)),
+    )
+
+    calls: list[int] = []
+    detected = sleepecg.ecg_heartbeats(recording, detect=_impulse_detector(calls))
+
+    assert detected.size == true_times.size
+    assert np.all(np.abs(detected - true_times) <= 1.0 / rate)
+    # Each side of the dropout is detected as its own stretch, so no beat is placed by
+    # counting samples across the missing ten seconds.
+    assert len(calls) == 2
+    assert sum(calls) == times.size
+
+
+def test_a_stretch_without_contact_produces_no_beats(tmp_path: Path) -> None:
+    rate = ECG_RATE_HZ
+    times = np.arange(0, int(40 * rate)) / rate
+    ecg, true_times = _impulse_ecg(times, np.arange(0.5, 39.5, 0.9))
+    recording = replace(
+        _recording(tmp_path, duration_s=40, contact_until=20),
+        ecg=ecg,
+    )
+
+    detected = sleepecg.ecg_heartbeats(recording, detect=_impulse_detector([]))
+
+    assert 0 < detected.size < true_times.size
+    assert np.all(detected < 20.0)
+
+
+def test_both_paths_agree_on_a_recording_with_ecg_and_rr(tmp_path: Path) -> None:
+    duration_s = 60
+    times = np.arange(0, int(duration_s * ECG_RATE_HZ)) / ECG_RATE_HZ
+    true_beats = np.arange(0.0, duration_s, 1.0)
+    ecg, _ = _impulse_ecg(times, true_beats)
+
+    # One notification per beat, arriving just after the beat it carries, as the strap
+    # sends them. The arrival jitter is far larger than a beat's real position error.
+    intervals = np.diff(true_beats) * 1000.0
+    rng = np.random.default_rng(2)
+    arrival_s = true_beats[1:] + 0.02 + rng.uniform(0.0, 0.03, intervals.size)
+
+    recording = _recording(tmp_path, duration_s=duration_s)
+    recording = replace(
+        recording,
+        ecg=ecg,
+        hr=_hr_stream(recording, arrival_s, [[value] for value in intervals]),
+    )
+
+    ecg_beats = sleepecg.ecg_heartbeats(recording, detect=_impulse_detector([]))
+    rr_beats = sleepecg.rr_heartbeats(recording)
+
+    assert ecg_beats.size == true_beats.size
+    assert rr_beats.size == true_beats.size
+    # The two paths see the same beats within the notification delay, stated as 50 ms.
+    assert np.all(np.abs(ecg_beats - rr_beats) <= 0.05)
 
 
 def test_missing_streams_fail_clearly(tmp_path: Path) -> None:
@@ -259,7 +424,7 @@ def test_classifier_smoke(tmp_path: Path) -> None:
     )
     payload = output.to_dict()
     assert payload["model"] == "sleep-ecg"
-    assert payload["model_version"] == "1.1.0"
+    assert payload["model_version"] == "1.2.0"
     assert payload["stages"]["count"] == 10
     assert payload["capabilities"]["probabilities"] is True
     assert payload["capabilities"]["no_deep"] is True

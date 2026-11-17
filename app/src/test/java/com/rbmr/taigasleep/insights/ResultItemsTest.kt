@@ -4,6 +4,7 @@ import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.ui.components.QualityBand
 import com.rbmr.taigasleep.ui.components.qualityBand
+import com.rbmr.taigasleep.testFormats
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
@@ -13,15 +14,17 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ResultItemsTest {
+  private val formats = testFormats()
+
   @Test
   fun typedNumbersChooseTheirFormatFromTheirUnit() {
-    assertEquals("1h 30m", formatItemValue(MetricValueKind.DURATION, 5400.0))
-    assertEquals("86%", formatItemValue(MetricValueKind.PERCENT, 85.6))
-    assertEquals("52 bpm", formatItemValue(MetricValueKind.BPM, 52.4))
-    assertEquals("38 ms", formatItemValue(MetricValueKind.MILLISECONDS, 37.6))
-    assertEquals("12", formatItemValue(MetricValueKind.COUNT, 12.0))
-    assertEquals("0.04 g", formatItemValue(MetricValueKind.GRAMS, 0.043))
-    assertNull(formatItemValue(MetricValueKind.BPM, null))
+    assertEquals("1h 30m", formats.itemValue(MetricValueKind.DURATION, 5400.0))
+    assertEquals("86%", formats.itemValue(MetricValueKind.PERCENT, 85.6))
+    assertEquals("52 bpm", formats.itemValue(MetricValueKind.BPM, 52.4))
+    assertEquals("38 ms", formats.itemValue(MetricValueKind.MILLISECONDS, 37.6))
+    assertEquals("12", formats.itemValue(MetricValueKind.COUNT, 12.0))
+    assertEquals("0.04 g", formats.itemValue(MetricValueKind.GRAMS, 0.043))
+    assertNull(formats.itemValue(MetricValueKind.BPM, null))
   }
 
   @Test
@@ -44,7 +47,7 @@ class ResultItemsTest {
     assertEquals("Mean of all valid samples.", spec.explanation)
     assertEquals("HR", spec.source)
     assertEquals(MetricValueKind.BPM, spec.kind)
-    assertEquals("58 bpm", formatItemValue(spec.kind, spec.itemValue))
+    assertEquals("58 bpm", formats.itemValue(spec.kind, spec.itemValue))
   }
 
   @Test

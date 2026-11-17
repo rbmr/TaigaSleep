@@ -18,7 +18,10 @@
   <string name="history_mode_nights">Recordings</string>
   <string name="history_mode_trends">Trends</string>
 
-  <string name="trends_range_days">%1$d days</string>
+  <plurals name="trends_range_days">
+    <item quantity="one">%1$d day</item>
+    <item quantity="other">%1$d days</item>
+  </plurals>
   <string name="trends_more_nights">More recordings are needed to show a trend.</string>
   <string name="trends_no_value">No data</string>
   <string name="trends_group_sleep">Sleep</string>
@@ -71,6 +74,14 @@
   <string name="display_animations_title">Animations</string>
   <string name="display_animations_on">On</string>
   <string name="display_animations_off">Off</string>
+  <string name="display_time_format_title">Time format</string>
+  <string name="display_time_format_system">System default</string>
+  <string name="display_time_format_12">12-hour</string>
+  <string name="display_time_format_24">24-hour</string>
+  <string name="display_units_title">Units</string>
+  <string name="display_units_system">System default</string>
+  <string name="display_units_metric">Metric</string>
+  <string name="display_units_imperial">Imperial</string>
   <string name="appearance_system">System</string>
   <string name="appearance_light">Light</string>
   <string name="appearance_dark">Dark</string>
@@ -88,9 +99,7 @@
   <string name="personal_sex_male">Male</string>
   <string name="personal_sex_female">Female</string>
   <string name="personal_weight_title">Weight</string>
-  <string name="personal_weight_label">Kilograms</string>
-  <string name="personal_weight_value">%1$s kg</string>
-  <string name="personal_weight_invalid">Enter a weight between 1 and 500 kg.</string>
+  <string name="personal_weight_invalid">Enter a weight between %1$s and %2$s %3$s.</string>
   <string name="personal_usual_bedtime_title">Usual bedtime</string>
   <string name="personal_usual_wake_time_title">Usual wake time</string>
   <string name="personal_save">Save</string>
@@ -118,6 +127,19 @@
   <string name="licences_intro">Taiga Sleep is free software under GPL-3.0. The app\'s licence has an additional permission that allows linking the Polar BLE SDK, which is not free software. The libraries below keep their own licences. The list is made from the app\'s dependencies when the app is built.</string>
   <string name="licences_read">Licence text</string>
   <string name="licences_unknown">Licence not declared</string>
+
+  <!-- The words the one formatter puts next to a number. -->
+  <string name="unit_hours">h</string>
+  <string name="unit_minutes">m</string>
+  <string name="unit_seconds">s</string>
+  <string name="unit_percent">%</string>
+  <string name="unit_bpm">bpm</string>
+  <string name="unit_ms">ms</string>
+  <string name="unit_grams">g</string>
+  <string name="unit_kilograms">kg</string>
+  <string name="unit_pounds">lb</string>
+  <string name="unit_kilograms_name">Kilograms</string>
+  <string name="unit_pounds_name">Pounds</string>
 
   <string name="action_cancel">Cancel</string>
   <string name="action_back">Back</string>

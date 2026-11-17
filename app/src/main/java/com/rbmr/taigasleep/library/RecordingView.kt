@@ -13,10 +13,8 @@ import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.recordingIdOf
-import java.text.SimpleDateFormat
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Date
 import java.util.Locale
 
 /**
@@ -405,14 +403,6 @@ fun formatRecordingDate(ms: Long, zone: ZoneId = ZoneId.systemDefault()): String
     else
         nightDate(ms, zone)
             .format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))
-
-fun formatRecordingDateAndTime(ms: Long): String =
-    if (ms <= 0) "-"
-    else SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault()).format(Date(ms))
-
-/** The clock time of a recording, e.g. `23:12`. */
-fun formatRecordingTime(ms: Long): String =
-    if (ms <= 0) "-" else SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
 
 /**
  * Where the bytes are according to the sync store. This is the only place that reads the upload

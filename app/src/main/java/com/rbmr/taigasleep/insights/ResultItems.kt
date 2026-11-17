@@ -3,9 +3,6 @@ package com.rbmr.taigasleep.insights
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
-import java.util.Locale
-import kotlin.math.roundToInt
-import kotlin.math.roundToLong
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -58,20 +55,6 @@ fun ResultItemDto.metricSpec(): MetricSpec? {
       source = sources.joinToString(", ") { it.uppercase() }.takeIf { it.isNotBlank() },
       itemValue = value,
   )
-}
-
-/** Format a typed item's value. Items carry display units, not the fractions raw keys used. */
-fun formatItemValue(kind: MetricValueKind, value: Double?): String? {
-  val number = value ?: return null
-  return when (kind) {
-    MetricValueKind.DURATION ->
-        if (number.isFinite() && number >= 0) formatDuration((number * 1000).roundToLong()) else "-"
-    MetricValueKind.PERCENT -> "${number.roundToInt()}%"
-    MetricValueKind.BPM -> "${number.roundToInt()} bpm"
-    MetricValueKind.MILLISECONDS -> "${number.roundToInt()} ms"
-    MetricValueKind.COUNT -> number.roundToInt().toString()
-    MetricValueKind.GRAMS -> String.format(Locale.US, "%.2f g", number)
-  }
 }
 
 /** A stage's seconds from the compact RLE timeline. */

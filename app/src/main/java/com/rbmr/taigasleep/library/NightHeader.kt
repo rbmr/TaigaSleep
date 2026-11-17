@@ -1,41 +1,31 @@
 package com.rbmr.taigasleep.library
 
-import com.rbmr.taigasleep.insights.formatDuration
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
+import com.rbmr.taigasleep.insights.Formats
 
 /**
  * One line under the night's title: the tracker, the clock times of the local recording and
- * how long it ran. [lineFormat] and [startOnlyFormat] are resources with positional
- * placeholders. A recording without a usable end has no end time and no length to show.
+ * how long it ran. [text] holds the resources with positional placeholders. A recording without a
+ * usable end has no end time and no length to show.
  */
 fun formatNightHeader(
     tracker: String,
     startUtcMs: Long,
     endUtcMs: Long?,
-    lineFormat: String,
-    startOnlyFormat: String,
-    locale: Locale = Locale.getDefault(),
-    zone: TimeZone = TimeZone.getDefault(),
+    text: NightHeaderText,
+    formats: Formats,
 ): String {
-  val start = clockTime(startUtcMs, locale, zone)
+  val start = formats.clockTime(startUtcMs)
   val end = endUtcMs?.takeIf { startUtcMs > 0 && it > startUtcMs }
   return if (end == null) {
-    String.format(locale, startOnlyFormat, tracker, start)
+    String.format(formats.locale, text.startOnly, tracker, start)
   } else {
     String.format(
-        locale,
-        lineFormat,
+        formats.locale,
+        text.withEnd,
         tracker,
         start,
-        clockTime(end, locale, zone),
-        formatDuration(end - startUtcMs),
+        formats.clockTime(end),
+        formats.duration(end - startUtcMs),
     )
   }
 }
-
-private fun clockTime(ms: Long, locale: Locale, zone: TimeZone): String =
-    if (ms <= 0) "-"
-    else SimpleDateFormat("HH:mm", locale).apply { timeZone = zone }.format(Date(ms))
