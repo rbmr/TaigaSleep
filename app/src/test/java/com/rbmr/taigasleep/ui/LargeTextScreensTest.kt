@@ -42,7 +42,6 @@ import com.rbmr.taigasleep.ui.recording.RecordingDetailUiState
 import com.rbmr.taigasleep.ui.settings.SettingsContent
 import com.rbmr.taigasleep.ui.settings.SettingsUiState
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
-import com.rbmr.taigasleep.ui.theme.ThemeMode
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -136,18 +135,7 @@ class LargeTextScreensTest {
               onStart = {},
           )
       Screen.SETTINGS ->
-          SettingsContent(
-              state = settingsState,
-              onThemeModeChange = {},
-              onAboutClick = {},
-              onGuidanceClick = {},
-              onRemoteClick = {},
-              onTokensClick = {},
-              onPersonalClick = {},
-              onUploadsClick = {},
-              onAnalysisClick = {},
-              onNotificationsClick = {},
-          )
+          SettingsContent(state = settingsState, onOpen = {})
       Screen.NIGHT -> NightDetail()
       Screen.TRENDS -> TrendsContent(state = trendsState, onRangeChange = {})
     }
@@ -317,7 +305,6 @@ class LargeTextScreensTest {
 
   private val settingsState: SettingsUiState by lazy {
     SettingsUiState(
-        themeMode = ThemeMode.SYSTEM,
         serverStatus = RemoteStatus.Connected(email = "someone@example.com", checkedAtMs = null),
         serverHost = "sleep.example.com",
         serverEmail = "someone@example.com",

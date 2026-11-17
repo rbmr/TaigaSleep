@@ -1,6 +1,5 @@
 package com.rbmr.taigasleep.ui.components
 
-import android.animation.ValueAnimator
 import android.content.res.Configuration
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -20,7 +19,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,7 +54,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rbmr.taigasleep.ui.theme.LocalMotionScale
+import com.rbmr.taigasleep.ui.theme.LocalReduceMotion
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
+import com.rbmr.taigasleep.ui.theme.animated
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -99,8 +103,10 @@ fun BearDen(
   val scheme = MaterialTheme.colorScheme
   val haptics = LocalHapticFeedback.current
   val scope = rememberCoroutineScope()
-  // The developer setting that turns animations off: then the eyes only open and close.
-  val animations = remember { ValueAnimator.areAnimatorsEnabled() }
+  // The one flag of the theme: Off shows the end state of every animation at once, and nothing here
+  // starts a clock at all. The scale is what makes On animate on a phone with animations off.
+  val animations = !LocalReduceMotion.current
+  val motionScale = LocalMotionScale.current
   val statusBarTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this) }
 
   // The wake plays on one 2.8 s timeline: the open eyes are squashed and released along it, and
@@ -108,21 +114,21 @@ fun BearDen(
   val wakeTime = remember { Animatable(0f) }
   var waking by remember { mutableStateOf(false) }
   val pulses = remember { mutableStateListOf<DenPulse>() }
-  // The sleeping bear's floating z's loop on one clock; the second one trails the first.
-  val zClock =
-      rememberInfiniteTransition(label = "z")
-          .animateFloat(
-              initialValue = 0f,
-              targetValue = 1f,
-              animationSpec = infiniteRepeatable(tween(Z_LOOP_MS, easing = LinearEasing)),
-              label = "z",
-          )
+  // The floating z's belong to the sleeping bear alone: while he is awake or waking the loop is
+  // not composed, so no animation runs for a still den. The second z trails the first on the
+  // clock. With animations off there is no loop: the z's stay where they are.
+  val zClock: State<Float>? =
+      when {
+        waking || variant == LogoVariant.Awake -> null
+        animations -> infiniteZClock()
+        else -> remember { mutableFloatStateOf(0f) }
+      }
 
   suspend fun wake() {
     try {
       if (animations) {
         wakeTime.snapTo(0f)
-        wakeTime.animateTo(1f, tween(WAKE_MS, easing = LinearEasing))
+        animated(motionScale) { wakeTime.animateTo(1f, tween(WAKE_MS, easing = LinearEasing)) }
       } else {
         // Animations are off: the eyes only show open for a moment.
         wakeTime.snapTo(HOLD_OPEN)
@@ -153,7 +159,9 @@ fun BearDen(
                 val pulse = DenPulse(at)
                 pulses.add(pulse)
                 scope.launch {
-                  pulse.progress.animateTo(1f, tween(PULSE_MS, easing = LinearEasing))
+                  animated(motionScale) {
+                    pulse.progress.animateTo(1f, tween(PULSE_MS, easing = LinearEasing))
+                  }
                   pulses.remove(pulse)
                 }
               }
@@ -267,7 +275,7 @@ fun BearDen(
             }
         drawPath(path = body, color = colors.bear)
         // The z's float only while he sleeps: the eyes are open for the whole wake animation.
-        if (!waking && variant != LogoVariant.Awake) {
+        if (zClock != null) {
           drawSleepZ(zClock.value, animations, colors.auroraEnd)
         }
 
@@ -283,6 +291,17 @@ fun BearDen(
     }
   }
 }
+
+/** The one clock the sleeping bear's z's float on, composed only while he sleeps. */
+@Composable
+private fun infiniteZClock(): State<Float> =
+    rememberInfiniteTransition(label = "z")
+        .animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(Z_LOOP_MS, easing = LinearEasing)),
+            label = "z",
+        )
 
 /** One tap of the force field: the tint, the band and the ring share one timeline. */
 private class DenPulse(val at: Offset) {

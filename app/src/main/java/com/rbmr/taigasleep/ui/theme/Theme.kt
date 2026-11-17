@@ -1,14 +1,22 @@
 package com.rbmr.taigasleep.ui.theme
 
+import android.text.format.DateFormat
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLocale
+import androidx.compose.ui.unit.Density
 
 // The two schemes are internal so the contrast test can measure the values they ship.
 internal val LightColors =
@@ -73,22 +81,104 @@ internal val DarkColors =
         surfaceContainerHighest = Color(0xFF182A24),
     )
 
+internal val LightMediumColors =
+    LightColors.atHigherContrast(LightTaigaColors.bear, CONTRAST_MEDIUM_STRENGTH)
+
+internal val LightHighColors =
+    LightColors.atHigherContrast(LightTaigaColors.bear, CONTRAST_HIGH_STRENGTH)
+
+internal val DarkMediumColors =
+    DarkColors.atHigherContrast(DarkTaigaColors.bear, CONTRAST_MEDIUM_STRENGTH)
+
+internal val DarkHighColors =
+    DarkColors.atHigherContrast(DarkTaigaColors.bear, CONTRAST_HIGH_STRENGTH)
+
+/**
+ * The same scheme with the inks that are read as text or drawn as controls moved [amount] of the
+ * way to [ink]. Fills and backgrounds keep their value, and so do the colours written on a fill, so
+ * a button's label stays as strong as it is against it.
+ */
+private fun ColorScheme.atHigherContrast(ink: Color, amount: Float): ColorScheme =
+    copy(
+        primary = primary.towards(ink, amount),
+        secondary = secondary.towards(ink, amount),
+        tertiary = tertiary.towards(ink, amount),
+        error = error.towards(ink, amount),
+        onSurface = onSurface.towards(ink, amount),
+        onBackground = onBackground.towards(ink, amount),
+        onSurfaceVariant = onSurfaceVariant.towards(ink, amount),
+        onPrimaryContainer = onPrimaryContainer.towards(ink, amount),
+        onSecondaryContainer = onSecondaryContainer.towards(ink, amount),
+        onErrorContainer = onErrorContainer.towards(ink, amount),
+        outline = outline.towards(ink, amount),
+    )
+
+/** The colors of one theme at one contrast level. */
+@Immutable
+internal class TaigaPalette(val scheme: ColorScheme, val colors: TaigaColors)
+
+internal val LightPalette = TaigaPalette(LightColors, LightTaigaColors)
+internal val LightMediumPalette = TaigaPalette(LightMediumColors, LightMediumTaigaColors)
+internal val LightHighPalette = TaigaPalette(LightHighColors, LightHighTaigaColors)
+internal val DarkPalette = TaigaPalette(DarkColors, DarkTaigaColors)
+internal val DarkMediumPalette = TaigaPalette(DarkMediumColors, DarkMediumTaigaColors)
+internal val DarkHighPalette = TaigaPalette(DarkHighColors, DarkHighTaigaColors)
+
+/** The palette the app draws with on a phone that asks for [contrast] in [darkTheme]. */
+internal fun paletteFor(darkTheme: Boolean, contrast: ContrastLevel): TaigaPalette =
+    when (contrast) {
+      ContrastLevel.STANDARD -> if (darkTheme) DarkPalette else LightPalette
+      ContrastLevel.MEDIUM -> if (darkTheme) DarkMediumPalette else LightMediumPalette
+      ContrastLevel.HIGH -> if (darkTheme) DarkHighPalette else LightHighPalette
+    }
+
 private val LocalTaigaColors = staticCompositionLocalOf { LightTaigaColors }
 
 /** The colors that have no Material slot: `MaterialTheme.taiga.warn` and friends. */
 val MaterialTheme.taiga: TaigaColors
   @Composable @ReadOnlyComposable get() = LocalTaigaColors.current
 
+/**
+ * The theme everything is drawn with: the palette of [darkTheme] at [contrast], the font scale of
+ * [textSize] and the motion the app animates at.
+ */
 @Composable
 fun TaigaTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    contrast: ContrastLevel = ContrastLevel.STANDARD,
+    textSize: TextSize = TextSize.SYSTEM,
+    motionScale: Float = 1f,
     content: @Composable () -> Unit,
 ) {
+  // The one place the app's text size is decided: the density carries the font scale every style
+  // and every sp value in the app is measured with.
+  val density = LocalDensity.current
+  val fontScale = textSize.fontScale(density.fontScale)
+  val scaledDensity = remember(density, fontScale) { Density(density.density, fontScale) }
+  val palette = remember(darkTheme, contrast) { paletteFor(darkTheme, contrast) }
+
+  // A preview or a test that draws a screen without the activity's formatter gets the app's own
+  // words and the phone's settings as they are at that moment; the activity overrides it.
+  val context = LocalContext.current
+  val locale = LocalLocale.current.platformLocale
+  val systemFormats =
+      remember(context, locale) {
+        formatsFor(
+            context = context,
+            locale = locale,
+            phoneIs24Hour = DateFormat.is24HourFormat(context),
+        )
+      }
+
   CompositionLocalProvider(
-      LocalTaigaColors provides if (darkTheme) DarkTaigaColors else LightTaigaColors
+      LocalTaigaColors provides palette.colors,
+      LocalDensity provides scaledDensity,
+      LocalReduceMotion provides (motionScale <= 0f),
+      LocalMotionScale provides motionScale,
+      LocalFormats provides systemFormats,
   ) {
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = palette.scheme,
         typography = TaigaTypography,
         content = content,
     )

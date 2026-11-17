@@ -12,18 +12,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.insights.formatDuration
 import com.rbmr.taigasleep.insights.TrendNight
 import com.rbmr.taigasleep.insights.TrendRanges
 import com.rbmr.taigasleep.insights.Trends
-import com.rbmr.taigasleep.insights.clockMinuteOfNightMinute
 import com.rbmr.taigasleep.insights.nightMinuteOfDay
 import com.rbmr.taigasleep.ui.components.ChoiceChip
+import com.rbmr.taigasleep.ui.components.clockAxisFormat
 import com.rbmr.taigasleep.ui.components.ClockSteps
 import com.rbmr.taigasleep.ui.components.HourSteps
 import com.rbmr.taigasleep.ui.components.Section
@@ -34,10 +34,10 @@ import com.rbmr.taigasleep.ui.components.TrendReference
 import com.rbmr.taigasleep.ui.components.TrendSeries
 import com.rbmr.taigasleep.ui.components.TrendSpanPoint
 import com.rbmr.taigasleep.ui.components.TrendSummary
+import com.rbmr.taigasleep.ui.components.WholeAxisFormat
 import com.rbmr.taigasleep.ui.components.WholeSteps
 import com.rbmr.taigasleep.ui.components.totalSleepHours
-import com.rbmr.taigasleep.ui.components.trendClock
-import com.rbmr.taigasleep.ui.components.trendWhole
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -106,7 +106,7 @@ private fun RangeChips(rangeDays: Int, onRangeChange: (Int) -> Unit) {
   Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.taiga.space.s)) {
     for (days in TrendRanges) {
       ChoiceChip(
-          label = stringResource(R.string.trends_range_days, days),
+          label = pluralStringResource(R.plurals.trends_range_days, days, days),
           selected = days == rangeDays,
           onClick = { onRangeChange(days) },
       )
@@ -127,7 +127,7 @@ private fun ScoreChart(data: Trends) {
       summary = listOf(TrendSummary(averageLabel(), value.toString())),
       description = stringResource(R.string.trends_description_whole, title, value, average.nights),
       emptyMessage = moreRecordings(average.enough),
-      axisFormat = ::trendWhole,
+      axisFormat = WholeAxisFormat,
       steps = WholeSteps,
   )
 }
@@ -139,6 +139,7 @@ private fun TotalSleepChart(data: Trends) {
   val points = data.points { totalSleepHours(it.totalSleepSeconds) }
   val value = average.value ?: 0.0
   val intended = data.intendedSleepMinutes
+  val formats = LocalFormats.current
   TrendChart(
       title = title,
       days = data.days,
@@ -147,8 +148,14 @@ private fun TotalSleepChart(data: Trends) {
               points = points,
               average = totalSleepHours(average.value),
           ),
-      summary = listOf(TrendSummary(averageLabel(), formatDuration((value * 1000).roundToLong()))),
-      description = stringResource(R.string.trends_description_time, title, formatDuration((value * 1000).roundToLong()), average.nights),
+      summary = listOf(TrendSummary(averageLabel(), formats.duration((value * 1000).roundToLong()))),
+      description =
+          stringResource(
+              R.string.trends_description_time,
+              title,
+              formats.duration((value * 1000).roundToLong()),
+              average.nights,
+          ),
       emptyMessage = moreRecordings(average.enough),
       references =
           listOfNotNull(
@@ -159,8 +166,8 @@ private fun TotalSleepChart(data: Trends) {
                 )
               }
           ),
-      valueFormat = { formatDuration((it * 3_600_000).roundToLong()) },
-      topLabel = { "$it h" },
+      valueFormat = { formats.duration((it * 3_600_000).roundToLong()) },
+      topLabel = { formats.hours(it) },
       steps = HourSteps,
       minStep = 1.0,
   )
@@ -172,6 +179,8 @@ private fun ScheduleChart(data: Trends) {
   val bedtime = data.schedule.bedtime
   val wake = data.schedule.wake
   val enough = data.schedule.enough && bedtime != null && wake != null
+  val formats = LocalFormats.current
+  val clockAxis = remember(formats) { clockAxisFormat(formats) }
   val spans =
       data.nights.map { night ->
         night?.let {
@@ -185,18 +194,24 @@ private fun ScheduleChart(data: Trends) {
   val summary =
       listOfNotNull(
           bedtime?.let {
-            TrendSummary(stringResource(R.string.trends_summary_average_bedtime), trendClock(it.meanMinuteOfDay))
+            TrendSummary(
+                stringResource(R.string.trends_summary_average_bedtime),
+                formats.minuteOfDay(it.meanMinuteOfDay),
+            )
           },
           wake?.let {
-            TrendSummary(stringResource(R.string.trends_summary_average_wake), trendClock(it.meanMinuteOfDay))
+            TrendSummary(
+                stringResource(R.string.trends_summary_average_wake),
+                formats.minuteOfDay(it.meanMinuteOfDay),
+            )
           },
       )
   val description =
       if (enough && bedtime != null && wake != null) {
         stringResource(
             R.string.trends_description_schedule,
-            trendClock(bedtime.meanMinuteOfDay),
-            trendClock(wake.meanMinuteOfDay),
+            formats.minuteOfDay(bedtime.meanMinuteOfDay),
+            formats.minuteOfDay(wake.meanMinuteOfDay),
             data.schedule.nights,
         )
       } else {
@@ -224,7 +239,7 @@ private fun ScheduleChart(data: Trends) {
                 )
               },
           ),
-      axisFormat = { trendClock(clockMinuteOfNightMinute(it.roundToInt())) },
+      axisFormat = clockAxis,
       steps = ClockSteps,
       minStep = 60.0,
   )
@@ -236,17 +251,18 @@ private fun EfficiencyChart(data: Trends) {
   val average = data.efficiency
   val points = data.points { it.efficiency }
   val value = (average.value ?: 0.0).roundToInt()
+  val formats = LocalFormats.current
   TrendChart(
       title = title,
       days = data.days,
       kind = TrendChartKind.Line(listOf(TrendSeries(averageLabel(), points, averageColor()))),
-      summary = listOf(TrendSummary(averageLabel(), "$value%")),
+      summary = listOf(TrendSummary(averageLabel(), formats.percent(value.toDouble()))),
       description =
           stringResource(R.string.trends_description_percent, title, value, average.nights),
       emptyMessage = moreRecordings(average.enough),
-      axisFormat = ::trendWhole,
-      valueFormat = { "${it.roundToInt()}%" },
-      topLabel = { "$it%" },
+      axisFormat = WholeAxisFormat,
+      valueFormat = { formats.percent(it) },
+      topLabel = { formats.percent(it) },
       steps = WholeSteps,
   )
 }
@@ -262,6 +278,7 @@ private fun HeartRateChart(data: Trends) {
   val average = (mean.value ?: 0.0).roundToInt()
   val lowest = (minimum.value ?: 0.0).roundToInt()
   val color = MaterialTheme.taiga.chartHr
+  val formats = LocalFormats.current
   TrendChart(
       title = title,
       days = data.days,
@@ -274,8 +291,8 @@ private fun HeartRateChart(data: Trends) {
           ),
       summary =
           listOf(
-              TrendSummary(averageLabel(), "$average bpm"),
-              TrendSummary(lowestLabel(), "$lowest bpm"),
+              TrendSummary(averageLabel(), formats.beatsPerMinute(average.toDouble())),
+              TrendSummary(lowestLabel(), formats.beatsPerMinute(lowest.toDouble())),
           ),
       description =
           stringResource(
@@ -286,9 +303,9 @@ private fun HeartRateChart(data: Trends) {
               nights,
           ),
       emptyMessage = moreRecordings(minimum.enough && mean.enough),
-      axisFormat = ::trendWhole,
-      valueFormat = { "${it.roundToInt()} bpm" },
-      topLabel = { "$it bpm" },
+      axisFormat = WholeAxisFormat,
+      valueFormat = { formats.beatsPerMinute(it) },
+      topLabel = { formats.beatsPerMinute(it) },
       steps = WholeSteps,
   )
 }
@@ -299,16 +316,17 @@ private fun HrvChart(data: Trends) {
   val average = data.hrv
   val points = data.points { it.hrvRmssdMs }
   val value = (average.value ?: 0.0).roundToInt()
+  val formats = LocalFormats.current
   TrendChart(
       title = title,
       days = data.days,
       kind = TrendChartKind.Line(listOf(TrendSeries(averageLabel(), points, averageColor()))),
-      summary = listOf(TrendSummary(averageLabel(), "$value ms")),
+      summary = listOf(TrendSummary(averageLabel(), formats.milliseconds(value.toDouble()))),
       description = stringResource(R.string.trends_description_hrv, title, value, average.nights),
       emptyMessage = moreRecordings(average.enough),
-      axisFormat = ::trendWhole,
-      valueFormat = { "${it.roundToInt()} ms" },
-      topLabel = { "$it ms" },
+      axisFormat = WholeAxisFormat,
+      valueFormat = { formats.milliseconds(it) },
+      topLabel = { formats.milliseconds(it) },
       steps = WholeSteps,
   )
 }

@@ -253,10 +253,11 @@ def test_an_access_token_reads_the_accounts_data_and_cannot_write(api: Backend) 
     assert one["meta"]["session_id"] == recording and one["complete"] is True
     analyses = api.analyses(token, record_filter(f'recording="{recording}"')).json()
     assert [item["id"] for item in analyses["items"]] == [analysis["id"]]
-    assert analyses["items"][0]["result"]["items"]
+    assert analyses["items"][0]["summary"] is not None
+    assert "result" not in analyses["items"][0]
     everything = api.analyses(token, "?perPage=200").json()
     mine = [item for item in everything["items"] if item["id"] == analysis["id"]]
-    assert mine and mine[0]["result"]["stages"]
+    assert mine and "result" not in mine[0]
     single = api.analysis(token, analysis["id"])
     assert single["summary"] is not None and single["result"] is not None
 
@@ -1239,9 +1240,9 @@ def test_analyses_are_listed_with_their_summary_and_result(api: Backend) -> None
     plain = api.get(path + "&sort=-created", token=user, expect=200).json()
     assert (plain["totalItems"], plain["page"], plain["perPage"]) == (2, 1, 30)
     assert [item["id"] for item in plain["items"]] == [waiting["id"], done["id"]]  # newest first
-    # A record carries its fields, result included; the summary is the small headline.
-    assert plain["items"][1]["result"] == sent
-    assert plain["items"][0]["result"] is None
+    # A list carries the summary but never the result, which is stored apart from the queue.
+    assert "result" not in plain["items"][1]
+    assert "result" not in plain["items"][0]
     assert (
         plain["items"][1]["summary"]["scores"]
         == [

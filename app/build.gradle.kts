@@ -138,6 +138,10 @@ android {
       // Robolectric emulates the current Android release and reaches into this JDK-internal package
       // while it sets the application up.
       test.jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")
+      // The tests are independent per class and a JVM is their isolation boundary: no class shares
+      // process state with another, so several JVMs can run beside each other. Four is the CI
+      // runner's core count; a machine with fewer cores uses fewer. See docs/ci.md.
+      test.maxParallelForks = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
     }
   }
 
@@ -256,6 +260,15 @@ tasks.withType<Test>().configureEach {
   // The two generated files are inputs, so a change in the app's dependencies reruns the test.
   inputs.file(licenceMetadataFile).withPropertyName("licenceMetadata")
   inputs.file(licenceDependenciesFile).withPropertyName("licenceDependencies")
+  // These tests read files outside the classpath, so they are inputs too: the build cache may only
+  // hand back a result when the files the test checked are the same.
+  inputs.file(rootProject.file("docs/architecture.md")).withPropertyName("architectureDocument")
+  inputs.file(rootProject.file("tools/read_diagnostics.py")).withPropertyName("diagnosticsReader")
+  // SimulatedRecordingTest runs tools/read_recording.py, which imports the worker's frame module.
+  inputs.file(rootProject.file("tools/read_recording.py")).withPropertyName("recordingReader")
+  inputs
+      .file(rootProject.file("backend/worker/taiga_worker/frames.py"))
+      .withPropertyName("workerFrameModule")
   systemProperty("taiga.licences.metadata", licenceMetadataFile.get().asFile.absolutePath)
   systemProperty("taiga.licences.dependencies", licenceDependenciesFile.get().asFile.absolutePath)
 }
@@ -286,6 +299,7 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
 
   testImplementation(libs.junit)
+  testImplementation(libs.kotlinx.coroutines.test)
   testImplementation(libs.okhttp.mockwebserver)
   // The screens are tested as they are drawn, on the JVM through Robolectric.
   testImplementation(libs.androidx.compose.ui.test.junit4)

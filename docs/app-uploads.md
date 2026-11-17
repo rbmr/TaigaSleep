@@ -168,9 +168,9 @@ A finished night reads as three sections, in this order:
   percentage per stage, followed by recording length, sleep efficiency, total
   sleep, time to fall asleep, awakenings and WASO. An awakening is a wake
   period longer than two minutes.
-- **Heart rate** — average, lowest and highest heart rate and HRV RMSSD and
-  SDNN, plus a heart-rate chart built from the cached epoch series. Gaps in the
-  series stay gaps and are never interpolated.
+- **Heart rate** — average, lowest and highest heart rate, the HRV figures (RMSSD,
+  SDNN, ln RMSSD and the artifact share) and a heart-rate chart built from the cached
+  epoch series. Gaps in the series stay gaps and are never interpolated.
 - **Data quality** — the data-quality score and its breakdown, with scored and
   unscored time.
 

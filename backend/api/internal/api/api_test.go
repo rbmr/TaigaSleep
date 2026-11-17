@@ -332,6 +332,7 @@ func validResult(algorithm, version string) map[string]any {
 }
 
 func TestSystemRoutesArePublic(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	health := decode[HealthResponse](t, s.expect(200, http.MethodGet, "/v1/health", "", nil, nil))
 	if health.Status != "ok" {
@@ -346,6 +347,7 @@ func TestSystemRoutesArePublic(t *testing.T) {
 }
 
 func TestAuthentication(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	// PocketBase's password login answers its own error for a wrong password.
 	if status, _, body := s.call(http.MethodPost, "/api/collections/users/auth-with-password", "",
@@ -394,6 +396,7 @@ func TestAuthentication(t *testing.T) {
 // and analyses are PocketBase's record API now, and every other collection's record
 // endpoints stay closed.
 func TestRecordAPIIsOpenAndTheRestIsClosed(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	createRecording(s, s.tokens["alice"], "rec1", testMeta("rec1", "recording"))
 
@@ -431,6 +434,7 @@ func TestRecordAPIIsOpenAndTheRestIsClosed(t *testing.T) {
 // as metadata like any other, but it cannot be sealed: the missing samples may still
 // arrive and the server would then keep an incomplete recording forever.
 func TestFetchPendingRecordingCannotBeCompleted(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice := s.tokens["alice"]
 	id := "20261102_220000-cd34"
@@ -450,6 +454,7 @@ func TestFetchPendingRecordingCannotBeCompleted(t *testing.T) {
 }
 
 func TestRecordingLifecycle(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice, bob := s.tokens["alice"], s.tokens["bob"]
 	id := "20261101_220000-ab12"
@@ -530,6 +535,7 @@ func TestRecordingLifecycle(t *testing.T) {
 }
 
 func TestFileUpload(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice, bob := s.tokens["alice"], s.tokens["bob"]
 	id := "rec1"
@@ -622,6 +628,7 @@ func TestFileUpload(t *testing.T) {
 // The upload path inflates every member, so a member that misstates what it
 // holds or fails its CRC is refused before anything is stored.
 func TestGzipUploadVerifiesEachMember(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice := s.tokens["alice"]
 	id := "rec1"
@@ -648,6 +655,7 @@ func TestGzipUploadVerifiesEachMember(t *testing.T) {
 // declares ends the download in a connection error, not in a short response
 // that looks complete.
 func TestInflatedDownloadAbortsWhenTheStoredFileIsDamaged(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice := s.tokens["alice"]
 	id := "rec1"
@@ -802,6 +810,7 @@ func TestZeroStorageQuotaIsUnlimited(t *testing.T) {
 // TestStorageTotalsFollowWrites checks that the bytes a recording holds and the
 // account's total move with every chunk and every delete that changes them.
 func TestStorageTotalsFollowWrites(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice, bob := s.tokens["alice"], s.tokens["bob"]
 	id := "totals"
@@ -953,6 +962,7 @@ func TestConcurrentChunksCannotBothExceedTheQuota(t *testing.T) {
 }
 
 func TestAnalysisFlow(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice, bob, worker := s.tokens["alice"], s.tokens["bob"], s.tokens["worker"]
 	id := "rec1"
@@ -1087,9 +1097,9 @@ func TestAnalysisFlow(t *testing.T) {
 		t.Fatalf("a worker still lists %d analyses after the lease", got.TotalItems)
 	}
 
-	// A list carries the same record, result included.
+	// A list carries the summary but not the result, which is stored apart from the queue.
 	list := listAnalyses(s, alice, "?filter="+url.QueryEscape(`status="succeeded"`))
-	if list.TotalItems != 1 || list.Items[0].Result == nil || list.Items[0].Summary == nil {
+	if list.TotalItems != 1 || list.Items[0].Result != nil || list.Items[0].Summary == nil {
 		t.Fatalf("list = %+v", list)
 	}
 	ofRecording := listAnalyses(s, alice, "?filter="+url.QueryEscape(`recording="`+id+`" && status="succeeded"`))
@@ -1118,6 +1128,7 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 // every answer must name the same row even when the requests pass the existence check
 // together and the unique index is what keeps the duplicate out.
 func TestConcurrentIdenticalAnalysisRequestsShareOneAnalysis(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice := s.tokens["alice"]
 	completeRecording(s, alice, "concurrent")
@@ -1161,6 +1172,7 @@ func TestConcurrentIdenticalAnalysisRequestsShareOneAnalysis(t *testing.T) {
 }
 
 func TestAnalysisParamsAreCheckedAgainstTheAnnouncedSchema(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice := s.tokens["alice"]
 	completeRecording(s, alice, "rec1")
@@ -1255,6 +1267,7 @@ func TestLeasesAndRetries(t *testing.T) {
 }
 
 func TestLeaseRenewal(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	s.account("workers", "worker2@example.com", "worker-2")
 	alice, worker, other := s.tokens["alice"], s.tokens["worker"], s.tokens["worker2"]
@@ -1327,6 +1340,7 @@ func createTokenWithLifetime(s *server, account, name, lifetime string) TokenVie
 // owner's recordings, analyses and results, sees nothing of another account, is refused
 // on every write, and stops working when it is revoked.
 func TestAccessTokensAreReadOnly(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice, bob, worker := s.tokens["alice"], s.tokens["bob"], s.tokens["worker"]
 	id := "rec1"
@@ -1383,7 +1397,7 @@ func TestAccessTokensAreReadOnly(t *testing.T) {
 		t.Fatalf("recording through the token = %+v", got)
 	}
 	analyses := listAnalyses(s, created.Token, "")
-	if analyses.TotalItems != 1 || analyses.Items[0].ID != analysis.ID || analyses.Items[0].Result == nil {
+	if analyses.TotalItems != 1 || analyses.Items[0].ID != analysis.ID || analyses.Items[0].Result != nil {
 		t.Fatalf("analyses through the token = %+v", analyses)
 	}
 	if status, got := getAnalysis(s, created.Token, analysis.ID); status != 200 || got.Summary == nil || got.Result == nil {
@@ -1463,6 +1477,7 @@ func TestAccessTokensAreReadOnly(t *testing.T) {
 // valid until it is revoked, an offered lifetime sets its expiry, an unknown one is
 // refused, and a token whose expiry has passed is refused like one that never existed.
 func TestAccessTokenLifetimes(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice := s.tokens["alice"]
 
@@ -1565,6 +1580,7 @@ func TestAccessTokenLifetimes(t *testing.T) {
 }
 
 func TestAllErrorsUseOneShape(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	for _, call := range []struct{ method, path, token string }{
 		{http.MethodGet, "/v1/recordings/x/files", ""},
@@ -1587,6 +1603,7 @@ func TestAllErrorsUseOneShape(t *testing.T) {
 }
 
 func TestVersionComparison(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		a, b string
 		want int
@@ -1600,6 +1617,7 @@ func TestVersionComparison(t *testing.T) {
 }
 
 func TestDefaultVersionIgnoresWorkersThatWentAway(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice := s.tokens["alice"]
 	completeRecording(s, alice, "rec1")

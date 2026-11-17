@@ -1,6 +1,5 @@
 package com.rbmr.taigasleep.ui.home
 
-import android.animation.ValueAnimator
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -27,7 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
@@ -45,9 +43,9 @@ import com.rbmr.taigasleep.ui.components.LogoVariant
 import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.SecondaryButton
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.theme.LocalFormats
+import com.rbmr.taigasleep.ui.theme.LocalReduceMotion
 import com.rbmr.taigasleep.ui.theme.taiga
-import java.text.SimpleDateFormat
-import java.util.Date
 import kotlinx.coroutines.delay
 
 internal enum class StopAction {
@@ -171,8 +169,7 @@ private fun RecordingHeader(status: CaptureStatus) {
       RecordingFormat.elapsed(
           if (status.liveStreaming) status.state.capture.elapsedMs else sinceStartMs
       )
-  val locale = LocalLocale.current.platformLocale
-  val since = SimpleDateFormat("HH:mm", locale).format(Date(status.startUtcMs))
+  val since = LocalFormats.current.clockTime(status.startUtcMs)
   Column(
       modifier = Modifier.fillMaxWidth(),
       horizontalAlignment = Alignment.CenterHorizontally,
@@ -203,20 +200,16 @@ private fun RecordingHeader(status: CaptureStatus) {
 private fun WakeRow(wake: LiveWake, enabled: Boolean, onClick: () -> Unit) {
   val choice = wake.choice
   val rang = wake.rangAtUtcMs
-  val locale = LocalLocale.current.platformLocale
+  val formats = LocalFormats.current
   val value =
       when {
         choice != null ->
             stringResource(
                 R.string.wake_live_window,
-                stringResource(R.string.wake_time, choice.startMinute / 60, choice.startMinute % 60),
-                (choice.startMinute + choice.lengthMinutes).let { end ->
-                  val minute = end % (24 * 60)
-                  stringResource(R.string.wake_time, minute / 60, minute % 60)
-                },
+                formats.minuteOfDay(choice.startMinute),
+                formats.minuteOfDay(choice.startMinute + choice.lengthMinutes),
             )
-        rang != null ->
-            stringResource(R.string.wake_live_rang, SimpleDateFormat("HH:mm", locale).format(Date(rang)))
+        rang != null -> stringResource(R.string.wake_live_rang, formats.clockTime(rang))
         else -> stringResource(R.string.wake_live_off)
       }
   TaigaCard(contentPadding = PaddingValues(0.dp)) {
@@ -232,9 +225,11 @@ private fun WakeRow(wake: LiveWake, enabled: Boolean, onClick: () -> Unit) {
 /** The recording label breathes while data arrives; with animations off it stays still. */
 @Composable
 private fun PulsingLabel(text: String) {
-  val animations = remember { ValueAnimator.areAnimatorsEnabled() }
+  val reduceMotion = LocalReduceMotion.current
   val alpha =
-      if (animations) {
+      if (reduceMotion) {
+        1f
+      } else {
         val transition = rememberInfiniteTransition(label = "recording")
         val pulse by
             transition.animateFloat(
@@ -244,8 +239,6 @@ private fun PulsingLabel(text: String) {
                 label = "pulse",
             )
         pulse
-      } else {
-        1f
       }
   Text(
       text = text,

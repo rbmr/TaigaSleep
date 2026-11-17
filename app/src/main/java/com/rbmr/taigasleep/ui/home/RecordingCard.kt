@@ -13,7 +13,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.insights.formatDuration
 import com.rbmr.taigasleep.recording.CaptureStatus
 import com.rbmr.taigasleep.recording.RecordingFormat
 import com.rbmr.taigasleep.recording.RecordingState
@@ -22,6 +21,7 @@ import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.StatusPill
 import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
@@ -186,7 +186,7 @@ internal fun OverallBanner(status: CaptureStatus) {
       body =
           stringResource(
               R.string.rec_active_off_body_body,
-              formatDuration(state.contact.offBodyMs),
+              LocalFormats.current.duration(state.contact.offBodyMs),
           )
     }
     RecordingState.Reason.STREAM_STALE -> {

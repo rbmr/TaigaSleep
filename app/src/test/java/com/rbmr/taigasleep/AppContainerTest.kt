@@ -5,6 +5,9 @@ import android.content.Context
 import com.rbmr.taigasleep.guard.GuidanceStore
 import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.sync.UploadSettings
+import com.rbmr.taigasleep.ui.theme.DisplaySettings
+import com.rbmr.taigasleep.ui.theme.TextSize
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -42,5 +45,15 @@ class AppContainerTest {
     assertSame(UploadSettings.get(context), container.uploadSettings)
     assertSame(container.recordingPrefs, container.recordingPrefs)
     assertSame(container.uploadSettings, container.uploadSettings)
+  }
+
+  @Test
+  fun `the display settings are one container store over the app preferences`() {
+    val container = AppContainer(application)
+
+    assertSame(container.displaySettings, container.displaySettings)
+    // A choice the activity draws and the Display screen writes is the one in the app's own file.
+    container.displaySettings.setTextSize(TextSize.LARGE)
+    assertEquals(TextSize.LARGE, DisplaySettings(context).textSize.value)
   }
 }
