@@ -2,7 +2,8 @@
 # The model's PyTorch dependency and the pinned checkpoint make the image large,
 # so `WITH_WAV2SLEEP=false` builds the previous small baseline-only image for
 # constrained hosts. `git` is needed only to install the wav2sleep dependency
-# from its pinned repository; the final stage does not carry build tools.
+# from its pinned repository; the final stage carries neither the build tools
+# nor the package manager that installed them.
 
 ARG WITH_WAV2SLEEP=true
 
@@ -52,13 +53,15 @@ RUN mkdir -p /app/models/wav2sleep \
         rmdir /app/models/wav2sleep; \
     fi
 
+# PyTorch's C++ headers and its bundled test suite are only useful to something
+# that builds against PyTorch, which a runtime image never does.
+RUN rm -rf /app/.venv/lib/python3.12/site-packages/torch/include \
+    /app/.venv/lib/python3.12/site-packages/torch/test
 
-FROM ghcr.io/astral-sh/uv:0.9.30-python3.12-bookworm-slim
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
     OMP_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \

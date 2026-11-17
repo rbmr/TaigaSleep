@@ -138,15 +138,18 @@ meaningful when the user switches algorithms.
 
 The worker runs one job at a time. The analysis subprocess is the only heavy
 part; numeric libraries are forced to one thread. The built-in baseline peaks
-around 40–60 MiB RSS. The optional wav2sleep and SleepECG extras need more
+around 40–60 MiB RSS on a short fixture and around 200 MiB on a 9 h night with
+all three streams. The optional wav2sleep and SleepECG extras need more
 address space because PyTorch maps a lot at import: 1024 MiB failed on the
 reference laptop for both, 1536 MiB passed, and 2048 MiB is the recommended
 minimum. Peak RSS on real nights was 725–873 MiB for wav2sleep and 567–653 MiB
 for SleepECG. On a 1 GB machine keep the baseline only; for either ML model use
 at least 2 vCPU, 4 GB RAM and about 1.5 GB free disk for the extra. Set
 `TAIGA_JOB_MEMORY_MB` above the measured peak with a margin, or `0` to disable
-the cap. The worker logs a warning when an ML stager is installed with a limit
-below 1536 MiB.
+the cap. The default is 2048 when an ML stager is installed and 1024 otherwise,
+so a plain `docker run` of the default image analyses a night without the
+variable. The worker logs a warning when an ML stager is installed with an
+explicit limit below 1536 MiB.
 
 ## Data handling
 
