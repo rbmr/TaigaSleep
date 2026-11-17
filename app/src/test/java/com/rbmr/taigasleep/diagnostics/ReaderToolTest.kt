@@ -93,4 +93,129 @@ class ReaderToolTest {
     assertTrue(out, "battery.level_pct" !in out)
     assertTrue(out, "1 unparsable line(s) skipped" in out)
   }
+
+  @Test
+  fun printsACostTableForStoppedAndKilledRecordings() {
+    val script = File("../tools/read_diagnostics.py").canonicalFile
+    assumeTrue(script.exists() && python("-c", "pass") != null)
+    val dir = File(tmp.root, "diagnostics").apply { mkdirs() }
+
+    val lines = stoppedNight() + killedNight()
+    File(dir, "diag_a_100.jsonl").writeText(lines.joinToString("\n") + "\n")
+
+    val out = python(script.path, dir.path, "--gap", "7200")
+    assertTrue(out, out != null)
+    assertTrue("no cost table", "Recording cost" in out!!)
+    assertTrue("a stopped recording has a row", "stopped" in out)
+    assertTrue("the drain is split by screen state", "3.0 / 1.0" in out)
+    assertTrue("the killed recording is measured from its heartbeats", "5.0 (all)" in out)
+    assertTrue("its charge drain comes from the charge counter", "15000 (all)" in out)
+    assertTrue("the killed recording is marked", "killed" in out)
+    assertTrue("wake lock per hour of the killed night", "3600000" in out)
+    assertTrue("CPU per hour of the killed night", "3600000" in out)
+  }
+
+  private fun line(dt: Long, pid: Int, type: String, fields: Map<String, Any?> = emptyMap()) =
+      JsonLine.build(T0 + dt * 1000, dt * 1000, pid, type, fields)
+
+  private fun cost(charge: Long, cpu: Long, wake: Long, written: Long) =
+      mapOf(
+          "c" to charge,
+          "p" to listOf(cpu, 10),
+          "w" to listOf(wake, 1),
+          "t" to listOf(120, 2, 4, 3),
+          "o" to listOf(written, 100, 500, 5, 900, 10, 12),
+          "b" to mapOf("hr" to listOf(10, 50)),
+          "n" to listOf(1_000, 2_000),
+          "g" to listOf(10, 100),
+          "m" to listOf(0, 3_600_000),
+          "u" to 250,
+      )
+
+  /** Two hours of heartbeats and the stop line that ends them. */
+  private fun stoppedNight(): List<String> {
+    val beats =
+        (1..2).map { hour ->
+          line(
+              hour * 3_600L,
+              100,
+              "diag_heartbeat",
+              mapOf(
+                  "battery_pct" to 80 - hour,
+                  "cost" to
+                      cost(
+                          5_000_000L - hour * 10_000L,
+                          2_000L * hour,
+                          3_600_000L * hour,
+                          1_000_000L * hour,
+                      ),
+              ),
+          )
+        }
+    val stop =
+        line(
+            7_201,
+            100,
+            "recording_cost",
+            mapOf(
+                "recording" to "20261023_223000-k3f9",
+                "reason" to "stopped",
+                "started_utc_ms" to T0,
+                "duration_s" to 7_200,
+                "segment_s" to 7_200,
+                "charging_s" to 0,
+                "wake_lock_ms" to 7_200_000,
+                "cpu_ms_per_h" to 2_000,
+                "bytes_written" to 2_000_000,
+                "doze_s" to 3_600,
+                "stream_stalls" to 1,
+                "reconnects" to 2,
+                "watchdog_restarts" to 0,
+                "drain_pct_per_h_on" to 3.0,
+                "drain_pct_per_h_off" to 1.0,
+                "drain_uah_per_h_on" to 10_000,
+                "drain_uah_per_h_off" to 5_000,
+            ),
+        )
+    return beats + stop
+  }
+
+  /** An hour of heartbeats from another process and the recovery that follows them. */
+  private fun killedNight(): List<String> {
+    val beats =
+        (1..2).map { hour ->
+          line(
+              20_000 + hour * 3_600L,
+              200,
+              "diag_heartbeat",
+              mapOf(
+                  "battery_pct" to 80 - 5 * hour,
+                  "cost" to
+                      cost(
+                          5_000_000L - hour * 15_000L,
+                          1_000L + hour * 3_600_000L,
+                          hour * 3_600_000L,
+                          hour * 500_000L,
+                      ),
+              ),
+          )
+        }
+    val recovered =
+        line(
+            27_201,
+            200,
+            "recording_cost",
+            mapOf(
+                "recording" to "20261024_230000-a1b2",
+                "reason" to "recovered",
+                "started_utc_ms" to T0 + 27_200_000,
+                "duration_s" to 7_200,
+            ),
+        )
+    return beats + recovered
+  }
+
+  private companion object {
+    const val T0 = 1_800_000_000_000L
+  }
 }

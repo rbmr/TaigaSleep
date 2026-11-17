@@ -2,6 +2,7 @@
 
 package com.rbmr.taigasleep.recording
 
+import com.rbmr.taigasleep.diagnostics.RecordingCost
 import com.rbmr.taigasleep.recording.store.RecordingStream
 import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.BleHrsCodec
@@ -32,6 +33,8 @@ class SampleFanout(
   @Volatile private var monitorFailureReported = false
 
   override fun onFrame(frame: TrackerFrame) {
+    // One frame is one notification, and its payload is exactly what the tracker sent.
+    RecordingCost.ble(frame.stream, frame.payload.size.toLong())
     writer.writeFrame(frame)
     val stream = writer.meta.stream(frame.stream) ?: return
     when (stream.effectiveType()) {

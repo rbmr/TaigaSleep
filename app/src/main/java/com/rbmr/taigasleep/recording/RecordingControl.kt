@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.recording
 import android.util.Log
 import com.rbmr.taigasleep.diagnostics.BluetoothPower
 import com.rbmr.taigasleep.diagnostics.Diagnostics
+import com.rbmr.taigasleep.diagnostics.RecordingCost
 import com.rbmr.taigasleep.recording.store.EventLog
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingStream
@@ -179,6 +180,7 @@ class RecordingControl(
       runBlocking {
         try {
           live?.let { session ->
+            RecordingCost.watchdogRestart()
             Diagnostics.log("service_restart", mapOf("recording" to session.writer.meta.recordingId))
             // A stop may have reached its end while the heartbeat stalled: it owns the recording.
             if (!teardown(session)) return@runBlocking
@@ -223,6 +225,7 @@ class RecordingControl(
       releaseWakeLock(it)
     }
     live = null
+    RecordingCost.clear()
     scope.cancel()
     control.shutdownNow()
     recovery.shutdownNow()
@@ -322,11 +325,19 @@ class RecordingControl(
             config = config,
             streams = streams,
         )
+    RecordingCost.begin(
+        recordingId = meta.recordingId,
+        startedUtcMs = meta.startUtcMs,
+        nowUtcMs = now,
+        nowElapsedMs = clock.elapsedNs() / NS_PER_MS,
+        resumed = false,
+    )
     val writer =
         try {
           RecordingWriter.create(store.root, meta, clock)
         } catch (e: Exception) {
           Log.e(TAG, "cannot create recording", e)
+          RecordingCost.clear()
           leave(host.message(RecordingMessage.STORAGE))
           return
         }
@@ -373,6 +384,13 @@ class RecordingControl(
       leave(null)
       return
     }
+    RecordingCost.begin(
+        recordingId = meta.recordingId,
+        startedUtcMs = meta.startUtcMs,
+        nowUtcMs = clock.phoneNs() / NS_PER_MS,
+        nowElapsedMs = clock.elapsedNs() / NS_PER_MS,
+        resumed = true,
+    )
     writer.event("readiness", host.readinessSummary())
     val sensor =
         try {
@@ -380,6 +398,7 @@ class RecordingControl(
         } catch (e: IllegalStateException) {
           writer.event("error", e.message ?: "sensor unavailable")
           writer.finish(RecordingPhase.INTERRUPTED, "cannot resume")
+          RecordingCost.end("interrupted", clock.phoneNs() / NS_PER_MS, clock.elapsedNs() / NS_PER_MS)
           host.activeSessionId = null
           leave(null)
           return
@@ -427,7 +446,10 @@ class RecordingControl(
     val acquiredAtMs = clock.elapsedNs() / NS_PER_MS
     val wakeLock =
         if (needsWakeLock) {
-          host.newWakeLock()?.apply { acquire(RecordingRecovery.WAKE_LOCK_MS) }
+          host.newWakeLock()?.apply {
+            acquire(RecordingRecovery.WAKE_LOCK_MS)
+            RecordingCost.wakeLockAcquired(acquiredAtMs)
+          }
         } else {
           null
         }
@@ -594,6 +616,8 @@ class RecordingControl(
     host.markRunning(false)
     host.cancelWatchdog()
     releaseWakeLock(s)
+    // The night is on the tracker now: nothing on this phone is being recorded.
+    RecordingCost.clear()
     host.finishService()
   }
 
@@ -913,6 +937,11 @@ class RecordingControl(
     // A recording that ended does not ring for its window any more.
     host.disarmWake()
     releaseWakeLock(s)
+    RecordingCost.end(
+        costReason(s),
+        clock.phoneNs() / NS_PER_MS,
+        clock.elapsedNs() / NS_PER_MS,
+    )
     when {
       pending != null -> RecordingRepository.setFetchPending(pending)
       done != null -> RecordingRepository.setFinishing(done.copy(step = FinishingState.Step.DONE))
@@ -935,8 +964,23 @@ class RecordingControl(
     host.finishService()
   }
 
+  /** Why the cost event says the recording ended, from the state the transition left behind. */
+  private fun costReason(s: Live): String {
+    if (s.lifecycle.state == LifecycleState.DISCARDED) return "discarded"
+    return when (s.writer.meta.state) {
+      RecordingPhase.STOPPED -> "stopped"
+      RecordingPhase.FORCED_STOP -> "forced_stop"
+      RecordingPhase.INTERRUPTED -> "interrupted"
+      RecordingPhase.FETCH_PENDING -> "fetch_pending"
+      RecordingPhase.RECORDING -> "ended"
+    }
+  }
+
   private fun releaseWakeLock(s: Live) {
-    s.wakeLock?.takeIf { it.isHeld }?.release()
+    val lock = s.wakeLock ?: return
+    if (!lock.isHeld) return
+    lock.release()
+    RecordingCost.wakeLockReleased(clock.elapsedNs() / NS_PER_MS)
   }
 
   /**
@@ -984,6 +1028,11 @@ class RecordingControl(
       host.activeSessionId = null
       host.cancelWatchdog()
       host.refreshRecordings()
+      RecordingCost.end(
+          if (abandoned is Abandoned.Interrupted) "interrupted" else "fetch_pending",
+          clock.phoneNs() / NS_PER_MS,
+          clock.elapsedNs() / NS_PER_MS,
+      )
     }
     when (abandoned) {
       is Abandoned.Interrupted -> {
@@ -996,7 +1045,11 @@ class RecordingControl(
             PendingFetch(meta.recordingId, meta.sensorName, meta.startUtcMs, REASON_NO_FOREGROUND)
         )
       }
-      null -> RecordingRepository.setIdle(host.message(RecordingMessage.FOREGROUND))
+      null -> {
+        // Nothing was open on disk, so no cost belongs to a recording any more.
+        RecordingCost.clear()
+        RecordingRepository.setIdle(host.message(RecordingMessage.FOREGROUND))
+      }
     }
     host.finishService()
   }
@@ -1036,6 +1089,7 @@ class RecordingControl(
     while (true) {
       // The recording may have been ended or rebuilt by another path: only the live session ticks.
       if (live !== s) return
+      RecordingCost.tick()
       val nowNs = clock.elapsedNs()
       val nowMs = nowNs / NS_PER_MS
 
@@ -1050,6 +1104,7 @@ class RecordingControl(
       if (lock != null && RecordingRecovery.wakeLockNeedsRenewal(nowMs - s.wakeLockSinceMs)) {
         lock.acquire(RecordingRecovery.WAKE_LOCK_MS)
         s.wakeLockSinceMs = nowMs
+        RecordingCost.wakeLockAcquired(nowMs)
       }
 
       if (nowMs - lastHeartbeat >= HEARTBEAT_MS) {

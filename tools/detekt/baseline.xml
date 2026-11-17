@@ -365,6 +365,9 @@
     <ID>TooManyFunctions:PolarH10Sensor.kt$PolarH10Sensor : SleepSensorOnDeviceTracker</ID>
     <ID>TooManyFunctions:RecordingCharts.kt$com.rbmr.taigasleep.ui.components.RecordingCharts.kt</ID>
     <ID>TooManyFunctions:RecordingControl.kt$RecordingControl</ID>
+    <ID>TooManyFunctions:RecordingCost.kt$RecordingCost</ID>
+    <ID>TooManyFunctions:RecordingCost.kt$RecordingCost$AndroidSources : Sources</ID>
+    <ID>TooManyFunctions:RecordingCost.kt$RecordingCost$Sources</ID>
     <ID>TooManyFunctions:RecordingDetailFactory.kt$RecordingWork</ID>
     <ID>TooManyFunctions:RecordingDetailViewModel.kt$RecordingDetailViewModel : ViewModel</ID>
     <ID>TooManyFunctions:RecordingHost.kt$RecordingHost</ID>

@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.recording.store
 
+import com.rbmr.taigasleep.diagnostics.RecordingCost
 import com.rbmr.taigasleep.tracker.StreamType
 import java.io.File
 import java.io.IOException
@@ -226,6 +227,7 @@ internal constructor(
       writeFrame(raf, frame)
       frames++
       bytes += frame.size
+      RecordingCost.recordingWrite(frame.size.toLong())
     } catch (e: IOException) {
       droppedFrames++
       try {
@@ -241,6 +243,7 @@ internal constructor(
   @Synchronized
   fun sync() {
     raf.fd.sync()
+    RecordingCost.fsync()
   }
 
   /** Truncates the log back to a position taken before an append. */
@@ -256,6 +259,7 @@ internal constructor(
   override fun close() {
     try {
       raf.fd.sync()
+      RecordingCost.fsync()
     } finally {
       raf.close()
     }
