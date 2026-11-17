@@ -421,7 +421,7 @@ abstract class PolarGenericTracker(
             PolarCodec.encodePpi(
                 stamp.phoneNs,
                 stamp.elapsedNs,
-                LongArray(samples.size) { startMs * 1_000_000L + it * 1_000_000L },
+                ppiTimestampsNs(startMs, IntArray(samples.size) { samples[it].ppi }),
                 IntArray(samples.size) { samples[it].ppi },
                 IntArray(samples.size) { samples[it].errorEstimate },
                 IntArray(samples.size) { samples[it].hr },
@@ -473,6 +473,18 @@ abstract class PolarGenericTracker(
     const val CLOCK_S = 5_000L
     const val CONNECT_WAIT_S = 60L
     const val FETCH_S = 120_000L
+  }
+}
+
+/**
+ * The timestamps of offline pulse intervals, in the Polar-epoch nanoseconds the PPI codec uses:
+ * each sample sits one interval after the previous one, starting from the entry's start time.
+ */
+internal fun ppiTimestampsNs(startUtcMs: Long, intervalsMs: IntArray): LongArray {
+  var timeMs = startUtcMs
+  return LongArray(intervalsMs.size) {
+    timeMs += intervalsMs[it]
+    timeMs * 1_000_000L
   }
 }
 
