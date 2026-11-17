@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.recording
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import com.rbmr.taigasleep.diagnostics.RecordingCost
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
 
@@ -14,12 +15,18 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
   /** Set while a recording is live; the watchdog and service restarts key off it. */
   var activeSessionId: String?
     get() = prefs.getString(KEY_ACTIVE, null)
-    set(value) = prefs.edit().apply { if (value == null) remove(KEY_ACTIVE) else putString(KEY_ACTIVE, value) }.apply()
+    set(value) {
+      prefs.edit().apply { if (value == null) remove(KEY_ACTIVE) else putString(KEY_ACTIVE, value) }.apply()
+      RecordingCost.preferenceWrite()
+    }
 
   /** Wall-clock ms of the service's last sign of life. */
   var heartbeatMs: Long
     get() = prefs.getLong(KEY_HEARTBEAT, 0)
-    set(value) = prefs.edit().putLong(KEY_HEARTBEAT, value).apply()
+    set(value) {
+      prefs.edit().putLong(KEY_HEARTBEAT, value).apply()
+      RecordingCost.preferenceWrite()
+    }
 
   var lastSensor: SavedSensor?
     get() {
@@ -132,29 +139,33 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
     return ArmedWake(recordingId, window, start, end)
   }
 
-  fun setArmedWake(armed: ArmedWake) =
-      prefs.edit {
-        putString(KEY_WAKE_RECORDING, armed.recordingId)
-        putInt(KEY_WAKE_START, armed.window.startMinute)
-        putInt(KEY_WAKE_LEN, armed.window.lengthMinutes)
-        remove(KEY_WAKE_END)
-        putBoolean(KEY_WAKE_HR, armed.window.heartRate)
-        putBoolean(KEY_WAKE_MOVE, armed.window.movement)
-        putLong(KEY_WAKE_START_MS, armed.startUtcMs)
-        putLong(KEY_WAKE_END_MS, armed.endUtcMs)
-      }
+  fun setArmedWake(armed: ArmedWake) {
+    prefs.edit {
+      putString(KEY_WAKE_RECORDING, armed.recordingId)
+      putInt(KEY_WAKE_START, armed.window.startMinute)
+      putInt(KEY_WAKE_LEN, armed.window.lengthMinutes)
+      remove(KEY_WAKE_END)
+      putBoolean(KEY_WAKE_HR, armed.window.heartRate)
+      putBoolean(KEY_WAKE_MOVE, armed.window.movement)
+      putLong(KEY_WAKE_START_MS, armed.startUtcMs)
+      putLong(KEY_WAKE_END_MS, armed.endUtcMs)
+    }
+    RecordingCost.preferenceWrite()
+  }
 
-  fun clearArmedWake() =
-      prefs.edit {
-        remove(KEY_WAKE_RECORDING)
-        remove(KEY_WAKE_START)
-        remove(KEY_WAKE_LEN)
-        remove(KEY_WAKE_END)
-        remove(KEY_WAKE_HR)
-        remove(KEY_WAKE_MOVE)
-        remove(KEY_WAKE_START_MS)
-        remove(KEY_WAKE_END_MS)
-      }
+  fun clearArmedWake() {
+    prefs.edit {
+      remove(KEY_WAKE_RECORDING)
+      remove(KEY_WAKE_START)
+      remove(KEY_WAKE_LEN)
+      remove(KEY_WAKE_END)
+      remove(KEY_WAKE_HR)
+      remove(KEY_WAKE_MOVE)
+      remove(KEY_WAKE_START_MS)
+      remove(KEY_WAKE_END_MS)
+    }
+    RecordingCost.preferenceWrite()
+  }
 
   /**
    * A stored window, or null when what is stored is not a window this version understands. Windows

@@ -88,7 +88,10 @@ object Diagnostics {
       if (!snapshotScheduled) {
         snapshotScheduled = true
         executor?.schedule(
-            { writeSnapshot() },
+            {
+              RecordingCost.timerFired()
+              writeSnapshot()
+            },
             SNAPSHOT_COALESCE_MS,
             TimeUnit.MILLISECONDS,
         )
@@ -151,6 +154,8 @@ object Diagnostics {
       if (app != null) return
       app = application
     }
+    // The cost of a recording is read through this; without a recording it reads nothing.
+    RecordingCost.installAndroid(application)
     runId =
         SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT)
             .apply { timeZone = TimeZone.getTimeZone("UTC") }
@@ -173,8 +178,24 @@ object Diagnostics {
     submit { start(application) }
     EventListeners(application).register()
     DiagnosticsAlarm.schedule(application)
-    pool.scheduleWithFixedDelay({ writeHeartbeat() }, HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS)
-    pool.scheduleWithFixedDelay({ snapshot("periodic") }, SNAPSHOT_SECONDS, SNAPSHOT_SECONDS, TimeUnit.SECONDS)
+    pool.scheduleWithFixedDelay(
+        {
+          RecordingCost.timerFired()
+          writeHeartbeat()
+        },
+        HEARTBEAT_SECONDS,
+        HEARTBEAT_SECONDS,
+        TimeUnit.SECONDS,
+    )
+    pool.scheduleWithFixedDelay(
+        {
+          RecordingCost.timerFired()
+          snapshot("periodic")
+        },
+        SNAPSHOT_SECONDS,
+        SNAPSHOT_SECONDS,
+        TimeUnit.SECONDS,
+    )
   }
 
   /** Creates the store and scans what the previous process left; runs on the diagnostics thread. */
@@ -184,13 +205,19 @@ object Diagnostics {
     marker = RunMarker(File(dir, "run_marker"))
     dedupe = ExitInfoDedupe(File(dir, "exit_info_seen"))
     executor?.scheduleWithFixedDelay(
-        { newStore.sync() },
+        {
+          RecordingCost.timerFired()
+          newStore.sync()
+        },
         SYNC_SECONDS,
         SYNC_SECONDS,
         TimeUnit.SECONDS,
     )
     executor?.scheduleWithFixedDelay(
-        { newStore.trim(nowMs()) },
+        {
+          RecordingCost.timerFired()
+          newStore.trim(nowMs())
+        },
         TRIM_SECONDS,
         TRIM_SECONDS,
         TimeUnit.SECONDS,
@@ -275,6 +302,15 @@ object Diagnostics {
     val fields = LinkedHashMap(DeviceState.heartbeat(a))
     if (lastHeartbeatElapsed != 0L) fields["since_last_ms"] = elapsed - lastHeartbeatElapsed
     lastHeartbeatElapsed = elapsed
+    // The cost fields exist only while a recording runs, and reading them is what costs anything.
+    RecordingCost.heartbeatFields(
+            nowElapsedMs = elapsed,
+            batteryPct = (fields["battery_pct"] as? Int)?.takeIf { it in 0..100 },
+            interactive = fields["interactive"] as? Boolean,
+            doze = fields["doze"] as? Boolean,
+            charging = fields["charging"] as? Boolean,
+        )
+        ?.let { fields["cost"] = it }
     log("diag_heartbeat", fields)
     // OEM settings screens change the bucket and whitelist without any broadcast, so look here too.
     runCheck("heartbeat", StateDiff.KEYS.associateWith { fields[it] })

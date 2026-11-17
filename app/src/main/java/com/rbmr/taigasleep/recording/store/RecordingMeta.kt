@@ -1,9 +1,10 @@
 package com.rbmr.taigasleep.recording.store
 
-import com.rbmr.taigasleep.tracker.Tracker
+import com.rbmr.taigasleep.diagnostics.RecordingCost
 import com.rbmr.taigasleep.tracker.Codec
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.StreamType
+import com.rbmr.taigasleep.tracker.Tracker
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -321,8 +322,11 @@ data class RecordingMeta(
       try {
         val tmp = File(dir, "$FILE_NAME.tmp")
         FileOutputStream(tmp).use {
-          it.write(metaJson.encodeToString(JsonElement.serializer(), toJson()).toByteArray())
+          val bytes = metaJson.encodeToString(JsonElement.serializer(), toJson()).toByteArray()
+          it.write(bytes)
+          RecordingCost.recordingWrite(bytes.size.toLong())
           it.fd.sync()
+          RecordingCost.fsync()
         }
         Files.move(
             tmp.toPath(),
@@ -347,9 +351,12 @@ object EventLog {
         Json.encodeToString(
             EventJson(phoneNs = phoneNs, elapsedNs = elapsedNs, type = type, message = message)
         ) + "\n"
+    val bytes = line.toByteArray()
     FileOutputStream(File(dir, FILE_NAME), true).use {
-      it.write(line.toByteArray())
+      it.write(bytes)
+      RecordingCost.eventWrite(bytes.size.toLong())
       it.fd.sync()
+      RecordingCost.fsync()
     }
   }
 

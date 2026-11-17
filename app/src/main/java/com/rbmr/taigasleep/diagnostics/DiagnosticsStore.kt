@@ -37,6 +37,7 @@ class DiagnosticsStore(
       else if (written > 0 && written + bytes.size > maxFileBytes) open(roll = true)
       out?.write(bytes)
       written += bytes.size
+      RecordingCost.diagnosticsWrite(bytes.size.toLong())
     } catch (_: IOException) {
       failures++
       closeQuietly()
@@ -45,8 +46,10 @@ class DiagnosticsStore(
 
   @Synchronized
   fun sync() {
+    val stream = out ?: return
     try {
-      out?.fd?.sync()
+      stream.fd.sync()
+      RecordingCost.fsync()
     } catch (_: IOException) {}
   }
 

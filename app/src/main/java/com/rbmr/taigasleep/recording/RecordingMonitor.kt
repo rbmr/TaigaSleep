@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.recording
 
+import com.rbmr.taigasleep.diagnostics.RecordingCost
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.Clock
@@ -184,7 +185,10 @@ class RecordingMonitor(
       val first = !everConnected
       if (next == RecordingState.LinkState.CONNECTED) {
         everConnected = true
-        if (!first) reconnects++
+        if (!first) {
+          reconnects++
+          RecordingCost.reconnected()
+        }
       }
       link = next
       linkSinceMs = nowMs
@@ -357,6 +361,7 @@ class RecordingMonitor(
             // Do not let samples from before the gap skew the rate when the stream comes back.
             s.window.reset()
             s.rateHz = null
+            RecordingCost.streamStalled()
             events +=
                 "stream_stalled" to
                     "${s.kind.name.lowercase()} stream stalled: no data for ${s.ageMs!! / 1000} s"
