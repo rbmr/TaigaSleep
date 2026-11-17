@@ -276,13 +276,12 @@ abstract class PolarGenericTracker(
     val samples = data.samples
     if (samples.isEmpty()) return
     val stamp = Stamp.now(clock)
-    // The first channel carries the raw optical signal; the worker treats it as PPi's source.
     val enc =
         PolarCodec.encodePpg(
             stamp.phoneNs,
             stamp.elapsedNs,
             LongArray(samples.size) { samples[it].timeStamp },
-            IntArray(samples.size) { samples[it].channelSamples.firstOrNull() ?: 0 },
+            Array(samples.size) { samples[it].channelSamples.toIntArray() },
             IntArray(samples.size) { samples[it].statusBits.fold(0) { acc, bit -> acc or bit } },
         )
     l.onFrame(TrackerFrame("ppg", stamp, enc.bytes, enc.clamped))
@@ -442,7 +441,7 @@ abstract class PolarGenericTracker(
                 stamp.phoneNs,
                 stamp.elapsedNs,
                 LongArray(samples.size) { samples[it].timeStamp },
-                IntArray(samples.size) { samples[it].channelSamples.firstOrNull() ?: 0 },
+                Array(samples.size) { samples[it].channelSamples.toIntArray() },
                 IntArray(samples.size) { samples[it].statusBits.fold(0) { acc, b -> acc or b } },
             )
         listOf(TrackerFrame("ppg", stamp, enc.bytes, enc.clamped))

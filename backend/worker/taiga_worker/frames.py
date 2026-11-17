@@ -590,23 +590,33 @@ class PpgBatch:
     phone_ns: int
     elapsed_ns: int
     timestamps_ns: tuple[int, ...]
-    channel: tuple[int, ...]
+    channels: tuple[tuple[int, ...], ...]
     status: tuple[int, ...]
 
 
 def read_ppg(payload: bytes) -> PpgBatch:
     phone_ns, elapsed_ns, count = struct.unpack_from("<qqH", payload, 0)
-    if len(payload) != 18 + count * 14:
-        raise ValueError("ppg payload length mismatch")
     timestamps = []
-    channel = []
+    channels: list[tuple[int, ...]] = []
     status = []
-    for index in range(count):
-        t, value, bits = struct.unpack_from("<qih", payload, 18 + index * 14)
-        timestamps.append(t)
-        channel.append(value)
+    offset = 18
+    for _ in range(count):
+        if offset + 11 > len(payload):
+            raise ValueError("ppg payload length mismatch")
+        timestamp, width = struct.unpack_from("<qB", payload, offset)
+        offset += 9
+        if width < 1 or offset + 4 * width + 2 > len(payload):
+            raise ValueError("ppg channel count does not fit")
+        values = struct.unpack_from(f"<{width}i", payload, offset)
+        offset += 4 * width
+        bits = struct.unpack_from("<h", payload, offset)[0]
+        offset += 2
+        timestamps.append(timestamp)
+        channels.append(values)
         status.append(bits)
-    return PpgBatch(phone_ns, elapsed_ns, tuple(timestamps), tuple(channel), tuple(status))
+    if offset != len(payload):
+        raise ValueError("ppg payload length mismatch")
+    return PpgBatch(phone_ns, elapsed_ns, tuple(timestamps), tuple(channels), tuple(status))
 
 
 @dataclass(frozen=True)

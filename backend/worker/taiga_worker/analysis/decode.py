@@ -350,6 +350,7 @@ def _decode_extra(
         "status": [],
         "flags": [],
         "hr": [],
+        "channel_counts": [],
     }
 
     def on_payload(payload: bytes) -> int:
@@ -358,7 +359,12 @@ def _decode_extra(
             batches["phone_ns"].append(np.asarray([batch.phone_ns], dtype=np.int64))
             batches["elapsed_ns"].append(np.asarray([batch.elapsed_ns], dtype=np.int64))
             batches["t"].append(np.asarray(batch.timestamps_ns, dtype=np.int64))
-            batches["values"].append(np.asarray(batch.channel, dtype=np.float32))
+            batches["values"].append(
+                np.asarray([value for sample in batch.channels for value in sample], dtype=np.float32)
+            )
+            batches["channel_counts"].append(
+                np.asarray([len(sample) for sample in batch.channels], dtype=np.int32)
+            )
             batches["status"].append(np.asarray(batch.status, dtype=np.int32))
             return len(batch.timestamps_ns)
         if stream_id == 5:
@@ -389,6 +395,7 @@ def _decode_extra(
             ("status", batches["status"], np.int32),
             ("flags", batches["flags"], np.int32),
             ("hr", batches["hr"], np.int32),
+            ("channel_counts", batches["channel_counts"], np.int32),
         )
     }
     return decoded, info

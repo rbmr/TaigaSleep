@@ -150,22 +150,27 @@ object PolarCodec {
   }
 
   /**
-   * PPG: one channel per sample, the SDK's status bits on each. The sample rate is the stream's
-   * negotiated rate; a sample's own timestamp is the Polar-epoch one.
+   * PPG: every channel the SDK reports, with its status bits. A sample's own timestamp is the
+   * Polar-epoch one, the same base ECG and ACC use, and the frame's phone clock anchors the batch.
    */
   fun encodePpg(
       phoneNs: Long,
       elapsedNs: Long,
       t: LongArray,
-      channel: IntArray,
+      channels: Array<IntArray>,
       status: IntArray,
   ): Encoded {
     val n = t.size
-    require(n in 1..MAX_BATCH && channel.size == n && status.size == n) { "bad ppg batch" }
-    val b = buffer(16 + 2 + n * (8 + 4 + 2))
+    require(n in 1..MAX_BATCH && channels.size == n && status.size == n) { "bad ppg batch" }
+    val size = 16 + 2 + n * (8 + 1 + 2) + channels.sumOf { it.size * 4 }
+    val b = buffer(size)
     b.putLong(phoneNs).putLong(elapsedNs).putShort(n.toShort())
     for (i in 0 until n) {
-      b.putLong(t[i]).putInt(channel[i]).putShort(status[i].toShort())
+      val values = channels[i]
+      require(values.size in 1..0xFF) { "bad ppg channel count" }
+      b.putLong(t[i]).put(values.size.toByte())
+      values.forEach { b.putInt(it) }
+      b.putShort(status[i].toShort())
     }
     return Encoded(b.array())
   }

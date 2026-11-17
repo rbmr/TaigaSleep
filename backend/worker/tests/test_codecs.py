@@ -99,6 +99,18 @@ def test_every_heart_rate_flag_combination_matches_the_app_fixture() -> None:
         assert decoded["energy_expended"] == expected["energy_expended"], case["name"]
 
 
+def test_a_ppg_batch_keeps_every_channel() -> None:
+    payload = struct.pack("<qqH", 1, 2, 2)
+    payload += struct.pack("<qB3ih", 1000, 3, 10, 20, 30, 1)
+    payload += struct.pack("<qB2ih", 1020, 2, 11, 21, 2)
+
+    batch = frames.read_ppg(payload)
+
+    assert batch.timestamps_ns == (1000, 1020)
+    assert batch.channels == ((10, 20, 30), (11, 21))
+    assert batch.status == (1, 2)
+
+
 @pytest.mark.parametrize("kind", ["polar-h10", "polar-verity-sense", "polar-loop"])
 def test_a_polar_tracker_kind_decodes_and_yields_heart_rate(tmp_path: Path, kind: str) -> None:
     streams = [

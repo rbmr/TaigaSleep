@@ -256,8 +256,12 @@ flag combination reads the same way in both.
 
 ```text
 i64 phone_ns | i64 elapsed_ns | u16 n
-per sample: i64 t_first | i32 channel | i16 status_bits
+per sample: i64 t_polar | u8 channels | i32 channel[channels] | i16 status_bits
 ```
+
+`channels` is how many optical channels this sample carries, and every one of them is
+stored. `t_polar` is the SDK's Polar-epoch timestamp, the same base as ECG and ACC; the
+frame's `phone_ns` anchors the batch on the recording's clock.
 
 ### Pulse intervals (`polar-ppi-v1`)
 
