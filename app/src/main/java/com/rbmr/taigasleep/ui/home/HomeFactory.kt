@@ -33,6 +33,8 @@ internal fun hasBluetooth(context: Context): Boolean =
  * Builds the Home screen's view model from the singletons the app already has. The tracker, the
  * recorder and the readiness check are reached only from here.
  */
+private val OPT_IN_STREAMS = setOf("ppg", "pulse_interval", "gyroscope", "magnetometer")
+
 class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
   @Suppress("UNCHECKED_CAST")
   override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -144,7 +146,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
               prefs.streamEnabled(
                   sensor.id,
                   it.id,
-                  default = it.type.wire != "ecg",
+                  default = it.type.wire !in OPT_IN_STREAMS,
               )
             }
             .map { it.id }

@@ -1,4 +1,4 @@
-@file:Suppress("CyclomaticComplexMethod", "ReturnCount")
+@file:Suppress("CyclomaticComplexMethod", "ReturnCount", "TooManyFunctions")
 
 package com.rbmr.taigasleep.recording
 
@@ -57,7 +57,8 @@ class SampleFanout(
       }
       StreamType.PPG,
       StreamType.GYROSCOPE,
-      StreamType.MAGNETOMETER -> Unit
+      StreamType.MAGNETOMETER ->
+          monitor.onOther(stream.type, frame.stamp, samplesIn(frame.payload))
     }
   }
 
@@ -129,6 +130,11 @@ class SampleFanout(
 
   /** A recording written before streams existed has only its type; the codec is then Polar's. */
   private fun RecordingStream.effectiveType(): StreamType = type
+
+  /** The sample count of a batch payload: a u16 after the two clocks and the sample count. */
+  private fun samplesIn(payload: ByteArray): Int =
+      if (payload.size < 20) 0
+      else java.nio.ByteBuffer.wrap(payload, 16, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xFFFF
 
   private inline fun guard(block: () -> Unit) {
     try {

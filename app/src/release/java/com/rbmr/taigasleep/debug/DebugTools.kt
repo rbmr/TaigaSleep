@@ -8,9 +8,10 @@ import com.rbmr.taigasleep.tracker.SleepSensor
 object DebugTools {
   const val GUIDANCE_PREVIEW = false
 
-  val simulatedSensor: FoundSensor? = null
+  val fakeTracker: FoundSensor? = null
 
-  fun createSimulatedSensor(): SleepSensor? = null
+  @Suppress("FunctionOnlyReturningConstant")
+  fun createFakeTracker(): SleepSensor? = null
 
   fun startStrictMode() = Unit
 

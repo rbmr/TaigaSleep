@@ -8,6 +8,7 @@ import com.rbmr.taigasleep.tracker.EcgBatch
 import com.rbmr.taigasleep.tracker.HrSample
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.Stamp
+import com.rbmr.taigasleep.tracker.StreamType
 import kotlin.math.abs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +21,9 @@ interface SampleMonitor {
   fun onEcg(stamp: Stamp, batch: EcgBatch)
 
   fun onAcc(stamp: Stamp, batch: AccBatch)
+
+  /** A stream the live state does not derive from; the monitor still counts its samples. */
+  fun onOther(type: StreamType, stamp: Stamp, samples: Int) {}
 }
 
 /**
@@ -153,6 +157,13 @@ class RecordingMonitor(
     if (batch.timestampsNs.isEmpty()) return
     synchronized(lock) {
       recordStream(RecordingState.StreamKind.ACC, stamp.elapsedNs, batch.timestampsNs.size)
+    }
+  }
+
+  override fun onOther(type: StreamType, stamp: Stamp, samples: Int) {
+    if (samples <= 0) return
+    synchronized(lock) {
+      streamKind(type)?.let { recordStream(it, stamp.elapsedNs, samples) }
     }
   }
 

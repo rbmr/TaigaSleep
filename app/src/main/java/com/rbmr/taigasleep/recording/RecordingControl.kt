@@ -265,7 +265,11 @@ class RecordingControl(
           leave(e.message ?: host.message(RecordingMessage.NO_SENSOR))
           return
         }
-    val selected = request.selected.filter { id -> sensor.streams.any { it.id == id } }.toSet()
+    // R-R intervals live inside the heart-rate payload, so choosing them without heart rate
+    // would leave the tracker sending frames no stream would store.
+    val requestedIds =
+        if ("rr" in request.selected) request.selected + "hr" else request.selected
+    val selected = requestedIds.filter { id -> sensor.streams.any { it.id == id } }.toSet()
     val streams = sensor.streams.filter { it.id in selected }.map { it.toRecordingStream() }
     val config = legacyConfig(streams)
     val modes = sensor.recordingModes(selected)

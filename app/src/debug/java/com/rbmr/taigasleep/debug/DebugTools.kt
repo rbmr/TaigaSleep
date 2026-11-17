@@ -25,10 +25,10 @@ object DebugTools {
   const val GUIDANCE_PREVIEW = true
 
   /** Listed next to real straps while scanning, so recording can be tried without hardware. */
-  val simulatedSensor: FoundSensor? =
-      FoundSensor(SensorKind.SIMULATED, "SIM00001", "Simulated sensor", 0)
+  val fakeTracker: FoundSensor? =
+      FoundSensor(SensorKind.SIMULATED, "SIM00001", "Fake tracker", 0)
 
-  fun createSimulatedSensor(): SleepSensor? = FakeTracker()
+  fun createFakeTracker(): SleepSensor? = FakeTracker()
 
   /**
    * Reports disk and network work on the main thread in the log (tag `StrictMode`), so a startup

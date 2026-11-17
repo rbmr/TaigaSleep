@@ -51,7 +51,7 @@ class SensorHub {
     stopScan()
     // Debug builds list the fake tracker next to the real ones, so what is selected is always
     // what the Home screen says.
-    _found.value = listOfNotNull(DebugTools.simulatedSensor)
+    _found.value = listOfNotNull(DebugTools.fakeTracker)
     _scanning.value = true
     scan =
         scanScope.launch {
@@ -108,7 +108,7 @@ class SensorHub {
     val saved = prefs.lastSensor ?: return
     if (saved.kind == SensorKind.SIMULATED) {
       // The fake tracker only exists in debug builds and needs no permissions to connect.
-      if (DebugTools.simulatedSensor != null) obtain(context, saved.kind, saved.id, saved.name)
+      if (DebugTools.fakeTracker != null) obtain(context, saved.kind, saved.id, saved.name)
       return
     }
     if (!canConnect) return
@@ -121,7 +121,7 @@ class SensorHub {
     clear()
     val sensor =
         if (kind == SensorKind.SIMULATED) {
-          checkNotNull(DebugTools.createSimulatedSensor()) {
+          checkNotNull(DebugTools.createFakeTracker()) {
             "the fake tracker is a debug-build feature"
           }
         } else {
