@@ -3,24 +3,39 @@
 The decoder is deliberately shared by every stager. It owns CRC checking, unit
 conversion (µV→mV, mG→g), Polar/phone/strap clock handling, contact and
 saturation masks, gaps, and stream coverage. Algorithms never parse bytes.
+
+A log is read from a memory map instead of a whole-file read, and a log that was
+checked when it was downloaded is read with that check's skipped ranges, so no
+frame's CRC is computed twice.
+
+Only the streams that will be used are decoded into arrays. HR and ACC are
+always decoded because the shared derivation reads them; a stream that neither
+the stager nor the derivation asks for is still checked and reported — frames,
+samples, rate, coverage, gaps and saturation — but its samples are not kept.
 """
 
 from __future__ import annotations
 
 import json
+import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 import numpy as np
 
 from ..frames import (
     POLAR_EPOCH_OFFSET_NS,
+    STREAM_ACC,
+    STREAM_ECG,
+    STREAM_HR,
+    TS_LINEAR,
+    Frame,
     FrameError,
     FrameGap,
+    batch_layout,
     iter_frames,
-    read_acc,
-    read_ecg,
+    mapped_log,
     read_hr,
 )
 from .contract import (
@@ -49,6 +64,15 @@ FLAG_CONTACT_SUPPORTED = 1
 FLAG_CONTACT = 2
 FLAG_RR_AVAILABLE = 4
 
+#: The sample layout of the two batched streams: samples per timestamp, the payload
+#: struct format of a wide batch, and whether the batch may carry 16-bit values.
+#: Only an ECG batch can, and its ts_mode byte says so.
+_VALUE_LAYOUT = {
+    STREAM_ECG: (1, "i", True),
+    STREAM_ACC: (3, "h", False),
+}
+_NARROW = np.dtype("<h")
+
 
 @dataclass
 class FrameLogInfo:
@@ -64,148 +88,230 @@ class FrameLogInfo:
 
 
 @dataclass
-class _RawEcg:
-    phone_ns: list[np.ndarray]
-    elapsed_ns: list[np.ndarray]
-    t_polar: list[np.ndarray]
-    values_uv: list[np.ndarray]
+class _Batch:
+    """One payload of a batched stream: its anchors and, when wanted, its samples.
+
+    The strap timestamps of a linear (mode 0) batch are two numbers, so a night's
+    worth of them costs two numbers per batch instead of one per sample; only a
+    non-linear (mode 1) batch carries its own timestamps.
+    """
+
+    phone_ns: int
+    elapsed_ns: int
+    count: int
+    first_ns: int
+    last_ns: int
+    stamps_ns: np.ndarray | None
+    # Voltages in mV for ECG, g per axis for ACC, or None when only reported.
+    values: np.ndarray | None
+
+    def polar_ns(self) -> np.ndarray:
+        """The strap timestamps of this batch's samples."""
+
+        if self.stamps_ns is not None:
+            return self.stamps_ns
+        return _linear_ns(self.first_ns, self.last_ns, self.count)
 
 
 @dataclass
-class _RawAcc:
-    phone_ns: list[np.ndarray]
-    elapsed_ns: list[np.ndarray]
-    t_polar: list[np.ndarray]
-    values_mg: list[np.ndarray]
+class _RawStream:
+    """A batched stream before it is put on the recording's time base."""
+
+    batches: list[_Batch]
+    info: FrameLogInfo
+    last_phone_ns: int
+    samples: int
+    #: Whether the samples themselves were kept, or only the file was reported.
+    kept: bool
+    # Samples at or beyond the rail, for the ECG saturation share.
+    saturated: int = 0
+
+    def phone_ns(self) -> np.ndarray:
+        return np.asarray([batch.phone_ns for batch in self.batches], dtype=np.int64)
+
+    def elapsed_ns(self) -> np.ndarray:
+        return np.asarray([batch.elapsed_ns for batch in self.batches], dtype=np.int64)
+
+    def last_stamps_ns(self) -> np.ndarray:
+        return np.asarray([batch.last_ns for batch in self.batches], dtype=np.int64)
 
 
-def _read_bytes(path: Path) -> bytes | None:
-    try:
-        return path.read_bytes()
-    except FileNotFoundError:
-        return None
+def _linear_ns(first: int, last: int, count: int) -> np.ndarray:
+    """The timestamps of a linear batch, spaced the way the app and Polar store them."""
+
+    if count <= 0:
+        return np.empty(0, dtype=np.int64)
+    if count == 1:
+        return np.full(1, first, dtype=np.int64)
+    index = np.arange(count, dtype=np.int64)
+    scaled = np.multiply(last - first, index)
+    magnitude = np.abs(scaled) // (count - 1)
+    return first + np.where(scaled < 0, -magnitude, magnitude)
 
 
-def _scan(path: Path, expected_stream: int, on_payload) -> FrameLogInfo:
+def _scan(
+    path: Path,
+    expected_stream: int,
+    on_payload,
+    checked: Sequence[FrameGap] | None = None,
+) -> FrameLogInfo:
     """Scan one frame log, keeping every frame that checks out.
 
     ``on_payload`` parses a payload, hands it to the caller's arrays and returns
     how many samples it held, so a skipped byte range can be tied to the sample
-    indices on either side of it.
+    indices on either side of it. ``checked`` is passed on to
+    :func:`taiga_worker.frames.iter_frames`.
     """
 
-    data = _read_bytes(path)
-    if data is None:
-        return FrameLogInfo(False, 0, 0, False, None)
-    if len(data) == 0:
-        return FrameLogInfo(True, 0, 0, False, "empty frame log")
+    with mapped_log(path) as data:
+        if data is None:
+            return FrameLogInfo(False, 0, 0, False, None)
+        if len(data) == 0:
+            return FrameLogInfo(True, 0, 0, False, "empty frame log")
 
-    gaps: list[FrameGap] = []
-    gap_samples: list[tuple[int | None, int | None]] = []
-    frames = 0
-    samples = 0
-    valid_bytes = 0
-    try:
-        for frame in iter_frames(data, expected_stream, gaps):
-            while len(gap_samples) < len(gaps):
-                gap_samples.append((samples - 1 if samples else None, samples))
-            samples += on_payload(frame.payload)
-            frames += 1
-            # The report counts up to the payload end, not the CRC that follows it.
-            valid_bytes = frame.payload_end
-    except FrameError as exc:
-        return FrameLogInfo(True, 0, 0, True, f"{exc} at byte {exc.offset}")
-    while len(gap_samples) < len(gaps):
-        # A damaged tail: there is no sample after it, the stream ends there.
-        gap_samples.append((samples - 1 if samples else None, None))
+        gaps: list[FrameGap] = []
+        gap_samples: list[tuple[int | None, int | None]] = []
+        frames = 0
+        samples = 0
+        valid_bytes = 0
+        frame: Frame | None = None
+        try:
+            for frame in iter_frames(data, expected_stream, gaps, checked=checked):
+                while len(gap_samples) < len(gaps):
+                    gap_samples.append((samples - 1 if samples else None, samples))
+                samples += on_payload(frame.payload)
+                frames += 1
+                # The report counts up to the payload end, not the CRC that follows it.
+                valid_bytes = frame.payload_end
+        except FrameError as exc:
+            return FrameLogInfo(True, 0, 0, True, f"{exc} at byte {exc.offset}")
+        except (ValueError, struct.error) as exc:
+            offset = 0 if frame is None else frame.offset
+            return FrameLogInfo(True, 0, 0, True, f"invalid frame at byte {offset}: {exc}")
+        while len(gap_samples) < len(gaps):
+            # A damaged tail: there is no sample after it, the stream ends there.
+            gap_samples.append((samples - 1 if samples else None, None))
 
-    truncated_tail = bool(gaps) and gaps[-1].end == len(data)
-    error = gaps[-1].describe() if truncated_tail else None
-    return FrameLogInfo(
-        True,
-        frames,
-        valid_bytes,
-        truncated_tail,
-        error,
-        tuple(gaps),
-        tuple(gap_samples),
-    )
+        truncated_tail = bool(gaps) and gaps[-1].end == len(data)
+        error = gaps[-1].describe() if truncated_tail else None
+        return FrameLogInfo(
+            True,
+            frames,
+            valid_bytes,
+            truncated_tail,
+            error,
+            tuple(gaps),
+            tuple(gap_samples),
+        )
 
 
 def _decode_hr(
     path: Path,
+    checked: Sequence[FrameGap] | None = None,
 ) -> tuple[
-    list[np.ndarray],
-    list[np.ndarray],
-    list[np.ndarray],
-    list[np.ndarray],
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
     list[np.ndarray],
     FrameLogInfo,
 ]:
-    phone: list[np.ndarray] = []
-    elapsed: list[np.ndarray] = []
-    bpm: list[np.ndarray] = []
-    flags: list[np.ndarray] = []
+    phone: list[int] = []
+    elapsed: list[int] = []
+    bpm: list[float] = []
+    flags: list[int] = []
     rr: list[np.ndarray] = []
 
     def on_payload(payload: bytes) -> int:
         sample = read_hr(payload)
-        phone.append(np.asarray([sample.phone_ns], dtype=np.int64))
-        elapsed.append(np.asarray([sample.elapsed_ns], dtype=np.int64))
-        bpm.append(np.asarray([float(sample.hr_bpm)], dtype=np.float32))
-        flags.append(np.asarray([int(sample.flags)], dtype=np.uint8))
+        phone.append(int(sample.phone_ns))
+        elapsed.append(int(sample.elapsed_ns))
+        bpm.append(float(sample.hr_bpm))
+        flags.append(int(sample.flags))
         rr.append(np.asarray(sample.rr_ms, dtype=np.float32))
         return 1
 
-    info = _scan(path, 1, on_payload)
-
-    def cat(items: list[np.ndarray], dtype) -> np.ndarray:
-        if not items:
-            return np.empty(0, dtype=dtype)
-        return np.concatenate(items).astype(dtype, copy=False)
-
+    info = _scan(path, STREAM_HR, on_payload, checked)
     return (
-        cat(phone, np.int64),
-        cat(elapsed, np.int64),
-        cat(bpm, np.float32),
-        cat(flags, np.uint8),
+        np.asarray(phone, dtype=np.int64),
+        np.asarray(elapsed, dtype=np.int64),
+        np.asarray(bpm, dtype=np.float32),
+        np.asarray(flags, dtype=np.uint8),
         rr,
         info,
     )
 
 
-def _decode_ecg(path: Path) -> tuple[_RawEcg, FrameLogInfo]:
-    raw = _RawEcg([], [], [], [])
+def _decode_batches(
+    path: Path,
+    stream: int,
+    *,
+    with_values: bool,
+    checked: Sequence[FrameGap] | None = None,
+) -> _RawStream:
+    """Decode one batched stream, keeping its samples only when they are wanted."""
+
+    per_sample, value_format, values_i16_allowed = _VALUE_LAYOUT[stream]
+    wide = np.dtype("<" + value_format)
+    rail_mv = np.float32(ECG_RAIL_UV / 1000.0)
+    batches: list[_Batch] = []
+    saturated = 0
+    samples = 0
+    last_phone_ns = 0
 
     def on_payload(payload: bytes) -> int:
-        batch = read_ecg(payload)
-        if not batch.timestamps_ns:
+        nonlocal saturated, samples, last_phone_ns
+        layout = batch_layout(
+            payload,
+            per_sample,
+            value_format,
+            values_i16_allowed=values_i16_allowed,
+        )
+        if layout.count < 1:
             return 0
-        raw.phone_ns.append(np.asarray([batch.phone_ns], dtype=np.int64))
-        raw.elapsed_ns.append(np.asarray([batch.elapsed_ns], dtype=np.int64))
-        raw.t_polar.append(np.asarray(batch.timestamps_ns, dtype=np.int64))
-        raw.values_uv.append(np.asarray(batch.values, dtype=np.float32))
-        return len(batch.timestamps_ns)
+        if layout.mode == TS_LINEAR:
+            first, last = struct.unpack_from("<qq", payload, layout.timestamps_offset)
+            stamps = None
+        else:
+            stamps = np.frombuffer(
+                payload, dtype="<i8", count=layout.count, offset=layout.timestamps_offset
+            )
+            first, last = int(stamps[0]), int(stamps[-1])
+        values = np.frombuffer(
+            payload,
+            dtype=_NARROW if layout.values_i16 else wide,
+            count=layout.count * per_sample,
+            offset=layout.values_offset,
+        ).astype(np.float32)
+        values /= np.float32(1000.0)
+        if stream == STREAM_ECG:
+            saturated += int(np.count_nonzero(np.abs(values) >= rail_mv))
+        else:
+            values = values.reshape(-1, 3)
+        batches.append(
+            _Batch(
+                phone_ns=layout.phone_ns,
+                elapsed_ns=layout.elapsed_ns,
+                count=layout.count,
+                first_ns=first,
+                last_ns=last,
+                stamps_ns=stamps,
+                values=values if with_values else None,
+            )
+        )
+        samples += layout.count
+        last_phone_ns = max(last_phone_ns, layout.phone_ns)
+        return layout.count
 
-    info = _scan(path, 2, on_payload)
-    return raw, info
-
-
-def _decode_acc(path: Path) -> tuple[_RawAcc, FrameLogInfo]:
-    raw = _RawAcc([], [], [], [])
-
-    def on_payload(payload: bytes) -> int:
-        batch = read_acc(payload)
-        if not batch.timestamps_ns:
-            return 0
-        raw.phone_ns.append(np.asarray([batch.phone_ns], dtype=np.int64))
-        raw.elapsed_ns.append(np.asarray([batch.elapsed_ns], dtype=np.int64))
-        raw.t_polar.append(np.asarray(batch.timestamps_ns, dtype=np.int64))
-        raw.values_mg.append(np.asarray(batch.values, dtype=np.float32).reshape(-1, 3))
-        return len(batch.timestamps_ns)
-
-    info = _scan(path, 3, on_payload)
-    return raw, info
+    info = _scan(path, stream, on_payload, checked)
+    return _RawStream(
+        batches=batches,
+        info=info,
+        last_phone_ns=last_phone_ns,
+        samples=samples,
+        kept=with_values,
+        saturated=saturated,
+    )
 
 
 def _anchored_times(
@@ -244,24 +350,28 @@ def _anchored_times(
 
 
 def _sample_times_from_batches(
-    t_polar: Sequence[np.ndarray],
+    batches: Sequence[_Batch],
     anchor_s: np.ndarray,
     warnings: list[str],
     label: str,
 ) -> np.ndarray:
     """Anchor each batch on the phone clock and use strap time for spacing."""
 
-    parts: list[np.ndarray] = []
-    for i, polar in enumerate(t_polar):
-        if polar.size == 0:
-            continue
+    total = sum(batch.count for batch in batches)
+    if not batches or total == 0:
+        return np.empty(0, dtype=np.float64)
+    times = np.empty(total, dtype=np.float64)
+    at = 0
+    for i, batch in enumerate(batches):
+        polar = batch.polar_ns()
         if polar.size > 1 and np.any(np.diff(polar) < 0):
             warnings.append(f"{label}: non-monotonic strap timestamps in a batch")
-        delta_s = (polar.astype(np.float64) - float(polar[-1])) / 1e9
-        parts.append(anchor_s[i] + delta_s)
-    if not parts:
-        return np.empty(0, dtype=np.float64)
-    return np.concatenate(parts)
+        end = at + batch.count
+        np.subtract(polar, float(polar[-1]), out=times[at:end], dtype=np.float64)
+        times[at:end] /= 1e9
+        times[at:end] += anchor_s[i]
+        at = end
+    return times
 
 
 def _gaps(t_s: np.ndarray, rate_hz: float, stream: str) -> list[Gap]:
@@ -321,6 +431,23 @@ def _median_rate(t_s: np.ndarray, fallback: float) -> float:
     return float(1.0 / np.median(diffs))
 
 
+def _ordered(t_s: np.ndarray, values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Put samples in time order, without copying what is in order already."""
+
+    order = _time_order(t_s)
+    if order is None:
+        return t_s, values
+    return t_s[order], values[order]
+
+
+def _time_order(t_s: np.ndarray) -> np.ndarray | None:
+    """The sort a stream needs, or ``None`` when its samples are in time order."""
+
+    if t_s.size > 1 and np.any(np.diff(t_s) < 0):
+        return np.argsort(t_s, kind="stable")
+    return None
+
+
 def _availability(samples: int, duration_s: float, rate_hz: float) -> float:
     expected = duration_s * max(rate_hz, 0.0)
     if expected <= 0:
@@ -364,34 +491,52 @@ def _read_meta(path: Path) -> RecordingMeta:
     return RecordingMeta.from_dict(raw)
 
 
-def load_recording(directory: str | Path) -> Recording:
-    """Load one recording directory into the normalized :class:`Recording`."""
+def load_recording(
+    directory: str | Path,
+    *,
+    streams: Sequence[str] | None = None,
+    checked: Mapping[str, Sequence[FrameGap]] | None = None,
+) -> Recording:
+    """Load one recording directory into the normalized :class:`Recording`.
+
+    ``streams`` names the streams to decode into arrays; ``None`` decodes all of
+    them. A stream left out is still reported in the input quality, but its
+    samples are not kept, so a stager that does not read it costs no memory.
+
+    ``checked`` maps a file name to the byte ranges a download check skipped, as
+    :func:`taiga_worker.upload.verify_recording_file` reports them. Those ranges
+    are stepped over and no frame's CRC is checked again; without it every log is
+    checked here, which is what a directory read outside the worker gets.
+    """
 
     root = Path(directory)
     if not root.is_dir():
         raise AnalysisError("missing_recording", f"recording directory not found: {root}")
 
+    wanted = set(streams) if streams is not None else {"hr", "ecg", "acc"}
+    checked = checked or {}
+
     meta = _read_meta(root / "meta.json")
     warnings: list[str] = []
     events = _read_events(root / "events.jsonl", warnings)
 
-    hr_phone, hr_elapsed, hr_bpm, hr_flags, hr_rr, hr_info = _decode_hr(root / "hr.log")
-    ecg_raw, ecg_info = _decode_ecg(root / "ecg.log")
-    acc_raw, acc_info = _decode_acc(root / "acc.log")
+    hr_phone, hr_elapsed, hr_bpm, hr_flags, hr_rr, hr_info = _decode_hr(
+        root / "hr.log", checked.get("hr.log")
+    )
+    ecg_raw = _decode_batches(
+        root / "ecg.log", STREAM_ECG, with_values="ecg" in wanted, checked=checked.get("ecg.log")
+    )
+    acc_raw = _decode_batches(
+        root / "acc.log", STREAM_ACC, with_values="acc" in wanted, checked=checked.get("acc.log")
+    )
+    ecg_info = ecg_raw.info
+    acc_info = acc_raw.info
 
     start_unix_ns = meta.start_utc_ms * 1_000_000
-    ecg_elapsed = (
-        np.concatenate(ecg_raw.elapsed_ns) if ecg_raw.elapsed_ns else np.empty(0, dtype=np.int64)
-    )
-    ecg_phone_batches = (
-        np.concatenate(ecg_raw.phone_ns) if ecg_raw.phone_ns else np.empty(0, dtype=np.int64)
-    )
-    acc_elapsed = (
-        np.concatenate(acc_raw.elapsed_ns) if acc_raw.elapsed_ns else np.empty(0, dtype=np.int64)
-    )
-    acc_phone_batches = (
-        np.concatenate(acc_raw.phone_ns) if acc_raw.phone_ns else np.empty(0, dtype=np.int64)
-    )
+    ecg_elapsed = ecg_raw.elapsed_ns()
+    ecg_phone_batches = ecg_raw.phone_ns()
+    acc_elapsed = acc_raw.elapsed_ns()
+    acc_phone_batches = acc_raw.phone_ns()
 
     # One offset from the device clock to the phone clock, robust against the
     # jitter of individual callbacks. Event times without a phone timestamp use
@@ -413,15 +558,18 @@ def load_recording(directory: str | Path) -> Recording:
     hr: HrStream | None = None
     hr_t = np.empty(0, dtype=np.float64)
     hr_byte_gaps: list[Gap] = []
+    hr_samples = 0
     if hr_info.present and hr_phone.size:
         hr_t = _anchored_times(hr_phone, hr_elapsed, start_unix_ns, warnings, "hr")
         hr_byte_gaps = _byte_gaps("hr", hr_info.gap_samples, hr_t)
-        order = np.argsort(hr_t, kind="stable")
-        hr_t = hr_t[order]
-        hr_bpm = hr_bpm[order]
-        hr_flags = hr_flags[order]
-        hr_phone = hr_phone[order]
-        hr_rr = tuple(hr_rr[i] for i in order)
+        order = _time_order(hr_t)
+        if order is not None:
+            hr_t = hr_t[order]
+            hr_bpm = hr_bpm[order]
+            hr_flags = hr_flags[order]
+            hr_phone = hr_phone[order]
+            hr_rr = tuple(hr_rr[i] for i in order)
+        hr_samples = int(hr_t.size)
         contact_supported = (hr_flags & FLAG_CONTACT_SUPPORTED) != 0
         contact = np.where(contact_supported, (hr_flags & FLAG_CONTACT) != 0, True)
         valid = contact & (hr_bpm >= HR_MIN_BPM) & (hr_bpm <= HR_MAX_BPM)
@@ -438,64 +586,66 @@ def load_recording(directory: str | Path) -> Recording:
     ecg: EcgStream | None = None
     ecg_t = np.empty(0, dtype=np.float64)
     ecg_byte_gaps: list[Gap] = []
+    ecg_time_gaps: list[Gap] = []
     ecg_anchor_s = np.empty(0, dtype=np.float64)
-    if ecg_info.present and ecg_raw.values_uv:
-        ecg_phone = ecg_phone_batches
-        ecg_anchor_s = _anchored_times(ecg_phone, ecg_elapsed, start_unix_ns, warnings, "ecg")
-        ecg_t = _sample_times_from_batches(
-            ecg_raw.t_polar,
-            ecg_anchor_s,
-            warnings,
-            "ecg",
+    ecg_rate: float | None = meta.ecg_rate_hz if ecg_info.present else None
+    ecg_samples = 0
+    if ecg_info.present and ecg_raw.batches:
+        ecg_anchor_s = _anchored_times(
+            ecg_phone_batches, ecg_elapsed, start_unix_ns, warnings, "ecg"
         )
+        ecg_t = _sample_times_from_batches(ecg_raw.batches, ecg_anchor_s, warnings, "ecg")
         ecg_byte_gaps = _byte_gaps("ecg", ecg_info.gap_samples, ecg_t)
-        ecg_uv = np.concatenate(ecg_raw.values_uv)
-        ecg_mv = (ecg_uv / 1000.0).astype(np.float32, copy=False)
-        order = np.argsort(ecg_t, kind="stable")
-        ecg_t = ecg_t[order]
-        ecg_mv = ecg_mv[order]
-        ecg_phone = np.repeat(ecg_phone, [len(x) for x in ecg_raw.values_uv])[order]
-        saturated = np.abs(ecg_mv) >= (ECG_RAIL_UV / 1000.0)
-        ecg = EcgStream(
-            t_s=ecg_t,
-            voltage_mv=ecg_mv,
-            saturated=saturated,
-            rate_hz=_median_rate(ecg_t, meta.ecg_rate_hz),
-            phone_ns=ecg_phone,
-        )
+        ecg_samples = int(ecg_t.size)
+        if ecg_raw.kept:
+            voltage = np.concatenate([batch.values for batch in ecg_raw.batches])
+            ecg_t, voltage = _ordered(ecg_t, voltage)
+            ecg_rate = _median_rate(ecg_t, meta.ecg_rate_hz)
+            ecg_time_gaps = _gaps(ecg_t, ecg_rate, "ecg")
+            ecg = EcgStream(
+                t_s=ecg_t,
+                voltage_mv=voltage,
+                saturated=np.abs(voltage) >= (ECG_RAIL_UV / 1000.0),
+                rate_hz=ecg_rate,
+            )
+        else:
+            # Reported, not kept: only the rate and the gaps are read from it.
+            ecg_t.sort()
+            ecg_rate = _median_rate(ecg_t, meta.ecg_rate_hz)
+            ecg_time_gaps = _gaps(ecg_t, ecg_rate, "ecg")
+            ecg_t = np.empty(0, dtype=np.float64)
 
     acc: AccStream | None = None
     acc_t = np.empty(0, dtype=np.float64)
     acc_byte_gaps: list[Gap] = []
+    acc_time_gaps: list[Gap] = []
     acc_anchor_s = np.empty(0, dtype=np.float64)
-    if acc_info.present and acc_raw.values_mg:
-        acc_phone = acc_phone_batches
-        acc_anchor_s = _anchored_times(acc_phone, acc_elapsed, start_unix_ns, warnings, "acc")
-        acc_t = _sample_times_from_batches(
-            acc_raw.t_polar,
-            acc_anchor_s,
-            warnings,
-            "acc",
+    acc_rate: float | None = meta.acc_rate_hz if acc_info.present else None
+    acc_samples = 0
+    if acc_info.present and acc_raw.batches:
+        acc_anchor_s = _anchored_times(
+            acc_phone_batches, acc_elapsed, start_unix_ns, warnings, "acc"
         )
+        acc_t = _sample_times_from_batches(acc_raw.batches, acc_anchor_s, warnings, "acc")
         acc_byte_gaps = _byte_gaps("acc", acc_info.gap_samples, acc_t)
-        acc_mg = np.concatenate(acc_raw.values_mg)
-        acc_g = (acc_mg / 1000.0).astype(np.float32, copy=False)
-        order = np.argsort(acc_t, kind="stable")
-        acc_t = acc_t[order]
-        acc_g = acc_g[order]
-        acc_phone = np.repeat(acc_phone, [len(x) for x in acc_raw.values_mg])[order]
-        acc = AccStream(
-            t_s=acc_t,
-            xyz_g=acc_g,
-            rate_hz=_median_rate(acc_t, meta.acc_rate_hz),
-            phone_ns=acc_phone,
-        )
+        acc_samples = int(acc_t.size)
+        if acc_raw.kept:
+            xyz = np.concatenate([batch.values for batch in acc_raw.batches])
+            acc_t, xyz = _ordered(acc_t, xyz)
+            acc_rate = _median_rate(acc_t, meta.acc_rate_hz)
+            acc_time_gaps = _gaps(acc_t, acc_rate, "acc")
+            acc = AccStream(t_s=acc_t, xyz_g=xyz, rate_hz=acc_rate)
+        else:
+            acc_t.sort()
+            acc_rate = _median_rate(acc_t, meta.acc_rate_hz)
+            acc_time_gaps = _gaps(acc_t, acc_rate, "acc")
+            acc_t = np.empty(0, dtype=np.float64)
 
     last_sample = max(
         [start_unix_ns]
         + ([int(hr.phone_ns.max())] if hr is not None and hr.phone_ns.size else [])
-        + ([int(ecg.phone_ns.max())] if ecg is not None and ecg.phone_ns.size else [])
-        + ([int(acc.phone_ns.max())] if acc is not None and acc.phone_ns.size else [])
+        + ([ecg_raw.last_phone_ns] if ecg_raw.batches else [])
+        + ([acc_raw.last_phone_ns] if acc_raw.batches else [])
         + ([events[-1].phone_ns] if events else [])
     )
     end_unix_ns = max(start_unix_ns, last_sample)
@@ -504,11 +654,6 @@ def load_recording(directory: str | Path) -> Recording:
     duration_s = max(0.0, (end_unix_ns - start_unix_ns) / 1e9)
 
     hr_rate = hr.rate_hz if hr is not None else (1.0 if hr_info.present else None)
-    ecg_rate = ecg.rate_hz if ecg is not None else (meta.ecg_rate_hz if ecg_info.present else None)
-    acc_rate = acc.rate_hz if acc is not None else (meta.acc_rate_hz if acc_info.present else None)
-    hr_samples = int(hr.t_s.size) if hr is not None else 0
-    ecg_samples = int(ecg.t_s.size) if ecg is not None else 0
-    acc_samples = int(acc.t_s.size) if acc is not None else 0
 
     hr_report = StreamReport(
         hr_info.present,
@@ -543,8 +688,8 @@ def load_recording(directory: str | Path) -> Recording:
 
     gaps: list[Gap] = []
     gaps.extend(_merge_gaps(_gaps(hr_t, hr_rate or 1.0, "hr") + hr_byte_gaps))
-    gaps.extend(_merge_gaps(_gaps(ecg_t, ecg_rate or meta.ecg_rate_hz, "ecg") + ecg_byte_gaps))
-    gaps.extend(_merge_gaps(_gaps(acc_t, acc_rate or meta.acc_rate_hz, "acc") + acc_byte_gaps))
+    gaps.extend(_merge_gaps(ecg_time_gaps + ecg_byte_gaps))
+    gaps.extend(_merge_gaps(acc_time_gaps + acc_byte_gaps))
 
     clock_syncs, clock_jumps = _clock_events(
         events,
@@ -575,9 +720,7 @@ def load_recording(directory: str | Path) -> Recording:
         hr_contact_fraction=None
         if hr is None or hr.contact.size == 0
         else float(np.mean(hr.contact)),
-        ecg_saturated_fraction=None
-        if ecg is None or ecg.saturated.size == 0
-        else float(np.mean(ecg.saturated)),
+        ecg_saturated_fraction=None if ecg_samples == 0 else ecg_raw.saturated / ecg_samples,
         gaps=tuple(gaps),
         clock_syncs=tuple(clock_syncs),
         clock_jumps=tuple(clock_jumps),
@@ -600,9 +743,9 @@ def _clock_events(
     events: Sequence[RecordingEvent],
     start_unix_ns: int,
     elapsed_offset_ns: float,
-    ecg_raw: _RawEcg,
+    ecg_raw: _RawStream,
     ecg_anchor_s: np.ndarray,
-    acc_raw: _RawAcc,
+    acc_raw: _RawStream,
     acc_anchor_s: np.ndarray,
     warnings: list[str],
 ) -> tuple[list[ClockSync], list[ClockJump]]:
@@ -623,19 +766,12 @@ def _clock_events(
             )
 
     jumps: list[ClockJump] = []
-    for label, phone_batches, elapsed_batches, polar_batches, anchors in (
-        ("ecg", ecg_raw.phone_ns, ecg_raw.elapsed_ns, ecg_raw.t_polar, ecg_anchor_s),
-        ("acc", acc_raw.phone_ns, acc_raw.elapsed_ns, acc_raw.t_polar, acc_anchor_s),
-    ):
-        if not phone_batches or not elapsed_batches or not polar_batches:
+    for label, raw, anchors in (("ecg", ecg_raw, ecg_anchor_s), ("acc", acc_raw, acc_anchor_s)):
+        if not raw.batches:
             continue
-        phone = np.concatenate(phone_batches).astype(np.int64)
-        elapsed = np.concatenate(elapsed_batches).astype(np.int64)
-        if not np.any(elapsed > 0) or phone.size != len(polar_batches):
-            continue
-        if anchors.size != elapsed.size:
-            continue
-        if any(polar.size == 0 for polar in polar_batches):
+        phone = raw.phone_ns()
+        elapsed = raw.elapsed_ns()
+        if not np.any(elapsed > 0) or anchors.size != elapsed.size:
             continue
 
         # How far the phone wall clock is from the monotonic clock. A stable
@@ -646,13 +782,9 @@ def _clock_events(
 
         # How far the strap's last sample is from the phone wall clock. A
         # battery reset or reconnect can move this without moving the phone.
-        strap_offsets = np.asarray(
-            [
-                (float(polar[-1]) - POLAR_EPOCH_OFFSET_NS - float(phone[index])) / 1e9
-                for index, polar in enumerate(polar_batches)
-            ],
-            dtype=np.float64,
-        )
+        strap_offsets = (
+            raw.last_stamps_ns() - POLAR_EPOCH_OFFSET_NS - phone.astype(np.float64)
+        ) / 1e9
         strap_changes = np.diff(strap_offsets)
 
         for index in range(phone_changes.size):

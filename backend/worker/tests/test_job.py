@@ -7,7 +7,10 @@ from pathlib import Path
 
 import pytest
 from taiga_worker.analysis import AnalysisError
+from taiga_worker.analysis.registry import installed_ids
+from taiga_worker.config import from_env
 from taiga_worker.job import analyze, main
+from taiga_worker.runner import JobRunner
 
 from tests import analysis_fixture as fx
 
@@ -67,6 +70,36 @@ def test_missing_recording_dir_is_a_clear_error() -> None:
     with pytest.raises(AnalysisError) as context:
         analyze({"id": "job1", "model": "baseline"})
     assert context.value.code == "missing_recording"
+
+
+def test_a_job_runs_with_the_default_configuration(tmp_path: Path) -> None:
+    """A worker left at its defaults runs every stager this image offers.
+
+    The fixture is long enough for the default parameters of every stager, so the
+    job is the one a plain deploy runs: no memory variable, no stager settings.
+    """
+
+    fx.write_recording(tmp_path, duration_s=3900)
+    offered = installed_ids()
+    assert "baseline" in offered
+    config = from_env(
+        env={"TAIGA_WORKER_EMAIL": "worker@example.com", "TAIGA_WORKER_PASSWORD": "secret"},
+        argv=[],
+        installed_stagers=offered,
+    )
+
+    runner = JobRunner(memory_mb=config.job_memory_mb, timeout_s=120)
+    for model in offered:
+        outcome = runner.run(
+            {
+                "id": f"default-{model}",
+                "recording_dir": str(tmp_path),
+                "model": model,
+                "params": {},
+                "worker": "test-worker",
+            }
+        )
+        assert outcome.ok, f"{model}: {outcome.error}"
 
 
 def test_main_prints_a_failure_json_for_a_missing_recording(

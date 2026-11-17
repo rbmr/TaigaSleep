@@ -317,7 +317,6 @@ class EcgStream:
     voltage_mv: np.ndarray
     saturated: np.ndarray
     rate_hz: float
-    phone_ns: np.ndarray
 
     @property
     def valid(self) -> np.ndarray:
@@ -329,7 +328,6 @@ class AccStream:
     t_s: np.ndarray
     xyz_g: np.ndarray
     rate_hz: float
-    phone_ns: np.ndarray
 
     @property
     def magnitude_g(self) -> np.ndarray:

@@ -274,18 +274,20 @@ virtual memory at import:
 | `3072` | Passed; same peak RSS, shorter runtime noise. |
 
 A practical minimum is a 2 vCPU, 4 GB RAM CPU-only machine. The default worker
-image is about 1.6 GB on disk; allow another 1 GB for recordings, the temporary
-copy one job downloads and the container image cache. Set
-`TAIGA_JOB_MEMORY_MB=2048` (or `0` to disable the cap when the host has
-headroom) and keep `TAIGA_JOB_TIMEOUT_S` at its default. Compose uses a 2 GB
-container limit and a 2048 MB job limit. The worker logs a warning when
-wav2sleep is installed with a smaller limit. Numeric libraries are already
-limited to one thread; the adapter also calls `torch.set_num_threads(1)`.
+image is about 1.45 GB on disk; allow another 1 GB for recordings, the temporary
+copy one job downloads and the container image cache. The job limit defaults to
+2048 MB when wav2sleep is installed, so a default deploy needs no variable; set
+`TAIGA_JOB_MEMORY_MB` yourself only to change it (or to `0` to disable the cap
+when the host has headroom), and keep `TAIGA_JOB_TIMEOUT_S` at its default.
+Compose uses a 2 GB container limit and a 2048 MB job limit. The worker logs a
+warning when wav2sleep is installed with an explicit limit below 1536 MB.
+Numeric libraries are already limited to one thread; the adapter also calls
+`torch.set_num_threads(1)`.
 
-On a 10 h synthetic night in the default image, `TAIGA_JOB_MEMORY_MB=2048`
-peaked at **746 MB** of RSS; the real-night table above peaked at 859 MB. The
-2 GB container limit leaves headroom for the supervisor, the torch import and
-page cache. A host below 4 GB should use the baseline-only image.
+On a 9 h synthetic night in the default image, a job at the default limit peaked
+at about **700 MB** of RSS; the real-night table above peaked at 859 MB. The 2 GB
+container limit leaves headroom for the supervisor, the torch import and page
+cache. A host below 4 GB should use the baseline-only image.
 
 ## Comparing with SleepECG
 

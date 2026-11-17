@@ -146,8 +146,9 @@ a job. When the extra and checkpoint are present the worker advertises
 `wav2sleep`; the app prefers wav2sleep and uses baseline only when it is unavailable or incompatible.
 The adapter gates on Polar HR contact and ECG signal quality, so a detached
 strap becomes `unknown` instead of wake, and smooths stage probabilities to
-remove per-epoch flicker. Set `TAIGA_JOB_MEMORY_MB=2048` (the default 1024 is
-too low for PyTorch) and expect about 1.5 GB of extra disk. Full install,
+remove per-epoch flicker. The job limit is 2048 MB by default when the model is
+installed, so a default deploy needs no variable; expect about 1.5 GB of extra
+disk. Full install,
 adapter, provenance and benchmark notes:
 [`docs/wav2sleep.md`](../docs/wav2sleep.md).
 
@@ -164,8 +165,9 @@ uv sync --frozen --extra sleepecg
 The bundled classifiers are part of the package, so there is no separate
 checkpoint or runtime download. The default three-class model distinguishes
 Wake/REM/NREM; a two-class Wake/Sleep classifier is also available. Deep sleep
-is never invented. Use `TAIGA_JOB_MEMORY_MB=2048` and expect about 1.5 GB of
-extra disk. See [`docs/sleepecg.md`](../docs/sleepecg.md).
+is never invented. The job limit is 2048 MB by default when SleepECG is
+installed; expect about 1.5 GB of extra disk. See
+[`docs/sleepecg.md`](../docs/sleepecg.md).
 
 ## Configuration
 
@@ -242,7 +244,7 @@ Command-line flags take precedence over environment variables.
 | `TAIGA_WORKER_ID` | `--worker-id` | hostname-pid | Name recorded on a lease. |
 | `TAIGA_POLL_INTERVAL_S` | `--poll-interval` | `60` | Fallback when the queue is empty: claim again after this long without a change. New work normally arrives through the realtime stream. |
 | `TAIGA_JOB_LEASE_S` | `--lease-seconds` | `1800` | Lease length; an expired lease is requeued. |
-| `TAIGA_JOB_MEMORY_MB` | `--memory-mb` | `1024` | Address-space limit for one job; `0` disables it. Use `2048` for wav2sleep or SleepECG. |
+| `TAIGA_JOB_MEMORY_MB` | `--memory-mb` | `2048` with wav2sleep or SleepECG installed, else `1024` | Address-space limit for one job; `0` disables it. |
 | `TAIGA_JOB_TIMEOUT_S` | `--timeout` | `3600` | Wall-clock limit for one job. |
 | `TAIGA_WAV2SLEEP_CHECKPOINT` | - | unset | Local checkpoint directory for the optional wav2sleep extra. |
 | `TAIGA_LOG_LEVEL` | `--log-level` | `INFO` | Python log level. |
@@ -272,8 +274,8 @@ pinned index, `wav2sleep` at a specific git commit, and the checksum-verified
 checkpoint baked in at build time. **CI and a source checkout use
 `uv sync --frozen` without that extra.** Do not install packages with `pip`
 into the worker environment or edit `uv.lock` by hand. The default image is
-about 1.6 GB; `WITH_WAV2SLEEP=false` builds the baseline-only image (about
-250 MB).
+about 1.45 GB; `WITH_WAV2SLEEP=false` builds the baseline-only image (about
+190 MB).
 
 ## API
 
@@ -487,18 +489,19 @@ Measured on x86_64 Linux (`docker image ls`, uncompressed):
 
 | Image | Size | Algorithms |
 | --- | --- | --- |
-| default | **1.63 GB** | baseline, wav2sleep |
-| `--build-arg WITH_WAV2SLEEP=false` | **243 MB** | baseline |
+| default | **1.45 GB** | baseline, wav2sleep |
+| `--build-arg WITH_WAV2SLEEP=false` | **192 MB** | baseline |
 
 A wav2sleep analysis needs Python 3.11+, one CPU and about 2 GB of address
-space. On a 10 h synthetic night in the default image, the job peaked at
-**746 MB** of RSS with `TAIGA_JOB_MEMORY_MB=2048`; the real 9.4 h night in
+space. On a 9 h synthetic night in the default image the job peaked at about
+**700 MB** of RSS at the default 2048 MB limit; the real 9.4 h night in
 [`docs/wav2sleep.md`](../docs/wav2sleep.md) peaked at 859 MB.
 `TAIGA_JOB_MEMORY_MB=1536` is the smallest limit that worked, and 1280 failed
-while allocating the model input. The Compose defaults are 2048 MB for the job
-and 2.5 GB for the container, which keeps the container limit at least 512 MB
-above the job limit and leaves room for the supervisor, the torch import and
-page cache.
+while allocating the model input, so the default is 2048 MB whenever an ML
+stager is installed and 1024 MB otherwise. The Compose defaults are 2048 MB for
+the job and 2.5 GB for the container, which keeps the container limit at least
+512 MB above the job limit and leaves room for the supervisor, the torch import
+and page cache.
 
 The host therefore needs:
 
@@ -639,7 +642,7 @@ worker idle, using `ps -o rss=` (resident set size, including shared pages):
 The supervisor imports numpy when it reports installed algorithms. That keeps
 the worker self-contained; the analysis subprocess is still the only heavy
 part. The default worker image also contains PyTorch and the checkpoint
-(1.63 GB on disk), but the idle supervisor does not import torch, so its idle
+(1.45 GB on disk), but the idle supervisor does not import torch, so its idle
 RSS stays at the figure above. Its limit is configurable via
 `TAIGA_JOB_MEMORY_MB`, and numeric libraries are single-threaded.
 

@@ -225,3 +225,72 @@ def test_analysis_is_identical_for_the_same_samples_in_either_ecg_codec(
         return payload
 
     assert result(old) == result(new)
+
+
+class _StreamProbe(Stager):
+    """A stager that records which streams it was given."""
+
+    info = PROBE_INFO
+
+    def __init__(self, seen: list, needs: tuple[StreamNeed, ...]) -> None:
+        self.seen = seen
+        self.info = AlgorithmInfo(
+            id=PROBE_INFO.id,
+            version=PROBE_INFO.version,
+            name=PROBE_INFO.name,
+            description=PROBE_INFO.description,
+            license=PROBE_INFO.license,
+            needs=needs,
+            stage_scheme="aasm4",
+            supported_stages=AASM4_STAGES,
+        )
+
+    def stage(self, recording, params):
+        self.seen.append((recording.hr, recording.ecg, recording.acc))
+        grid = recording.epochs(30)
+        return StagingResult(stages=["light"] * grid.count)
+
+
+def _run_stream_probe(tmp_path: Path, needs: tuple[StreamNeed, ...]) -> tuple[list, dict]:
+    fx.write_recording(tmp_path, duration_s=60)
+    seen: list = []
+    stager = _StreamProbe(seen, needs)
+    registry = Registry(
+        algorithms={
+            (PROBE_INFO.id, PROBE_INFO.version): RegisteredAlgorithm(
+                info=stager.info,
+                stager=stager,
+                source="test",
+            )
+        }
+    )
+    payload = run_analysis(tmp_path, PROBE_INFO.id, {}, registry=registry).to_dict()
+    return seen, payload
+
+
+def test_a_stream_the_stager_and_the_derivations_do_not_need_is_not_decoded(
+    tmp_path: Path,
+) -> None:
+    seen, payload = _run_stream_probe(tmp_path, (StreamNeed("hr", required=True),))
+    (hr, ecg, acc) = seen[0]
+
+    assert hr is not None
+    assert acc is not None  # the movement figures and the HRV rule read it
+    assert ecg is None
+    # The stream it did not decode is still reported, so the result says the same
+    # thing about the input either way.
+    quality = payload["provenance"]["input_quality"]["streams"]
+    assert quality["ecg"]["present"]
+    assert quality["ecg"]["samples"] == 60 * 130
+    assert quality["ecg"]["rate_hz"] == pytest.approx(130.0, abs=1.0)
+
+
+def test_a_stream_the_stager_needs_is_decoded(tmp_path: Path) -> None:
+    seen, _ = _run_stream_probe(
+        tmp_path,
+        (StreamNeed("hr", required=True), StreamNeed("ecg", required=True)),
+    )
+    (_hr, ecg, _acc) = seen[0]
+
+    assert ecg is not None
+    assert ecg.t_s.size == 60 * 130

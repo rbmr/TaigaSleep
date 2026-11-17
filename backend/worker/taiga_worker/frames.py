@@ -11,9 +11,13 @@ the test fixtures. Tools run it from the worker's environment, see
 from __future__ import annotations
 
 import json
+import mmap
+import os
 import struct
 import zlib
+from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Iterator, Sequence
 
 MAGIC = b"TSLG"
@@ -79,6 +83,28 @@ def encode_frame(payload: bytes) -> bytes:
         + payload
         + struct.pack("<I", zlib.crc32(payload) & 0xFFFFFFFF)
     )
+
+
+@contextmanager
+def mapped_log(path: str | Path) -> Iterator[bytes | mmap.mmap | None]:
+    """A frame log's bytes without reading the file whole, or ``None`` if it is missing.
+
+    The mapping is read-only and lives as long as the ``with`` block, so a reader
+    walks the frames of a whole night without holding the file in memory. The file
+    cannot be changed while the block runs.
+    """
+
+    try:
+        handle = open(path, "rb")
+    except FileNotFoundError:
+        yield None
+        return
+    with handle:
+        if os.fstat(handle.fileno()).st_size == 0:
+            yield b""
+            return
+        with mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            yield data
 
 
 def check_header(data: bytes, stream: int) -> None:
@@ -153,11 +179,13 @@ def _damage(data: bytes, stream: int, offset: int) -> str:
     return "payload does not decode"
 
 
-def _frame_at(data: bytes, stream: int, offset: int) -> Frame | None:
+def _frame_at(data: bytes, stream: int, offset: int, *, checked: bool = False) -> Frame | None:
     """The frame at ``offset``, or None when its length, CRC or payload is off.
 
     The payload has to decode as the stream's own layout, so a length and a CRC
-    that happen to match random bytes still do not make a frame.
+    that happen to match random bytes still do not make a frame. ``checked`` says
+    the log was verified already: the frame's length is still bounds-checked, but
+    its CRC and payload are taken as they are.
     """
 
     if len(data) - offset < 8:
@@ -166,7 +194,9 @@ def _frame_at(data: bytes, stream: int, offset: int) -> Frame | None:
     end = offset + 8 + length
     if length > MAX_PAYLOAD or end > len(data):
         return None
-    payload = memoryview(data)[offset + 4 : offset + 4 + length]
+    payload = data[offset + 4 : offset + 4 + length]
+    if checked:
+        return Frame(payload, offset, end)
     expected_crc = struct.unpack_from("<I", data, offset + 4 + length)[0]
     if expected_crc != zlib.crc32(payload) & 0xFFFFFFFF:
         return None
@@ -174,10 +204,16 @@ def _frame_at(data: bytes, stream: int, offset: int) -> Frame | None:
         read_payload(stream, payload)
     except (ValueError, struct.error):
         return None
-    return Frame(bytes(payload), offset, end)
+    return Frame(payload, offset, end)
 
 
-def iter_frames(data: bytes, stream: int, gaps: list[FrameGap]) -> Iterator[Frame]:
+def iter_frames(
+    data: bytes,
+    stream: int,
+    gaps: list[FrameGap],
+    *,
+    checked: Sequence[FrameGap] | None = None,
+) -> Iterator[Frame]:
     """Yield every frame of a log that checks out, over damaged regions if need be.
 
     A region that does not hold an acceptable frame is skipped to the next offset
@@ -186,16 +222,34 @@ def iter_frames(data: bytes, stream: int, gaps: list[FrameGap]) -> Iterator[Fram
     in order; one that ends at ``len(data)`` is the log's damaged tail, after
     which there is nothing left to read. An invalid log header raises
     :class:`FrameError`, because then no byte of the file can be trusted.
+
+    ``checked`` names the ranges a previous check already skipped, as
+    :func:`taiga_worker.upload.verify_recording_file` reports them. Giving it,
+    even as an empty sequence, says the log was verified already: the ranges are
+    stepped over as before and no frame's CRC is computed a second time. The same
+    ``data`` must then be the file that was checked.
     """
 
     check_header(data, stream)
+    verified = checked is not None
+    skipped = {gap.start: gap for gap in checked or ()}
     pos = HEADER_SIZE
     while pos < len(data):
-        frame = _frame_at(data, stream, pos)
+        if pos in skipped:
+            gap = skipped[pos]
+            gaps.append(gap)
+            pos = gap.end
+            continue
+        frame = _frame_at(data, stream, pos, checked=verified)
         if frame is not None:
             yield frame
             pos = frame.end
             continue
+        if verified:
+            # The file was checked and its damaged ranges are known, so bytes here
+            # are neither a frame nor a range that was reported. Trusting them is
+            # not an option and resynchronising would read what was never checked.
+            raise FrameError(pos, "frame does not fit the checked log")
         reason = _damage(data, stream, pos)
         next_pos = None
         # A frame needs its 8-byte length-and-CRC shell, so the last candidate
@@ -335,6 +389,63 @@ class Batch:
     values_i16: bool = False
 
 
+@dataclass(frozen=True)
+class BatchLayout:
+    """Where a batch payload's fields are, without unpacking its samples.
+
+    The timestamps of a linear (mode 0) batch are two values and its samples are a
+    plain array, so a reader that needs the samples without materializing them as
+    Python objects reads them from these offsets. ``values_i16`` says the samples
+    are stored as 16-bit integers, which only an ECG payload may be.
+    """
+
+    phone_ns: int
+    elapsed_ns: int
+    mode: int
+    count: int
+    timestamps_offset: int
+    values_offset: int
+    values_bytes: int
+    values_i16: bool
+
+
+def batch_layout(
+    payload: bytes,
+    values_per_sample: int,
+    value_format: str,
+    *,
+    values_i16_allowed: bool,
+) -> BatchLayout:
+    """The header and offsets of one ECG or ACC payload, checking its length."""
+
+    phone_ns, elapsed_ns, stored_mode, count = struct.unpack_from("<qqBH", payload, 0)
+    values_i16 = bool(stored_mode & TS_VALUES_I16)
+    if values_i16 and not values_i16_allowed:
+        raise ValueError("16-bit values in a stream that has none")
+    mode = stored_mode & ~TS_VALUES_I16
+    offset = 19
+    if mode == TS_LINEAR:
+        offset += 16
+    elif mode == TS_EXPLICIT:
+        offset += 8 * count
+    else:
+        raise ValueError("unknown ts_mode %d" % mode)
+    value_pack = "h" if values_i16 else value_format
+    values_bytes = count * values_per_sample * struct.calcsize(value_pack)
+    if offset + values_bytes != len(payload):
+        raise ValueError("batch payload length mismatch")
+    return BatchLayout(
+        phone_ns,
+        elapsed_ns,
+        mode,
+        count,
+        19,
+        offset,
+        values_bytes,
+        values_i16,
+    )
+
+
 def read_hr(payload: bytes) -> HrSample:
     """The fields of one HR payload."""
 
@@ -380,31 +491,34 @@ def _read_batch(
     *,
     values_i16_allowed: bool,
 ) -> Batch:
-    phone_ns, elapsed_ns, stored_mode, count = struct.unpack_from("<qqBH", payload, 0)
-    values_i16 = bool(stored_mode & TS_VALUES_I16)
-    if values_i16 and not values_i16_allowed:
-        raise ValueError("16-bit values in a stream that has none")
-    mode = stored_mode & ~TS_VALUES_I16
-    offset = 19
-    if mode == TS_LINEAR:
-        first, last = struct.unpack_from("<qq", payload, offset)
-        offset += 16
-        timestamps = tuple(linear_timestamps(first, last, count))
-    elif mode == TS_EXPLICIT:
-        timestamps = struct.unpack_from(f"<{count}q", payload, offset)
-        offset += 8 * count
+    layout = batch_layout(
+        payload,
+        values_per_sample,
+        value_format,
+        values_i16_allowed=values_i16_allowed,
+    )
+    if layout.mode == TS_LINEAR:
+        first, last = struct.unpack_from("<qq", payload, layout.timestamps_offset)
+        timestamps = tuple(linear_timestamps(first, last, layout.count))
     else:
-        raise ValueError("unknown ts_mode %d" % mode)
-    value_pack = "h" if values_i16 else value_format
-    values = struct.unpack_from(f"<{count * values_per_sample}{value_pack}", payload, offset)
-    offset += count * values_per_sample * struct.calcsize(value_pack)
-    if offset != len(payload):
-        raise ValueError("batch payload length mismatch")
-    return Batch(phone_ns, elapsed_ns, mode, timestamps, values, values_i16)
+        timestamps = struct.unpack_from(f"<{layout.count}q", payload, layout.timestamps_offset)
+    value_pack = "h" if layout.values_i16 else value_format
+    values = struct.unpack_from(
+        f"<{layout.count * values_per_sample}{value_pack}", payload, layout.values_offset
+    )
+    return Batch(
+        layout.phone_ns,
+        layout.elapsed_ns,
+        layout.mode,
+        timestamps,
+        values,
+        layout.values_i16,
+    )
 
 
 __all__ = [
     "Batch",
+    "BatchLayout",
     "Frame",
     "FrameError",
     "FrameGap",
@@ -422,6 +536,7 @@ __all__ = [
     "TS_VALUES_I16",
     "VERSION",
     "acc_payload",
+    "batch_layout",
     "check_header",
     "ecg_payload",
     "encode_frame",
@@ -431,6 +546,7 @@ __all__ = [
     "hr_payload",
     "iter_frames",
     "linear_timestamps",
+    "mapped_log",
     "read_acc",
     "read_ecg",
     "read_hr",

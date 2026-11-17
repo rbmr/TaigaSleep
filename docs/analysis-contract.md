@@ -167,6 +167,15 @@ anchor instead of switching that stream to another clock, and time without
 samples stays a gap. A wrong or reset strap clock therefore does not move the
 recording. Clock-sync and clock-jump times use the same base as the samples.
 
+The decoder materializes the streams a stager declares in `needs`, plus HR and
+ACC, which the shared figures read for heart rate, movement and HRV. A stream
+nobody asks for is not decoded: `recording.ecg` and the like are `None` for it,
+while `recording.quality.streams` still describes the file it came from, so a
+result says the same thing about its input whatever algorithm ran. A stager that
+reads only what it declares therefore does not pay for a stream it never sees.
+ECG and ACC streams carry no per-sample `phone_ns`: every time a result uses is
+on `t_s`, and the phone timestamp is kept per batch as an internal anchor.
+
 Helpers:
 
 ```python

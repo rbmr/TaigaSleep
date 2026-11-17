@@ -17,6 +17,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 
+from ..frames import FrameGap
 from .contract import (
     CONTRACT_VERSION,
     AnalysisError,
@@ -32,6 +33,34 @@ from .items import build_items
 from .registry import Registry, discover
 
 STAGE_ORDER: tuple[Stage, ...] = ("wake", "rem", "nrem", "light", "deep", "unknown")
+# The shared derivation reads HR (heart-rate figures, HRV, coverage) and ACC
+# (movement, and the movement rule of the HRV windows) whatever the stager asks
+# for, so those two streams are always decoded. Every other stream is decoded
+# only when the chosen stager names it.
+DERIVATION_STREAMS = frozenset({"hr", "acc"})
+
+
+def _checked_gaps(source: Mapping[str, Any] | None) -> dict[str, tuple[FrameGap, ...]]:
+    """The byte ranges the download check skipped, per recording file.
+
+    The supervisor checks every file it downloaded and passes what it found on;
+    a job without that record has its logs checked while they are decoded.
+    """
+
+    files = (source or {}).get("files")
+    if not isinstance(files, Mapping):
+        return {}
+    gaps: dict[str, tuple[FrameGap, ...]] = {}
+    for name, entry in files.items():
+        ranges = entry.get("gaps") if isinstance(entry, Mapping) else None
+        if not isinstance(ranges, (list, tuple)):
+            continue
+        gaps[str(name)] = tuple(
+            FrameGap(int(item["start"]), int(item["end"]), str(item.get("reason") or "damaged"))
+            for item in ranges
+            if isinstance(item, Mapping)
+        )
+    return gaps
 
 
 @dataclass
@@ -237,7 +266,8 @@ def run_analysis(
     registered = registry.select(model, requested_version)
     info = registered.info
 
-    recording = load_recording(directory)
+    streams = {need.name for need in info.needs} | DERIVATION_STREAMS
+    recording = load_recording(directory, streams=streams, checked=_checked_gaps(source))
     if recording.duration_s < info.epoch_seconds:
         raise AnalysisError(
             "recording_too_short",

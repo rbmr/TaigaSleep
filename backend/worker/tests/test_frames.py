@@ -183,3 +183,71 @@ def test_an_acc_payload_cannot_carry_the_16_bit_flag() -> None:
 
     with pytest.raises(ValueError):
         frames.read_acc(bytes(payload))
+
+
+@pytest.mark.parametrize("stream", STREAMS, ids=STREAM_IDS.get)
+def test_a_checked_log_is_read_with_the_ranges_a_check_found(stream: int) -> None:
+    encoded = _encoded(stream, 8)
+    damaged = _corrupt(encoded[3])
+    data = fx.frame_header(stream) + b"".join(encoded[:3] + [damaged] + encoded[4:])
+
+    found: list[frames.FrameGap] = []
+    expected = [frame.payload for frame in frames.iter_frames(data, stream, found)]
+
+    gaps: list[frames.FrameGap] = []
+    checked = [frame.payload for frame in frames.iter_frames(data, stream, gaps, checked=found)]
+
+    assert checked == expected
+    assert gaps == found
+
+
+def test_a_checked_log_whose_bytes_do_not_fit_is_an_error() -> None:
+    data = (
+        fx.frame_header(frames.STREAM_HR)
+        + b"\x00\x10\x00\x00"
+        + fx.stream_payload(frames.STREAM_HR, 0)
+    )
+
+    with pytest.raises(frames.FrameError):
+        list(frames.iter_frames(data, frames.STREAM_HR, [], checked=()))
+
+
+@pytest.mark.parametrize("stream", STREAMS, ids=STREAM_IDS.get)
+def test_the_batch_layout_points_at_the_fields_a_reader_needs(stream: int) -> None:
+    payload = fx.stream_payload(stream, 0)
+    if stream == frames.STREAM_HR:
+        sample = frames.read_hr(payload)
+        assert sample.hr_bpm == 60
+        return
+    per_sample, value_format, allowed = {
+        frames.STREAM_ECG: (1, "i", True),
+        frames.STREAM_ACC: (3, "h", False),
+    }[stream]
+    layout = frames.batch_layout(payload, per_sample, value_format, values_i16_allowed=allowed)
+    batch = frames.read_ecg(payload) if stream == frames.STREAM_ECG else frames.read_acc(payload)
+
+    assert layout.phone_ns == batch.phone_ns
+    assert layout.elapsed_ns == batch.elapsed_ns
+    assert layout.mode == batch.mode
+    assert layout.count == len(batch.timestamps_ns)
+    assert layout.values_i16 == batch.values_i16
+    assert layout.values_bytes == len(payload) - layout.values_offset
+    assert layout.values_offset + layout.values_bytes == len(payload)
+
+
+def test_the_batch_layout_reads_a_32_bit_ecg_batch() -> None:
+    values = [0, 40_000, -40_000]  # beyond 16 bits, so the batch keeps 32-bit values
+    payload = fx.ecg_payload(
+        fx.START_NS,
+        0,
+        fx.POLAR_START_NS,
+        fx.POLAR_START_NS + 2 * (1_000_000_000 // 130),
+        values,
+    )
+    layout = frames.batch_layout(payload, 1, "i", values_i16_allowed=True)
+    batch = frames.read_ecg(payload)
+
+    assert not layout.values_i16
+    assert not batch.values_i16
+    assert layout.values_bytes == 4 * len(values)
+    assert batch.values == tuple(values)

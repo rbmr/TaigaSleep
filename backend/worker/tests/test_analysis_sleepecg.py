@@ -59,7 +59,6 @@ def _impulse_ecg(times_s: np.ndarray, beat_times_s: np.ndarray):
         voltage_mv=voltage,
         saturated=np.zeros(times_s.size, dtype=bool),
         rate_hz=ECG_RATE_HZ,
-        phone_ns=np.zeros(times_s.size, dtype=np.int64),
     )
     return ecg, times_s[indices]
 

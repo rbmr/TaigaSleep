@@ -3,7 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from taiga_worker.config import ConfigError, from_env
+from taiga_worker.config import (
+    DEFAULT_JOB_MEMORY_MB,
+    DEFAULT_ML_JOB_MEMORY_MB,
+    ConfigError,
+    default_job_memory_mb,
+    from_env,
+)
 
 BASE = {
     "TAIGA_WORKER_EMAIL": "worker@example.com",
@@ -12,15 +18,34 @@ BASE = {
 
 
 def test_defaults() -> None:
-    config = from_env(env=BASE, argv=[])
+    config = from_env(env=BASE, argv=[], installed_stagers=("baseline",))
     assert config.api_url == "http://127.0.0.1:8090"
     assert config.email == "worker@example.com"
     assert config.poll_interval_s == 60.0
     assert config.lease_seconds == 1800
-    assert config.job_memory_mb == 1024
+    assert config.job_memory_mb == DEFAULT_JOB_MEMORY_MB
     assert config.job_timeout_s == 3600.0
     assert not config.once
     assert config.algorithms is None
+
+
+def test_the_default_limit_fits_an_ml_stager() -> None:
+    baseline = from_env(env=BASE, argv=[], installed_stagers=("baseline",))
+    ml = from_env(env=BASE, argv=[], installed_stagers=("baseline", "wav2sleep"))
+
+    assert baseline.job_memory_mb == DEFAULT_JOB_MEMORY_MB
+    assert ml.job_memory_mb == DEFAULT_ML_JOB_MEMORY_MB
+    assert DEFAULT_ML_JOB_MEMORY_MB > DEFAULT_JOB_MEMORY_MB
+
+
+def test_an_explicit_limit_wins_over_the_installed_stagers() -> None:
+    env = dict(BASE)
+    env["TAIGA_JOB_MEMORY_MB"] = "1536"
+    from_env_value = from_env(env=env, argv=[], installed_stagers=("baseline", "wav2sleep"))
+    assert from_env_value.job_memory_mb == 1536
+
+    config = from_env(env=BASE, argv=["--memory-mb", "0"], installed_stagers=("wav2sleep",))
+    assert config.job_memory_mb == 0
 
 
 def test_env_overrides_and_url_is_normalized() -> None:
@@ -118,3 +143,16 @@ def test_bad_values_are_errors(extra: dict[str, str]) -> None:
 def test_worker_id_default_contains_host_and_pid() -> None:
     config = from_env(env=BASE, argv=[])
     assert "-" in config.worker_id
+
+
+def test_the_stager_ids_choose_the_default_limit() -> None:
+    assert default_job_memory_mb(()) == DEFAULT_JOB_MEMORY_MB
+    assert default_job_memory_mb(("baseline",)) == DEFAULT_JOB_MEMORY_MB
+    assert default_job_memory_mb(("baseline", "sleep-ecg")) == DEFAULT_ML_JOB_MEMORY_MB
+
+    # A stager the allowlist leaves out cannot be claimed, so it does not raise
+    # the limit either.
+    env = dict(BASE)
+    env["TAIGA_ALGORITHMS"] = "baseline"
+    allowed = from_env(env=env, argv=[], installed_stagers=("baseline", "wav2sleep"))
+    assert allowed.job_memory_mb == DEFAULT_JOB_MEMORY_MB

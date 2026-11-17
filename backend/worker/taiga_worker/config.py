@@ -11,6 +11,26 @@ class ConfigError(ValueError):
     """Raised when the worker configuration is incomplete or invalid."""
 
 
+# The address-space limit of one analysis subprocess. The ML stagers import
+# PyTorch, which maps about 1.5 GiB while it loads, so a worker that offers one
+# gets a limit that fits it; the baseline stager needs a fraction of that.
+DEFAULT_JOB_MEMORY_MB = 1024
+DEFAULT_ML_JOB_MEMORY_MB = 2048
+ML_STAGER_IDS = frozenset({"wav2sleep", "sleep-ecg"})
+
+
+def default_job_memory_mb(installed: Iterable[str]) -> int:
+    """The job limit a worker gets when ``TAIGA_JOB_MEMORY_MB`` is not set."""
+
+    return DEFAULT_ML_JOB_MEMORY_MB if ML_STAGER_IDS & set(installed) else DEFAULT_JOB_MEMORY_MB
+
+
+def _installed_stager_ids() -> tuple[str, ...]:
+    from .analysis.registry import installed_ids
+
+    return installed_ids()
+
+
 @dataclass(frozen=True)
 class Config:
     api_url: str
@@ -69,7 +89,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--memory-mb",
         type=int,
         help=(
-            "Address-space limit for the analysis subprocess (env: TAIGA_JOB_MEMORY_MB, 0 disables)"
+            "Address-space limit for the analysis subprocess (env: TAIGA_JOB_MEMORY_MB; "
+            "default: 2048 when an ML stager is installed, 1024 otherwise; 0 disables it)"
         ),
     )
     parser.add_argument(
@@ -146,10 +167,14 @@ def _password(args: argparse.Namespace, env: Mapping[str, str]) -> str:
 def from_env(
     env: Mapping[str, str] | None = None,
     argv: Iterable[str] | None = None,
+    *,
+    installed_stagers: Iterable[str] | None = None,
 ) -> Config:
     """Build a Config from environment variables and command-line arguments.
 
     Command-line arguments win over the environment, which wins over defaults.
+    ``installed_stagers`` is the stager ids the worker can offer; it decides the
+    default job memory limit, and is looked up in this environment when omitted.
     """
 
     env = os.environ if env is None else env
@@ -181,23 +206,33 @@ def from_env(
         1800,
         "lease seconds",
     )
-    memory_mb = _int(
-        str(args.memory_mb) if args.memory_mb is not None else _env(env, "TAIGA_JOB_MEMORY_MB"),
-        1024,
-        "memory limit",
+    memory_setting = (
+        str(args.memory_mb) if args.memory_mb is not None else _env(env, "TAIGA_JOB_MEMORY_MB")
     )
-    timeout_s = _float(
-        str(args.timeout) if args.timeout is not None else _env(env, "TAIGA_JOB_TIMEOUT_S"),
-        3600.0,
-        "job timeout",
-    )
-    log_level = (args.log_level or _env(env, "TAIGA_LOG_LEVEL") or "INFO").upper()
     algorithms_raw = args.algorithms or _env(env, "TAIGA_ALGORITHMS")
     algorithms = (
         tuple(item.strip() for item in algorithms_raw.split(",") if item.strip())
         if algorithms_raw
         else None
     )
+    if memory_setting is None:
+        offered = (
+            list(installed_stagers)
+            if installed_stagers is not None
+            else list(_installed_stager_ids())
+        )
+        if algorithms is not None:
+            offered = [name for name in offered if name in algorithms]
+        default_memory_mb = default_job_memory_mb(offered)
+    else:
+        default_memory_mb = DEFAULT_JOB_MEMORY_MB
+    memory_mb = _int(memory_setting, default_memory_mb, "memory limit")
+    timeout_s = _float(
+        str(args.timeout) if args.timeout is not None else _env(env, "TAIGA_JOB_TIMEOUT_S"),
+        3600.0,
+        "job timeout",
+    )
+    log_level = (args.log_level or _env(env, "TAIGA_LOG_LEVEL") or "INFO").upper()
 
     if poll_interval < 0.1:
         raise ConfigError("poll interval must be at least 0.1 seconds")

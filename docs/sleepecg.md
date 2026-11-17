@@ -27,7 +27,8 @@ uv sync --frozen --extra sleepecg
 
 This adds roughly 1.5 GB of dependencies. There is no separate checkpoint:
 the classifier `.zip` files are part of the installed `sleepecg` package.
-Set `TAIGA_JOB_MEMORY_MB=2048`; 1024 MiB fails during the Keras/torch import.
+The job limit defaults to 2048 MB when SleepECG is installed; 1024 MiB fails
+during the Keras/torch import.
 
 ## How the adapter works
 
@@ -185,9 +186,10 @@ an accuracy claim.
 ## Memory and small machines
 
 Keras + PyTorch behaves like wav2sleep: 1024 MiB failed during import, 1536 MiB
-passed, and **2048 MiB is the recommended minimum**. Peak RSS on real nights was
-567–653 MiB. The worker logs a warning if SleepECG is installed with a smaller
-limit. About 1.5 GB of extra disk is needed for the virtualenv.
+passed, and **2048 MiB is the recommended minimum**, which is also the default
+when SleepECG is installed. Peak RSS on real nights was 567–653 MiB. The worker
+logs a warning if SleepECG is installed with an explicit smaller limit. About
+1.5 GB of extra disk is needed for the virtualenv.
 
 ## Comparing with wav2sleep
 
