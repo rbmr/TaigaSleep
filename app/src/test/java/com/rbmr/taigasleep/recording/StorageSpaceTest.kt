@@ -69,6 +69,16 @@ class StorageSpaceTest {
   }
 
   @Test
+  fun ecgIsEstimatedAtTwoBytesPerSample() {
+    // 130 Hz of 16-bit samples plus the per-second batch overhead, for a night.
+    val ecg = RecordingConfig(hr = false, ecg = true, acc = false)
+    assertEquals(
+        (130L * 2 + 100) * 3600 * StorageSpace.NIGHT_HOURS,
+        StorageSpace.requiredBytes(ecg),
+    )
+  }
+
+  @Test
   fun aStartIsRefusedBelowTheSpaceAFullNightNeeds() {
     val config = RecordingConfig(ecg = true, acc = true)
     val required = StorageSpace.requiredBytes(config)

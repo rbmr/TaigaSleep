@@ -8,7 +8,7 @@ How the Android app stores a night on the phone. Goals, in priority order:
 2. **Appendable.** Every file is append-only. There is no "finalize" step, so a
    process kill leaves a valid recording. Uploading is "send bytes from offset N".
 3. **Compact.** Binary frames; no per-sample timestamps when they are
-   reconstructible. About 25 MB for 8 h of HR + ECG + ACC.
+   reconstructible. About 20 MB for 8 h of HR + ECG + ACC.
 4. **Streamable.** A reader needs only one frame in memory at a time.
 
 Parquet was considered and rejected for the on-device format: it writes its
@@ -164,15 +164,26 @@ than 255) are clamped with an `error` event, like ACC below.
 
 ### ECG payload (stream 2) — one per SDK batch
 
+The ECG payload layout is `polar-ecg-v2`. Its `ts_mode` byte holds two things: bit 0 selects
+the timestamp form, bit 1 says whether the samples are 16-bit or 32-bit integers.
+
 ```text
-i64 phone_ns | i64 elapsed_ns | u8 ts_mode | u16 n | ts | i32 voltage_uV[n]
-ts_mode 0 (linear):   i64 t_first | i64 t_last
-ts_mode 1 (explicit): i64 t[n]
+i64 phone_ns | i64 elapsed_ns | u8 ts_mode | u16 n | ts | voltage_uV[n]
+ts_mode bit 0 clear (0): i64 t_first | i64 t_last
+ts_mode bit 0 set   (1): i64 t[n]
+ts_mode bit 1 clear:     i32 voltage_uV[n]
+ts_mode bit 1 set:       i16 voltage_uV[n]
 ```
 
-`voltage_uV` is the SDK's microvolt value verbatim. `t_*` are the SDK sample
-timestamps verbatim: nanoseconds since **2000-01-01 00:00:00 UTC** (the Polar
-epoch — do not convert). Unix ns = Polar ns + 946684800000000000.
+`voltage_uV` is the SDK's microvolt value verbatim. A batch is stored with 16-bit samples when
+every value in it fits in i16, and with 32-bit samples when one does not; nothing is clamped,
+so both forms are lossless. The choice is flagged in the batch, so a log may hold batches of
+either width and the reader needs no guess. A batch without the width bit is byte-for-byte the
+`polar-ecg-v1` layout, which is what every recording made before the flag existed is, so those
+recordings decode unchanged. The H10 delivers values within about ±18 mV, far inside i16.
+
+`t_*` are the SDK sample timestamps verbatim: nanoseconds since **2000-01-01 00:00:00 UTC**
+(the Polar epoch — do not convert). Unix ns = Polar ns + 946684800000000000.
 
 The strap keeps its own clock, which is only right if the app set it: a recording with
 no `clock_sync` event can be days off (an unset H10 was 2.85 days behind the phone). The
@@ -182,10 +193,10 @@ reset, so sample timestamps can jump at a reconnect; the reader reports these as
 should still anchor absolute time on `phone_ns` (the phone's clock when the batch arrived) and
 use the strap timestamps for the spacing between samples; compare the two to detect a bad clock.
 
-Mode 0 reconstruction, for `i` in `0..n-1`:
+Linear (bit 0 clear) reconstruction, for `i` in `0..n-1`:
 `t[i] = t_first + ((t_last - t_first) * i) / (n - 1)` (64-bit integer division,
-truncating; `n == 1` gives `t_first`). The writer must use mode 0 **only if**
-this reproduces every SDK timestamp exactly; otherwise it writes mode 1. Never
+truncating; `n == 1` gives `t_first`). The writer must use it **only if**
+this reproduces every SDK timestamp exactly; otherwise it writes explicit timestamps. Never
 lossy.
 
 ### ACC payload (stream 3) — one per SDK batch
@@ -194,9 +205,10 @@ lossy.
 i64 phone_ns | i64 elapsed_ns | u8 ts_mode | u16 n | ts | i16 xyz_mG[n * 3]
 ```
 
-Same `ts_mode` rules as ECG. `xyz_mG` is milli-g, interleaved x, y, z, verbatim
-from the SDK. The writer must not clamp silently: if a value does not fit in
-i16, log an `error` event and clamp.
+The timestamp part of `ts_mode` follows the ECG rules. ACC values are always i16 and carry no
+width bit, so an ACC batch uses only the low bit of `ts_mode`. `xyz_mG` is milli-g,
+interleaved x, y, z, verbatim from the SDK. The writer must not clamp silently: if a value
+does not fit in i16, log an `error` event and clamp.
 
 ## events.jsonl
 

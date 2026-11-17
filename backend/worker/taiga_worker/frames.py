@@ -21,6 +21,15 @@ VERSION = 1
 HEADER_SIZE = 8
 MAX_PAYLOAD = 1 << 20
 
+# A batch's ts_mode byte holds the timestamp mode in its low bit and, for ECG, whether the
+# sample values are 16-bit integers in the bit above it. See docs/recording-format.md.
+TS_LINEAR = 0
+TS_EXPLICIT = 1
+TS_VALUES_I16 = 1 << 1
+
+I16_MIN = -(1 << 15)
+I16_MAX = (1 << 15) - 1
+
 STREAM_HR = 1
 STREAM_ECG = 2
 STREAM_ACC = 3
@@ -207,14 +216,14 @@ def encode_timestamps(values: Sequence[int]) -> tuple[int, bytes]:
 
     count = len(values)
     if count <= 1:
-        return 0, struct.pack("<qq", values[0], values[0])
+        return TS_LINEAR, struct.pack("<qq", values[0], values[0])
     first, last = values[0], values[-1]
     if all(
         first + trunc_div((last - first) * index, count - 1) == value
         for index, value in enumerate(values)
     ):
-        return 0, struct.pack("<qq", first, last)
-    return 1, struct.pack(f"<{count}q", *values)
+        return TS_LINEAR, struct.pack("<qq", first, last)
+    return TS_EXPLICIT, struct.pack(f"<{count}q", *values)
 
 
 def hr_payload(
@@ -237,16 +246,33 @@ def ecg_payload(
     elapsed_ns: int,
     timestamps_ns: Sequence[int],
     voltage_uv: Iterable[int],
+    *,
+    values_i16: bool | None = None,
 ) -> bytes:
-    """One ECG batch; the values are microvolts, verbatim from the sensor."""
+    """One ECG batch in the polar-ecg-v2 layout; values are microvolts from the sensor.
+
+    ``values_i16`` left at None stores the batch as 16-bit samples when every value fits,
+    which is what a recording made now does, and as 32-bit otherwise. True or False forces
+    one width, for compatibility tests. Nothing is clamped: a value that does not fit in the
+    requested width is an error.
+    """
 
     values = [int(value) for value in voltage_uv]
     mode, timestamps = encode_timestamps(timestamps_ns)
+    if values_i16 is None:
+        values_i16 = all(I16_MIN <= value <= I16_MAX for value in values)
+    if values_i16:
+        if any(not I16_MIN <= value <= I16_MAX for value in values):
+            raise ValueError("ECG value does not fit in 16 bits")
+        mode |= TS_VALUES_I16
+        packed = struct.pack(f"<{len(values)}h", *values)
+    else:
+        packed = struct.pack(f"<{len(values)}i", *values)
     return (
         struct.pack("<qq", phone_ns, elapsed_ns)
         + struct.pack("<BH", mode, len(values))
         + timestamps
-        + struct.pack(f"<{len(values)}i", *values)
+        + packed
     )
 
 
@@ -305,6 +331,8 @@ class Batch:
     timestamps_ns: tuple[int, ...]
     # ECG voltages in microvolts, or ACC milli-g interleaved x, y, z.
     values: tuple[int, ...]
+    # True when the payload stored its values as 16-bit integers.
+    values_i16: bool = False
 
 
 def read_hr(payload: bytes) -> HrSample:
@@ -318,15 +346,19 @@ def read_hr(payload: bytes) -> HrSample:
 
 
 def read_ecg(payload: bytes) -> Batch:
-    """The timestamps and microvolt values of one ECG payload."""
+    """The timestamps and microvolt values of one ECG payload.
 
-    return _read_batch(payload, values_per_sample=1, value_format="i")
+    A batch written now may hold 16-bit values, flagged in its ts_mode byte; a batch without
+    the flag holds 32-bit values, the way every recording made before it did.
+    """
+
+    return _read_batch(payload, values_per_sample=1, value_format="i", values_i16_allowed=True)
 
 
 def read_acc(payload: bytes) -> Batch:
     """The timestamps and milli-g values of one ACC payload."""
 
-    return _read_batch(payload, values_per_sample=3, value_format="h")
+    return _read_batch(payload, values_per_sample=3, value_format="h", values_i16_allowed=False)
 
 
 def read_payload(stream: int, payload: bytes) -> HrSample | Batch:
@@ -341,23 +373,34 @@ def read_payload(stream: int, payload: bytes) -> HrSample | Batch:
     raise ValueError(f"unknown stream id {stream}")
 
 
-def _read_batch(payload: bytes, values_per_sample: int, value_format: str) -> Batch:
-    phone_ns, elapsed_ns, mode, count = struct.unpack_from("<qqBH", payload, 0)
+def _read_batch(
+    payload: bytes,
+    values_per_sample: int,
+    value_format: str,
+    *,
+    values_i16_allowed: bool,
+) -> Batch:
+    phone_ns, elapsed_ns, stored_mode, count = struct.unpack_from("<qqBH", payload, 0)
+    values_i16 = bool(stored_mode & TS_VALUES_I16)
+    if values_i16 and not values_i16_allowed:
+        raise ValueError("16-bit values in a stream that has none")
+    mode = stored_mode & ~TS_VALUES_I16
     offset = 19
-    if mode == 0:
+    if mode == TS_LINEAR:
         first, last = struct.unpack_from("<qq", payload, offset)
         offset += 16
         timestamps = tuple(linear_timestamps(first, last, count))
-    elif mode == 1:
+    elif mode == TS_EXPLICIT:
         timestamps = struct.unpack_from(f"<{count}q", payload, offset)
         offset += 8 * count
     else:
         raise ValueError("unknown ts_mode %d" % mode)
-    values = struct.unpack_from(f"<{count * values_per_sample}{value_format}", payload, offset)
-    offset += count * values_per_sample * struct.calcsize(value_format)
+    value_pack = "h" if values_i16 else value_format
+    values = struct.unpack_from(f"<{count * values_per_sample}{value_pack}", payload, offset)
+    offset += count * values_per_sample * struct.calcsize(value_pack)
     if offset != len(payload):
         raise ValueError("batch payload length mismatch")
-    return Batch(phone_ns, elapsed_ns, mode, timestamps, values)
+    return Batch(phone_ns, elapsed_ns, mode, timestamps, values, values_i16)
 
 
 __all__ = [
@@ -374,6 +417,9 @@ __all__ = [
     "STREAM_ECG",
     "STREAM_HR",
     "STREAM_IDS",
+    "TS_EXPLICIT",
+    "TS_LINEAR",
+    "TS_VALUES_I16",
     "VERSION",
     "acc_payload",
     "check_header",

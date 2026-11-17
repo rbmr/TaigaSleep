@@ -357,3 +357,17 @@ def test_a_device_clock_jump_and_reconnect_keep_streams_aligned(tmp_path: Path) 
     assert recording.quality.clock_jumps == ()
     gaps = [gap for gap in recording.quality.gaps if gap.stream == "hr"]
     assert any(gap.start_s <= 59.0 and gap.end_s >= 70.0 for gap in gaps)
+
+
+def test_an_ecg_log_in_the_old_codec_decodes_to_the_same_samples(tmp_path: Path) -> None:
+    old = fx.write_recording(tmp_path / "old", duration_s=6, ecg_values_i16=False)
+    new = fx.write_recording(tmp_path / "new", duration_s=6, ecg_values_i16=True)
+
+    old_ecg = load_recording(old).ecg
+    new_ecg = load_recording(new).ecg
+    assert old_ecg is not None and new_ecg is not None
+    assert old_ecg.voltage_mv.size == new_ecg.voltage_mv.size == 6 * 130
+    assert np.array_equal(old_ecg.voltage_mv, new_ecg.voltage_mv)
+    assert np.array_equal(old_ecg.t_s, new_ecg.t_s)
+    # The new log holds the same samples in half the bytes.
+    assert (new / "ecg.log").stat().st_size < (old / "ecg.log").stat().st_size

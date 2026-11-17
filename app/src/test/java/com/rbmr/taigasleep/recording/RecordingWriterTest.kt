@@ -127,6 +127,9 @@ class RecordingWriterTest {
     val ecg = mutableListOf<ByteArray>()
     FrameLog.scan(File(w.dir, "ecg.log")) { ecg += it }
     assertEquals(1, ecg.size)
+    val ecgBatch = Payloads.decodeEcg(ecg.single())
+    assertEquals(listOf(1, -2, 3), ecgBatch.values.toList())
+    assertTrue(ecgBatch.valuesI16)
     val acc = mutableListOf<ByteArray>()
     FrameLog.scan(File(w.dir, "acc.log")) { acc += it }
     assertEquals(1, acc.size)

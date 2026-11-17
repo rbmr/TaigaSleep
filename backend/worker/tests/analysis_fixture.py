@@ -60,6 +60,8 @@ def ecg_payload(
     t_first: int,
     t_last: int,
     voltage_uv: Sequence[int],
+    *,
+    values_i16: bool | None = None,
 ) -> bytes:
     values = list(voltage_uv)
     return frames.ecg_payload(
@@ -67,6 +69,7 @@ def ecg_payload(
         elapsed_ns,
         frames.linear_timestamps(t_first, t_last, len(values)),
         values,
+        values_i16=values_i16,
     )
 
 
@@ -313,7 +316,13 @@ def _batch_starts(n: int, rate_hz: int) -> list[tuple[int, int]]:
     return [(first, min(size, n - first)) for first in range(0, n, size)]
 
 
-def ecg_log(*, duration_s: int, rate_hz: int = 130, stream_start_s: float = 0.0) -> bytes:
+def ecg_log(
+    *,
+    duration_s: int,
+    rate_hz: int = 130,
+    stream_start_s: float = 0.0,
+    values_i16: bool | None = None,
+) -> bytes:
     n = max(1, duration_s * rate_hz)
     data = bytearray(frame_header(STREAM_ECG))
     spacing = 1_000_000_000 // rate_hz
@@ -329,6 +338,7 @@ def ecg_log(*, duration_s: int, rate_hz: int = 130, stream_start_s: float = 0.0)
                 start_ns + first * spacing,
                 start_ns + (first + count - 1) * spacing,
                 values,
+                values_i16=values_i16,
             )
         )
     return bytes(data)
@@ -384,6 +394,7 @@ def write_recording(
     rr_series_ms: Sequence[int] | None = None,
     bad_hr_tail: bytes | None = None,
     stream_start_s: float = 0.0,
+    ecg_values_i16: bool | None = None,
 ) -> Path:
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
@@ -407,7 +418,11 @@ def write_recording(
     (path / "hr.log").write_bytes(hr)
     if include_ecg:
         (path / "ecg.log").write_bytes(
-            ecg_log(duration_s=duration_s, stream_start_s=stream_start_s)
+            ecg_log(
+                duration_s=duration_s,
+                stream_start_s=stream_start_s,
+                values_i16=ecg_values_i16,
+            )
         )
     if include_acc:
         (path / "acc.log").write_bytes(

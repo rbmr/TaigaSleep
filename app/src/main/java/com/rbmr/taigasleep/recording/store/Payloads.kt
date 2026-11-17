@@ -12,6 +12,13 @@ object Payloads {
   const val TS_LINEAR = 0
   const val TS_EXPLICIT = 1
 
+  /**
+   * A set bit in the ts_mode byte of an ECG batch says its values are 16-bit integers; a clear
+   * bit says 32-bit, which is how every recording made before the flag was added is stored. The
+   * timestamp mode is the rest of the byte. See `docs/recording-format.md`.
+   */
+  const val TS_VALUES_I16 = 1 shl 1
+
   const val MAX_RR = 255
   const val MAX_BATCH = 65535
 
@@ -62,15 +69,29 @@ object Payloads {
   fun reconstruct(first: Long, last: Long, n: Int): LongArray =
       LongArray(n) { i -> if (n == 1) first else first + ((last - first) * i) / (n - 1) }
 
+  /**
+   * One ECG batch in the `polar-ecg-v2` payload layout. Values are stored as 16-bit integers
+   * when every sample of the batch fits, and as 32-bit otherwise. The choice is flagged in the
+   * batch's ts_mode, so a reader needs no guess. Nothing is clamped: the sensor's limits are far
+   * inside i16, and a batch that reaches beyond it is stored 32-bit so that it stays exact.
+   */
   fun encodeEcg(phoneNs: Long, elapsedNs: Long, t: LongArray, voltageUv: IntArray): Encoded {
     val n = t.size
     require(n in 1..MAX_BATCH && voltageUv.size == n) { "bad ecg batch" }
     val linear = isLinear(t)
-    val b = buffer(16 + 1 + 2 + (if (linear) 16 else 8 * n) + 4 * n)
-    b.putLong(phoneNs).putLong(elapsedNs).put((if (linear) TS_LINEAR else TS_EXPLICIT).toByte())
+    val valuesI16 = voltageUv.all { it >= Short.MIN_VALUE && it <= Short.MAX_VALUE }
+    val valueBytes = if (valuesI16) 2 else 4
+    val mode =
+        (if (linear) TS_LINEAR else TS_EXPLICIT) or (if (valuesI16) TS_VALUES_I16 else 0)
+    val b = buffer(16 + 1 + 2 + (if (linear) 16 else 8 * n) + valueBytes * n)
+    b.putLong(phoneNs).putLong(elapsedNs).put(mode.toByte())
     b.putShort(n.toShort())
     if (linear) b.putLong(t[0]).putLong(t[n - 1]) else t.forEach { b.putLong(it) }
-    voltageUv.forEach { b.putInt(it) }
+    if (valuesI16) {
+      voltageUv.forEach { b.putShort(it.toShort()) }
+    } else {
+      voltageUv.forEach { b.putInt(it) }
+    }
     return Encoded(b.array())
   }
 
@@ -103,9 +124,13 @@ object Payloads {
   class Batch(
       val phoneNs: Long,
       val elapsedNs: Long,
+      /** Timestamp mode: [TS_LINEAR] or [TS_EXPLICIT]. */
+      val mode: Int,
       val t: LongArray,
       /** ECG: microvolts, one per sample. ACC: milli-g, interleaved x, y, z. */
       val values: IntArray,
+      /** True when the payload stored its values as 16-bit integers. */
+      val valuesI16: Boolean = false,
   )
 
   fun decodeHr(p: ByteArray): Hr {
@@ -118,15 +143,24 @@ object Payloads {
     return Hr(phone, elapsed, hr, flags, IntArray(n) { b.short.toInt() and 0xFFFF })
   }
 
-  fun decodeEcg(p: ByteArray): Batch = decodeBatch(p, perSample = 1, signed16 = false)
+  fun decodeEcg(p: ByteArray): Batch = decodeBatch(p, perSample = 1, fixedValuesI16 = null)
 
-  fun decodeAcc(p: ByteArray): Batch = decodeBatch(p, perSample = 3, signed16 = true)
+  fun decodeAcc(p: ByteArray): Batch = decodeBatch(p, perSample = 3, fixedValuesI16 = true)
 
-  private fun decodeBatch(p: ByteArray, perSample: Int, signed16: Boolean): Batch {
+  /**
+   * [fixedValuesI16] is the width of a stream that has no width flag (ACC); ECG passes null and
+   * takes the width from [TS_VALUES_I16].
+   */
+  private fun decodeBatch(p: ByteArray, perSample: Int, fixedValuesI16: Boolean?): Batch {
     val b = ByteBuffer.wrap(p).order(ByteOrder.LITTLE_ENDIAN)
     val phone = b.long
     val elapsed = b.long
-    val mode = b.get().toInt() and 0xFF
+    val rawMode = b.get().toInt() and 0xFF
+    val flagsI16 = rawMode and TS_VALUES_I16 != 0
+    require(flagsI16.not() || fixedValuesI16 == null) { "16-bit values in a stream that has none" }
+    val valuesI16 = fixedValuesI16 ?: flagsI16
+    val mode = rawMode and TS_VALUES_I16.inv()
+    require(mode == TS_LINEAR || mode == TS_EXPLICIT) { "unknown ts mode $mode" }
     val n = b.short.toInt() and 0xFFFF
     val t =
         if (mode == TS_LINEAR) {
@@ -136,8 +170,7 @@ object Payloads {
         } else {
           LongArray(n) { b.long }
         }
-    val values =
-        IntArray(n * perSample) { if (signed16) b.short.toInt() else b.int }
-    return Batch(phone, elapsed, t, values)
+    val values = IntArray(n * perSample) { if (valuesI16) b.short.toInt() else b.int }
+    return Batch(phone, elapsed, mode, t, values, valuesI16)
   }
 }

@@ -207,3 +207,21 @@ def test_the_data_quality_score_does_not_depend_on_stage_confidence(tmp_path: Pa
     assert unsure["value"] == certain["value"]
     assert unsure["components"] == certain["components"]
     assert all(component["id"] != "mean_stage_confidence" for component in unsure["components"])
+
+
+def test_analysis_is_identical_for_the_same_samples_in_either_ecg_codec(
+    tmp_path: Path,
+) -> None:
+    old = fx.write_recording(tmp_path / "old", duration_s=240, ecg_values_i16=False)
+    new = fx.write_recording(tmp_path / "new", duration_s=240, ecg_values_i16=True)
+
+    def result(directory: Path) -> dict:
+        payload = run_analysis(directory, "baseline", {}).to_dict()
+        # The run itself differs only in how long it took and how much memory it used;
+        # valid_bytes is the stored byte count, which is the one thing the codec changes.
+        payload["provenance"].pop("runtime_s")
+        payload["provenance"].pop("peak_rss_mb")
+        payload["provenance"]["input_quality"]["streams"]["ecg"].pop("valid_bytes")
+        return payload
+
+    assert result(old) == result(new)

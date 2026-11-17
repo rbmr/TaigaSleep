@@ -34,8 +34,9 @@ object StorageSpace {
 
   // Bytes one second of a stream appends at most, frame header included. HR is one sample per
   // second; ECG and ACC follow the configured rates, plus their batch headers and timestamps.
+  // ECG is stored as 16-bit samples unless a batch holds a value that does not fit.
   private const val HR_BYTES_PER_SECOND = 30L
-  private const val ECG_BYTES_PER_SAMPLE = 4L
+  private const val ECG_BYTES_PER_SAMPLE = 2L
   private const val ACC_BYTES_PER_SAMPLE = 6L
   private const val BATCH_OVERHEAD_PER_SECOND = 100L
 
