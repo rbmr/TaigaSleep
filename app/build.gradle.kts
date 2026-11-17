@@ -85,7 +85,7 @@ val hasReleaseSigning =
 
 android {
   namespace = "com.rbmr.taigasleep"
-  compileSdk = 36
+  compileSdk = 37
 
   defaultConfig {
     applicationId = "com.rbmr.taigasleep"
