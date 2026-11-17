@@ -217,6 +217,10 @@ private fun streamLabel(stream: Int): String =
         when (stream) {
           StreamId.ECG -> R.string.rec_active_ecg
           StreamId.ACC -> R.string.rec_active_acc
+          StreamId.PPG -> R.string.rec_config_ppg
+          StreamId.PPI -> R.string.rec_config_ppi
+          StreamId.GYRO -> R.string.rec_config_gyro
+          StreamId.MAG -> R.string.rec_config_mag
           else -> R.string.rec_active_hr
         }
     )

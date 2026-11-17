@@ -98,6 +98,16 @@ class StartConfigTest {
   }
 
   @Test
+  fun `a heart rate service strap offers only heart rate and beat intervals`() {
+    val config = StartConfig.resolve(saved(), offered(ecg = false, acc = false), BOTH)
+
+    assertEquals(listOf("hr", "rr"), config.options.map { it.id })
+    assertEquals(Streams(hr = true, ecg = false, acc = false), config.streams)
+    assertFalse(config.canRecordEcg)
+    assertFalse(config.canRecordAcc)
+  }
+
+  @Test
   fun `a stored mode the tracker does not offer falls back to streaming`() {
     val config = resolve(saved(mode = RecordingMode.ON_DEVICE), modes = setOf(RecordingMode.STREAM))
 
