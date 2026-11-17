@@ -55,6 +55,18 @@ class BleHrsTrackerTest {
   }
 
   @Test
+  fun connectingAgainWhileConnectingLeavesOneConnection() {
+    val seam = FakeSeam()
+    val tracker = BleHrsTracker(context, "AA:BB", "Strap", seam, FakeScheduler())
+
+    tracker.connect()
+    tracker.connect()
+
+    assertEquals(ConnectionState.CONNECTING, tracker.connection.value)
+    assertEquals(1, seam.handles.size)
+  }
+
+  @Test
   fun stoppingTheStreamsStopsTheRetries() {
     val seam = FakeSeam()
     val scheduler = FakeScheduler()

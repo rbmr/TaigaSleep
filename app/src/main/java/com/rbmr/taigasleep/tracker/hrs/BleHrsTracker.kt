@@ -115,7 +115,10 @@ class BleHrsTracker(
       if (selected.any { it == "hr" || it == "rr" }) setOf(RecordingMode.STREAM) else emptySet()
 
   override fun connect() {
-    if (_connection.value == ConnectionState.CONNECTED) return
+    if (_connection.value == ConnectionState.CONNECTED ||
+        _connection.value == ConnectionState.CONNECTING) {
+      return
+    }
     userDisconnect = false
     retry.cancel()
     retryPending = false
