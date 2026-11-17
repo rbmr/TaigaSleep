@@ -27,7 +27,6 @@ import com.rbmr.taigasleep.tracker.OnDeviceTracker
 import com.rbmr.taigasleep.tracker.PolarCodec
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.Stamp
 import com.rbmr.taigasleep.tracker.SystemClockSource
 import com.rbmr.taigasleep.tracker.Tracker

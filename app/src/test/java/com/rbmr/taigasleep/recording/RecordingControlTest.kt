@@ -6,6 +6,7 @@ import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.Codec
@@ -15,7 +16,6 @@ import com.rbmr.taigasleep.tracker.TrackerCapabilities
 import com.rbmr.taigasleep.tracker.TrackerFrame
 import com.rbmr.taigasleep.tracker.TrackerListener
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.Stamp
 import com.rbmr.taigasleep.tracker.StreamType
 import java.io.File
@@ -216,7 +216,7 @@ class RecordingControlTest {
   private class FakeSensor(
       private val stallsStart: Boolean = true,
       private val stallsStop: Boolean = false,
-  ) : SleepSensor {
+  ) : Tracker {
     override val kind = SensorKind.POLAR_H10
     override val id = ID
     override val name = "Test strap"
@@ -312,7 +312,7 @@ class RecordingControlTest {
     }
   }
 
-  private class FakeHost(private val sensor: SleepSensor) : RecordingHost {
+  private class FakeHost(private val sensor: Tracker) : RecordingHost {
     override var activeSessionId: String? = null
     override var heartbeatMs = 0L
     var running = false
@@ -320,7 +320,7 @@ class RecordingControlTest {
     var state: RecordingState? = null
     val finishedRecordings = mutableListOf<String>()
 
-    override fun obtain(kind: SensorKind, id: String, name: String): SleepSensor = sensor
+    override fun obtain(kind: SensorKind, id: String, name: String): Tracker = sensor
 
     override fun mayStart(mode: RecordingMode) = true
 

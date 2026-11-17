@@ -182,9 +182,6 @@ interface Tracker {
   fun setClock(utcMs: Long): Boolean = false
 }
 
-/** Kept as the app's old name for the same contract, so its call sites read naturally. */
-typealias SleepSensor = Tracker
-
 /** One recording the tracker stored, identified by the tracker's own id for it. */
 data class TrackerEntry(
     /** The tracker's identifier; the phone imports each one once. */
@@ -193,14 +190,7 @@ data class TrackerEntry(
     val startUtcMs: Long,
     /** Encoded frames, already stamped by the driver, in the order the tracker stored them. */
     val frames: List<TrackerFrame>,
-) {
-  /** The beat intervals an entry made of HR frames holds, for a test that states them that way. */
-  val rrMs: List<Int>
-    get() =
-        frames.filter { it.stream == "hr" }.mapNotNull {
-          runCatching { PolarCodec.decodeHr(it.payload).rrMs.firstOrNull() }.getOrNull()
-        }
-}
+)
 
 /**
  * A tracker that can hold a recording itself. The phone starts it, leaves it alone overnight, and

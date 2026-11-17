@@ -28,6 +28,12 @@ import org.junit.rules.TemporaryFolder
  * The on-device fetch as one sequence: stop, read, write, flush, verify. Only a verified import may
  * remove the tracker's copy, and a retry must not import an entry twice.
  */
+private val TrackerEntry.rrMs: List<Int>
+  get() =
+      frames.filter { it.stream == "hr" }.mapNotNull {
+        runCatching { PolarCodec.decodeHr(it.payload).rrMs.firstOrNull() }.getOrNull()
+      }
+
 class OnDeviceFetchTest {
   @get:Rule val tmp = TemporaryFolder()
   private val clock = TestClock()

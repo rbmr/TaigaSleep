@@ -18,9 +18,9 @@ import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.notifications.DeviceAlerts
 import com.rbmr.taigasleep.notifications.Notifier
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.SystemClockSource
 
 /**
@@ -116,7 +116,7 @@ class RecordingService : Service(), RecordingHost {
 
   // The Android side of the recording.
 
-  override fun obtain(kind: SensorKind, id: String, name: String): SleepSensor =
+  override fun obtain(kind: SensorKind, id: String, name: String): Tracker =
       appContainer.sensorHub.obtain(this, kind, id, name)
 
   override fun mayStart(mode: RecordingMode): Boolean = hooks.mayStart(this, mode)
@@ -358,7 +358,7 @@ class RecordingService : Service(), RecordingHost {
 
     fun start(
         context: Context,
-        sensor: SleepSensor,
+        sensor: Tracker,
         selected: Set<String>,
         mode: RecordingMode = RecordingMode.STREAM,
     ) {

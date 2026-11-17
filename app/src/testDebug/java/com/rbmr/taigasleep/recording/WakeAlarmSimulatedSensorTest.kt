@@ -3,10 +3,10 @@ package com.rbmr.taigasleep.recording
 import com.rbmr.taigasleep.TestClock
 import com.rbmr.taigasleep.recording.store.FrameLog
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.tracker.SimulatedSensor
-import com.rbmr.taigasleep.tracker.SleepSensor
 import java.time.Instant
 import java.time.ZoneId
 import java.util.concurrent.LinkedBlockingQueue
@@ -407,7 +407,7 @@ class WakeAlarmSimulatedSensorTest {
     }
   }
 
-  private class FakeHost(val sensor: SleepSensor) : RecordingHost {
+  private class FakeHost(val sensor: Tracker) : RecordingHost {
     @Volatile override var activeSessionId: String? = null
     @Volatile override var heartbeatMs = 0L
     @Volatile var armed: ArmedWake? = null
@@ -437,7 +437,7 @@ class WakeAlarmSimulatedSensorTest {
       signals.put(issued.incrementAndGet() to signal)
     }
 
-    override fun obtain(kind: SensorKind, id: String, name: String): SleepSensor = sensor
+    override fun obtain(kind: SensorKind, id: String, name: String): Tracker = sensor
 
     override fun mayStart(mode: RecordingMode) = true
 

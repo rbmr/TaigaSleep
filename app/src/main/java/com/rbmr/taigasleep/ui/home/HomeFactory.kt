@@ -14,9 +14,9 @@ import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.RecordingService
 import com.rbmr.taigasleep.recording.WakeWindow
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
-import com.rbmr.taigasleep.tracker.SleepSensor
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -58,7 +58,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
             sensors.restoreLast(app, canConnect)
           }
 
-          override fun savedConfig(sensor: SleepSensor): StartConfig = configOf(sensor, prefs)
+          override fun savedConfig(sensor: Tracker): StartConfig = configOf(sensor, prefs)
 
           override fun setStream(sensorId: String, streamId: String, on: Boolean) {
             prefs.setStreamEnabled(sensorId, streamId, on)
@@ -139,7 +139,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
   }
 
   /** The configuration step: the stored choices, resolved for the stored mode. */
-  private fun configOf(sensor: SleepSensor, prefs: RecordingPrefs): StartConfig {
+  private fun configOf(sensor: Tracker, prefs: RecordingPrefs): StartConfig {
     val chosen =
         sensor.streams
             .filter {

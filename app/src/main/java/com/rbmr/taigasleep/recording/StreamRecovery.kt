@@ -1,7 +1,7 @@
 package com.rbmr.taigasleep.recording
 
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.TrackerListener
-import com.rbmr.taigasleep.tracker.SleepSensor
 import kotlinx.coroutines.delay
 
 /** The device work one recovery step asks for. */
@@ -263,7 +263,7 @@ class StreamRecoveryPolicy(startedAtMs: Long) {
  */
 suspend fun executeRecovery(
     step: RecoveryStep,
-    sensor: SleepSensor,
+    sensor: Tracker,
     selected: Set<String>,
     listener: TrackerListener,
     reconnectPauseMs: Long = StreamRecoveryPolicy.RECONNECT_PAUSE_MS,

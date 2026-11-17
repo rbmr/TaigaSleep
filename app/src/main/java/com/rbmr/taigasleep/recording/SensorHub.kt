@@ -4,9 +4,9 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import com.rbmr.taigasleep.debug.DebugTools
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.TrackerRegistry
 import com.rbmr.taigasleep.tracker.hrs.scanHeartRateService
 import com.rbmr.taigasleep.tracker.polar.PolarGenericTracker
@@ -33,8 +33,8 @@ import kotlinx.coroutines.launch
 class SensorHub {
   private val registry = TrackerRegistry.default()
 
-  private val _sensor = MutableStateFlow<SleepSensor?>(null)
-  val sensor: StateFlow<SleepSensor?> = _sensor.asStateFlow()
+  private val _sensor = MutableStateFlow<Tracker?>(null)
+  val sensor: StateFlow<Tracker?> = _sensor.asStateFlow()
 
   private val _found = MutableStateFlow<List<FoundSensor>>(emptyList())
   val found: StateFlow<List<FoundSensor>> = _found.asStateFlow()
@@ -117,7 +117,7 @@ class SensorHub {
   }
 
   /** Returns the current tracker if it is this one, otherwise creates it and starts connecting. */
-  fun obtain(context: Context, kind: SensorKind, id: String, name: String): SleepSensor {
+  fun obtain(context: Context, kind: SensorKind, id: String, name: String): Tracker {
     _sensor.value?.let { if (it.kind == kind && it.id == id) return it }
     clear()
     val sensor =

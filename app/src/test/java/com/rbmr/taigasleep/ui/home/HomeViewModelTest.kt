@@ -9,6 +9,7 @@ import com.rbmr.taigasleep.recording.PendingFetch
 import com.rbmr.taigasleep.recording.Phase
 import com.rbmr.taigasleep.recording.WakeWindow
 import com.rbmr.taigasleep.recording.store.RecordingConfig
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
@@ -18,7 +19,6 @@ import com.rbmr.taigasleep.tracker.StreamType
 import com.rbmr.taigasleep.tracker.TrackerCapabilities
 import com.rbmr.taigasleep.tracker.TrackerListener
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SleepSensor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
@@ -32,7 +32,7 @@ private class FakeSensor(
     private val modes: Set<RecordingMode> = setOf(RecordingMode.STREAM),
     private val ecg: Boolean = true,
     private val acc: Boolean = true,
-) : SleepSensor {
+) : Tracker {
   override val kind = SensorKind.POLAR_H10
   override val id = "S1"
   override val streams =
@@ -91,7 +91,7 @@ private class FakeWork : HomeWork {
     calls += "restore:$canConnect"
   }
 
-  override fun savedConfig(sensor: SleepSensor) =
+  override fun savedConfig(sensor: Tracker) =
       StartConfig(streams, modes, mode, canEcg, canAcc, wake)
 
   override fun setStream(sensorId: String, streamId: String, on: Boolean) {
@@ -455,7 +455,7 @@ class HomeStepTest {
 
 class HomeViewModelTest {
   private val work = FakeWork()
-  private val sensor = MutableStateFlow<SleepSensor?>(null)
+  private val sensor = MutableStateFlow<Tracker?>(null)
   private val status = MutableStateFlow(CaptureStatus())
 
   private fun viewModel(): HomeViewModel =

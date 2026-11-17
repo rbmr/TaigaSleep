@@ -9,12 +9,12 @@ import com.rbmr.taigasleep.recording.store.RecordingStream
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.Clock
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.OnDeviceTracker
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.OfferedStream
 import com.rbmr.taigasleep.tracker.StreamType
 import java.io.File
@@ -100,9 +100,10 @@ class RecordingControl(
   val hasLiveSession: Boolean
     get() = live != null
 
+  @Suppress("LongParameterList")
   private class Live(
       val writer: RecordingWriter,
-      val sensor: SleepSensor,
+      val sensor: Tracker,
       val mode: RecordingMode,
       val lifecycle: RecordingLifecycle,
       val fanout: SampleFanout,
@@ -401,9 +402,10 @@ class RecordingControl(
    * picked up to be stopped or discarded: the tracker is not asked to start again. Without
    * [contact] the tracker is left alone altogether (force stop).
    */
+  @Suppress("LongParameterList", "LongMethod", "CyclomaticComplexMethod")
   private fun attach(
       writer: RecordingWriter,
-      sensor: SleepSensor,
+      sensor: Tracker,
       mode: RecordingMode,
       parked: Boolean = false,
       contact: Boolean = true,
