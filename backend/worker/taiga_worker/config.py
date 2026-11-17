@@ -209,8 +209,20 @@ def from_env(
     memory_setting = (
         str(args.memory_mb) if args.memory_mb is not None else _env(env, "TAIGA_JOB_MEMORY_MB")
     )
+    algorithms_raw = args.algorithms or _env(env, "TAIGA_ALGORITHMS")
+    algorithms = (
+        tuple(item.strip() for item in algorithms_raw.split(",") if item.strip())
+        if algorithms_raw
+        else None
+    )
     if memory_setting is None:
-        offered = installed_stagers if installed_stagers is not None else _installed_stager_ids()
+        offered = (
+            list(installed_stagers)
+            if installed_stagers is not None
+            else list(_installed_stager_ids())
+        )
+        if algorithms is not None:
+            offered = [name for name in offered if name in algorithms]
         default_memory_mb = default_job_memory_mb(offered)
     else:
         default_memory_mb = DEFAULT_JOB_MEMORY_MB
@@ -221,12 +233,6 @@ def from_env(
         "job timeout",
     )
     log_level = (args.log_level or _env(env, "TAIGA_LOG_LEVEL") or "INFO").upper()
-    algorithms_raw = args.algorithms or _env(env, "TAIGA_ALGORITHMS")
-    algorithms = (
-        tuple(item.strip() for item in algorithms_raw.split(",") if item.strip())
-        if algorithms_raw
-        else None
-    )
 
     if poll_interval < 0.1:
         raise ConfigError("poll interval must be at least 0.1 seconds")

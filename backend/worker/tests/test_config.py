@@ -149,3 +149,10 @@ def test_the_stager_ids_choose_the_default_limit() -> None:
     assert default_job_memory_mb(()) == DEFAULT_JOB_MEMORY_MB
     assert default_job_memory_mb(("baseline",)) == DEFAULT_JOB_MEMORY_MB
     assert default_job_memory_mb(("baseline", "sleep-ecg")) == DEFAULT_ML_JOB_MEMORY_MB
+
+    # A stager the allowlist leaves out cannot be claimed, so it does not raise
+    # the limit either.
+    env = dict(BASE)
+    env["TAIGA_ALGORITHMS"] = "baseline"
+    allowed = from_env(env=env, argv=[], installed_stagers=("baseline", "wav2sleep"))
+    assert allowed.job_memory_mb == DEFAULT_JOB_MEMORY_MB
