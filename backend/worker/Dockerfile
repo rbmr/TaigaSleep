@@ -6,7 +6,7 @@
 
 ARG WITH_WAV2SLEEP=true
 
-FROM ghcr.io/astral-sh/uv:0.9.7-python3.12-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:0.9.30-python3.12-bookworm-slim AS builder
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -53,7 +53,7 @@ RUN mkdir -p /app/models/wav2sleep \
     fi
 
 
-FROM ghcr.io/astral-sh/uv:0.9.7-python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:0.9.30-python3.12-bookworm-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
