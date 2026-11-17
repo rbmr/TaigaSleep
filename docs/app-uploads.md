@@ -241,7 +241,7 @@ The automatic flag and the ordered preference list live in Settings → Analysis
 
 ## Local retention
 
-Raw stream files (`hr.log`, `ecg.log`, `acc.log`) are the large part of a
+Raw stream files (the logs the recording declares, such as `hr.log`, `ecg.log` and `acc.log`) are the large part of a
 recording. **Settings → Recordings → Raw recordings** chooses when they may leave
 the phone:
 
@@ -312,7 +312,7 @@ the new server never received.
 Open a night and use its **Night details** sheet to export it. The sheet chooses what
 the archive contains:
 
-- **Raw recording** — the stream logs (`hr.log`, `ecg.log`, `acc.log`).
+- **Raw recording** — the stream logs the recording declares.
 - **Metadata** — everything that is not a stream log: `meta.json`, the event log and
   any other file of the recording directory.
 - **Analysis results** — the payload of every run this phone has already saved, one

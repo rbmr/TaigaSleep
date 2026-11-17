@@ -8,7 +8,9 @@ import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.EcgBatch
 import com.rbmr.taigasleep.tracker.HrSample
+import com.rbmr.taigasleep.tracker.PolarCodec
 import com.rbmr.taigasleep.tracker.Stamp
+import com.rbmr.taigasleep.tracker.TrackerFrame
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -75,19 +77,39 @@ class SampleFanoutTest {
     val ecg = EcgBatch(LongArray(3) { it * 7_692_307L }, intArrayOf(1, -2, 3))
     val acc = AccBatch(LongArray(2) { it * 20_000_000L }, intArrayOf(1, 2, 3, 4, 5, 6))
 
-    fanout.onHr(stamp, hr)
-    fanout.onEcg(stamp, ecg)
-    fanout.onAcc(stamp, acc)
+    fanout.onFrame(hrFrame(stamp, hr))
+    fanout.onFrame(ecgFrame(stamp, ecg))
+    fanout.onFrame(accFrame(stamp, acc))
     writer.finish(RecordingPhase.STOPPED, "done")
 
-    assertEquals(listOf(hr, ecg, acc), seen)
-    assertSame(hr, seen[0])
-    assertSame(ecg, seen[1])
-    assertSame(acc, seen[2])
+    assertEquals(3, seen.size)
+    assertEquals(60, (seen[0] as HrSample).hr)
     assertSame(stamp, seenStamp)
     assertEquals(1, frames(File(writer.dir, "hr.log")))
     assertEquals(1, frames(File(writer.dir, "ecg.log")))
     assertEquals(1, frames(File(writer.dir, "acc.log")))
+  }
+
+  private fun hrFrame(stamp: Stamp, sample: HrSample): TrackerFrame {
+    val enc =
+        PolarCodec.encodeHr(
+            stamp.phoneNs,
+            stamp.elapsedNs,
+            sample.hr,
+            PolarCodec.hrFlags(sample.contactSupported, sample.contact, sample.rrAvailable),
+            sample.rrMs,
+        )
+    return TrackerFrame("hr", stamp, enc.bytes, enc.clamped)
+  }
+
+  private fun ecgFrame(stamp: Stamp, batch: EcgBatch): TrackerFrame {
+    val enc = PolarCodec.encodeEcg(stamp.phoneNs, stamp.elapsedNs, batch.timestampsNs, batch.voltageUv)
+    return TrackerFrame("ecg", stamp, enc.bytes, enc.clamped)
+  }
+
+  private fun accFrame(stamp: Stamp, batch: AccBatch): TrackerFrame {
+    val enc = PolarCodec.encodeAcc(stamp.phoneNs, stamp.elapsedNs, batch.timestampsNs, batch.xyzMg)
+    return TrackerFrame("acc", stamp, enc.bytes, enc.clamped)
   }
 
   @Test
@@ -104,10 +126,14 @@ class SampleFanoutTest {
         }
     val fanout = SampleFanout(writer, monitor) { failures += it }
     val stamp = Stamp.now(clock)
-    fanout.onHr(stamp, HrSample(60, true, true, true, intArrayOf(1000)))
-    fanout.onHr(stamp, HrSample(61, true, true, true, intArrayOf(1000)))
-    fanout.onEcg(stamp, EcgBatch(LongArray(3) { it * 7_692_307L }, intArrayOf(1, -2, 3)))
-    fanout.onAcc(stamp, AccBatch(LongArray(2) { it * 20_000_000L }, intArrayOf(1, 2, 3, 4, 5, 6)))
+    fanout.onFrame(hrFrame(stamp, HrSample(60, true, true, true, intArrayOf(1000))))
+    fanout.onFrame(hrFrame(stamp, HrSample(61, true, true, true, intArrayOf(1000))))
+    fanout.onFrame(
+        ecgFrame(stamp, EcgBatch(LongArray(3) { it * 7_692_307L }, intArrayOf(1, -2, 3)))
+    )
+    fanout.onFrame(
+        accFrame(stamp, AccBatch(LongArray(2) { it * 20_000_000L }, intArrayOf(1, 2, 3, 4, 5, 6)))
+    )
     writer.finish(RecordingPhase.STOPPED, "done")
 
     assertEquals(1, failures.size)

@@ -6,9 +6,8 @@ import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.tracker.OnDeviceTracker
 import com.rbmr.taigasleep.tracker.RecordingMode
-import com.rbmr.taigasleep.tracker.SampleListener
-import com.rbmr.taigasleep.tracker.StreamConfig
 import com.rbmr.taigasleep.tracker.TrackerEntry
+import com.rbmr.taigasleep.tracker.TrackerListener
 import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -114,8 +113,8 @@ class TrackerCleanupTest {
     var removed = mutableListOf<String>()
 
     override fun startOnDevice(
-        config: StreamConfig,
-        listener: SampleListener,
+        selected: Set<String>,
+        listener: TrackerListener,
         onResult: (error: String?) -> Unit,
     ) = onResult(null)
 

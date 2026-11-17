@@ -3,8 +3,10 @@ package storage
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -48,5 +50,51 @@ func TestGzipTotalsRefusesADamagedFile(t *testing.T) {
 	}
 	if _, _, err := gzipTotals(path); err == nil {
 		t.Fatal("a truncated gzip member must be an error")
+	}
+}
+
+func TestRecordingBytesCountsOnlyDataFiles(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]int{
+		"hr.log":    10,
+		"hr.log.gz": 7,
+		"ppg.log":   5,
+		"meta.json": 3,
+		"notes.txt": 4,
+		"part.part": 2,
+	}
+	for name, size := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), make([]byte, size), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got, want := recordingBytes(dir), int64(10+7+5); got != want {
+		t.Fatalf("recording bytes = %d, want %d", got, want)
+	}
+}
+
+func TestDataFileNamesMatchTheSharedFixture(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "..", "shared", "codec-fixtures", "recording-file-names.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Accepted []string `json:"accepted"`
+		Rejected []string `json:"rejected"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range fixture.Accepted {
+		if !IsDataFile(strings.TrimSuffix(name, ".gz")) {
+			t.Errorf("%q is accepted by the worker fixture but not by IsDataFile", name)
+		}
+	}
+	for _, name := range fixture.Rejected {
+		if IsDataFile(strings.TrimSuffix(name, ".gz")) {
+			t.Errorf("%q is rejected by the worker fixture but IsDataFile accepts it", name)
+		}
 	}
 }

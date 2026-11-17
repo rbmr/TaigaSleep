@@ -10,7 +10,7 @@ empty twins with the same API, so none of it ends up in the release APK.
 | Version name | `x.y.z` | `x.y.z-debug` |
 | Launcher name | Taiga Sleep | Taiga Debug |
 | Launcher icon | Bear | Bear with an amber `</>` badge, also on themed icons |
-| Simulated sensor | Not available | Listed when scanning; streams HR, RR, ECG and ACC without hardware and drops out every few minutes to exercise reconnects |
+| Fake tracker | Not available | Listed when scanning; streams HR, RR, ECG and ACC without hardware, drops out every few minutes to exercise reconnects, and can be made to stall, report other settings than requested or fail a fetch. A recorded directory can be replayed through the same interface. |
 | Guidance preview | Not available | Long-press the readiness card on Home to preview another brand's guidance |
 | Crash trigger | Not available | `adb shell am broadcast -a com.rbmr.taigasleep.DEBUG_CRASH` crashes the app on purpose |
 | StrictMode | Not available | Disk reads, disk writes and network on the main thread are reported in the log (tag `StrictMode`) |

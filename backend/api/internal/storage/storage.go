@@ -16,14 +16,55 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/pocketbase/pocketbase/core"
 )
 
-// DataFiles are the raw files of a recording. meta.json is not one of them: it lives
-// in the recording itself.
+// DataFiles are the raw files every recording used to have. A recording may add
+// stream logs of its own, named by its meta.json, so IsDataFile accepts those too.
 var DataFiles = []string{"hr.log", "ecg.log", "acc.log", "events.jsonl"}
+
+// IsDataFile says whether a name may be stored as one of a recording's files.
+func IsDataFile(name string) bool {
+	if name == "events.jsonl" {
+		return true
+	}
+	base, ok := strings.CutSuffix(name, ".log")
+	if !ok || base == "" || len(base) > 32 {
+		return false
+	}
+	for _, char := range base {
+		if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '_' && char != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// IsStreamFile says whether a data file is a frame log rather than the event log.
+func IsStreamFile(name string) bool { return name != "events.jsonl" && IsDataFile(name) }
+
+// StoredNames lists the data files a recording's bookkeeping names, in a stable order.
+func StoredNames[T any](entries map[string]T) []string {
+	names := make([]string, 0, len(entries))
+	for _, known := range DataFiles {
+		if _, ok := entries[known]; ok {
+			names = append(names, known)
+		}
+	}
+	extra := make([]string, 0, len(entries))
+	for name := range entries {
+		if slices.Contains(names, name) || !IsDataFile(name) {
+			continue
+		}
+		extra = append(extra, name)
+	}
+	sort.Strings(extra)
+	return append(names, extra...)
+}
 
 // fileEntry is the part of a recording's file bookkeeping that is checked against the
 // file on disk. A compressed file's member count and uncompressed size are the only
@@ -60,13 +101,27 @@ type Report struct {
 // compressed size for a gzip file. It reads the directory, so it is also right after a
 // crash between writing a chunk and recording it in the row.
 func RecordingBytes(app core.App, record *core.Record) int64 {
-	dir := filepath.Join(app.DataDir(), "recordings", record.Id)
+	return recordingBytes(filepath.Join(app.DataDir(), "recordings", record.Id))
+}
+
+// recordingBytes is the stored size of a recording's data files, compressed or not. A
+// file that is not one of them, such as meta.json or a stray file, does not count.
+func recordingBytes(dir string) int64 {
 	var total int64
-	for _, name := range DataFiles {
-		for _, stored := range []string{name, name + ".gz"} {
-			if info, err := os.Stat(filepath.Join(dir, stored)); err == nil {
-				total += info.Size()
-			}
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		name := strings.TrimSuffix(file.Name(), ".gz")
+		if !IsDataFile(name) {
+			continue
+		}
+		if info, err := file.Info(); err == nil {
+			total += info.Size()
 		}
 	}
 	return total
@@ -174,7 +229,7 @@ func reconcileRecording(app core.App, record *core.Record, checkFiles bool) (int
 	}
 	dir := filepath.Join(app.DataDir(), "recordings", record.Id)
 	rebuilt := 0
-	for _, name := range DataFiles {
+	for _, name := range StoredNames(entries) {
 		path := filepath.Join(dir, name+".gz")
 		if _, err := os.Stat(path); err != nil {
 			continue

@@ -46,7 +46,7 @@ object RecordingExport {
             zip,
             "$id/${file.name}",
             file,
-            stored = file.name in RecordingStore.RAW_FILES,
+            stored = RecordingStore.isRawName(file.name),
             onWritten = ::advance,
         )
       }
@@ -68,8 +68,8 @@ object RecordingExport {
   private fun archiveFiles(dir: File, contents: ExportContents): List<File> =
       (dir.listFiles() ?: emptyArray())
           .filter { it.isFile && !it.name.endsWith(".tmp") }
-          .filter { contents.raw || it.name !in RecordingStore.RAW_FILES }
-          .filter { contents.metadata || it.name in RecordingStore.RAW_FILES }
+          .filter { contents.raw || !RecordingStore.isRawName(it.name) }
+          .filter { contents.metadata || RecordingStore.isRawName(it.name) }
           .sortedBy { it.name }
 
   private fun writeFile(

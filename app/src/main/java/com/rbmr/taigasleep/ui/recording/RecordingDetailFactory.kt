@@ -129,7 +129,7 @@ class RecordingDetailFactory(
           }
 
           override fun rawSize(localId: String): Long =
-              RecordingStore.RAW_FILES.sumOf { File(store.dir(localId), it).length() }
+              RecordingStore.rawFiles(store.dir(localId)).sumOf { it.length() }
 
           override fun rawStreams(localId: String): List<Int> =
               RecordingMeta.read(store.dir(localId))?.config?.streams().orEmpty()

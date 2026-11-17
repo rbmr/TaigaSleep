@@ -68,6 +68,10 @@ data class RecordingState(
     HR,
     ECG,
     ACC,
+    PPG,
+    PPI,
+    GYRO,
+    MAG,
   }
 
   enum class StreamStatus {

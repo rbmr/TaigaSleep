@@ -6,15 +6,18 @@ import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.ConnectionState
-import com.rbmr.taigasleep.tracker.HrSample
 import com.rbmr.taigasleep.tracker.RecordingMode
-import com.rbmr.taigasleep.tracker.SampleListener
-import com.rbmr.taigasleep.tracker.SensorCapabilities
+import com.rbmr.taigasleep.tracker.Codec
+import com.rbmr.taigasleep.tracker.OfferedStream
+import com.rbmr.taigasleep.tracker.PolarCodec
+import com.rbmr.taigasleep.tracker.TrackerCapabilities
+import com.rbmr.taigasleep.tracker.TrackerFrame
+import com.rbmr.taigasleep.tracker.TrackerListener
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.Stamp
-import com.rbmr.taigasleep.tracker.StreamConfig
+import com.rbmr.taigasleep.tracker.StreamType
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -213,11 +216,16 @@ class RecordingControlTest {
   private class FakeSensor(
       private val stallsStart: Boolean = true,
       private val stallsStop: Boolean = false,
-  ) : SleepSensor {
+  ) : Tracker {
     override val kind = SensorKind.POLAR_H10
     override val id = ID
     override val name = "Test strap"
-    override val capabilities = SensorCapabilities(ecg = false, acc = false, rr = true)
+    override val streams =
+        listOf(
+            OfferedStream("hr", StreamType.HEART_RATE, Codec.POLAR_HR, "hr.log", listOf(1.0)),
+            OfferedStream("rr", StreamType.RR_INTERVAL, Codec.POLAR_HR, "hr.log"),
+        )
+    override val capabilities = TrackerCapabilities()
 
     private val _connection = MutableStateFlow(ConnectionState.CONNECTED)
     override val connection: StateFlow<ConnectionState> = _connection
@@ -232,7 +240,7 @@ class RecordingControlTest {
 
     val stopEntered = CountDownLatch(1)
 
-    @Volatile private var listener: SampleListener? = null
+    @Volatile private var listener: TrackerListener? = null
     @Volatile var starts = 0
       private set
     @Volatile var stopCalls = 0
@@ -246,7 +254,7 @@ class RecordingControlTest {
       _connection.value = ConnectionState.DISCONNECTED
     }
 
-    override fun startStreams(config: StreamConfig, listener: SampleListener) {
+    override fun startStreams(selected: Set<String>, listener: TrackerListener) {
       this.listener = listener
       starts++
       if (!stallsStart || starts > 1) return
@@ -277,16 +285,16 @@ class RecordingControlTest {
     }
 
     fun deliverHr(clock: TestClock) {
-      listener?.onHr(
-          Stamp.now(clock),
-          HrSample(
+      val stamp = Stamp.now(clock)
+      val enc =
+          PolarCodec.encodeHr(
+              stamp.phoneNs,
+              stamp.elapsedNs,
               60,
-              contactSupported = true,
-              contact = true,
-              rrAvailable = true,
-              rrMs = intArrayOf(1_000),
-          ),
-      )
+              PolarCodec.hrFlags(true, true, true),
+              intArrayOf(1_000),
+          )
+      listener?.onFrame(TrackerFrame("hr", stamp, enc.bytes, enc.clamped))
     }
 
   }
@@ -304,7 +312,7 @@ class RecordingControlTest {
     }
   }
 
-  private class FakeHost(private val sensor: SleepSensor) : RecordingHost {
+  private class FakeHost(private val sensor: Tracker) : RecordingHost {
     override var activeSessionId: String? = null
     override var heartbeatMs = 0L
     var running = false
@@ -312,7 +320,7 @@ class RecordingControlTest {
     var state: RecordingState? = null
     val finishedRecordings = mutableListOf<String>()
 
-    override fun obtain(kind: SensorKind, id: String, name: String): SleepSensor = sensor
+    override fun obtain(kind: SensorKind, id: String, name: String): Tracker = sensor
 
     override fun mayStart(mode: RecordingMode) = true
 

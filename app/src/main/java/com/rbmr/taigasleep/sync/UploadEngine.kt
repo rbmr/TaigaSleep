@@ -210,7 +210,14 @@ class UploadEngine(
   }
 
   private fun recordingFiles(): List<File> =
-      FILES.map { File(dir, it) }.filter { it.isFile && it.length() > 0 }
+      (dir.listFiles() ?: emptyArray())
+          .filter {
+            it.isFile &&
+                it.length() > 0 &&
+                (it.name == EVENTS || it.name.endsWith(".log")) &&
+                !it.name.endsWith(".part")
+          }
+          .sortedWith(compareBy({ FILE_ORDER[it.name] ?: Int.MAX_VALUE }, { it.name }))
 
   private fun progress(uploaded: Map<String, Long>, totalBytes: Long): Float {
     if (totalBytes <= 0) return 1f
@@ -231,7 +238,9 @@ class UploadEngine(
   companion object {
     private const val META = "meta.json"
     private const val ENCODING_GZIP = "gzip"
-    private val FILES = listOf("hr.log", "ecg.log", "acc.log", "events.jsonl")
+    private const val EVENTS = "events.jsonl"
+    // The order the uploader used for the files every recording has; a new stream follows them.
+    private val FILE_ORDER = mapOf("hr.log" to 0, "ecg.log" to 1, "acc.log" to 2, EVENTS to 3)
     private const val MAX_CONFLICTS = 2
     private const val PREFERRED_CHUNK = 2 * 1024 * 1024
     private const val MIN_CHUNK = 1024

@@ -5,10 +5,11 @@ import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.tracker.Tracker
+import com.rbmr.taigasleep.tracker.TrackerEntry
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.tracker.SimulatedSensor
-import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.ui.home.HomeUiState
 import com.rbmr.taigasleep.ui.home.SensorPicker
 import com.rbmr.taigasleep.ui.home.homeState
@@ -32,6 +33,13 @@ import org.junit.rules.TemporaryFolder
  * finishing steps of that mode and end on the done card, for a streamed night and for one the
  * tracker stored itself.
  */
+private val TrackerEntry.rrMs: List<Int>
+  get() =
+      frames.filter { it.stream == "hr" }.mapNotNull {
+        runCatching { com.rbmr.taigasleep.tracker.PolarCodec.decodeHr(it.payload).rrMs.firstOrNull() }
+            .getOrNull()
+      }
+
 class FinishingWithSimulatedSensorTest {
   @get:Rule val tmp = TemporaryFolder()
   private val clock = TestClock()
@@ -194,8 +202,7 @@ class FinishingWithSimulatedSensorTest {
           kind = SensorKind.SIMULATED,
           sensorId = sensor.id,
           sensorName = sensor.name,
-          ecg = false,
-          acc = false,
+          selected = setOf("hr"),
           mode = mode,
       )
 
@@ -224,13 +231,13 @@ class FinishingWithSimulatedSensorTest {
     }
   }
 
-  private class FakeHost(private val sensor: SleepSensor) : RecordingHost {
+  private class FakeHost(private val sensor: Tracker) : RecordingHost {
     override var activeSessionId: String? = null
     override var heartbeatMs = 0L
     private var running = false
     val finishedRecordings = mutableListOf<String>()
 
-    override fun obtain(kind: SensorKind, id: String, name: String): SleepSensor = sensor
+    override fun obtain(kind: SensorKind, id: String, name: String): Tracker = sensor
 
     override fun mayStart(mode: RecordingMode) = true
 

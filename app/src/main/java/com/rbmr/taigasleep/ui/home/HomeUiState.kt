@@ -8,11 +8,31 @@ import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
 
-/** The data the user chose to record. */
-data class Streams(val ecg: Boolean = false, val acc: Boolean = false, val hr: Boolean = true) {
-  /** True when at least one kind of data is on; a recording needs one. */
+/** One choice in the data section: a stream the connected tracker offers. */
+data class StreamOption(val id: String, val type: String)
+
+/** The streams the user chose to record, by the tracker's own stream ids. */
+data class Streams(val chosen: Set<String> = emptySet()) {
+  /** The three streams the app started with, for callers that still name them. */
+  constructor(hr: Boolean = true, ecg: Boolean = false, acc: Boolean = false) : this(
+      buildSet {
+        if (hr) add("hr")
+        if (ecg) add("ecg")
+        if (acc) add("acc")
+      }
+  )
+  /** True when at least one stream is on; a recording needs one. */
   val any: Boolean
-    get() = hr || ecg || acc
+    get() = chosen.isNotEmpty()
+
+  val hr: Boolean
+    get() = "hr" in chosen
+
+  val ecg: Boolean
+    get() = "ecg" in chosen
+
+  val acc: Boolean
+    get() = "acc" in chosen
 }
 
 /**
@@ -72,6 +92,8 @@ data class StartConfig(
     val canRecordAcc: Boolean,
     /** The smart alarm window of a streamed recording, or null when it is off (the default). */
     val wake: WakeChoice? = null,
+    /** Every stream the tracker offers, as the data section shows them. */
+    val options: List<StreamOption> = emptyList(),
 ) {
   /** The tracker stores the recording itself instead of streaming it to the phone. */
   val onTracker: Boolean
@@ -89,10 +111,12 @@ data class StartConfig(
      */
     fun resolve(
         saved: SavedChoices,
+        offered: List<StreamOption>,
         modes: Set<RecordingMode>,
-        canRecordEcg: Boolean,
-        canRecordAcc: Boolean,
     ): StartConfig {
+      val options = offered
+      val canRecordEcg = options.any { it.type == "ecg" }
+      val canRecordAcc = options.any { it.type == "accelerometer" }
       val mode =
           when {
             saved.mode in modes -> saved.mode
@@ -103,14 +127,18 @@ data class StartConfig(
       return StartConfig(
           streams =
               Streams(
-                  hr = saved.hr,
-                  ecg = !onTracker && canRecordEcg && saved.ecg,
-                  acc = !onTracker && canRecordAcc && saved.acc,
+                  saved.chosen.filter { id ->
+                    options.any { it.id == id } &&
+                        (!onTracker ||
+                            options.first { it.id == id }.type == "heart_rate" ||
+                            options.first { it.id == id }.type == "rr_interval")
+                  }.toSet(),
               ),
           modes = modes,
           mode = mode,
           canRecordEcg = canRecordEcg,
           canRecordAcc = canRecordAcc,
+          options = options,
           wake = saved.wake.takeIf { !onTracker },
       )
     }
@@ -119,9 +147,7 @@ data class StartConfig(
 
 /** What the user chose, stored as it was made: the streaming choices survive the other mode. */
 data class SavedChoices(
-    val hr: Boolean,
-    val ecg: Boolean,
-    val acc: Boolean,
+    val chosen: Set<String>,
     val mode: RecordingMode,
     val wake: WakeChoice?,
 )

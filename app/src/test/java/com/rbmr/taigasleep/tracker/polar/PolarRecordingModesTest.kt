@@ -1,7 +1,6 @@
 package com.rbmr.taigasleep.tracker.polar
 
 import com.rbmr.taigasleep.tracker.RecordingMode
-import com.rbmr.taigasleep.tracker.StreamConfig
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -10,27 +9,22 @@ class PolarRecordingModesTest {
   fun hrOnlyCanStayOnTheStrap() {
     assertEquals(
         setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE),
-        polarRecordingModes(StreamConfig(ecg = false, acc = false)),
+        polarRecordingModes(setOf("hr")),
+    )
+    assertEquals(
+        setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE),
+        polarRecordingModes(setOf("rr")),
     )
   }
 
   @Test
   fun ecgOrAccHasToStream() {
-    assertEquals(
-        setOf(RecordingMode.STREAM),
-        polarRecordingModes(StreamConfig(ecg = true, acc = false)),
-    )
-    assertEquals(
-        setOf(RecordingMode.STREAM),
-        polarRecordingModes(StreamConfig(ecg = false, acc = true)),
-    )
+    assertEquals(setOf(RecordingMode.STREAM), polarRecordingModes(setOf("hr", "ecg")))
+    assertEquals(setOf(RecordingMode.STREAM), polarRecordingModes(setOf("acc")))
   }
 
   @Test
-  fun withoutHeartRateTheDataHasToStream() {
-    assertEquals(
-        setOf(RecordingMode.STREAM),
-        polarRecordingModes(StreamConfig(ecg = true, acc = false, hr = false)),
-    )
+  fun nothingSelectedOffersNoMode() {
+    assertEquals(emptySet<RecordingMode>(), polarRecordingModes(emptySet()))
   }
 }

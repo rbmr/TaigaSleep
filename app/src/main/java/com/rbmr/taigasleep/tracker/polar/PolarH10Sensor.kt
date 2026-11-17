@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions")
+
 package com.rbmr.taigasleep.tracker.polar
 
 import android.content.Context
@@ -17,21 +19,24 @@ import com.polar.sdk.api.model.PolarHrData
 import com.polar.sdk.api.model.PolarExerciseEntry
 import com.polar.sdk.api.model.PolarSensorSetting
 import com.polar.sdk.api.model.PolarSensorSetting.SettingType
-import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.Clock
 import com.rbmr.taigasleep.tracker.ConnectionState
-import com.rbmr.taigasleep.tracker.EcgBatch
-import com.rbmr.taigasleep.tracker.HrSample
+import com.rbmr.taigasleep.tracker.Codec
+import com.rbmr.taigasleep.tracker.OfferedStream
 import com.rbmr.taigasleep.tracker.OnDeviceTracker
+import com.rbmr.taigasleep.tracker.PolarCodec
 import com.rbmr.taigasleep.tracker.RecordingMode
-import com.rbmr.taigasleep.tracker.SampleListener
-import com.rbmr.taigasleep.tracker.SensorCapabilities
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.Stamp
-import com.rbmr.taigasleep.tracker.StreamConfig
 import com.rbmr.taigasleep.tracker.SystemClockSource
+import com.rbmr.taigasleep.tracker.Tracker
+import com.rbmr.taigasleep.tracker.TrackerCapabilities
 import com.rbmr.taigasleep.tracker.TrackerEntry
+import com.rbmr.taigasleep.tracker.TrackerDriver
+import com.rbmr.taigasleep.tracker.TrackerFrame
+import com.rbmr.taigasleep.tracker.TrackerListener
+import com.rbmr.taigasleep.tracker.StreamType
+import com.rbmr.taigasleep.tracker.FoundSensor
 import java.io.IOException
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -136,12 +141,28 @@ private object PolarSdk {
 }
 
 /**
- * The H10 can store HR and RR on the device, but not ECG or ACC. An HR-only configuration may
+ * The H10 can store HR and RR on the device, but not ECG or ACC. An HR-only selection may
  * therefore stream or record on the strap; anything else has to stream.
  */
-internal fun polarRecordingModes(config: StreamConfig): Set<RecordingMode> =
-    if (config.ecg || config.acc || !config.hr) setOf(RecordingMode.STREAM)
-    else setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE)
+internal fun polarRecordingModes(selected: Set<String>): Set<RecordingMode> =
+    if (selected.isEmpty() || selected.any { it != "hr" && it != "rr" }) {
+      if (selected.isEmpty()) emptySet() else setOf(RecordingMode.STREAM)
+    } else setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE)
+
+/** Which of the H10's three stream sources a selection turns on. */
+internal data class PolarSelection(val hr: Boolean, val ecg: Boolean, val acc: Boolean) {
+  val any: Boolean
+    get() = hr || ecg || acc
+
+  companion object {
+    fun from(selected: Set<String>) =
+        PolarSelection(
+            hr = "hr" in selected || "rr" in selected,
+            ecg = "ecg" in selected,
+            acc = "acc" in selected,
+        )
+  }
+}
 
 /** A Polar H10 over BLE: HR (with RR), ECG at 130 Hz and ACC at 50 Hz, ±8 G, raw SDK values. */
 class PolarH10Sensor(
@@ -149,9 +170,24 @@ class PolarH10Sensor(
     override val id: String,
     override val name: String,
     private val clock: Clock = SystemClockSource,
-) : SleepSensor, OnDeviceTracker {
+) : Tracker, OnDeviceTracker {
   override val kind = SensorKind.POLAR_H10
-  override val capabilities = SensorCapabilities(ecg = true, acc = true, rr = true)
+  override val streams =
+      listOf(
+          OfferedStream("hr", StreamType.HEART_RATE, Codec.POLAR_HR, "hr.log", listOf(1.0), order = 0),
+          OfferedStream("rr", StreamType.RR_INTERVAL, Codec.POLAR_HR, "hr.log", order = 1),
+          OfferedStream("ecg", StreamType.ECG, Codec.POLAR_ECG_V2, "ecg.log", listOf(130.0), order = 2),
+          OfferedStream(
+              "acc",
+              StreamType.ACCELEROMETER,
+              Codec.POLAR_ACC,
+              "acc.log",
+              listOf(50.0),
+              listOf(com.rbmr.taigasleep.tracker.StreamRange(-8.0, 8.0, "g")),
+              order = 3,
+          ),
+      )
+  override val capabilities = TrackerCapabilities(clock = true, battery = true, firmware = true)
 
   // The SDK hands the address out with its connect callbacks; it is kept because the phone's own
   // Bluetooth view is asked for while the link may be down.
@@ -178,7 +214,7 @@ class PolarH10Sensor(
   private val control = Executors.newSingleThreadScheduledExecutor { Thread(it, "polar-control-$id") }
 
   private val ready = HashSet<PolarBleSdkFeature>()
-  private val streams = HashMap<String, Job>()
+  private val streamJobs = HashMap<String, Job>()
   // Collects the running streams. Every teardown replaces it, so nothing from the old link keeps
   // collecting after the streams were disposed.
   private var streamScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -186,13 +222,13 @@ class PolarH10Sensor(
   private val calls = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   // Pending "first sample" checks, one per stream; cancelled when the streams are torn down.
   private val watchdogs = HashMap<String, ScheduledFuture<*>>()
-  private var wanted: StreamConfig? = null
-  private var listener: SampleListener? = null
+  private var wanted: PolarSelection? = null
+  private var listener: TrackerListener? = null
   private var userDisconnect = false
 
   // On-device recording: the strap stores HR/RR itself and the phone fetches it in the morning.
-  private var onDeviceWanted: StreamConfig? = null
-  private var onDeviceListener: SampleListener? = null
+  private var onDeviceWanted: PolarSelection? = null
+  private var onDeviceListener: TrackerListener? = null
   private var onDeviceResult: ((String?) -> Unit)? = null
   private var onDeviceActive = false
   // The exercise objects behind the entries last fetched, so removal can name what it removes.
@@ -254,15 +290,16 @@ class PolarH10Sensor(
     userDisconnect = false
   }
 
-  override fun recordingModes(config: StreamConfig): Set<RecordingMode> = polarRecordingModes(config)
+  override fun recordingModes(selected: Set<String>): Set<RecordingMode> =
+      polarRecordingModes(selected)
 
   override fun startOnDevice(
-      config: StreamConfig,
-      listener: SampleListener,
+      selected: Set<String>,
+      listener: TrackerListener,
       onResult: (String?) -> Unit,
   ) {
     control.execute {
-      onDeviceWanted = config
+      onDeviceWanted = PolarSelection.from(selected)
       onDeviceListener = listener
       onDeviceResult = onResult
       maybeBeginOnDevice()
@@ -285,10 +322,35 @@ class PolarH10Sensor(
           TrackerEntry(
               id = entry.identifier,
               startUtcMs = entry.date.toInstant(ZoneOffset.UTC).toEpochMilli(),
-              rrMs = data.hrSamples,
+              frames = rrFrames(entry.date.toInstant(ZoneOffset.UTC).toEpochMilli(), data.hrSamples),
           )
         }
       }
+
+  /**
+   * The strap stores beat intervals; each becomes one HR frame with the heart rate derived from it,
+   * timed forward from the exercise's own start time. An interval of 0 or less produces no frame, so
+   * the gap stays a gap.
+   */
+  private fun rrFrames(startUtcMs: Long, rrMs: List<Int>): List<TrackerFrame> {
+    val frames = ArrayList<TrackerFrame>(rrMs.size)
+    var timeMs = startUtcMs
+    for (rr in rrMs) {
+      if (rr <= 0) continue
+      timeMs += rr
+      val stamp = Stamp(timeMs * 1_000_000L, clock.elapsedNs())
+      val payload =
+          PolarCodec.encodeHr(
+              stamp.phoneNs,
+              stamp.elapsedNs,
+              60_000 / rr,
+              PolarCodec.hrFlags(contactSupported = false, contact = false, rrAvailable = true),
+              intArrayOf(rr),
+          )
+      frames += TrackerFrame("hr", stamp, payload.bytes, payload.clamped)
+    }
+    return frames
+  }
 
   override fun removeFromDevice(ids: List<String>) {
     if (ids.isEmpty()) return
@@ -373,9 +435,9 @@ class PolarH10Sensor(
     }
   }
 
-  override fun startStreams(config: StreamConfig, listener: SampleListener) {
+  override fun startStreams(selected: Set<String>, listener: TrackerListener) {
     control.execute {
-      wanted = config
+      wanted = PolarSelection.from(selected)
       this.listener = listener
       clockSynced = false
       maybeBeginStreams()
@@ -389,6 +451,29 @@ class PolarH10Sensor(
       disposeStreams()
     }
   }
+
+  override fun readClock(): Long? =
+      runCatching {
+            awaitControl {
+              val time = blockingCall(CLOCK_SYNC_S) { api.getLocalTime(id) }
+              time.toInstant(ZoneOffset.UTC).toEpochMilli()
+            }
+          }
+          .getOrNull()
+
+  override fun setClock(utcMs: Long): Boolean =
+      runCatching {
+            awaitControl {
+              blockingCall(CLOCK_SYNC_S) {
+                api.setLocalTime(
+                    id,
+                    LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(utcMs), ZoneOffset.UTC),
+                )
+              }
+            }
+            true
+          }
+          .getOrDefault(false)
 
   fun release() {
     PolarSdk.sensors.remove(id, this)
@@ -503,7 +588,7 @@ class PolarH10Sensor(
   }
 
   /** Sets the strap's clock before an on-device recording starts, so its exercise start is real. */
-  private fun setOnDeviceClock(l: SampleListener) {
+  private fun setOnDeviceClock(l: TrackerListener) {
     try {
       blockingCall(CLOCK_SYNC_S) { api.setLocalTime(id, LocalDateTime.now(ZoneOffset.UTC)) }
       l.onNote("clock_sync", "strap clock set to the phone time (UTC)")
@@ -542,7 +627,7 @@ class PolarH10Sensor(
         PolarBleSdkFeature.FEATURE_POLAR_ONLINE_STREAMING in ready &&
             PolarBleSdkFeature.FEATURE_HR in ready
     if (!streaming && !force) return
-    if (streams.isNotEmpty()) return
+    if (streamJobs.isNotEmpty()) return
     if (!clockSynced) {
       if (PolarBleSdkFeature.FEATURE_POLAR_DEVICE_TIME_SETUP in ready) {
         syncClock(l)
@@ -570,7 +655,7 @@ class PolarH10Sensor(
   }
 
   /** Sets the strap's clock to the phone's, then carries on starting the streams. */
-  private fun syncClock(l: SampleListener) {
+  private fun syncClock(l: TrackerListener) {
     if (clockSyncing) return
     clockSyncing = true
     calls.launch {
@@ -603,12 +688,12 @@ class PolarH10Sensor(
     watchdogs.clear()
     streamScope.cancel()
     streamScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    streams.clear()
+    streamJobs.clear()
     gotData.clear()
   }
 
   /** Notes the first sample of a stream, once per start. */
-  private fun gotSample(name: String, l: SampleListener) {
+  private fun gotSample(name: String, l: TrackerListener) {
     if (gotData.add(name)) l.onNote("stream", "$name streaming")
   }
 
@@ -617,7 +702,7 @@ class PolarH10Sensor(
    * check belongs to one stream start: cancel the previous one so a timer left over from before a
    * disconnect cannot fire after the reconnect and restart streams that just started.
    */
-  private fun watch(name: String, l: SampleListener, restart: () -> Unit) {
+  private fun watch(name: String, l: TrackerListener, restart: () -> Unit) {
     watchdogs.remove(name)?.cancel(false)
     watchdogs[name] =
         control.schedule(
@@ -634,23 +719,27 @@ class PolarH10Sensor(
         )
   }
 
-  private fun startHr(l: SampleListener) {
+  private fun startHr(l: TrackerListener) {
+    l.onNegotiated("hr", 1.0, emptyMap())
     stream("hr", l) {
       api.startHrStreaming(id).collect { data ->
         val stamp = Stamp.now(clock)
         gotSample("hr", l)
         delivery.execute {
           for (s in data.samples) {
-            l.onHr(
-                stamp,
-                HrSample(
+            val enc =
+                PolarCodec.encodeHr(
+                    stamp.phoneNs,
+                    stamp.elapsedNs,
                     s.hr,
-                    s.contactStatusSupported,
-                    s.contactStatus,
-                    s.rrAvailable,
+                    PolarCodec.hrFlags(
+                        s.contactStatusSupported,
+                        s.contactStatus,
+                        s.rrAvailable,
+                    ),
                     s.rrsMs.toIntArray(),
-                ),
-            )
+                )
+            l.onFrame(TrackerFrame("hr", stamp, enc.bytes, enc.clamped))
           }
         }
       }
@@ -658,7 +747,7 @@ class PolarH10Sensor(
     watch("hr", l) { startHr(l) }
   }
 
-  private fun startEcg(l: SampleListener) {
+  private fun startEcg(l: TrackerListener) {
     val wantedSettings = mapOf(SettingType.SAMPLE_RATE to 130, SettingType.RESOLUTION to 14)
     stream("ecg", l) {
       api.startEcgStreaming(id, settingsFor(PolarDeviceDataType.ECG, wantedSettings, l))
@@ -668,13 +757,19 @@ class PolarH10Sensor(
             delivery.execute {
               val samples = data.samples.filterIsInstance<EcgSample>()
               if (samples.isNotEmpty()) {
-                l.onEcg(
-                    stamp,
-                    EcgBatch(
-                        LongArray(samples.size) { samples[it].timeStamp },
-                        IntArray(samples.size) { samples[it].voltage },
-                    ),
-                )
+                val t = LongArray(samples.size) { samples[it].timeStamp }
+                val v = IntArray(samples.size) { samples[it].voltage }
+                for (from in t.indices step PolarCodec.MAX_BATCH) {
+                  val to = minOf(from + PolarCodec.MAX_BATCH, t.size)
+                  val enc =
+                      PolarCodec.encodeEcg(
+                          stamp.phoneNs,
+                          stamp.elapsedNs,
+                          t.copyOfRange(from, to),
+                          v.copyOfRange(from, to),
+                      )
+                  l.onFrame(TrackerFrame("ecg", stamp, enc.bytes, enc.clamped))
+                }
               }
             }
           }
@@ -682,7 +777,7 @@ class PolarH10Sensor(
     watch("ecg", l) { startEcg(l) }
   }
 
-  private fun startAcc(l: SampleListener) {
+  private fun startAcc(l: TrackerListener) {
     val wantedSettings =
         mapOf(SettingType.SAMPLE_RATE to 50, SettingType.RESOLUTION to 16, SettingType.RANGE to 8)
     stream("acc", l) {
@@ -693,19 +788,26 @@ class PolarH10Sensor(
             delivery.execute {
               val s = data.samples
               if (s.isNotEmpty()) {
-                l.onAcc(
-                    stamp,
-                    AccBatch(
-                        LongArray(s.size) { s[it].timeStamp },
-                        IntArray(s.size * 3) {
-                          when (it % 3) {
-                            0 -> s[it / 3].x
-                            1 -> s[it / 3].y
-                            else -> s[it / 3].z
-                          }
-                        },
-                    ),
-                )
+                val t = LongArray(s.size) { s[it].timeStamp }
+                val xyz =
+                    IntArray(s.size * 3) {
+                      when (it % 3) {
+                        0 -> s[it / 3].x
+                        1 -> s[it / 3].y
+                        else -> s[it / 3].z
+                      }
+                    }
+                for (from in t.indices step PolarCodec.MAX_BATCH) {
+                  val to = minOf(from + PolarCodec.MAX_BATCH, t.size)
+                  val enc =
+                      PolarCodec.encodeAcc(
+                          stamp.phoneNs,
+                          stamp.elapsedNs,
+                          t.copyOfRange(from, to),
+                          xyz.copyOfRange(from * 3, to * 3),
+                      )
+                  l.onFrame(TrackerFrame("acc", stamp, enc.bytes, enc.clamped))
+                }
               }
             }
           }
@@ -720,7 +822,7 @@ class PolarH10Sensor(
   private suspend fun settingsFor(
       type: PolarDeviceDataType,
       wanted: Map<SettingType, Int>,
-      l: SampleListener,
+      l: TrackerListener,
   ): PolarSensorSetting {
     val available = api.requestStreamSettings(id, type)
     val chosen =
@@ -730,14 +832,29 @@ class PolarH10Sensor(
     if (chosen.any { (t, v) -> wanted[t] != null && wanted[t] != v }) {
       l.onError("$type settings differ from the wanted ones: $chosen")
     }
+    val stream = if (type == PolarDeviceDataType.ECG) "ecg" else "acc"
+    val rate = chosen[SettingType.SAMPLE_RATE]?.toDouble()
+    l.onNegotiated(
+        stream,
+        rate,
+        chosen.mapKeys { (t, _) -> settingName(t) }.mapValues { (_, value) -> value.toString() },
+    )
     return PolarSensorSetting(chosen)
   }
+
+  private fun settingName(type: SettingType): String =
+      when (type) {
+        SettingType.SAMPLE_RATE -> "rate_hz"
+        SettingType.RESOLUTION -> "resolution_bits"
+        SettingType.RANGE -> "range_g"
+        else -> type.name.lowercase()
+      }
 
   /**
    * Collects one stream on a coroutine of the stream scope: the teardown that ends the streams ends
    * it too, and one that fails while the link stays up is restarted as before.
    */
-  private fun stream(name: String, l: SampleListener, collect: suspend () -> Unit) {
+  private fun stream(name: String, l: TrackerListener, collect: suspend () -> Unit) {
     track(
         name,
         streamScope.launch {
@@ -753,10 +870,10 @@ class PolarH10Sensor(
   }
 
   private fun track(name: String, job: Job) {
-    streams.put(name, job)?.cancel()
+    streamJobs.put(name, job)?.cancel()
   }
 
-  private fun retryLater(name: String, l: SampleListener, e: Throwable) {
+  private fun retryLater(name: String, l: TrackerListener, e: Throwable) {
     l.onError("$name stream error: ${e.javaClass.simpleName}${e.message?.let { ": $it" }.orEmpty()}")
     val generation = streamGeneration
     control.schedule(
@@ -792,4 +909,16 @@ class PolarH10Sensor(
     /** Devices in range, as the SDK finds them. */
     fun scan(context: Context): Flow<PolarDeviceInfo> = PolarSdk.get(context).searchForDevice()
   }
+}
+
+
+/** Matches a Polar H10 and creates the H10 tracker. */
+class PolarH10Driver : TrackerDriver {
+  override val kind = SensorKind.POLAR_H10
+
+  override fun matches(device: FoundSensor): Boolean =
+      device.kind == SensorKind.POLAR_H10 || device.name.contains("H10", ignoreCase = true)
+
+  override fun create(context: Context, device: FoundSensor): Tracker =
+      PolarH10Sensor(context, device.id, device.name)
 }

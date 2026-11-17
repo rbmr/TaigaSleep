@@ -4,9 +4,9 @@ import androidx.lifecycle.ViewModel
 import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.recording.CaptureStatus
 import com.rbmr.taigasleep.recording.Phase
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
-import com.rbmr.taigasleep.tracker.SleepSensor
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,13 +37,10 @@ interface HomeWork {
   fun restoreLast(canConnect: Boolean)
 
   /** The remembered configuration of this tracker: its streams, the modes they allow and the choice. */
-  fun savedConfig(sensor: SleepSensor): StartConfig
+  fun savedConfig(sensor: Tracker): StartConfig
 
-  fun setHr(sensorId: String, on: Boolean)
-
-  fun setEcg(sensorId: String, on: Boolean)
-
-  fun setAcc(sensorId: String, on: Boolean)
+  /** Turns one of the tracker's streams on or off; the id is the one its driver offers. */
+  fun setStream(sensorId: String, streamId: String, on: Boolean)
 
   fun setMode(sensorId: String, mode: RecordingMode)
 
@@ -88,14 +85,14 @@ interface HomeWork {
  */
 class HomeViewModel(
     private val work: HomeWork,
-    private val sensor: StateFlow<SleepSensor?>,
+    private val sensor: StateFlow<Tracker?>,
     private val status: StateFlow<CaptureStatus>,
     /** Whether a saved recording is uploaded by itself; the stop confirmation says which. */
     val autoUpload: Flow<Boolean> = emptyFlow(),
     dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : ViewModel() {
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
-  private var current: SleepSensor? = null
+  private var current: Tracker? = null
   private var tracker: TrackerView? = null
   private var config: StartConfig? = null
   private var guard: HomeState = HomeState.NEEDS_SETTINGS
@@ -159,11 +156,8 @@ class HomeViewModel(
     emit()
   }
 
-  fun setHr(on: Boolean) = updateConfig { work.setHr(it.id, on) }
-
-  fun setEcg(on: Boolean) = updateConfig { work.setEcg(it.id, on) }
-
-  fun setAcc(on: Boolean) = updateConfig { work.setAcc(it.id, on) }
+  fun setStream(streamId: String, on: Boolean) =
+      updateConfig { work.setStream(it.id, streamId, on) }
 
   fun setMode(mode: RecordingMode) = updateConfig { work.setMode(it.id, mode) }
 
@@ -277,7 +271,7 @@ class HomeViewModel(
   }
 
   /** A change of the chosen streams or mode was made: keep the configuration and the answer true. */
-  private fun updateConfig(change: (SleepSensor) -> Unit) {
+  private fun updateConfig(change: (Tracker) -> Unit) {
     val sensor = current ?: return
     change(sensor)
     config = work.savedConfig(sensor)
@@ -286,7 +280,7 @@ class HomeViewModel(
   }
 
   /** One tracker at a time: the old connection is no longer watched once the sensor changes. */
-  private fun attach(sensor: SleepSensor?) {
+  private fun attach(sensor: Tracker?) {
     watching?.cancel()
     current = sensor
     if (sensor == null) {

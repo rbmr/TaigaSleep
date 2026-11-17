@@ -14,10 +14,9 @@ import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.RecordingService
 import com.rbmr.taigasleep.recording.WakeWindow
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
-import com.rbmr.taigasleep.tracker.SleepSensor
-import com.rbmr.taigasleep.tracker.StreamConfig
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -34,6 +33,8 @@ internal fun hasBluetooth(context: Context): Boolean =
  * Builds the Home screen's view model from the singletons the app already has. The tracker, the
  * recorder and the readiness check are reached only from here.
  */
+private val OPT_IN_STREAMS = setOf("ppg", "pulse_interval", "gyroscope", "magnetometer")
+
 class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
   @Suppress("UNCHECKED_CAST")
   override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -57,18 +58,10 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
             sensors.restoreLast(app, canConnect)
           }
 
-          override fun savedConfig(sensor: SleepSensor): StartConfig = configOf(sensor, prefs)
+          override fun savedConfig(sensor: Tracker): StartConfig = configOf(sensor, prefs)
 
-          override fun setHr(sensorId: String, on: Boolean) {
-            prefs.setHrEnabled(sensorId, on)
-          }
-
-          override fun setEcg(sensorId: String, on: Boolean) {
-            prefs.setEcgEnabled(sensorId, on)
-          }
-
-          override fun setAcc(sensorId: String, on: Boolean) {
-            prefs.setAccEnabled(sensorId, on)
+          override fun setStream(sensorId: String, streamId: String, on: Boolean) {
+            prefs.setStreamEnabled(sensorId, streamId, on)
           }
 
           override fun setMode(sensorId: String, mode: RecordingMode) {
@@ -97,8 +90,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
           override fun start(config: StartConfig) {
             val sensor = sensors.sensor.value ?: return
             RecordingRepository.setIdle()
-            val streams = StreamConfig(ecg = config.streams.ecg, acc = config.streams.acc, hr = config.streams.hr)
-            RecordingService.start(app, sensor, streams, config.mode)
+            RecordingService.start(app, sensor, config.streams.chosen, config.mode)
           }
 
           override fun stop() {
@@ -147,21 +139,30 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
   }
 
   /** The configuration step: the stored choices, resolved for the stored mode. */
-  private fun configOf(sensor: SleepSensor, prefs: RecordingPrefs): StartConfig =
-      StartConfig.resolve(
-          saved =
-              SavedChoices(
-                  hr = prefs.hrEnabled(sensor.id),
-                  ecg = prefs.ecgEnabled(sensor.id),
-                  acc = prefs.accEnabled(sensor.id),
-                  mode = prefs.mode(sensor.id),
-                  wake =
-                      prefs.wakeWindow(sensor.id)?.let {
-                        WakeChoice(it.startMinute, it.lengthMinutes, it.heartRate, it.movement)
-                      },
-              ),
-          modes = sensor.recordingModes(StreamConfig(ecg = false, acc = false)),
-          canRecordEcg = sensor.capabilities.ecg,
-          canRecordAcc = sensor.capabilities.acc,
-      )
+  private fun configOf(sensor: Tracker, prefs: RecordingPrefs): StartConfig {
+    val chosen =
+        sensor.streams
+            .filter {
+              prefs.streamEnabled(
+                  sensor.id,
+                  it.id,
+                  default = it.type.wire !in OPT_IN_STREAMS,
+              )
+            }
+            .map { it.id }
+            .toSet()
+    return StartConfig.resolve(
+        saved =
+            SavedChoices(
+                chosen = chosen,
+                mode = prefs.mode(sensor.id),
+                wake =
+                    prefs.wakeWindow(sensor.id)?.let {
+                      WakeChoice(it.startMinute, it.lengthMinutes, it.heartRate, it.movement)
+                    },
+            ),
+        offered = sensor.streams.sortedBy { it.order }.map { StreamOption(it.id, it.type.wire) },
+        modes = sensor.recordingModes(chosen),
+    )
+  }
 }

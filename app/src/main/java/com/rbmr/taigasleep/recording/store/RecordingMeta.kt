@@ -1,6 +1,9 @@
 package com.rbmr.taigasleep.recording.store
 
+import com.rbmr.taigasleep.tracker.Tracker
+import com.rbmr.taigasleep.tracker.Codec
 import com.rbmr.taigasleep.tracker.RecordingMode
+import com.rbmr.taigasleep.tracker.StreamType
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -53,7 +56,51 @@ data class RecordingConfig(
         if (ecg) add(StreamId.ECG)
         if (acc) add(StreamId.ACC)
       }
+
+  /** The streams this configuration turns on, with the H10 codecs older recordings used. */
+  fun asStreams(): List<RecordingStream> =
+      buildList {
+        if (hr) {
+          add(RecordingStream("hr", StreamType.HEART_RATE, Codec.POLAR_HR, "hr.log", 1.0))
+          add(RecordingStream("rr", StreamType.RR_INTERVAL, Codec.POLAR_HR, "hr.log"))
+        }
+        if (ecg) {
+          add(
+              RecordingStream(
+                  "ecg",
+                  StreamType.ECG,
+                  Codec.POLAR_ECG,
+                  "ecg.log",
+                  ecgRateHz.toDouble(),
+              )
+          )
+        }
+        if (acc) {
+          add(
+              RecordingStream(
+                  "acc",
+                  StreamType.ACCELEROMETER,
+                  Codec.POLAR_ACC,
+                  "acc.log",
+                  accRateHz.toDouble(),
+                  mapOf("range_g" to accRangeG.toString()),
+              )
+          )
+        }
+      }
 }
+
+/** One stream in a recording's `meta.json`: what it holds, where, how and at what rate. */
+data class RecordingStream(
+    val id: String,
+    val type: StreamType,
+    val codec: String,
+    val file: String,
+    /** The rate the stream records at, when its codec has one. */
+    val rateHz: Double? = null,
+    /** What the tracker negotiated, as its driver reported it. */
+    val settings: Map<String, String> = emptyMap(),
+)
 
 data class RecordingMeta(
     val recordingId: String,
@@ -75,6 +122,8 @@ data class RecordingMeta(
     val sensorFirmware: String?,
     val sensorBatteryAtStart: Int?,
     val config: RecordingConfig,
+    /** The streams this recording holds; a recording written before streams existed derives them. */
+    val streams: List<RecordingStream> = config.asStreams(),
     /** The tracker still holds a part of this recording that is not on the phone. */
     val fetchPending: Boolean = false,
     /** How many samples of each tracker entry are already imported, keyed by its id. */
@@ -89,8 +138,8 @@ data class RecordingMeta(
     val trackerRemovalFailures: Int = 0,
 ) {
   /** meta.json as this version writes it: every key of the format, null where there is no value. */
-  fun toJson(): JsonObject {
-    val onDevice =
+  @Suppress("LongMethod")
+  fun toJson(): JsonObject {    val onDevice =
         if (mode != RecordingMode.ON_DEVICE) null
         else
             OnDeviceJson(
@@ -139,6 +188,17 @@ data class RecordingMeta(
                             accRateHz = config.accRateHz,
                             accRangeG = config.accRangeG,
                         ),
+                    streams =
+                        streams.map {
+                          StreamJson(
+                              id = it.id,
+                              type = it.type.wire,
+                              codec = it.codec,
+                              file = it.file,
+                              rateHz = it.rateHz,
+                              settings = it.settings,
+                          )
+                        },
                     onDevice = onDevice,
                 )
             )
@@ -146,6 +206,22 @@ data class RecordingMeta(
     // Only an on-device recording carries that object: a streamed one has no such key at all.
     return if (onDevice == null) JsonObject(json - ON_DEVICE) else json
   }
+
+  /** The stream with this id, or null when the recording does not hold it. */
+  fun stream(id: String): RecordingStream? = streams.firstOrNull { it.id == id }
+
+  /** The stream logs this recording holds, each file once. */
+  fun files(): List<String> = streams.map { it.file }.distinct()
+
+  /** The metadata with one stream's negotiated settings filled in. */
+  fun withNegotiated(streamId: String, rateHz: Double?, settings: Map<String, String>): RecordingMeta =
+      copy(
+          streams =
+              streams.map {
+                if (it.id != streamId) it
+                else it.copy(rateHz = rateHz ?: it.rateHz, settings = settings)
+              }
+      )
 
   companion object {
     fun fromJson(o: JsonObject): RecordingMeta {
@@ -177,6 +253,21 @@ data class RecordingMeta(
                   accRateHz = json.config.accRateHz,
                   accRangeG = json.config.accRangeG,
               ),
+          streams =
+              json.streams?.mapNotNull { s ->
+                val type = StreamType.fromWire(s.type) ?: return@mapNotNull null
+                RecordingStream(
+                    id = s.id,
+                    type = type,
+                    codec = s.codec,
+                    file = s.file,
+                    rateHz = s.rateHz,
+                    settings = s.settings,
+                )
+              } ?: json.config.let {
+                RecordingConfig(it.hr, it.ecg, it.acc, it.ecgRateHz, it.accRateHz, it.accRangeG)
+                    .asStreams()
+              },
           fetchPending = json.onDevice?.fetchPending ?: false,
           importedEntries = json.onDevice?.importedEntries.orEmpty(),
           importStarted = json.onDevice?.importStarted?.takeIf { it.isNotEmpty() },
@@ -301,7 +392,19 @@ private data class MetaJson(
     val phone: PhoneJson,
     val sensor: SensorJson,
     val config: ConfigJson,
+    val streams: List<StreamJson>? = null,
     @SerialName("on_device") val onDevice: OnDeviceJson? = null,
+)
+
+/** One stream, as meta.json lists it. */
+@Serializable
+private data class StreamJson(
+    val id: String,
+    val type: String,
+    val codec: String,
+    val file: String,
+    @SerialName("rate_hz") val rateHz: Double? = null,
+    val settings: Map<String, String> = emptyMap(),
 )
 
 @Serializable

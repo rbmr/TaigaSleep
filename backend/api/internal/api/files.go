@@ -23,12 +23,6 @@ const (
 	headerUploadOffset = "Upload-Offset"
 )
 
-// dataFiles are the raw files of a recording. meta.json is not one of them: it lives
-// in the recording itself.
-var dataFiles = storage.DataFiles
-
-var streamFiles = []string{"hr.log", "ecg.log", "acc.log"}
-
 // FileEntry is what the backend tracks about a stored file beyond its size on disk.
 type FileEntry struct {
 	Encoding         string `json:"encoding"`
@@ -50,12 +44,11 @@ type FileList struct {
 }
 
 func isDataFile(name string) bool {
-	for _, candidate := range dataFiles {
-		if candidate == name {
-			return true
-		}
-	}
-	return false
+	return storage.IsDataFile(name)
+}
+
+func isStreamFile(name string) bool {
+	return storage.IsStreamFile(name)
 }
 
 func storedName(name, encoding string) string {
@@ -98,11 +91,8 @@ func fileViews(app core.App, record *core.Record) []FileView {
 	entries := readFiles(record)
 	dir := recordingDir(app, record.Id)
 	views := []FileView{}
-	for _, name := range dataFiles {
-		entry, ok := entries[name]
-		if !ok {
-			continue
-		}
+	for _, name := range storage.StoredNames(entries) {
+		entry := entries[name]
 		encoding := entry.Encoding
 		if encoding == "" {
 			encoding = encodingIdentity
@@ -158,10 +148,8 @@ func addAccountBytes(app core.App, owner string, delta int64) error {
 func streamBytes(app core.App, record *core.Record) int64 {
 	var total int64
 	for _, view := range fileViews(app, record) {
-		for _, name := range streamFiles {
-			if view.Name == name {
-				total += view.Size
-			}
+		if isStreamFile(view.Name) {
+			total += view.Size
 		}
 	}
 	return total

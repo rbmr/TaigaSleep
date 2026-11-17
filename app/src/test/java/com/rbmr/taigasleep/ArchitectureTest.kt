@@ -173,7 +173,7 @@ class ArchitectureTest {
             package com.rbmr.taigasleep.debug
 
             import com.rbmr.taigasleep.guard.PreviewDevice
-            import com.rbmr.taigasleep.tracker.SleepSensor
+            import com.rbmr.taigasleep.tracker.Tracker
             import com.rbmr.taigasleep.recording.RecordingService
             """
                 .trimIndent(),

@@ -1,8 +1,8 @@
 package com.rbmr.taigasleep.recording
 
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SleepSensor
 
 /** A partial wake lock as the live session holds it. A test supplies a fake one. */
 interface RecordingWakeLock {
@@ -49,7 +49,7 @@ interface RecordingHost {
    * The tracker for a recording, created or reused from the one already connected. Throws
    * [IllegalStateException] when the app cannot make one, with the reason for the user.
    */
-  fun obtain(kind: SensorKind, id: String, name: String): SleepSensor
+  fun obtain(kind: SensorKind, id: String, name: String): Tracker
 
   /** Whether the phone may record in [mode]; false refuses the start and tells the user why. */
   fun mayStart(mode: RecordingMode): Boolean

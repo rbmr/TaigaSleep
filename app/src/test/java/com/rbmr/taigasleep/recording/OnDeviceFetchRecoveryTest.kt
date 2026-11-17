@@ -8,10 +8,11 @@ import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.tracker.HrSample
 import com.rbmr.taigasleep.tracker.OnDeviceTracker
 import com.rbmr.taigasleep.tracker.RecordingMode
-import com.rbmr.taigasleep.tracker.SampleListener
+import com.rbmr.taigasleep.tracker.PolarCodec
 import com.rbmr.taigasleep.tracker.Stamp
-import com.rbmr.taigasleep.tracker.StreamConfig
 import com.rbmr.taigasleep.tracker.TrackerEntry
+import com.rbmr.taigasleep.tracker.TrackerFrame
+import com.rbmr.taigasleep.tracker.TrackerListener
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -76,7 +77,7 @@ class OnDeviceFetchRecoveryTest {
 
     val resumed = RecordingWriter.resumeFetch(writer.dir, clock, "fetching again")!!
     val tracker =
-        FixedTracker(listOf(TrackerEntry("entry-1", 1_000_000L, listOf(1000, 1000, 1000))))
+        FixedTracker(listOf(entry("entry-1", 1_000_000L, 1000, 1000, 1000)))
     val result = OnDeviceImport(resumed, tracker, clock).fetch()
 
     assertTrue(result is OnDeviceFetch.Imported)
@@ -109,11 +110,30 @@ class OnDeviceFetchRecoveryTest {
     assertEquals("the tracker has no recording", (result as OnDeviceFetch.Failed).reason)
   }
 
+  private fun entry(id: String, startUtcMs: Long, vararg rr: Int): TrackerEntry {
+    var timeMs = startUtcMs
+    val frames =
+        rr.map { interval ->
+          timeMs += interval
+          val stamp = Stamp(timeMs * 1_000_000L, clock.elapsed)
+          val enc =
+              PolarCodec.encodeHr(
+                  stamp.phoneNs,
+                  stamp.elapsedNs,
+                  60_000 / interval,
+                  PolarCodec.hrFlags(false, false, true),
+                  intArrayOf(interval),
+              )
+          TrackerFrame("hr", stamp, enc.bytes, enc.clamped)
+        }
+    return TrackerEntry(id, startUtcMs, frames)
+  }
+
   /** A tracker whose entries are fixed, so a test states exactly what it holds. */
   private class FixedTracker(private val entries: List<TrackerEntry>) : OnDeviceTracker {
     override fun startOnDevice(
-        config: StreamConfig,
-        listener: SampleListener,
+        selected: Set<String>,
+        listener: TrackerListener,
         onResult: (error: String?) -> Unit,
     ) = onResult(null)
 

@@ -39,9 +39,7 @@ import com.rbmr.taigasleep.ui.theme.taiga
 @Composable
 internal fun ConfigureSheet(
     config: StartConfig,
-    onHr: (Boolean) -> Unit,
-    onEcg: (Boolean) -> Unit,
-    onAcc: (Boolean) -> Unit,
+    onStream: (String, Boolean) -> Unit,
     onMode: (RecordingMode) -> Unit,
     onWake: (WakeChoice?) -> Unit,
     onDismiss: () -> Unit,
@@ -55,7 +53,7 @@ internal fun ConfigureSheet(
         verticalArrangement = Arrangement.spacedBy(space.l),
     ) {
       if (config.modes.size > 1) ModeSection(config, onMode)
-      DataSection(config, onHr, onEcg, onAcc)
+      DataSection(config, onStream)
       if (RecordingMode.STREAM in config.modes) WakeSection(config, onWake)
     }
   }
@@ -100,23 +98,37 @@ private fun SwitchRow(
 @Composable
 private fun DataSection(
     config: StartConfig,
-    onHr: (Boolean) -> Unit,
-    onEcg: (Boolean) -> Unit,
-    onAcc: (Boolean) -> Unit,
+    onStream: (String, Boolean) -> Unit,
 ) {
   val streaming = !config.onTracker
   Column {
     SectionTitle(stringResource(R.string.rec_data_title))
-    SwitchRow(stringResource(R.string.rec_config_hr), config.streams.hr, onChange = onHr)
-    // The tracker stores heart rate only, so the other data is off there and cannot be chosen.
-    if (config.canRecordEcg) {
-      SwitchRow(stringResource(R.string.rec_config_ecg), config.streams.ecg, streaming, onEcg)
-    }
-    if (config.canRecordAcc) {
-      SwitchRow(stringResource(R.string.rec_config_acc), config.streams.acc, streaming, onAcc)
+    // Only the streams this tracker offers are shown; a choice the mode rules out stays in place
+    // and is disabled, so the sheet says what is available rather than what is missing.
+    for (option in config.options) {
+      SwitchRow(
+          title = stringResource(labelOf(option.type)),
+          checked = option.id in config.streams.chosen,
+          enabled = streaming || option.type == "heart_rate" || option.type == "rr_interval",
+          onChange = { onStream(option.id, it) },
+      )
     }
   }
 }
+
+/** The name the sheet uses for a stream type. */
+private fun labelOf(type: String): Int =
+    when (type) {
+      "heart_rate" -> R.string.rec_config_hr
+      "rr_interval" -> R.string.rec_config_rr
+      "ecg" -> R.string.rec_config_ecg
+      "accelerometer" -> R.string.rec_config_acc
+      "ppg" -> R.string.rec_config_ppg
+      "pulse_interval" -> R.string.rec_config_ppi
+      "gyroscope" -> R.string.rec_config_gyro
+      "magnetometer" -> R.string.rec_config_mag
+      else -> R.string.rec_config_hr
+    }
 
 @Composable
 private fun ModeSection(config: StartConfig, onMode: (RecordingMode) -> Unit) {

@@ -1,0 +1,24 @@
+{
+  "note": "The API and the worker must accept the same recording file names. A .gz suffix is the stored form of the same file.",
+  "accepted": [
+    "events.jsonl",
+    "events.jsonl.gz",
+    "hr.log",
+    "hr.log.gz",
+    "ppg.log",
+    "a.log",
+    "gyro_2-x.log",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.log"
+  ],
+  "rejected": [
+    "",
+    "meta.json",
+    "HR.log",
+    "hr.txt",
+    "hr.log.gz.gz",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.log",
+    "../hr.log",
+    "sub/hr.log",
+    "hr log.log"
+  ]
+}

@@ -18,10 +18,9 @@ import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.notifications.DeviceAlerts
 import com.rbmr.taigasleep.notifications.Notifier
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SleepSensor
-import com.rbmr.taigasleep.tracker.StreamConfig
 import com.rbmr.taigasleep.tracker.SystemClockSource
 
 /**
@@ -98,9 +97,7 @@ class RecordingService : Service(), RecordingHost {
           kind = SensorKind.fromWire(intent.getStringExtra(EXTRA_SENSOR_KIND)),
           sensorId = intent.getStringExtra(EXTRA_SENSOR_ID),
           sensorName = intent.getStringExtra(EXTRA_SENSOR_NAME),
-          hr = intent.getBooleanExtra(EXTRA_HR, true),
-          ecg = intent.getBooleanExtra(EXTRA_ECG, false),
-          acc = intent.getBooleanExtra(EXTRA_ACC, false),
+          selected = intent.getStringArrayListExtra(EXTRA_STREAMS)?.toSet().orEmpty(),
           mode = RecordingMode.fromWire(intent.getStringExtra(EXTRA_MODE)),
           // The wake-up window is part of this tracker's configuration, like its streams.
           wake = intent.getStringExtra(EXTRA_SENSOR_ID)?.let { prefs.wakeWindow(it) },
@@ -119,7 +116,7 @@ class RecordingService : Service(), RecordingHost {
 
   // The Android side of the recording.
 
-  override fun obtain(kind: SensorKind, id: String, name: String): SleepSensor =
+  override fun obtain(kind: SensorKind, id: String, name: String): Tracker =
       appContainer.sensorHub.obtain(this, kind, id, name)
 
   override fun mayStart(mode: RecordingMode): Boolean = hooks.mayStart(this, mode)
@@ -342,9 +339,7 @@ class RecordingService : Service(), RecordingHost {
     private const val EXTRA_SENSOR_KIND = "sensor_kind"
     private const val EXTRA_SENSOR_ID = "sensor_id"
     private const val EXTRA_SENSOR_NAME = "sensor_name"
-    private const val EXTRA_HR = "hr"
-    private const val EXTRA_ECG = "ecg"
-    private const val EXTRA_ACC = "acc"
+    private const val EXTRA_STREAMS = "streams"
     private const val EXTRA_MODE = "mode"
     private const val EXTRA_RECORDING_ID = "recording_id"
     private const val EXTRA_WAKE_ON = "wake_on"
@@ -363,8 +358,8 @@ class RecordingService : Service(), RecordingHost {
 
     fun start(
         context: Context,
-        sensor: SleepSensor,
-        config: StreamConfig,
+        sensor: Tracker,
+        selected: Set<String>,
         mode: RecordingMode = RecordingMode.STREAM,
     ) {
       val i =
@@ -372,9 +367,7 @@ class RecordingService : Service(), RecordingHost {
               .putExtra(EXTRA_SENSOR_KIND, sensor.kind.wire)
               .putExtra(EXTRA_SENSOR_ID, sensor.id)
               .putExtra(EXTRA_SENSOR_NAME, sensor.name)
-              .putExtra(EXTRA_HR, config.hr)
-              .putExtra(EXTRA_ECG, config.ecg)
-              .putExtra(EXTRA_ACC, config.acc)
+              .putStringArrayListExtra(EXTRA_STREAMS, ArrayList(selected))
               .putExtra(EXTRA_MODE, mode.wire)
       context.startForegroundService(i)
     }

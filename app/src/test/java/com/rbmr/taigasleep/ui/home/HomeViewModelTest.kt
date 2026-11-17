@@ -9,14 +9,16 @@ import com.rbmr.taigasleep.recording.PendingFetch
 import com.rbmr.taigasleep.recording.Phase
 import com.rbmr.taigasleep.recording.WakeWindow
 import com.rbmr.taigasleep.recording.store.RecordingConfig
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
-import com.rbmr.taigasleep.tracker.SampleListener
-import com.rbmr.taigasleep.tracker.SensorCapabilities
+import com.rbmr.taigasleep.tracker.Codec
+import com.rbmr.taigasleep.tracker.OfferedStream
+import com.rbmr.taigasleep.tracker.StreamType
+import com.rbmr.taigasleep.tracker.TrackerCapabilities
+import com.rbmr.taigasleep.tracker.TrackerListener
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SleepSensor
-import com.rbmr.taigasleep.tracker.StreamConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
@@ -30,22 +32,38 @@ private class FakeSensor(
     private val modes: Set<RecordingMode> = setOf(RecordingMode.STREAM),
     private val ecg: Boolean = true,
     private val acc: Boolean = true,
-) : SleepSensor {
+) : Tracker {
   override val kind = SensorKind.POLAR_H10
   override val id = "S1"
-  override val capabilities =
-      SensorCapabilities(ecg = ecg, acc = acc, rr = true, live = true)
+  override val streams =
+      buildList {
+        add(OfferedStream("hr", StreamType.HEART_RATE, Codec.POLAR_HR, "hr.log", listOf(1.0)))
+        add(OfferedStream("rr", StreamType.RR_INTERVAL, Codec.POLAR_HR, "hr.log"))
+        if (ecg) add(OfferedStream("ecg", StreamType.ECG, Codec.POLAR_ECG, "ecg.log", listOf(130.0)))
+        if (acc) {
+          add(
+              OfferedStream(
+                  "acc",
+                  StreamType.ACCELEROMETER,
+                  Codec.POLAR_ACC,
+                  "acc.log",
+                  listOf(50.0),
+              )
+          )
+        }
+      }
+  override val capabilities = TrackerCapabilities()
   override val connection = MutableStateFlow(ConnectionState.CONNECTED)
   override val battery = MutableStateFlow<Int?>(80)
   override val firmware = MutableStateFlow<String?>(null)
 
-  override fun recordingModes(config: StreamConfig): Set<RecordingMode> = modes
+  override fun recordingModes(selected: Set<String>): Set<RecordingMode> = modes
 
   override fun connect() {}
 
   override fun disconnect() {}
 
-  override fun startStreams(config: StreamConfig, listener: SampleListener) {}
+  override fun startStreams(selected: Set<String>, listener: TrackerListener) {}
 
   override fun stopStreams() {}
 }
@@ -73,22 +91,14 @@ private class FakeWork : HomeWork {
     calls += "restore:$canConnect"
   }
 
-  override fun savedConfig(sensor: SleepSensor) =
+  override fun savedConfig(sensor: Tracker) =
       StartConfig(streams, modes, mode, canEcg, canAcc, wake)
 
-  override fun setHr(sensorId: String, on: Boolean) {
-    calls += "hr:$on"
-    streams = streams.copy(hr = on)
-  }
-
-  override fun setEcg(sensorId: String, on: Boolean) {
-    calls += "ecg:$on"
-    streams = streams.copy(ecg = on)
-  }
-
-  override fun setAcc(sensorId: String, on: Boolean) {
-    calls += "acc:$on"
-    streams = streams.copy(acc = on)
+  override fun setStream(sensorId: String, streamId: String, on: Boolean) {
+    calls += "$streamId:$on"
+    val chosen = streams.chosen.toMutableSet()
+    if (on) chosen += streamId else chosen -= streamId
+    streams = Streams(chosen)
   }
 
   override fun setMode(sensorId: String, mode: RecordingMode) {
@@ -445,7 +455,7 @@ class HomeStepTest {
 
 class HomeViewModelTest {
   private val work = FakeWork()
-  private val sensor = MutableStateFlow<SleepSensor?>(null)
+  private val sensor = MutableStateFlow<Tracker?>(null)
   private val status = MutableStateFlow(CaptureStatus())
 
   private fun viewModel(): HomeViewModel =
@@ -517,7 +527,7 @@ class HomeViewModelTest {
 
   @Test
   fun `a configuration with nothing to record does not start`() {
-    work.streams = Streams(ecg = false, acc = false, hr = false)
+    work.streams = Streams(emptySet())
     val model = viewModel()
     sensor.value = FakeSensor()
 
@@ -531,7 +541,7 @@ class HomeViewModelTest {
     val model = viewModel()
     sensor.value = FakeSensor()
 
-    model.setHr(false)
+    model.setStream("hr", false)
 
     assertTrue("hr:false" in work.calls)
     assertEquals(
@@ -664,7 +674,7 @@ class HomeViewModelTest {
     val model = viewModel()
     sensor.value = FakeSensor()
 
-    model.setEcg(false)
+    model.setStream("ecg", false)
 
     assertTrue("ecg:false" in work.calls)
     assertEquals(

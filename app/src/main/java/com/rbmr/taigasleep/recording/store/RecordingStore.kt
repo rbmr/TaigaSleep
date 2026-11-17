@@ -115,8 +115,7 @@ class RecordingStore(
   }
 
   /** True while the recorded streams are still on this phone; meta.json alone is not raw data. */
-  fun hasRaw(dir: File): Boolean =
-      RAW_FILES.any { name -> File(dir, name).let { it.isFile && it.length() > 0 } }
+  fun hasRaw(dir: File): Boolean = rawFiles(dir).isNotEmpty()
 
   /** Wall-clock ms of the last valid HR frame (about one per second), or null if none. */
   fun lastFrameMs(dir: File): Long? {
@@ -193,8 +192,14 @@ class RecordingStore(
     private const val SUFFIX_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
     private const val SUFFIX_LENGTH = 4
 
-    /** The recorded stream files. meta.json and events.jsonl are not raw data. */
-    val RAW_FILES = listOf("hr.log", "ecg.log", "acc.log")
+    /** A stream log is raw data; meta.json and events.jsonl are not. */
+    fun isRawName(name: String): Boolean = name.endsWith(".log")
+
+    /** The recorded stream logs that are on this phone, in name order. */
+    fun rawFiles(dir: File): List<File> =
+        (dir.listFiles() ?: emptyArray())
+            .filter { it.isFile && it.length() > 0 && isRawName(it.name) }
+            .sortedBy { it.name }
 
     fun of(context: Context): RecordingStore = context.appContainer.recordingStore
   }

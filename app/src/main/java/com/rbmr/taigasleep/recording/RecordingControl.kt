@@ -5,16 +5,18 @@ import com.rbmr.taigasleep.diagnostics.BluetoothPower
 import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.recording.store.EventLog
 import com.rbmr.taigasleep.recording.store.RecordingConfig
+import com.rbmr.taigasleep.recording.store.RecordingStream
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.Clock
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.OnDeviceTracker
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SleepSensor
-import com.rbmr.taigasleep.tracker.StreamConfig
+import com.rbmr.taigasleep.tracker.OfferedStream
+import com.rbmr.taigasleep.tracker.StreamType
 import java.io.File
 import java.io.IOException
 import java.util.Locale
@@ -35,14 +37,35 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
+
+/** What one offered stream becomes in a recording. */
+private fun OfferedStream.toRecordingStream(): RecordingStream =
+    RecordingStream(
+        id = id,
+        type = type,
+        codec = codec,
+        file = file,
+        rateHz = ratesHz.firstOrNull(),
+        settings = emptyMap(),
+    )
+
+/** The old `config` object, kept in meta.json so an older reader still sees the three main streams. */
+internal fun legacyConfig(streams: List<RecordingStream>): RecordingConfig {
+  val types = streams.map { it.type }.toSet()
+  return RecordingConfig(
+      hr = StreamType.HEART_RATE in types,
+      ecg = StreamType.ECG in types,
+      acc = StreamType.ACCELEROMETER in types,
+  )
+}
+
 /** Everything one start action carries, taken from the intent the service received. */
 data class StartRequest(
     val kind: SensorKind?,
     val sensorId: String?,
     val sensorName: String?,
-    val hr: Boolean = true,
-    val ecg: Boolean,
-    val acc: Boolean,
+    /** The stream ids the user chose from what the tracker offers. */
+    val selected: Set<String>,
     val mode: RecordingMode?,
     /** The wake-up window the user set for this tracker, or null when it is off. */
     val wake: WakeWindow? = null,
@@ -77,9 +100,10 @@ class RecordingControl(
   val hasLiveSession: Boolean
     get() = live != null
 
+  @Suppress("LongParameterList")
   private class Live(
       val writer: RecordingWriter,
-      val sensor: SleepSensor,
+      val sensor: Tracker,
       val mode: RecordingMode,
       val lifecycle: RecordingLifecycle,
       val fanout: SampleFanout,
@@ -242,14 +266,15 @@ class RecordingControl(
           leave(e.message ?: host.message(RecordingMessage.NO_SENSOR))
           return
         }
-    val config =
-        RecordingConfig(
-            hr = request.hr,
-            ecg = request.ecg && sensor.capabilities.ecg,
-            acc = request.acc && sensor.capabilities.acc,
-        )
-    val modes = sensor.recordingModes(StreamConfig(config.ecg, config.acc, config.hr))
-    if (modes.isEmpty() || !(config.hr || config.ecg || config.acc)) {
+    // R-R intervals live inside the heart-rate payload, so choosing them without heart rate
+    // would leave the tracker sending frames no stream would store.
+    val requestedIds =
+        if ("rr" in request.selected) request.selected + "hr" else request.selected
+    val selected = requestedIds.filter { id -> sensor.streams.any { it.id == id } }.toSet()
+    val streams = sensor.streams.filter { it.id in selected }.map { it.toRecordingStream() }
+    val config = legacyConfig(streams)
+    val modes = sensor.recordingModes(selected)
+    if (modes.isEmpty() || streams.isEmpty()) {
       leave(host.message(RecordingMessage.MODE))
       return
     }
@@ -268,7 +293,7 @@ class RecordingControl(
       return
     }
     // A night that cannot fit would fill the phone and lose the rest of it anyway.
-    if (!StorageSpace.canStart(PhoneSpace(store.root).availableBytes(), config)) {
+    if (!StorageSpace.canStart(PhoneSpace(store.root).availableBytes(), streams)) {
       Log.w(TAG, "start refused: not enough free space")
       leave(host.message(RecordingMessage.SPACE))
       return
@@ -295,6 +320,7 @@ class RecordingControl(
             sensorFirmware = sensor.firmware.value,
             sensorBatteryAtStart = sensor.battery.value,
             config = config,
+            streams = streams,
         )
     val writer =
         try {
@@ -305,7 +331,7 @@ class RecordingControl(
           return
         }
     writer.event("readiness", host.readinessSummary())
-    attach(writer, sensor, mode, wake = wakeOf(request.wake, mode, config, meta.recordingId, now))
+    attach(writer, sensor, mode, wake = wakeOf(request.wake, mode, streams, meta.recordingId, now))
   }
 
   /**
@@ -316,13 +342,15 @@ class RecordingControl(
   private fun wakeOf(
       window: WakeWindow?,
       mode: RecordingMode,
-      config: RecordingConfig,
+      streams: List<RecordingStream>,
       recordingId: String,
       nowUtcMs: Long,
   ): ArmedWake? {
     if (window == null || mode != RecordingMode.STREAM) return null
+    val heart = streams.any { it.type == StreamType.HEART_RATE }
+    val movement = streams.any { it.type == StreamType.ACCELEROMETER }
     val chosen =
-        window.copy(heartRate = window.heartRate && config.hr, movement = window.movement && config.acc)
+        window.copy(heartRate = window.heartRate && heart, movement = window.movement && movement)
     val bounds = chosen.bounds(nowUtcMs)
     return ArmedWake(recordingId, chosen, bounds.startUtcMs, bounds.endUtcMs)
   }
@@ -374,9 +402,10 @@ class RecordingControl(
    * picked up to be stopped or discarded: the tracker is not asked to start again. Without
    * [contact] the tracker is left alone altogether (force stop).
    */
+  @Suppress("LongParameterList", "LongMethod", "CyclomaticComplexMethod")
   private fun attach(
       writer: RecordingWriter,
-      sensor: SleepSensor,
+      sensor: Tracker,
       mode: RecordingMode,
       parked: Boolean = false,
       contact: Boolean = true,
@@ -436,13 +465,13 @@ class RecordingControl(
           startUtcMs = writer.meta.startUtcMs,
           config = cfg,
           sensorName = sensor.name,
-          liveStreaming = mode == RecordingMode.STREAM && sensor.capabilities.live,
+          liveStreaming = mode == RecordingMode.STREAM,
           state = monitor.state.value,
           wake = armed,
           wakeRangAtUtcMs = rangAtUtcMs,
       )
     }
-    val streamConfig = StreamConfig(cfg.ecg, cfg.acc, cfg.hr)
+    val selectedNow = writer.meta.streams.map { it.id }.toSet()
     if (mode == RecordingMode.ON_DEVICE) {
       val tracker = sensor as? OnDeviceTracker
       if (tracker == null) {
@@ -451,10 +480,10 @@ class RecordingControl(
         return
       }
       if (RecordingRecovery.startsOnTracker(mode, parked)) {
-        tracker.startOnDevice(streamConfig, fanout) { error -> post { onDeviceStarted(error) } }
+        tracker.startOnDevice(selectedNow, fanout) { error -> post { onDeviceStarted(error) } }
       }
     } else {
-      sensor.startStreams(streamConfig, fanout)
+      sensor.startStreams(selectedNow, fanout)
     }
     // The tracker call above can block for good. If the session was dropped in the meantime, the
     // recording is somebody else's now and this one stops here instead of attaching over it.
@@ -520,7 +549,7 @@ class RecordingControl(
     // A recording the tracker stores has no live data to wake on, so it has no smart alarm.
     if (s.mode != RecordingMode.STREAM) return
     val meta = s.writer.meta
-    val armed = wakeOf(window, s.mode, meta.config, meta.recordingId, clock.phoneNs() / NS_PER_MS)
+    val armed = wakeOf(window, s.mode, meta.streams, meta.recordingId, clock.phoneNs() / NS_PER_MS)
     if (armed == null) {
       host.disarmWake()
       s.fanout.wake = null
@@ -1043,9 +1072,9 @@ class RecordingControl(
    */
   private suspend fun applyRecovery(s: Live, step: RecoveryStep) {
     if (live !== s) return
-    val cfg = s.writer.meta.config
+    val selected = s.writer.meta.streams.map { it.id }.toSet()
     try {
-      executeRecovery(step, s.sensor, StreamConfig(cfg.ecg, cfg.acc, cfg.hr), s.fanout)
+      executeRecovery(step, s.sensor, selected, s.fanout)
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {

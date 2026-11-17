@@ -8,11 +8,13 @@ import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
 import android.os.StrictMode
+import java.io.File
 import androidx.core.content.ContextCompat
+import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SimulatedSensor
-import com.rbmr.taigasleep.tracker.SleepSensor
+import com.rbmr.taigasleep.tracker.FakeTracker
+import com.rbmr.taigasleep.tracker.ReplayTracker
 
 /**
  * Tools that only exist in debug builds. `src/release` has a twin with the same API that does
@@ -25,10 +27,13 @@ object DebugTools {
   const val GUIDANCE_PREVIEW = true
 
   /** Listed next to real straps while scanning, so recording can be tried without hardware. */
-  val simulatedSensor: FoundSensor? =
-      FoundSensor(SensorKind.SIMULATED, "SIM00001", "Simulated sensor", 0)
+  val fakeTracker: FoundSensor? =
+      FoundSensor(SensorKind.SIMULATED, "SIM00001", "Fake tracker", 0)
 
-  fun createSimulatedSensor(): SleepSensor? = SimulatedSensor()
+  fun createFakeTracker(): Tracker? = FakeTracker()
+
+  /** Plays a recording directory back through the tracker interface, for a night without a strap. */
+  fun replayTracker(dir: File): Tracker? = ReplayTracker(dir)
 
   /**
    * Reports disk and network work on the main thread in the log (tag `StrictMode`), so a startup

@@ -20,6 +20,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence
 
+POLAR_HR_CODEC = "polar-hr-v1"
+POLAR_ECG_CODEC = "polar-ecg-v1"
+POLAR_ECG_V2_CODEC = "polar-ecg-v2"
+POLAR_ACC_CODEC = "polar-acc-v1"
+POLAR_PPG_CODEC = "polar-ppg-v1"
+POLAR_PPI_CODEC = "polar-ppi-v1"
+POLAR_GYRO_CODEC = "polar-gyro-v1"
+POLAR_MAG_CODEC = "polar-mag-v1"
+BLE_HRS_CODEC = "ble-hrs-v1"
+
 MAGIC = b"TSLG"
 VERSION = 1
 HEADER_SIZE = 8
@@ -37,7 +47,20 @@ I16_MAX = (1 << 15) - 1
 STREAM_HR = 1
 STREAM_ECG = 2
 STREAM_ACC = 3
+STREAM_PPG = 4
+STREAM_PPI = 5
+STREAM_GYRO = 6
+STREAM_MAG = 7
 STREAM_IDS = {"hr.log": STREAM_HR, "ecg.log": STREAM_ECG, "acc.log": STREAM_ACC}
+STREAM_NAMES = {
+    STREAM_HR: "hr",
+    STREAM_ECG: "ecg",
+    STREAM_ACC: "acc",
+    STREAM_PPG: "ppg",
+    STREAM_PPI: "ppi",
+    STREAM_GYRO: "gyro",
+    STREAM_MAG: "mag",
+}
 
 # Polar sample timestamps count nanoseconds from 2000-01-01 00:00:00 UTC.
 POLAR_EPOCH_OFFSET_NS = 946_684_800_000_000_000
@@ -179,7 +202,14 @@ def _damage(data: bytes, stream: int, offset: int) -> str:
     return "payload does not decode"
 
 
-def _frame_at(data: bytes, stream: int, offset: int, *, checked: bool = False) -> Frame | None:
+def _frame_at(
+    data: bytes,
+    stream: int,
+    offset: int,
+    *,
+    checked: bool = False,
+    codec: str | None = None,
+) -> Frame | None:
     """The frame at ``offset``, or None when its length, CRC or payload is off.
 
     The payload has to decode as the stream's own layout, so a length and a CRC
@@ -201,7 +231,7 @@ def _frame_at(data: bytes, stream: int, offset: int, *, checked: bool = False) -
     if expected_crc != zlib.crc32(payload) & 0xFFFFFFFF:
         return None
     try:
-        read_payload(stream, payload)
+        read_payload(stream, payload, codec)
     except (ValueError, struct.error):
         return None
     return Frame(payload, offset, end)
@@ -213,6 +243,7 @@ def iter_frames(
     gaps: list[FrameGap],
     *,
     checked: Sequence[FrameGap] | None = None,
+    codec: str | None = None,
 ) -> Iterator[Frame]:
     """Yield every frame of a log that checks out, over damaged regions if need be.
 
@@ -240,7 +271,7 @@ def iter_frames(
             gaps.append(gap)
             pos = gap.end
             continue
-        frame = _frame_at(data, stream, pos, checked=verified)
+        frame = _frame_at(data, stream, pos, checked=verified, codec=codec)
         if frame is not None:
             yield frame
             pos = frame.end
@@ -255,7 +286,7 @@ def iter_frames(
         # A frame needs its 8-byte length-and-CRC shell, so the last candidate
         # starts at len(data) - 8.
         for candidate in range(pos + 1, len(data) - 7):
-            if _frame_at(data, stream, candidate) is not None:
+            if _frame_at(data, stream, candidate, codec=codec) is not None:
                 next_pos = candidate
                 break
         if next_pos is None:
@@ -472,15 +503,205 @@ def read_acc(payload: bytes) -> Batch:
     return _read_batch(payload, values_per_sample=3, value_format="h", values_i16_allowed=False)
 
 
-def read_payload(stream: int, payload: bytes) -> HrSample | Batch:
-    """Parse one payload as the layout of ``stream``, raising ValueError if it is not."""
+@dataclass(frozen=True)
+class BleHrsSample:
+    """One standard Heart Rate Measurement notification, kept as received."""
+
+    phone_ns: int
+    elapsed_ns: int
+    value: bytes
+    hr_bpm: int
+    contact_supported: bool
+    contact: bool
+    rr_ms: tuple[int, ...]
+    energy_expended: int | None
+    rr_present: bool
+
+
+def read_ble_hrs(payload: bytes) -> BleHrsSample:
+    """The stored bytes of one 0x2A37 notification and their decoded fields."""
+
+    phone_ns, elapsed_ns, length = struct.unpack_from("<qqH", payload, 0)
+    value = memoryview(payload)[18 : 18 + length]
+    if len(value) != length or len(payload) != 18 + length:
+        raise ValueError("ble heart rate payload length mismatch")
+    decoded = decode_heart_rate_measurement(bytes(value))
+    return BleHrsSample(
+        phone_ns,
+        elapsed_ns,
+        bytes(value),
+        decoded["hr_bpm"],
+        decoded["contact_supported"],
+        decoded["contact"],
+        tuple(decoded["rr_ms"]),
+        decoded["energy_expended"],
+        decoded["rr_present"],
+    )
+
+
+def decode_heart_rate_measurement(value: bytes) -> dict:
+    """The fields of the 0x2A37 characteristic, for every flag combination."""
+
+    if not value:
+        raise ValueError("empty heart rate measurement")
+    flags = value[0]
+    offset = 1
+    wide = flags & 0x01
+    if wide:
+        if offset + 2 > len(value):
+            raise ValueError("truncated 16-bit heart rate")
+        hr_bpm = struct.unpack_from("<H", value, offset)[0]
+        offset += 2
+    else:
+        if offset + 1 > len(value):
+            raise ValueError("truncated 8-bit heart rate")
+        hr_bpm = value[offset]
+        offset += 1
+    energy = None
+    if flags & 0x08:
+        if offset + 2 > len(value):
+            raise ValueError("truncated energy expended")
+        energy = struct.unpack_from("<H", value, offset)[0]
+        offset += 2
+    rr: list[int] = []
+    rr_present = bool(flags & 0x10)
+    if rr_present:
+        count = (len(value) - offset) // 2
+        if offset + count * 2 != len(value):
+            raise ValueError("odd RR interval length")
+        for index in range(count):
+            raw = struct.unpack_from("<H", value, offset + index * 2)[0]
+            # Units of 1/1024 s, rounded to the nearest millisecond like the app.
+            rr.append((raw * 1000 + 512) // 1024)
+    elif offset != len(value):
+        raise ValueError("unexpected bytes after the heart rate")
+    return {
+        "hr_bpm": hr_bpm,
+        "contact_supported": bool(flags & 0x04),
+        "contact": bool(flags & 0x02),
+        "rr_present": rr_present,
+        "rr_ms": rr,
+        "energy_expended": energy,
+    }
+
+
+@dataclass(frozen=True)
+class PpgBatch:
+    phone_ns: int
+    elapsed_ns: int
+    timestamps_ns: tuple[int, ...]
+    channels: tuple[tuple[int, ...], ...]
+    status: tuple[int, ...]
+
+
+def read_ppg(payload: bytes) -> PpgBatch:
+    phone_ns, elapsed_ns, count = struct.unpack_from("<qqH", payload, 0)
+    timestamps = []
+    channels: list[tuple[int, ...]] = []
+    status = []
+    offset = 18
+    for _ in range(count):
+        if offset + 11 > len(payload):
+            raise ValueError("ppg payload length mismatch")
+        timestamp, width = struct.unpack_from("<qB", payload, offset)
+        offset += 9
+        if width < 1 or offset + 4 * width + 2 > len(payload):
+            raise ValueError("ppg channel count does not fit")
+        values = struct.unpack_from(f"<{width}i", payload, offset)
+        offset += 4 * width
+        bits = struct.unpack_from("<h", payload, offset)[0]
+        offset += 2
+        timestamps.append(timestamp)
+        channels.append(values)
+        status.append(bits)
+    if offset != len(payload):
+        raise ValueError("ppg payload length mismatch")
+    return PpgBatch(phone_ns, elapsed_ns, tuple(timestamps), tuple(channels), tuple(status))
+
+
+@dataclass(frozen=True)
+class PpiBatch:
+    phone_ns: int
+    elapsed_ns: int
+    timestamps_ns: tuple[int, ...]
+    ppi_ms: tuple[int, ...]
+    error_ms: tuple[int, ...]
+    hr_bpm: tuple[int, ...]
+    flags: tuple[int, ...]
+
+
+def read_ppi(payload: bytes) -> PpiBatch:
+    phone_ns, elapsed_ns, count = struct.unpack_from("<qqH", payload, 0)
+    if len(payload) != 18 + count * 14:
+        raise ValueError("ppi payload length mismatch")
+    timestamps, ppi, error, hr, flags = [], [], [], [], []
+    for index in range(count):
+        t, interval, estimate, beats, bits = struct.unpack_from("<qHHBB", payload, 18 + index * 14)
+        timestamps.append(t)
+        ppi.append(interval)
+        error.append(estimate)
+        hr.append(beats)
+        flags.append(bits)
+    return PpiBatch(
+        phone_ns, elapsed_ns, tuple(timestamps), tuple(ppi), tuple(error), tuple(hr), tuple(flags)
+    )
+
+
+@dataclass(frozen=True)
+class VectorBatch:
+    phone_ns: int
+    elapsed_ns: int
+    timestamps_ns: tuple[int, ...]
+    xyz: tuple[float, ...]
+
+
+def read_vector(payload: bytes) -> VectorBatch:
+    phone_ns, elapsed_ns, count = struct.unpack_from("<qqH", payload, 0)
+    if len(payload) != 18 + count * 20:
+        raise ValueError("vector payload length mismatch")
+    timestamps = []
+    xyz = []
+    for index in range(count):
+        t, x, y, z = struct.unpack_from("<qfff", payload, 18 + index * 20)
+        timestamps.append(t)
+        xyz.extend((x, y, z))
+    return VectorBatch(phone_ns, elapsed_ns, tuple(timestamps), tuple(xyz))
+
+
+def stream_id_of(data: bytes) -> int | None:
+    """The stream id in a log's header, or None when it has no valid header."""
+
+    if len(data) < HEADER_SIZE or data[:4] != MAGIC or data[4] != VERSION:
+        return None
+    return data[5]
+
+
+def read_payload(stream: int, payload: bytes, codec: str | None = None):
+    """Parse one payload as the layout of ``stream``, raising ValueError if it is not.
+
+    ``codec`` names the payload layout when a stream can carry more than one, such
+    as a standard heart-rate measurement next to the Polar one.
+    """
 
     if stream == STREAM_HR:
-        return read_hr(payload)
+        if codec == BLE_HRS_CODEC:
+            return read_ble_hrs(payload)
+        if codec == POLAR_HR_CODEC:
+            return read_hr(payload)
+        try:
+            return read_hr(payload)
+        except (ValueError, struct.error):
+            return read_ble_hrs(payload)
     if stream == STREAM_ECG:
         return read_ecg(payload)
     if stream == STREAM_ACC:
         return read_acc(payload)
+    if stream == STREAM_PPG:
+        return read_ppg(payload)
+    if stream == STREAM_PPI:
+        return read_ppi(payload)
+    if stream in (STREAM_GYRO, STREAM_MAG):
+        return read_vector(payload)
     raise ValueError(f"unknown stream id {stream}")
 
 
@@ -517,8 +738,10 @@ def _read_batch(
 
 
 __all__ = [
+    "BLE_HRS_CODEC",
     "Batch",
     "BatchLayout",
+    "BleHrsSample",
     "Frame",
     "FrameError",
     "FrameGap",
@@ -526,11 +749,26 @@ __all__ = [
     "HrSample",
     "MAGIC",
     "MAX_PAYLOAD",
+    "POLAR_ACC_CODEC",
+    "POLAR_ECG_CODEC",
+    "POLAR_ECG_V2_CODEC",
     "POLAR_EPOCH_OFFSET_NS",
+    "POLAR_GYRO_CODEC",
+    "POLAR_HR_CODEC",
+    "POLAR_MAG_CODEC",
+    "POLAR_PPG_CODEC",
+    "POLAR_PPI_CODEC",
+    "PpgBatch",
+    "PpiBatch",
     "STREAM_ACC",
     "STREAM_ECG",
+    "STREAM_GYRO",
     "STREAM_HR",
     "STREAM_IDS",
+    "STREAM_MAG",
+    "STREAM_NAMES",
+    "STREAM_PPG",
+    "STREAM_PPI",
     "TS_EXPLICIT",
     "TS_LINEAR",
     "TS_VALUES_I16",
@@ -548,8 +786,15 @@ __all__ = [
     "linear_timestamps",
     "mapped_log",
     "read_acc",
+    "read_ble_hrs",
     "read_ecg",
     "read_hr",
+    "read_ppg",
+    "read_ppi",
+    "read_vector",
+    "decode_heart_rate_measurement",
+    "stream_id_of",
     "read_payload",
     "trunc_div",
+    "VectorBatch",
 ]

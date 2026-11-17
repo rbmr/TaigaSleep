@@ -43,7 +43,6 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
 
   /** The streams are remembered per device; all default to on. */
   fun hrEnabled(sensorId: String) = prefs.getBoolean("hr_$sensorId", true)
-
   fun setHrEnabled(sensorId: String, on: Boolean) =
       prefs.edit().putBoolean("hr_$sensorId", on).apply()
 
@@ -56,6 +55,27 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
 
   fun setAccEnabled(sensorId: String, on: Boolean) =
       prefs.edit().putBoolean("acc_$sensorId", on).apply()
+
+  /**
+   * Whether one of a tracker's streams is chosen. Heart rate, ECG and movement keep their old keys
+   * so a saved choice survives; other streams default to on, except ECG-like extras that are opt-in.
+   */
+  fun streamEnabled(sensorId: String, streamId: String, default: Boolean = true): Boolean =
+      prefs.getBoolean("stream_${streamId}_$sensorId", when (streamId) {
+        "hr" -> hrEnabled(sensorId)
+        "ecg" -> ecgEnabled(sensorId)
+        "acc" -> accEnabled(sensorId)
+        else -> prefs.getBoolean("${streamId}_$sensorId", default)
+      })
+
+  fun setStreamEnabled(sensorId: String, streamId: String, on: Boolean) {
+    when (streamId) {
+      "hr" -> setHrEnabled(sensorId, on)
+      "ecg" -> setEcgEnabled(sensorId, on)
+      "acc" -> setAccEnabled(sensorId, on)
+      else -> prefs.edit().putBoolean("stream_${streamId}_$sensorId", on).apply()
+    }
+  }
 
   /** How this tracker records: streamed to the phone or stored on the tracker. */
   fun mode(sensorId: String): RecordingMode =
