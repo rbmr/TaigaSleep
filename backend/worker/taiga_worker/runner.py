@@ -174,10 +174,4 @@ class JobRunner:
             self._kill(process)
 
 
-def run_with_limits(job: Mapping[str, Any], memory_mb: int, timeout_s: float) -> Outcome:
-    """Convenience wrapper used by tests and future algorithm code."""
-
-    return JobRunner(memory_mb=memory_mb, timeout_s=timeout_s).run(job)
-
-
-__all__ = ["JobRunner", "Outcome", "SINGLE_THREAD_ENV", "run_with_limits"]
+__all__ = ["JobRunner", "Outcome", "SINGLE_THREAD_ENV"]

@@ -32,7 +32,6 @@ from .derive import derive
 from .items import build_items
 from .registry import Registry, discover
 
-STAGE_ORDER: tuple[Stage, ...] = ("wake", "rem", "nrem", "light", "deep", "unknown")
 # The shared derivation reads HR (heart-rate figures, HRV, coverage) and ACC
 # (movement, and the movement rule of the HRV windows) whatever the stager asks
 # for, so those two streams are always decoded. Every other stream is decoded
@@ -70,12 +69,7 @@ class AnalysisOutput:
     params: dict[str, Any]
     params_hash: str
     stages: dict[str, Any]
-    hr: dict[str, Any]
-    metrics: dict[str, Any]
-    support: dict[str, Any]
     items: list[dict[str, Any]]
-    quality: dict[str, Any]
-    sleep_quality: dict[str, Any]
     capabilities: dict[str, Any]
     provenance: dict[str, Any]
     extras: dict[str, Any]
@@ -306,7 +300,6 @@ def run_analysis(
         "confidence": confidence is not None,
         "probabilities": result.probabilities is not None,
         "artifacts": result.artifacts is not None,
-        "beats": result.beats_s is not None,
         "no_deep": "no_deep" in info.capabilities,
         "stage_scheme": info.stage_scheme,
         "supported_stages": list(result.supported_stages or info.supported_stages),
@@ -363,9 +356,6 @@ def run_analysis(
         params=_jsonable(requested_params),
         params_hash=params_hash_override or params_hash(requested_params),
         stages=serialized_stages,
-        hr=serialized_hr,
-        metrics=derived.metrics,
-        support=derived.support,
         items=build_items(
             derived.metrics,
             derived.support,
@@ -374,8 +364,6 @@ def run_analysis(
             serialized_hr,
             derived.hrv_windows,
         ),
-        quality=derived.quality,
-        sleep_quality=derived.sleep_quality,
         capabilities=capabilities,
         provenance=provenance,
         extras=_jsonable(dict(result.extras)),
@@ -383,4 +371,4 @@ def run_analysis(
     )
 
 
-__all__ = ["AnalysisOutput", "STAGE_ORDER", "params_hash", "run_analysis"]
+__all__ = ["AnalysisOutput", "params_hash", "run_analysis"]

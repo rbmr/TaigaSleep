@@ -117,15 +117,6 @@ def test_optional_field_lengths_are_checked() -> None:
         )
 
 
-def test_beats_must_be_sorted() -> None:
-    with pytest.raises(AnalysisError):
-        validate_staging_result(
-            StagingResult(stages=["light"], beats_s=[2.0, 1.0]),
-            epoch_count=1,
-            info=_info(),
-        )
-
-
 def test_valid_optional_fields_are_accepted() -> None:
     validate_staging_result(
         StagingResult(
@@ -133,7 +124,6 @@ def test_valid_optional_fields_are_accepted() -> None:
             confidence=[0.5],
             artifacts=[False],
             probabilities={"light": [0.5], "wake": [0.5]},
-            beats_s=[0.8, 1.6],
         ),
         epoch_count=1,
         info=_info(),

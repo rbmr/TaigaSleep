@@ -158,10 +158,10 @@ def test_a_heart_rate_service_recording_runs_the_existing_analysis(tmp_path: Pat
     ]
     _write(tmp_path, _meta("ble-hrs", streams, duration_s=120), {"hr.log": _ble_hr_log(120)})
 
-    output = run_analysis(str(tmp_path), "baseline", {})
+    payload = run_analysis(str(tmp_path), "baseline", {}).to_dict()
 
-    assert output.hr["count"] > 0
-    assert any(item.get("id") == "hr_mean_bpm" for item in output.items)
+    assert next(item for item in payload["items"] if item["id"] == "hr")["series"]["count"] > 0
+    assert any(item.get("id") == "hr_mean_bpm" for item in payload["items"])
 
 
 def test_pulse_intervals_give_the_analysis_a_heart_rate(tmp_path: Path) -> None:
@@ -174,10 +174,10 @@ def test_pulse_intervals_give_the_analysis_a_heart_rate(tmp_path: Path) -> None:
         {"ppi.log": _ppi_log(120)},
     )
 
-    output = run_analysis(str(tmp_path), "baseline", {})
+    payload = run_analysis(str(tmp_path), "baseline", {}).to_dict()
 
-    assert output.hr["count"] > 0
-    assert any(item.get("id") == "hr_mean_bpm" for item in output.items)
+    assert next(item for item in payload["items"] if item["id"] == "hr")["series"]["count"] > 0
+    assert any(item.get("id") == "hr_mean_bpm" for item in payload["items"])
 
 
 def test_pulse_intervals_are_decoded_and_kept(tmp_path: Path) -> None:

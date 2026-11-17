@@ -471,7 +471,6 @@ class StagingResult:
     confidence: Sequence[float | None] | None = None
     probabilities: Mapping[Stage, Sequence[float]] | None = None
     artifacts: Sequence[bool] | None = None
-    beats_s: Sequence[float] | None = None
     warnings: Sequence[str] = ()
     extras: Mapping[str, Any] = field(default_factory=dict)
     # Algorithm-specific provenance (checkpoint, model revision, ...). It is
@@ -563,10 +562,6 @@ def validate_staging_result(
         for stage, values in result.probabilities.items():
             if stage not in STAGES or len(values) != epoch_count:
                 raise AnalysisError("invalid_result", f"invalid probabilities for {stage!r}")
-    if result.beats_s is not None:
-        beats = np.asarray(result.beats_s, dtype=np.float64)
-        if beats.ndim != 1 or (beats.size > 1 and np.any(np.diff(beats) < 0)):
-            raise AnalysisError("invalid_result", "beat times must be a sorted 1D sequence")
 
 
 __all__ = [

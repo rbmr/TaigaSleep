@@ -183,18 +183,10 @@ def discover(allowlist: Iterable[str] | None = None) -> Registry:
     return registry
 
 
-def capabilities_from_env(value: str | None) -> tuple[str, ...] | None:
-    if not value:
-        return None
-    items = tuple(item.strip() for item in value.split(",") if item.strip())
-    return items or None
-
-
 __all__ = [
     "BUILTIN_MODULES",
     "ENTRY_POINT_GROUP",
     "Registry",
-    "capabilities_from_env",
     "discover",
     "installed_ids",
 ]
