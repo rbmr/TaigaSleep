@@ -121,6 +121,8 @@ class _RawStream:
     info: FrameLogInfo
     last_phone_ns: int
     samples: int
+    #: Whether the samples themselves were kept, or only the file was reported.
+    kept: bool
     # Samples at or beyond the rail, for the ECG saturation share.
     saturated: int = 0
 
@@ -324,6 +326,7 @@ def _decode_batches(
         info=info,
         last_phone_ns=last_phone_ns,
         samples=samples,
+        kept=with_values,
         saturated=saturated,
     )
 
@@ -611,7 +614,7 @@ def load_recording(
         ecg_t = _sample_times_from_batches(ecg_raw.batches, ecg_anchor_s, warnings, "ecg")
         ecg_byte_gaps = _byte_gaps("ecg", ecg_info.gap_samples, ecg_t)
         ecg_samples = int(ecg_t.size)
-        if ecg_raw.batches[0].values is not None:
+        if ecg_raw.kept:
             voltage = np.concatenate([batch.values for batch in ecg_raw.batches])
             ecg_t, voltage = _ordered(ecg_t, voltage)
             ecg_rate = _median_rate(ecg_t, meta.ecg_rate_hz)
@@ -643,7 +646,7 @@ def load_recording(
         acc_t = _sample_times_from_batches(acc_raw.batches, acc_anchor_s, warnings, "acc")
         acc_byte_gaps = _byte_gaps("acc", acc_info.gap_samples, acc_t)
         acc_samples = int(acc_t.size)
-        if acc_raw.batches[0].values is not None:
+        if acc_raw.kept:
             xyz = np.concatenate([batch.values for batch in acc_raw.batches])
             acc_t, xyz = _ordered(acc_t, xyz)
             acc_rate = _median_rate(acc_t, meta.acc_rate_hz)
