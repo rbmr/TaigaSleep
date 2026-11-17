@@ -11,6 +11,8 @@ import org.junit.Test
 class PayloadsTest {
   private fun mode(p: ByteArray) = p[16].toInt()
 
+  private fun tsMode(p: ByteArray) = mode(p) and Payloads.TS_VALUES_I16.inv()
+
   @Test
   fun evenlySpacedTimestampsUseLinearMode() {
     val t = LongArray(36) { 1_000_000_000L + it * 20_000_000L }
@@ -28,7 +30,7 @@ class PayloadsTest {
     val t = LongArray(73) { 5_000_000_000L + (it * 1_000_000_000L) / 130 }
     assertFalse(Payloads.isLinear(t))
     val enc = Payloads.encodeEcg(1, 2, t, IntArray(73) { it * 10 - 300 })
-    assertEquals(Payloads.TS_EXPLICIT, mode(enc.bytes))
+    assertEquals(Payloads.TS_EXPLICIT, tsMode(enc.bytes))
     val b = Payloads.decodeEcg(enc.bytes)
     assertArrayEquals(t, b.t)
     assertEquals(73, b.values.size)
@@ -50,7 +52,7 @@ class PayloadsTest {
       }
       val enc = Payloads.encodeEcg(0, 0, t, IntArray(n))
       assertArrayEquals(t, Payloads.decodeEcg(enc.bytes).t)
-      if (mode(enc.bytes) == Payloads.TS_LINEAR) {
+      if (tsMode(enc.bytes) == Payloads.TS_LINEAR) {
         assertArrayEquals(t, Payloads.reconstruct(t[0], t[n - 1], n))
       } else {
         assertFalse(Payloads.isLinear(t))
@@ -61,7 +63,7 @@ class PayloadsTest {
   @Test
   fun singleSampleAndTruncatingDivision() {
     val one = Payloads.encodeEcg(0, 0, longArrayOf(123), intArrayOf(7))
-    assertEquals(Payloads.TS_LINEAR, mode(one.bytes))
+    assertEquals(Payloads.TS_LINEAR, tsMode(one.bytes))
     assertArrayEquals(longArrayOf(123), Payloads.decodeEcg(one.bytes).t)
 
     // Span 10 over 4 samples: 0, 3, 6, 10 (truncating 10/3 and 20/3).
@@ -78,7 +80,7 @@ class PayloadsTest {
   fun overflowingSpanFallsBackToExplicit() {
     val t = longArrayOf(Long.MIN_VALUE / 2, 0, Long.MAX_VALUE / 2)
     val enc = Payloads.encodeEcg(0, 0, t, IntArray(3))
-    assertEquals(Payloads.TS_EXPLICIT, mode(enc.bytes))
+    assertEquals(Payloads.TS_EXPLICIT, tsMode(enc.bytes))
     assertArrayEquals(t, Payloads.decodeEcg(enc.bytes).t)
   }
 
@@ -111,5 +113,74 @@ class PayloadsTest {
     assertEquals(2, enc.clamped)
     val d = Payloads.decodeAcc(enc.bytes)
     assertArrayEquals(intArrayOf(32767, -32768, 0, 32767, -32768, 123), d.values)
+  }
+
+  @Test
+  fun ecgBatchesRoundTripRandomSamplesAsI16() {
+    val rnd = java.util.Random(251)
+    repeat(500) {
+      val n = 1 + rnd.nextInt(500)
+      val t = LongArray(n) { 5_000_000_000L + (it * 1_000_000_000L) / 130 }
+      val values = IntArray(n) { rnd.nextInt(65536) - 32768 }
+      val enc = Payloads.encodeEcg(11, 22, t, values)
+
+      assertEquals(Payloads.TS_VALUES_I16, mode(enc.bytes) and Payloads.TS_VALUES_I16)
+      val batch = Payloads.decodeEcg(enc.bytes)
+      assertTrue(batch.valuesI16)
+      assertArrayEquals(t, batch.t)
+      assertArrayEquals(values, batch.values)
+      if (tsMode(enc.bytes) == Payloads.TS_LINEAR) {
+        assertEquals(19 + 16 + 2 * n, enc.bytes.size)
+      }
+    }
+  }
+
+  @Test
+  fun ecgSamplesAtAndBeyondTheI16LimitsStayExact() {
+    val atLimits = intArrayOf(-32768, -32767, 0, 32767)
+    val fits = Payloads.encodeEcg(0, 0, longArrayOf(10, 20, 30, 40), atLimits)
+    assertEquals(Payloads.TS_VALUES_I16, mode(fits.bytes) and Payloads.TS_VALUES_I16)
+    assertArrayEquals(atLimits, Payloads.decodeEcg(fits.bytes).values)
+
+    for (beyond in intArrayOf(-32769, 32768)) {
+      val values = intArrayOf(-1, beyond, 1)
+      val enc = Payloads.encodeEcg(0, 0, longArrayOf(10, 20, 30), values)
+      assertEquals(0, mode(enc.bytes) and Payloads.TS_VALUES_I16)
+      val batch = Payloads.decodeEcg(enc.bytes)
+      assertFalse(batch.valuesI16)
+      assertArrayEquals(values, batch.values)
+    }
+  }
+
+  @Test
+  fun aSaturatedEcgBatchIsStoredAsI16AndRoundTrips() {
+    val values = intArrayOf(18_000, -18_000, 18_000, -18_000)
+    val t = longArrayOf(0, 7, 14, 21)
+    val enc = Payloads.encodeEcg(0, 0, t, values)
+    assertTrue(Payloads.decodeEcg(enc.bytes).valuesI16)
+    assertArrayEquals(values, Payloads.decodeEcg(enc.bytes).values)
+    // 8+8+1+2 header, 16 bytes of timestamps, 2 bytes per sample.
+    assertEquals(19 + 16 + 4 * 2, enc.bytes.size)
+  }
+
+  @Test
+  fun anEcgPayloadWithoutTheWidthFlagDecodesAs32Bit() {
+    // A payload written before the flag existed: ts_mode 0, 32-bit values.
+    val values = intArrayOf(1234, -5678, 32768)
+    val b = ByteBuffer.allocate(19 + 16 + 4 * values.size).order(ByteOrder.LITTLE_ENDIAN)
+    b.putLong(1).putLong(2).put(0).putShort(values.size.toShort())
+    b.putLong(100).putLong(104)
+    values.forEach { b.putInt(it) }
+    val batch = Payloads.decodeEcg(b.array())
+    assertFalse(batch.valuesI16)
+    assertEquals(Payloads.TS_LINEAR, batch.mode)
+    assertArrayEquals(values, batch.values)
+  }
+
+  @Test
+  fun accValuesAreAlwaysI16AndCarryNoWidthFlag() {
+    val enc = Payloads.encodeAcc(0, 0, longArrayOf(0, 20_000_000), intArrayOf(1, 2, 3, 4, 5, 6))
+    assertEquals(0, mode(enc.bytes) and Payloads.TS_VALUES_I16)
+    assertTrue(Payloads.decodeAcc(enc.bytes).valuesI16)
   }
 }
