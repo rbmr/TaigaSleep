@@ -32,9 +32,16 @@ RECORDING_FILES = {"events.jsonl", *STREAM_IDS}
 
 
 def is_recording_file(name: str) -> bool:
-    """A recording file is the event log or any stream log a tracker declared."""
+    """A recording file follows the API's data-file rule, in stored or plain form."""
 
-    return name == "events.jsonl" or name.endswith(".log") or name.endswith(".log.gz")
+    if name.endswith(".gz"):
+        name = name[:-3]
+    if name == "events.jsonl":
+        return True
+    base, ok = name.removesuffix(".log"), name.endswith(".log")
+    if not ok or not 1 <= len(base) <= 32:
+        return False
+    return all(char.isascii() and (char.islower() or char.isdigit() or char in "_-") for char in base)
 
 
 @dataclass(frozen=True)

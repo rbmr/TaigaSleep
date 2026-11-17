@@ -3,8 +3,10 @@ package storage
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -69,5 +71,30 @@ func TestRecordingBytesCountsOnlyDataFiles(t *testing.T) {
 
 	if got, want := recordingBytes(dir), int64(10+7+5); got != want {
 		t.Fatalf("recording bytes = %d, want %d", got, want)
+	}
+}
+
+func TestDataFileNamesMatchTheSharedFixture(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "..", "shared", "codec-fixtures", "recording-file-names.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Accepted []string `json:"accepted"`
+		Rejected []string `json:"rejected"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range fixture.Accepted {
+		if !IsDataFile(strings.TrimSuffix(name, ".gz")) {
+			t.Errorf("%q is accepted by the worker fixture but not by IsDataFile", name)
+		}
+	}
+	for _, name := range fixture.Rejected {
+		if IsDataFile(strings.TrimSuffix(name, ".gz")) {
+			t.Errorf("%q is rejected by the worker fixture but IsDataFile accepts it", name)
+		}
 	}
 }

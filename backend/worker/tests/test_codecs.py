@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from taiga_worker import frames
+from taiga_worker.upload import is_recording_file
 from taiga_worker.analysis.decode import load_recording
 from taiga_worker.analysis.pipeline import run_analysis
 
@@ -196,3 +197,18 @@ def test_pulse_intervals_are_decoded_and_kept(tmp_path: Path) -> None:
     decoded = recording.extra_streams["pulse_interval"]
     assert decoded["values"].tolist() == [1000.0] * 8
     assert decoded["flags"].tolist() == [3] * 8
+
+
+def test_recording_file_names_match_the_api_fixture() -> None:
+    fixture = json.loads(
+        (
+            Path(__file__).resolve().parents[3]
+            / "shared"
+            / "codec-fixtures"
+            / "recording-file-names.json"
+        ).read_text(encoding="utf-8")
+    )
+    for name in fixture["accepted"]:
+        assert is_recording_file(name), name
+    for name in fixture["rejected"]:
+        assert not is_recording_file(name), name
