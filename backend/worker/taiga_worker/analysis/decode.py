@@ -29,6 +29,7 @@ from ..frames import (
     STREAM_ACC,
     STREAM_ECG,
     STREAM_HR,
+    TS_LINEAR,
     Frame,
     FrameError,
     FrameGap,
@@ -64,12 +65,13 @@ FLAG_CONTACT = 2
 FLAG_RR_AVAILABLE = 4
 
 #: The sample layout of the two batched streams: samples per timestamp, the payload
-#: struct format, and the numpy dtype that reads it in place. An ECG batch may hold
-#: its values as 16-bit integers, which the payload's ts_mode byte says.
+#: struct format of a wide batch, and whether the batch may carry 16-bit values.
+#: Only an ECG batch can, and its ts_mode byte says so.
 _VALUE_LAYOUT = {
-    STREAM_ECG: (1, "i", "<i4", True),
-    STREAM_ACC: (3, "h", "<i2", False),
+    STREAM_ECG: (1, "i", True),
+    STREAM_ACC: (3, "h", False),
 }
+_NARROW = np.dtype("<h")
 
 
 @dataclass
@@ -249,8 +251,8 @@ def _decode_batches(
 ) -> _RawStream:
     """Decode one batched stream, keeping its samples only when they are wanted."""
 
-    per_sample, value_format, value_dtype, width_flag_allowed = _VALUE_LAYOUT[stream]
-    narrow_dtype = "<i2" if width_flag_allowed else None
+    per_sample, value_format, values_i16_allowed = _VALUE_LAYOUT[stream]
+    wide = np.dtype("<" + value_format)
     rail_mv = np.float32(ECG_RAIL_UV / 1000.0)
     batches: list[_Batch] = []
     saturated = 0
@@ -263,11 +265,11 @@ def _decode_batches(
             payload,
             per_sample,
             value_format,
-            values_i16_allowed=width_flag_allowed,
+            values_i16_allowed=values_i16_allowed,
         )
         if layout.count < 1:
             return 0
-        if layout.mode == 0:
+        if layout.mode == TS_LINEAR:
             first, last = struct.unpack_from("<qq", payload, layout.timestamps_offset)
             stamps = None
         else:
@@ -277,7 +279,7 @@ def _decode_batches(
             first, last = int(stamps[0]), int(stamps[-1])
         values = np.frombuffer(
             payload,
-            dtype=narrow_dtype if layout.values_i16 else value_dtype,
+            dtype=_NARROW if layout.values_i16 else wide,
             count=layout.count * per_sample,
             offset=layout.values_offset,
         ).astype(np.float32)
