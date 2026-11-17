@@ -17,13 +17,10 @@ samples, rate, coverage, gaps and saturation — but its samples are not kept.
 from __future__ import annotations
 
 import json
-import mmap
-import os
 import struct
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Mapping, Sequence
+from typing import Mapping, Sequence
 
 import numpy as np
 
@@ -37,6 +34,7 @@ from ..frames import (
     FrameGap,
     batch_layout,
     iter_frames,
+    mapped_log,
     read_hr,
 )
 from .contract import (
@@ -149,23 +147,6 @@ def _linear_ns(first: int, last: int, count: int) -> np.ndarray:
     return first + np.where(scaled < 0, -magnitude, magnitude)
 
 
-@contextmanager
-def _mapped(path: Path) -> Iterator[bytes | mmap.mmap | None]:
-    """The file's bytes without reading it whole, or ``None`` when it is missing."""
-
-    try:
-        handle = path.open("rb")
-    except FileNotFoundError:
-        yield None
-        return
-    with handle:
-        if os.fstat(handle.fileno()).st_size == 0:
-            yield b""
-            return
-        with mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as data:
-            yield data
-
-
 def _scan(
     path: Path,
     expected_stream: int,
@@ -180,7 +161,7 @@ def _scan(
     :func:`taiga_worker.frames.iter_frames`.
     """
 
-    with _mapped(path) as data:
+    with mapped_log(path) as data:
         if data is None:
             return FrameLogInfo(False, 0, 0, False, None)
         if len(data) == 0:

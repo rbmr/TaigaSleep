@@ -16,7 +16,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from .frames import HEADER_SIZE, STREAM_IDS, FrameError, FrameGap, iter_frames
+from .frames import HEADER_SIZE, STREAM_IDS, FrameError, FrameGap, iter_frames, mapped_log
 
 MAX_EVENT_LINE = 8 * 1024
 
@@ -50,25 +50,31 @@ def verify_recording_file(path: Path, name: str) -> FrameCheck:
     size = path.stat().st_size if path.exists() else 0
     if size == 0:
         return FrameCheck(name, 0, 0, 0, 0, False, None)
-    data = path.read_bytes()
     if name == "events.jsonl":
-        return _verify_events(path, data)
+        return _verify_events(path, path.read_bytes())
     stream = STREAM_IDS.get(name)
     if stream is None:
         return FrameCheck(name, size, size, 0, 0, False, None)
-    return _verify_log(path, data, name, stream)
+    return _verify_log(path, size, name, stream)
 
 
-def _verify_log(path: Path, data: bytes, name: str, stream: int) -> FrameCheck:
-    size = len(data)
+def _verify_log(path: Path, size: int, name: str, stream: int) -> FrameCheck:
     gaps: list[FrameGap] = []
     frames = 0
     valid = HEADER_SIZE
-    try:
-        for frame in iter_frames(data, stream, gaps):
-            valid = frame.end
-            frames += 1
-    except FrameError:
+    unreadable = False
+    with mapped_log(path) as data:
+        if data is None:
+            return FrameCheck(name, 0, 0, 0, 0, False, None)
+        try:
+            for frame in iter_frames(data, stream, gaps):
+                valid = frame.end
+                frames += 1
+        except FrameError:
+            unreadable = True
+            valid = 0
+    # The file is no longer mapped, so a damaged tail can be cut back now.
+    if unreadable:
         _truncate(path, 0)
         return FrameCheck(name, size, 0, 0, 0, True, "invalid frame-log header")
     # Damage in the middle is left where it is: the reader steps over it and the

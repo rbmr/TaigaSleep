@@ -11,9 +11,13 @@ the test fixtures. Tools run it from the worker's environment, see
 from __future__ import annotations
 
 import json
+import mmap
+import os
 import struct
 import zlib
+from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Iterator, Sequence
 
 MAGIC = b"TSLG"
@@ -79,6 +83,28 @@ def encode_frame(payload: bytes) -> bytes:
         + payload
         + struct.pack("<I", zlib.crc32(payload) & 0xFFFFFFFF)
     )
+
+
+@contextmanager
+def mapped_log(path: str | Path) -> Iterator[bytes | mmap.mmap | None]:
+    """A frame log's bytes without reading the file whole, or ``None`` if it is missing.
+
+    The mapping is read-only and lives as long as the ``with`` block, so a reader
+    walks the frames of a whole night without holding the file in memory. The file
+    cannot be changed while the block runs.
+    """
+
+    try:
+        handle = open(path, "rb")
+    except FileNotFoundError:
+        yield None
+        return
+    with handle:
+        if os.fstat(handle.fileno()).st_size == 0:
+            yield b""
+            return
+        with mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            yield data
 
 
 def check_header(data: bytes, stream: int) -> None:
@@ -520,6 +546,7 @@ __all__ = [
     "hr_payload",
     "iter_frames",
     "linear_timestamps",
+    "mapped_log",
     "read_acc",
     "read_ecg",
     "read_hr",
