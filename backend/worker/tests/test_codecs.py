@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from taiga_worker import frames
 from taiga_worker.analysis.decode import load_recording
+from taiga_worker.analysis.pipeline import run_analysis
 
 from tests import analysis_fixture as fx
 
@@ -126,6 +127,19 @@ def test_a_heart_rate_service_recording_decodes_and_yields_heart_rate(tmp_path: 
     means = recording.epochs(30).hr_mean_bpm
     assert np.any(np.isfinite(means))
     assert float(np.nanmean(means)) == pytest.approx(60.0, abs=2.0)
+
+
+def test_a_heart_rate_service_recording_runs_the_existing_analysis(tmp_path: Path) -> None:
+    streams = [
+        {"id": "hr", "type": "heart_rate", "codec": "ble-hrs-v1", "file": "hr.log"},
+        {"id": "rr", "type": "rr_interval", "codec": "ble-hrs-v1", "file": "hr.log"},
+    ]
+    _write(tmp_path, _meta("ble-hrs", streams, duration_s=120), {"hr.log": _ble_hr_log(120)})
+
+    output = run_analysis(str(tmp_path), "baseline", {})
+
+    assert output.hr["count"] > 0
+    assert any(item.get("id") == "hr_mean_bpm" for item in output.items)
 
 
 def test_pulse_intervals_are_decoded_and_kept(tmp_path: Path) -> None:

@@ -24,6 +24,8 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
+from .signals import ecg_saturation
+
 from ..frames import (
     BLE_HRS_CODEC,
     POLAR_EPOCH_OFFSET_NS,
@@ -43,6 +45,8 @@ from ..frames import (
     read_ppi,
     read_vector,
 )
+from .signals import ecg_saturation
+
 from .contract import (
     AccStream,
     AnalysisError,
@@ -304,8 +308,7 @@ def _decode_batches(
         ).astype(np.float32)
         values /= np.float32(1000.0)
         if stream == STREAM_ECG:
-            rail_mv = np.float32(ECG_RAIL_UV / 1000.0)
-            saturated += int(np.count_nonzero(np.abs(values) >= rail_mv))
+            saturated += int(np.count_nonzero(ecg_saturation(values)))
         else:
             values = values.reshape(-1, 3)
         batches.append(
@@ -764,7 +767,7 @@ def load_recording(
             ecg = EcgStream(
                 t_s=ecg_t,
                 voltage_mv=voltage,
-                saturated=np.abs(voltage) >= (ECG_RAIL_UV / 1000.0),
+                saturated=ecg_saturation(voltage),
                 rate_hz=ecg_rate,
             )
         else:

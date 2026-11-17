@@ -397,7 +397,9 @@ class AccStream:
 
     @property
     def magnitude_g(self) -> np.ndarray:
-        return np.sqrt(np.sum(self.xyz_g.astype(np.float64) ** 2, axis=1))
+        from .signals import accelerometer_movement
+
+        return accelerometer_movement(self.xyz_g)
 
 
 @dataclass
