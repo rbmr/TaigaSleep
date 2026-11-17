@@ -21,11 +21,19 @@ recordings to Parquet.
 ```text
 <getExternalFilesDir(null)>/recordings/<session_id>/
   meta.json      small; replaced atomically (write temp, rename)
-  hr.log         append-only frame log, stream 1
-  ecg.log        append-only frame log, stream 2
-  acc.log        append-only frame log, stream 3
+  hr.log         append-only frame log (the H10's and a heart-rate strap's beats)
+  ecg.log        append-only frame log
+  acc.log        append-only frame log
+  ppg.log        append-only frame log, when the tracker offers PPG
+  ppi.log        append-only frame log, when the tracker offers pulse intervals
+  gyro.log       append-only frame log, when the tracker offers a gyroscope
+  mag.log        append-only frame log, when the tracker offers a magnetometer
   events.jsonl   append-only, one JSON object per line
 ```
+
+The file names and the streams they hold come from the recording's `streams` list, so a
+new tracker needs no change here beyond the codec of what it records. The H10 and every
+recording made before streams were listed keep the names above.
 
 The upload state of a recording is not part of its directory: it lives in the app's
 database, one row per recording and account.
@@ -63,9 +71,28 @@ step).
     "firmware": "3.0.35",
     "battery_percent_at_start": 87
   },
-  "config": { "hr": true, "ecg": true, "acc": true, "ecg_rate_hz": 130, "acc_rate_hz": 50, "acc_range_g": 8 }
+  "config": { "hr": true, "ecg": true, "acc": true, "ecg_rate_hz": 130, "acc_rate_hz": 50, "acc_range_g": 8 },
+  "streams": [
+    { "id": "hr", "type": "heart_rate", "codec": "polar-hr-v1", "file": "hr.log", "rate_hz": 1.0, "settings": {} },
+    { "id": "rr", "type": "rr_interval", "codec": "polar-hr-v1", "file": "hr.log", "settings": {} },
+    { "id": "ecg", "type": "ecg", "codec": "polar-ecg-v1", "file": "ecg.log", "rate_hz": 130.0,
+      "settings": { "resolution_bits": "14" } },
+    { "id": "acc", "type": "accelerometer", "codec": "polar-acc-v1", "file": "acc.log", "rate_hz": 50.0,
+      "settings": { "range_g": "8" } }
+  ]
 }
 ```
+
+`streams` is the recording's own list: one entry per stream it holds, with the id the
+tracker's driver uses, the type of data, the payload codec, the file, the rate and the
+settings the tracker actually negotiated. A recording written before this key existed
+has no `streams`; its streams are the ones its `config` names, with the codecs below.
+Two entries may name the same file when one payload carries both, as heart rate and R-R
+do. `config` stays for an older reader: it says whether the three original streams were
+on, and it is not what the writer, the uploader or the monitor read.
+
+Stream types are `heart_rate`, `rr_interval`, `ecg`, `accelerometer`, `ppg`,
+`pulse_interval`, `gyroscope` and `magnetometer`.
 
 `state` is one of `recording`, `stopped` (clean stop), `forced_stop` (one-sided
 stop without sensor connection), `interrupted` (found as `recording` on app
@@ -129,8 +156,9 @@ header (8 bytes):  'T' 'S' 'L' 'G'  | u8 version = 1 | u8 stream | u16 reserved 
 frame:             u32 payload_len | payload | u32 crc32(payload)
 ```
 
-All integers little-endian. `stream`: 1 = HR, 2 = ECG, 3 = ACC (further ids
-reserved for future sensors, e.g. PPG/PPI).
+All integers little-endian. `stream`: 1 = HR, 2 = ECG, 3 = ACC, 4 = PPG, 5 = PPI,
+6 = GYRO, 7 = MAG. A codec decides how a payload of that stream is laid out; the file
+name does not have to be one of the three original names.
 
 **Recovery rule.** A write that fails is rolled back to the end of the last whole frame, so the
 next frame is appended after good data and the recording goes on. The lost frame is counted in the
@@ -210,6 +238,46 @@ width bit, so an ACC batch uses only the low bit of `ts_mode`. `xyz_mG` is milli
 interleaved x, y, z, verbatim from the SDK. The writer must not clamp silently: if a value
 does not fit in i16, log an `error` event and clamp.
 
+### A standard heart-rate strap (`ble-hrs-v1`)
+
+The Bluetooth Heart Rate Service's Measurement characteristic (0x2A37) is stored as
+received, with the two clocks in front so a frame can be placed on the recording:
+
+```text
+i64 phone_ns | i64 elapsed_ns | u16 n | u8 measurement[n]
+```
+
+`measurement` is the characteristic value verbatim: flags, the 8- or 16-bit heart rate,
+the optional energy expended and the optional R-R intervals in units of 1/1024 s. The
+app and the worker share the decoder and its fixtures (`shared/codec-fixtures`), so every
+flag combination reads the same way in both.
+
+### PPG (`polar-ppg-v1`)
+
+```text
+i64 phone_ns | i64 elapsed_ns | u16 n
+per sample: i64 t_first | i32 channel | i16 status_bits
+```
+
+### Pulse intervals (`polar-ppi-v1`)
+
+```text
+i64 phone_ns | i64 elapsed_ns | u16 n
+per sample: i64 t_polar | u16 ppi_ms | u16 error_ms | u8 hr_bpm | u8 flags
+```
+
+`flags`: bit0 = skin contact supported, bit1 = skin contact, bit2 = blocker bit.
+
+### Gyroscope and magnetometer (`polar-gyro-v1`, `polar-mag-v1`)
+
+```text
+i64 phone_ns | i64 elapsed_ns | u16 n
+per sample: i64 t_polar | f32 x | f32 y | f32 z
+```
+
+The values are the SDK's, in the unit it reports for that stream; no conversion is done
+on the phone.
+
 ## events.jsonl
 
 ```json
@@ -257,6 +325,9 @@ For manual export the app zips the chosen contents of the session directory on d
 (never stored permanently): the stream logs go in as stored entries, the metadata is
 deflated. The backend stores the same files under `<pb_data>/recordings/<recording id>/`;
 `meta.json` is kept in the recording itself.
+
+Every stream file the recording's `streams` list names is uploaded; the backend stores
+the names it is given and does not know their codecs.
 
 The upload can optionally compress the stream and event files with one gzip
 member per chunk; the server then stores `hr.log.gz` and similar names. The

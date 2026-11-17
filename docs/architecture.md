@@ -79,8 +79,8 @@ One Gradle module, one package per concern under `com.rbmr.taigasleep`:
 
 | Package | Responsibility | May depend on |
 | --- | --- | --- |
-| `tracker` | What a tracker is: its capabilities, its recording mode, its configuration. Implementations per device (`polar`), a simulated one in debug builds. | `diagnostics` |
-| `recording` | Capturing: the selected tracker, the recording state machine, the foreground service, the on-disk format, the local store, export, the wake-up window and its alarm. | `tracker`, `notifications`, `diagnostics` |
+| `tracker` | What a tracker is: the streams it offers with their codecs, rates and ranges, the settings it negotiated, and its recording mode. Drivers per device: the Polar H10, the Verity Sense, the Loop and a generic Bluetooth Heart Rate Service strap. A scriptable fake and a replay source stand in for hardware in tests and debug builds. | `diagnostics` |
+| `recording` | Capturing: the selected tracker, the recording state machine, the foreground service, the on-disk format, the local store, export, the wake-up window and its alarm. The writer, the storage estimate and the monitor read the stream list the tracker negotiated, not a fixed set. | `tracker`, `notifications`, `diagnostics` |
 | `guard` | The preventing-shutdown flow: per-device steps, checks, the final readiness list. | `tracker`, `diagnostics` |
 | `backend` | A client for API v1: DTOs, requests, authentication state, the realtime stream. No business logic. | `diagnostics` |
 | `profile` | The personal data the user enters about themselves: date of birth, sex and weight, plus the usual bedtime and wake time. Kept on the phone, optional; the first three go to an analysis, the times only draw the History trends. | nothing |
@@ -110,7 +110,7 @@ Two things sit outside the table:
 - **`debug` is a build-variant seam, not a package of the app.** `src/debug` holds the
   debug-only tools and `src/release` an empty twin with the same API (see
   [`debug-build.md`](debug-build.md)), so any package may use `debug`. It stands in for
-  types of `tracker` (the simulated sensor) and `guard` (the guidance preview picker, a
+  types of `tracker` (the fake tracker and the replay source) and `guard` (the guidance preview picker, a
   Compose dialog), and may use those two and nothing else.
 
 Four rules inside the packages:
