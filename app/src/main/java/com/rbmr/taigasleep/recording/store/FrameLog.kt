@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.recording.store
 
+import com.rbmr.taigasleep.tracker.StreamType
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -15,6 +16,22 @@ object StreamId {
   const val HR = 1
   const val ECG = 2
   const val ACC = 3
+  const val PPG = 4
+  const val PPI = 5
+  const val GYRO = 6
+  const val MAG = 7
+
+  fun forType(type: StreamType): Int =
+      when (type) {
+        StreamType.HEART_RATE,
+        StreamType.RR_INTERVAL -> HR
+        StreamType.ECG -> ECG
+        StreamType.ACCELEROMETER -> ACC
+        StreamType.PPG -> PPG
+        StreamType.PULSE_INTERVAL -> PPI
+        StreamType.GYROSCOPE -> GYRO
+        StreamType.MAGNETOMETER -> MAG
+      }
 }
 
 object FrameLog {

@@ -16,10 +16,26 @@ private fun saved(
     ecg: Boolean = true,
     acc: Boolean = true,
     wake: WakeChoice? = ALARM,
-) = SavedChoices(hr, ecg, acc, mode, wake)
+) = SavedChoices(buildSet {
+  if (hr) add("hr")
+  if (ecg) add("ecg")
+  if (acc) add("acc")
+}, mode, wake)
 
-private fun resolve(saved: SavedChoices, modes: Set<RecordingMode> = BOTH) =
-    StartConfig.resolve(saved, modes, canRecordEcg = true, canRecordAcc = true)
+private fun offered(ecg: Boolean = true, acc: Boolean = true): List<StreamOption> =
+    buildList {
+      add(StreamOption("hr", "heart_rate"))
+      add(StreamOption("rr", "rr_interval"))
+      if (ecg) add(StreamOption("ecg", "ecg"))
+      if (acc) add(StreamOption("acc", "accelerometer"))
+    }
+
+private fun resolve(
+    saved: SavedChoices,
+    modes: Set<RecordingMode> = BOTH,
+    ecg: Boolean = true,
+    acc: Boolean = true,
+) = StartConfig.resolve(saved, offered(ecg, acc), modes)
 
 /** The recording mode alone decides what the data and the smart alarm are. */
 class StartConfigTest {
@@ -76,8 +92,7 @@ class StartConfigTest {
 
   @Test
   fun `data the tracker cannot record stays off`() {
-    val config =
-        StartConfig.resolve(saved(), BOTH, canRecordEcg = false, canRecordAcc = false)
+    val config = resolve(saved(), BOTH, ecg = false, acc = false)
 
     assertEquals(Streams(hr = true, ecg = false, acc = false), config.streams)
   }

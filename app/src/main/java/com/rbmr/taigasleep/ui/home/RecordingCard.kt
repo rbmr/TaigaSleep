@@ -220,5 +220,9 @@ private fun streamLabel(kind: RecordingState.StreamKind): String =
           RecordingState.StreamKind.HR -> R.string.rec_active_hr
           RecordingState.StreamKind.ECG -> R.string.rec_active_ecg
           RecordingState.StreamKind.ACC -> R.string.rec_active_acc
+          RecordingState.StreamKind.PPG -> R.string.rec_config_ppg
+          RecordingState.StreamKind.PPI -> R.string.rec_config_ppi
+          RecordingState.StreamKind.GYRO -> R.string.rec_config_gyro
+          RecordingState.StreamKind.MAG -> R.string.rec_config_mag
         }
     )

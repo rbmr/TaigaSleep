@@ -9,9 +9,12 @@ import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.OnDeviceTracker
 import com.rbmr.taigasleep.tracker.RecordingMode
-import com.rbmr.taigasleep.tracker.SampleListener
+import com.rbmr.taigasleep.tracker.TrackerListener
 import com.rbmr.taigasleep.tracker.SimulatedSensor
+import com.rbmr.taigasleep.tracker.PolarCodec
 import com.rbmr.taigasleep.tracker.StreamConfig
+import com.rbmr.taigasleep.tracker.Stamp
+import com.rbmr.taigasleep.tracker.TrackerFrame
 import com.rbmr.taigasleep.tracker.TrackerEntry
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -60,14 +63,14 @@ class OnDeviceFetchTest {
         it.connect()
         // The first pump completes the simulated connection.
         clock.advanceMs(100)
-        it.pump(clock.elapsedNs())
+        it.pump(clock.elapsed)
         assertEquals(ConnectionState.CONNECTED, it.connection.value)
       }
 
   private fun pump(sensor: SimulatedSensor, ms: Long) {
     repeat((ms / 100).toInt()) {
       clock.advanceMs(100)
-      sensor.pump(clock.elapsedNs())
+      sensor.pump(clock.elapsed)
     }
   }
 
@@ -202,7 +205,7 @@ class OnDeviceFetchTest {
   @Test
   fun aZeroIntervalIsAGapAndNotASample() {
     val writer = writer()
-    val tracker = FixedTracker(listOf(TrackerEntry("fixed", 1_000_000L, listOf(1000, 0, 1000))))
+    val tracker = FixedTracker(listOf(rrEntry("fixed", 1_000_000L, 1000, 0, 1000)))
 
     val result = OnDeviceImport(writer, tracker, clock).fetch()
 
@@ -213,7 +216,7 @@ class OnDeviceFetchTest {
     assertNull(tracker.removed)
   }
 
-  private fun fanout(writer: RecordingWriter): SampleListener =
+  private fun fanout(writer: RecordingWriter): TrackerListener =
       SampleFanout(writer, NoMonitor) { writer.event("error", it) }
 
   /** The import tests do not derive live state; every sample is still written by the fanout. */
@@ -234,13 +237,32 @@ class OnDeviceFetchTest {
     ) {}
   }
 
+  private fun rrEntry(id: String, startUtcMs: Long, vararg rr: Int): TrackerEntry {
+    var timeMs = startUtcMs
+    val frames =
+        rr.filter { it > 0 }.map { interval ->
+          timeMs += interval
+          val stamp = Stamp(timeMs * 1_000_000L, clock.elapsed)
+          val enc =
+              PolarCodec.encodeHr(
+                  stamp.phoneNs,
+                  stamp.elapsedNs,
+                  60_000 / interval,
+                  PolarCodec.hrFlags(false, false, true),
+                  intArrayOf(interval),
+              )
+          TrackerFrame("hr", stamp, enc.bytes, enc.clamped)
+        }
+    return TrackerEntry(id, startUtcMs, frames)
+  }
+
   /** A tracker whose entries are fixed, for the gap rule that the simulator does not produce. */
   private class FixedTracker(private val entries: List<TrackerEntry>) : OnDeviceTracker {
     var removed: List<String>? = null
 
     override fun startOnDevice(
-        config: StreamConfig,
-        listener: SampleListener,
+        selected: Set<String>,
+        listener: TrackerListener,
         onResult: (error: String?) -> Unit,
     ) = onResult(null)
 

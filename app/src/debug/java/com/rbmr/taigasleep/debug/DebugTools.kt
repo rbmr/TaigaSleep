@@ -11,8 +11,8 @@ import android.os.StrictMode
 import androidx.core.content.ContextCompat
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.SimulatedSensor
 import com.rbmr.taigasleep.tracker.SleepSensor
+import com.rbmr.taigasleep.tracker.FakeTracker
 
 /**
  * Tools that only exist in debug builds. `src/release` has a twin with the same API that does
@@ -28,7 +28,7 @@ object DebugTools {
   val simulatedSensor: FoundSensor? =
       FoundSensor(SensorKind.SIMULATED, "SIM00001", "Simulated sensor", 0)
 
-  fun createSimulatedSensor(): SleepSensor? = SimulatedSensor()
+  fun createSimulatedSensor(): SleepSensor? = FakeTracker()
 
   /**
    * Reports disk and network work on the main thread in the log (tag `StrictMode`), so a startup

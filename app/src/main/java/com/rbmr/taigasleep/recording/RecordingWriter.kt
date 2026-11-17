@@ -5,7 +5,6 @@ import com.rbmr.taigasleep.recording.store.EventLog
 import com.rbmr.taigasleep.recording.store.FrameLog
 import com.rbmr.taigasleep.recording.store.FrameLogWriter
 import com.rbmr.taigasleep.recording.store.LogPosition
-import com.rbmr.taigasleep.recording.store.Payloads
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.StreamId
@@ -13,7 +12,9 @@ import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.Clock
 import com.rbmr.taigasleep.tracker.EcgBatch
 import com.rbmr.taigasleep.tracker.HrSample
+import com.rbmr.taigasleep.tracker.PolarCodec
 import com.rbmr.taigasleep.tracker.Stamp
+import com.rbmr.taigasleep.tracker.TrackerFrame
 import java.io.File
 import java.io.IOException
 
@@ -44,6 +45,8 @@ private constructor(
     private set
 
   private val logs = HashMap<Int, FrameLogWriter>()
+  /** Which log a stream id's frames go to. A file shared by two streams keeps one log. */
+  private val streamLogs = HashMap<String, Int>()
   private var closed = false
   private var lastSyncMs = 0L
   private var lastSyncNs = 0L
@@ -53,14 +56,41 @@ private constructor(
   private var failing = false
 
   private fun open(stream: Int, name: String) {
+    if (logs.containsKey(stream)) return
     logs[stream] = FrameLogWriter(File(dir, name), stream)
   }
 
   private fun openLogs() {
-    val c = meta.config
-    if (c.hr) open(StreamId.HR, HR_LOG)
-    if (c.ecg) open(StreamId.ECG, ECG_LOG)
-    if (c.acc) open(StreamId.ACC, ACC_LOG)
+    for (stream in meta.streams) {
+      val id = StreamId.forType(stream.type)
+      open(id, stream.file)
+      streamLogs[stream.id] = id
+    }
+  }
+
+  /** Fills in the settings the tracker negotiated and rewrites meta.json. */
+  @Synchronized
+  fun negotiated(streamId: String, rateHz: Double?, settings: Map<String, String>) {
+    if (closed) return
+    val updated = meta.withNegotiated(streamId, rateHz, settings)
+    if (updated == meta) return
+    if (!updated.write(dir)) {
+      failure = "metadata write failed"
+      return
+    }
+    meta = updated
+  }
+
+  /** Appends one raw frame the tracker encoded. Returns false when it could not be written. */
+  @Synchronized
+  fun writeFrame(frame: TrackerFrame): Boolean {
+    if (closed) return false
+    if (frame.clamped > 0) {
+      errorEvent("${frame.stream} values out of range clamped (${frame.clamped})")
+    }
+    val log = streamLogs[frame.stream] ?: meta.stream(frame.stream)?.let { StreamId.forType(it.type) }
+    if (log == null) return false
+    return append(log, frame.payload)
   }
 
   @Synchronized
@@ -97,8 +127,8 @@ private constructor(
   @Synchronized
   fun writeHr(stamp: Stamp, s: HrSample): Boolean {
     if (closed) return false
-    val flags = Payloads.hrFlags(s.contactSupported, s.contact, s.rrAvailable)
-    val enc = Payloads.encodeHr(stamp.phoneNs, stamp.elapsedNs, s.hr, flags, s.rrMs)
+    val flags = PolarCodec.hrFlags(s.contactSupported, s.contact, s.rrAvailable)
+    val enc = PolarCodec.encodeHr(stamp.phoneNs, stamp.elapsedNs, s.hr, flags, s.rrMs)
     if (enc.clamped > 0) errorEvent("hr values out of range clamped (${enc.clamped})")
     return append(StreamId.HR, enc.bytes)
   }
@@ -108,10 +138,10 @@ private constructor(
     if (closed) return false
     if (b.timestampsNs.isEmpty()) return true
     var ok = true
-    for (from in b.timestampsNs.indices step Payloads.MAX_BATCH) {
-      val to = minOf(from + Payloads.MAX_BATCH, b.timestampsNs.size)
+    for (from in b.timestampsNs.indices step PolarCodec.MAX_BATCH) {
+      val to = minOf(from + PolarCodec.MAX_BATCH, b.timestampsNs.size)
       val enc =
-          Payloads.encodeEcg(
+          PolarCodec.encodeEcg(
               stamp.phoneNs,
               stamp.elapsedNs,
               b.timestampsNs.copyOfRange(from, to),
@@ -127,10 +157,10 @@ private constructor(
     if (closed) return false
     if (b.timestampsNs.isEmpty()) return true
     var ok = true
-    for (from in b.timestampsNs.indices step Payloads.MAX_BATCH) {
-      val to = minOf(from + Payloads.MAX_BATCH, b.timestampsNs.size)
+    for (from in b.timestampsNs.indices step PolarCodec.MAX_BATCH) {
+      val to = minOf(from + PolarCodec.MAX_BATCH, b.timestampsNs.size)
       val enc =
-          Payloads.encodeAcc(
+          PolarCodec.encodeAcc(
               stamp.phoneNs,
               stamp.elapsedNs,
               b.timestampsNs.copyOfRange(from, to),

@@ -60,8 +60,13 @@
   <string name="rec_permission_denied">Bluetooth permission is needed to find and connect your tracker.</string>
 
   <string name="rec_config_hr">Heart rate and beat intervals</string>
+  <string name="rec_config_rr">R-R intervals</string>
   <string name="rec_config_ecg">ECG (130 Hz)</string>
   <string name="rec_config_acc">Movement (50 Hz)</string>
+  <string name="rec_config_ppg">Pulse (PPG)</string>
+  <string name="rec_config_ppi">Pulse intervals</string>
+  <string name="rec_config_gyro">Gyroscope</string>
+  <string name="rec_config_mag">Magnetometer</string>
 
   <string name="rec_active_title">Recording</string>
   <string name="rec_active_stopping">Stopping…</string>

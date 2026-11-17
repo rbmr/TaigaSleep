@@ -63,7 +63,7 @@ class SimulatedRecordingTest {
     val fanout =
         SampleFanout(writer, monitor) { message -> writer.event("error", message) }
     sensor.connect()
-    sensor.startStreams(StreamConfig(ecg = true, acc = true), fanout)
+    sensor.startStreams(setOf("hr", "ecg", "acc"), fanout)
     monitor.onLink(sensor.connection.value)
     monitor.onBattery(sensor.battery.value)
 
@@ -164,7 +164,7 @@ class SimulatedRecordingTest {
     val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
     val fanout = SampleFanout(writer, monitor) { message -> writer.event("error", message) }
     sensor.connect()
-    sensor.startStreams(StreamConfig(ecg = true, acc = true), fanout)
+    sensor.startStreams(setOf("hr", "ecg", "acc"), fanout)
     monitor.onPhase(RecordingState.Phase.RECORDING)
     monitor.onLink(sensor.connection.value)
     monitor.onBattery(sensor.battery.value)
@@ -188,7 +188,7 @@ class SimulatedRecordingTest {
           executeRecovery(
               step,
               sensor,
-              StreamConfig(ecg = true, acc = true),
+              setOf("hr", "ecg", "acc"),
               fanout,
               reconnectPauseMs = 0,
           )

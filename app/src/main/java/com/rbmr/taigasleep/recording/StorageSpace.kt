@@ -1,6 +1,8 @@
 package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.recording.store.RecordingConfig
+import com.rbmr.taigasleep.recording.store.RecordingStream
+import com.rbmr.taigasleep.tracker.StreamType
 import java.io.File
 
 /** Free space on the phone. Injectable so a test can fill the disk without filling a disk. */
@@ -38,25 +40,61 @@ object StorageSpace {
   private const val HR_BYTES_PER_SECOND = 30L
   private const val ECG_BYTES_PER_SAMPLE = 2L
   private const val ACC_BYTES_PER_SAMPLE = 6L
+  private const val PPG_BYTES_PER_SAMPLE = 14L
+  private const val PPI_BYTES_PER_SECOND = 20L
+  private const val VECTOR_BYTES_PER_SAMPLE = 12L
   private const val BATCH_OVERHEAD_PER_SECOND = 100L
 
-  fun bytesPerSecond(config: RecordingConfig): Long {
+  fun bytesPerSecond(config: RecordingConfig): Long = bytesPerSecond(config.asStreams())
+
+  /** Bytes one second of the chosen streams appends at most, from what each stream says it holds. */
+  fun bytesPerSecond(streams: List<RecordingStream>): Long {
     var bytes = 0L
-    if (config.hr) bytes += HR_BYTES_PER_SECOND
-    if (config.ecg) bytes += config.ecgRateHz * ECG_BYTES_PER_SAMPLE + BATCH_OVERHEAD_PER_SECOND
-    if (config.acc) bytes += config.accRateHz * ACC_BYTES_PER_SAMPLE + BATCH_OVERHEAD_PER_SECOND
+    var heart = false
+    for (stream in streams) {
+      when (stream.type) {
+        StreamType.HEART_RATE,
+        StreamType.RR_INTERVAL -> if (!heart) {
+          bytes += HR_BYTES_PER_SECOND
+          heart = true
+        }
+        StreamType.ECG ->
+            bytes += (stream.rateHz ?: 130.0).toLong() * ECG_BYTES_PER_SAMPLE +
+                BATCH_OVERHEAD_PER_SECOND
+        StreamType.ACCELEROMETER ->
+            bytes += (stream.rateHz ?: 50.0).toLong() * ACC_BYTES_PER_SAMPLE +
+                BATCH_OVERHEAD_PER_SECOND
+        StreamType.PPG ->
+            bytes += (stream.rateHz ?: 55.0).toLong() * PPG_BYTES_PER_SAMPLE +
+                BATCH_OVERHEAD_PER_SECOND
+        StreamType.PULSE_INTERVAL -> bytes += PPI_BYTES_PER_SECOND
+        StreamType.GYROSCOPE,
+        StreamType.MAGNETOMETER ->
+            bytes += (stream.rateHz ?: 50.0).toLong() * VECTOR_BYTES_PER_SAMPLE +
+                BATCH_OVERHEAD_PER_SECOND
+      }
+    }
     return bytes
   }
 
   /** Free space needed to record a typical night with [config]. */
-  fun requiredBytes(config: RecordingConfig): Long =
-      bytesPerSecond(config) * SECONDS_PER_HOUR * NIGHT_HOURS
+  fun requiredBytes(config: RecordingConfig): Long = requiredBytes(config.asStreams())
+
+  fun requiredBytes(streams: List<RecordingStream>): Long =
+      bytesPerSecond(streams) * SECONDS_PER_HOUR * NIGHT_HOURS
 
   /** Free space below which a running recording raises a storage problem. */
-  fun lowBytes(config: RecordingConfig): Long =
-      bytesPerSecond(config) * SECONDS_PER_HOUR * LOW_SPACE_HOURS
+  fun lowBytes(config: RecordingConfig): Long = lowBytes(config.asStreams())
+
+  fun lowBytes(streams: List<RecordingStream>): Long =
+      bytesPerSecond(streams) * SECONDS_PER_HOUR * LOW_SPACE_HOURS
 
   fun canStart(available: Long, config: RecordingConfig): Boolean = available >= requiredBytes(config)
 
+  fun canStart(available: Long, streams: List<RecordingStream>): Boolean =
+      available >= requiredBytes(streams)
+
   fun isLow(available: Long, config: RecordingConfig): Boolean = available < lowBytes(config)
+
+  fun isLow(available: Long, streams: List<RecordingStream>): Boolean = available < lowBytes(streams)
 }

@@ -1,8 +1,7 @@
 package com.rbmr.taigasleep.recording
 
-import com.rbmr.taigasleep.tracker.SampleListener
+import com.rbmr.taigasleep.tracker.TrackerListener
 import com.rbmr.taigasleep.tracker.SleepSensor
-import com.rbmr.taigasleep.tracker.StreamConfig
 import kotlinx.coroutines.delay
 
 /** The device work one recovery step asks for. */
@@ -265,21 +264,21 @@ class StreamRecoveryPolicy(startedAtMs: Long) {
 suspend fun executeRecovery(
     step: RecoveryStep,
     sensor: SleepSensor,
-    config: StreamConfig,
-    listener: SampleListener,
+    selected: Set<String>,
+    listener: TrackerListener,
     reconnectPauseMs: Long = StreamRecoveryPolicy.RECONNECT_PAUSE_MS,
 ) {
   when (step.kind) {
     RecoveryStepKind.WAIT -> Unit
     RecoveryStepKind.RESTART_STREAMS -> {
       sensor.stopStreams()
-      sensor.startStreams(config, listener)
+      sensor.startStreams(selected, listener)
     }
     RecoveryStepKind.RECONNECT -> {
       sensor.disconnect()
       delay(reconnectPauseMs)
       sensor.connect()
-      sensor.startStreams(config, listener)
+      sensor.startStreams(selected, listener)
     }
     RecoveryStepKind.RESET_SENSOR -> {
       // The streams belong to the instance being replaced, so they are stopped before it goes.
@@ -287,7 +286,7 @@ suspend fun executeRecovery(
       sensor.resetTransport()
       delay(reconnectPauseMs)
       sensor.connect()
-      sensor.startStreams(config, listener)
+      sensor.startStreams(selected, listener)
     }
   }
 }

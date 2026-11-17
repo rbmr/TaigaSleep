@@ -103,9 +103,10 @@ class RecordingMonitor(
   private var spaceCheckedAtMs = Long.MIN_VALUE
 
   init {
-    if (meta.config.hr) streams[RecordingState.StreamKind.HR] = StreamAcc(RecordingState.StreamKind.HR)
-    if (meta.config.ecg) streams[RecordingState.StreamKind.ECG] = StreamAcc(RecordingState.StreamKind.ECG)
-    if (meta.config.acc) streams[RecordingState.StreamKind.ACC] = StreamAcc(RecordingState.StreamKind.ACC)
+    for (stream in meta.streams) {
+      val kind = streamKind(stream.type) ?: continue
+      streams.getOrPut(kind) { StreamAcc(kind) }
+    }
     synchronized(lock) { publishLocked(startedElapsedMs) }
   }
 
@@ -360,7 +361,7 @@ class RecordingMonitor(
   }
 
   private fun evaluateQuality(events: MutableList<Pair<String, String>>) {
-    if (!meta.config.ecg) return
+    if (RecordingState.StreamKind.ECG !in streams) return
     val ecgStream = streams[RecordingState.StreamKind.ECG]
     val next =
         when {
@@ -400,7 +401,7 @@ class RecordingMonitor(
     spaceCheckedAtMs = nowMs
     val free = provider.availableBytes()
     freeBytes = free
-    val low = StorageSpace.isLow(free, meta.config)
+    val low = StorageSpace.isLow(free, meta.streams)
     if (low == lowSpace) return
     lowSpace = low
     val mb = free / (1024 * 1024)
@@ -605,6 +606,18 @@ class RecordingMonitor(
     }
   }
 }
+
+private fun streamKind(type: com.rbmr.taigasleep.tracker.StreamType): RecordingState.StreamKind? =
+    when (type) {
+      com.rbmr.taigasleep.tracker.StreamType.HEART_RATE,
+      com.rbmr.taigasleep.tracker.StreamType.RR_INTERVAL -> RecordingState.StreamKind.HR
+      com.rbmr.taigasleep.tracker.StreamType.ECG -> RecordingState.StreamKind.ECG
+      com.rbmr.taigasleep.tracker.StreamType.ACCELEROMETER -> RecordingState.StreamKind.ACC
+      com.rbmr.taigasleep.tracker.StreamType.PPG -> RecordingState.StreamKind.PPG
+      com.rbmr.taigasleep.tracker.StreamType.PULSE_INTERVAL -> RecordingState.StreamKind.PPI
+      com.rbmr.taigasleep.tracker.StreamType.GYROSCOPE -> RecordingState.StreamKind.GYRO
+      com.rbmr.taigasleep.tracker.StreamType.MAGNETOMETER -> RecordingState.StreamKind.MAG
+    }
 
 private fun powerState(percent: Int?): RecordingState.PowerState =
     when {

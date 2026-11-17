@@ -39,11 +39,8 @@ interface HomeWork {
   /** The remembered configuration of this tracker: its streams, the modes they allow and the choice. */
   fun savedConfig(sensor: SleepSensor): StartConfig
 
-  fun setHr(sensorId: String, on: Boolean)
-
-  fun setEcg(sensorId: String, on: Boolean)
-
-  fun setAcc(sensorId: String, on: Boolean)
+  /** Turns one of the tracker's streams on or off; the id is the one its driver offers. */
+  fun setStream(sensorId: String, streamId: String, on: Boolean)
 
   fun setMode(sensorId: String, mode: RecordingMode)
 
@@ -159,11 +156,8 @@ class HomeViewModel(
     emit()
   }
 
-  fun setHr(on: Boolean) = updateConfig { work.setHr(it.id, on) }
-
-  fun setEcg(on: Boolean) = updateConfig { work.setEcg(it.id, on) }
-
-  fun setAcc(on: Boolean) = updateConfig { work.setAcc(it.id, on) }
+  fun setStream(streamId: String, on: Boolean) =
+      updateConfig { work.setStream(it.id, streamId, on) }
 
   fun setMode(mode: RecordingMode) = updateConfig { work.setMode(it.id, mode) }
 

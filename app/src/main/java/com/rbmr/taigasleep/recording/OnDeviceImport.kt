@@ -2,9 +2,7 @@ package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.recording.store.LogPosition
 import com.rbmr.taigasleep.tracker.Clock
-import com.rbmr.taigasleep.tracker.HrSample
 import com.rbmr.taigasleep.tracker.OnDeviceTracker
-import com.rbmr.taigasleep.tracker.Stamp
 import com.rbmr.taigasleep.tracker.TrackerEntry
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
@@ -108,11 +106,11 @@ class OnDeviceImport(
         }
         if (result is EntryImport.Failed) return OnDeviceFetch.Failed(result.reason)
         imported += (result as EntryImport.Done).written
-        held += entry.rrMs.count { it > 0 }
+        held += entry.frames.size
         report(ImportProgress(number, entries.size, held))
       }
       // The whole tracker copy must now be on the phone, not just the samples of this attempt.
-      val fetchedSamples = entries.sumOf { entry -> entry.rrMs.count { it > 0 } }
+      val fetchedSamples = entries.sumOf { entry -> entry.frames.size }
       val stored = writer.importedOnDevice()
       val storedSamples = entries.sumOf { entry -> stored[entry.id] ?: 0 }
       if (storedSamples != fetchedSamples) {
@@ -154,7 +152,7 @@ class OnDeviceImport(
 
   private fun importEntry(entry: TrackerEntry, onWritten: (Int) -> Unit): EntryImport {
     val already = writer.importedOnDevice()[entry.id] ?: 0
-    val expected = entry.rrMs.count { it > 0 } - already
+    val expected = entry.frames.size - already
     // Persist where the logs stand, so a process kill mid-entry rolls it back and imports it once.
     if (!writer.beginEntryImport(entry.id)) {
       return EntryImport.Failed("marking the tracker entry before import failed")
@@ -162,23 +160,11 @@ class OnDeviceImport(
     val mark = writer.mark()
     var written = 0
     var seen = 0
-    var timeMs = entry.startUtcMs
-    for (rr in entry.rrMs) {
-      if (rr <= 0) continue
-      timeMs += rr
+    for (frame in entry.frames) {
       seen++
       if (seen <= already) continue
       if (aborted()) return rollback(mark, written, "fetch cancelled")
-      val sample =
-          HrSample(
-              60_000 / rr,
-              contactSupported = false,
-              contact = false,
-              rrAvailable = true,
-              rrMs = intArrayOf(rr),
-          )
-      val stamp = Stamp(timeMs * 1_000_000L, clock.elapsedNs())
-      if (!writer.writeHr(stamp, sample)) {
+      if (!writer.writeFrame(frame)) {
         return rollback(mark, written, "writing the fetched samples failed")
       }
       written++

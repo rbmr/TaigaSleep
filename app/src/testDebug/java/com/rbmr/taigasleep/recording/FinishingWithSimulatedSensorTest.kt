@@ -194,8 +194,7 @@ class FinishingWithSimulatedSensorTest {
           kind = SensorKind.SIMULATED,
           sensorId = sensor.id,
           sensorName = sensor.name,
-          ecg = false,
-          acc = false,
+          selected = setOf("hr"),
           mode = mode,
       )
 

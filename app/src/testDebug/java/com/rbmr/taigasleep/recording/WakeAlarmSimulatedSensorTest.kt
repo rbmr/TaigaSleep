@@ -389,8 +389,7 @@ class WakeAlarmSimulatedSensorTest {
           kind = SensorKind.SIMULATED,
           sensorId = sensor.id,
           sensorName = sensor.name,
-          ecg = false,
-          acc = true,
+          selected = if (mode == RecordingMode.ON_DEVICE) setOf("hr") else setOf("hr", "acc"),
           mode = mode,
           wake = window,
       )
