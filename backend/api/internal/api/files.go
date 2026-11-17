@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -27,7 +28,8 @@ const (
 // in the recording itself.
 var dataFiles = storage.DataFiles
 
-var streamFiles = []string{"hr.log", "ecg.log", "acc.log"}
+// A recording's stream files are every data file except the event log; the names
+// come from its own files map, so a tracker's new stream needs no backend change.
 
 // FileEntry is what the backend tracks about a stored file beyond its size on disk.
 type FileEntry struct {
@@ -50,12 +52,39 @@ type FileList struct {
 }
 
 func isDataFile(name string) bool {
-	for _, candidate := range dataFiles {
-		if candidate == name {
-			return true
+	return storage.IsDataFile(name)
+}
+
+// storedNames lists a recording's files, the ones every recording used to have first.
+func storedNames(entries map[string]FileEntry) []string {
+	names := make([]string, 0, len(entries))
+	for _, known := range dataFiles {
+		if _, ok := entries[known]; ok {
+			names = append(names, known)
 		}
 	}
-	return false
+	extra := make([]string, 0, len(entries))
+	for name := range entries {
+		if !isDataFile(name) {
+			continue
+		}
+		found := false
+		for _, known := range names {
+			if known == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			extra = append(extra, name)
+		}
+	}
+	sort.Strings(extra)
+	return append(names, extra...)
+}
+
+func isStreamFile(name string) bool {
+	return storage.IsStreamFile(name)
 }
 
 func storedName(name, encoding string) string {
@@ -98,11 +127,8 @@ func fileViews(app core.App, record *core.Record) []FileView {
 	entries := readFiles(record)
 	dir := recordingDir(app, record.Id)
 	views := []FileView{}
-	for _, name := range dataFiles {
-		entry, ok := entries[name]
-		if !ok {
-			continue
-		}
+	for _, name := range storedNames(entries) {
+		entry := entries[name]
 		encoding := entry.Encoding
 		if encoding == "" {
 			encoding = encodingIdentity
@@ -158,10 +184,8 @@ func addAccountBytes(app core.App, owner string, delta int64) error {
 func streamBytes(app core.App, record *core.Record) int64 {
 	var total int64
 	for _, view := range fileViews(app, record) {
-		for _, name := range streamFiles {
-			if view.Name == name {
-				total += view.Size
-			}
+		if isStreamFile(view.Name) {
+			total += view.Size
 		}
 	}
 	return total
