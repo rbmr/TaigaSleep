@@ -8,11 +8,13 @@ import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
 import android.os.StrictMode
+import java.io.File
 import androidx.core.content.ContextCompat
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.tracker.SleepSensor
 import com.rbmr.taigasleep.tracker.FakeTracker
+import com.rbmr.taigasleep.tracker.ReplayTracker
 
 /**
  * Tools that only exist in debug builds. `src/release` has a twin with the same API that does
@@ -29,6 +31,9 @@ object DebugTools {
       FoundSensor(SensorKind.SIMULATED, "SIM00001", "Fake tracker", 0)
 
   fun createFakeTracker(): SleepSensor? = FakeTracker()
+
+  /** Plays a recording directory back through the tracker interface, for a night without a strap. */
+  fun replayTracker(dir: File): SleepSensor? = ReplayTracker(dir)
 
   /**
    * Reports disk and network work on the main thread in the log (tag `StrictMode`), so a startup

@@ -3,6 +3,7 @@ package com.rbmr.taigasleep.debug
 import android.app.Application
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.SleepSensor
+import java.io.File
 
 /** Release twin of the debug-only tools in `src/debug`: the same API, and nothing behind it. */
 object DebugTools {
@@ -12,6 +13,9 @@ object DebugTools {
 
   @Suppress("FunctionOnlyReturningConstant")
   fun createFakeTracker(): SleepSensor? = null
+
+  @Suppress("FunctionOnlyReturningConstant", "UnusedParameter")
+  fun replayTracker(dir: File): SleepSensor? = null
 
   fun startStrictMode() = Unit
 
