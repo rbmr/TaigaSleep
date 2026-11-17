@@ -41,7 +41,9 @@ def is_recording_file(name: str) -> bool:
     base, ok = name.removesuffix(".log"), name.endswith(".log")
     if not ok or not 1 <= len(base) <= 32:
         return False
-    return all(char.isascii() and (char.islower() or char.isdigit() or char in "_-") for char in base)
+    return all(
+        char.isascii() and (char.islower() or char.isdigit() or char in "_-") for char in base
+    )
 
 
 @dataclass(frozen=True)

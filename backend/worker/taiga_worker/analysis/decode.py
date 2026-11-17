@@ -360,7 +360,9 @@ def _decode_extra(
             batches["elapsed_ns"].append(np.asarray([batch.elapsed_ns], dtype=np.int64))
             batches["t"].append(np.asarray(batch.timestamps_ns, dtype=np.int64))
             batches["values"].append(
-                np.asarray([value for sample in batch.channels for value in sample], dtype=np.float32)
+                np.asarray(
+                    [value for sample in batch.channels for value in sample], dtype=np.float32
+                )
             )
             batches["channel_counts"].append(
                 np.asarray([len(sample) for sample in batch.channels], dtype=np.int32)

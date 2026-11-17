@@ -9,9 +9,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 from taiga_worker import frames
-from taiga_worker.upload import is_recording_file
 from taiga_worker.analysis.decode import load_recording
 from taiga_worker.analysis.pipeline import run_analysis
+from taiga_worker.upload import is_recording_file
 
 from tests import analysis_fixture as fx
 
