@@ -130,9 +130,9 @@ class UploadWorker(
       if (meta.state == RecordingPhase.FETCH_PENDING) {
         // The rest of the night is still on the tracker. Uploading now would seal a recording that
         // is about to grow; the completed fetch queues it again as a new upload.
-        store.markQueued(
+        deferUpload(
+            store,
             localId,
-            UploadFailure.RECORDING,
             "the rest of the recording is still on the tracker",
             account,
         )
@@ -142,12 +142,7 @@ class UploadWorker(
       if (meta.state == RecordingPhase.RECORDING) {
         if (RecordingService.running) {
           // The service schedules a fresh worker when it finishes. Never upload an open file.
-          store.markQueued(
-              localId,
-              UploadFailure.RECORDING,
-              "recording is still in progress",
-              account,
-          )
+          deferUpload(store, localId, "recording is still in progress", account)
           return Result.success()
         }
         val active = RecordingPrefs.get(context).activeSessionId
@@ -156,22 +151,12 @@ class UploadWorker(
             // The phone still marks this recording live: the service decides whether it continues.
             // A refused start leaves the marker in place, so the watchdog tries again.
             runCatching { RecordingService.send(context, RecordingService.ACTION_RESUME) }
-            store.markQueued(
-                localId,
-                UploadFailure.RECORDING,
-                "recording is still in progress",
-                account,
-            )
+            deferUpload(store, localId, "recording is still in progress", account)
             return Result.success()
           }
           RecoveryAction.WAIT -> {
             // An on-device recording is running on the tracker, not on the phone.
-            store.markQueued(
-                localId,
-                UploadFailure.RECORDING,
-                "recording is still in progress",
-                account,
-            )
+            deferUpload(store, localId, "recording is still in progress", account)
             return Result.success()
           }
           else -> {
@@ -228,7 +213,7 @@ class UploadWorker(
         }
         e.code == ApiCode.RECORDING_IN_PROGRESS -> {
           // The backend refuses a recording that is still open. The service will enqueue again.
-          store.markQueued(localId, UploadFailure.RECORDING, e.message, account)
+          deferUpload(store, localId, e.message, account)
           Result.success()
         }
         e.status == 429 || e.status >= 500 ->
@@ -250,6 +235,19 @@ class UploadWorker(
       markFailed(localId, UploadFailure.STORAGE, e.message, account)
       Result.failure()
     }
+  }
+
+  /**
+   * Keeps a recording whose data is not complete yet in the queue for a later upload. Nothing
+   * failed, so the attempt ends without a failure notification.
+   */
+  private suspend fun deferUpload(
+      store: UploadStore,
+      localId: String,
+      detail: String?,
+      account: String?,
+  ) {
+    store.markQueued(localId, UploadFailure.RECORDING, detail, account)
   }
 
   /**

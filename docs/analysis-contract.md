@@ -123,7 +123,7 @@ Stage = Literal["wake", "rem", "nrem", "light", "deep", "sleep", "unknown"]
 | `epoch_seconds` | Output epoch length; 30 is the norm. |
 | `stage_scheme` | `aasm4`, `wake-rem-nrem`, `wake-sleep`, or a documented custom scheme such as `sleep-ecg`. |
 | `supported_stages` | Stages the algorithm can actually emit. |
-| `capabilities` | At least `stages`; optionally `confidence`, `probabilities`, `artifacts`, `beats`, `no_deep`. |
+| `capabilities` | At least `stages`; optionally `confidence`, `probabilities`, `artifacts`, `no_deep`. |
 | `default_params`, `params_schema` | Tunable parameters and their shape. |
 
 ## Input: `Recording`
@@ -194,7 +194,6 @@ StagingResult(
     confidence=[0.82, None, ...],         # optional, 0..1 per epoch
     probabilities={"light": [...], ...},   # optional per-stage probabilities
     artifacts=[False, True, ...],          # optional per-epoch artifact flag
-    beats_s=[0.81, 1.62, ...],             # optional beat times in seconds
     warnings=["..."],
     extras={"anything": "namespaced"},
     supported_stages=("wake", "rem", "nrem", "unknown"),  # optional narrow set
@@ -214,9 +213,6 @@ StagingResult(
   an artifact (for example a short electrode pop), so artifacts are not necessarily unknown.
 - `probabilities` is optional. If confidence is absent, it is derived from the
   maximum probability.
-- `beats_s` is optional and lets a stager report the beat times it detected. It is not
-  used by the shared figures: heart-rate variability is computed from the raw R-R stream
-  by the shared beat series, so every stager gives the same HRV for the same recording.
 - `provenance` is optional algorithm-specific provenance (checkpoint path,
   model revision, hashes). The worker merges it into the result under
   `provenance.algorithm`; it cannot replace the standard licence, citation or
@@ -455,7 +451,7 @@ wav2sleep and SleepECG stagers use this so a base worker reports only the
 baseline.
 
 The result's `capabilities` records what the run actually produced, including
-`probabilities`, `confidence`, `artifacts`, `beats` and whether deep sleep is
+`probabilities`, `confidence`, `artifacts` and whether deep sleep is
 unsupported (`no_deep`). Per-epoch probabilities are stored by stage name in
 `stages.probabilities`.
 

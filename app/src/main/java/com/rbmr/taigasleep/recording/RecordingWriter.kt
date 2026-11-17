@@ -83,6 +83,20 @@ private constructor(
     meta = updated
   }
 
+  /**
+   * Makes [updated] the recording's metadata. A write the phone refuses leaves the metadata as it
+   * was and records why, so the caller can report the failure and try again.
+   */
+  private fun save(updated: RecordingMeta, logMessage: String): Boolean {
+    if (updated.write(dir)) {
+      meta = updated
+      return true
+    }
+    failure = "metadata write failed"
+    Log.e(TAG, logMessage)
+    return false
+  }
+
   /** Appends one raw frame the tracker encoded. Returns false when it could not be written. */
   @Synchronized
   fun writeFrame(frame: TrackerFrame): Boolean {
@@ -257,14 +271,10 @@ private constructor(
   @Synchronized
   fun markFetchPending(): Boolean {
     if (closed) return false
-    val updated = meta.copy(state = RecordingPhase.FETCH_PENDING, fetchPending = true)
-    if (!updated.write(dir)) {
-      failure = "metadata write failed"
-      Log.e(TAG, "fetch pending metadata write failed")
-      return false
-    }
-    meta = updated
-    return true
+    return save(
+        meta.copy(state = RecordingPhase.FETCH_PENDING, fetchPending = true),
+        "fetch pending metadata write failed",
+    )
   }
 
   /** How many samples of each tracker entry are already on this phone. */
@@ -275,16 +285,11 @@ private constructor(
    * during the import, the next fetch truncates back to this point and imports the entry once.
    */
   @Synchronized
-  fun beginEntryImport(entryId: String): Boolean {
-    val updated = meta.copy(importStarted = entryId, importStart = mark())
-    if (!updated.write(dir)) {
-      failure = "metadata write failed"
-      Log.e(TAG, "import mark metadata write failed")
-      return false
-    }
-    meta = updated
-    return true
-  }
+  fun beginEntryImport(entryId: String): Boolean =
+      save(
+          meta.copy(importStarted = entryId, importStart = mark()),
+          "import mark metadata write failed",
+      )
 
   /** Rolls back a tracker entry that was being appended when the previous process died. */
   @Synchronized
@@ -302,32 +307,20 @@ private constructor(
     }
     if (!ok) return false
     val updated = meta.copy(importStarted = null, importStart = emptyMap())
-    if (!updated.write(dir)) {
-      failure = "metadata write failed"
-      Log.e(TAG, "import rollback metadata write failed")
-      return false
-    }
-    meta = updated
-    return true
+    return save(updated, "import rollback metadata write failed")
   }
 
   /** Records the samples of one tracker entry that are safely stored. */
   @Synchronized
-  fun markOnDeviceImported(entryId: String, samples: Int): Boolean {
-    val updated =
-        meta.copy(
-            importedEntries = meta.importedEntries + (entryId to samples),
-            importStarted = null,
-            importStart = emptyMap(),
-        )
-    if (!updated.write(dir)) {
-      failure = "metadata write failed"
-      Log.e(TAG, "imported metadata write failed")
-      return false
-    }
-    meta = updated
-    return true
-  }
+  fun markOnDeviceImported(entryId: String, samples: Int): Boolean =
+      save(
+          meta.copy(
+              importedEntries = meta.importedEntries + (entryId to samples),
+              importStarted = null,
+              importStart = emptyMap(),
+          ),
+          "imported metadata write failed",
+      )
 
   /**
    * Remembers the tracker entries whose removal is still to come, before the recording is finished,
@@ -338,15 +331,10 @@ private constructor(
   fun markTrackerRemoval(entryIds: List<String>): Boolean {
     if (closed) return false
     if (entryIds.isEmpty()) return true
-    val updated =
-        meta.copy(trackerRemovalPending = (meta.trackerRemovalPending + entryIds).distinct())
-    if (!updated.write(dir)) {
-      failure = "metadata write failed"
-      Log.e(TAG, "tracker removal metadata write failed")
-      return false
-    }
-    meta = updated
-    return true
+    return save(
+        meta.copy(trackerRemovalPending = (meta.trackerRemovalPending + entryIds).distinct()),
+        "tracker removal metadata write failed",
+    )
   }
 
   /** Frames in the HR log, which for an on-device recording are exactly the imported samples. */

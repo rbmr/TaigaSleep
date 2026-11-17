@@ -284,13 +284,7 @@ def _install_nanpsd_fix() -> None:
     fe._taiga_nanpsd_fixed = True
 
 
-_CLASSIFIER_CACHE: dict[str, Any] = {}
-
-
 def _load_classifier(name: str):
-    if name in _CLASSIFIER_CACHE:
-        return _CLASSIFIER_CACHE[name]
-
     os.environ["KERAS_BACKEND"] = "torch"
     try:
         import keras
@@ -334,7 +328,6 @@ def _load_classifier(name: str):
         classifier.model.predict = predict_quiet
     except Exception:  # noqa: BLE001 - progress output is cosmetic
         pass
-    _CLASSIFIER_CACHE[name] = classifier
     return classifier
 
 

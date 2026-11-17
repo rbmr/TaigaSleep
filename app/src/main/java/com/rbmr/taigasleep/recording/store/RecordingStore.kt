@@ -2,8 +2,6 @@ package com.rbmr.taigasleep.recording.store
 
 import android.content.Context
 import com.rbmr.taigasleep.appContainer
-import com.rbmr.taigasleep.recording.ExportContents
-import com.rbmr.taigasleep.recording.RecordingExport
 import com.rbmr.taigasleep.tracker.RecordingMode
 import java.io.File
 import java.nio.ByteBuffer
@@ -175,17 +173,6 @@ class RecordingStore(
     val deleted = File(root, id).takeIf { it.isDirectory }?.deleteRecursively() ?: false
     if (deleted) MetaWrites.note()
     return deleted
-  }
-
-  /** Zips the whole recording directory to [out]; the archive is never kept beyond the share. */
-  fun zip(id: String, out: File, onProgress: (Float) -> Unit = {}) {
-    RecordingExport.write(
-        id = id,
-        dir = File(root, id),
-        out = out,
-        contents = ExportContents(),
-        onProgress = { onProgress(it.fraction) },
-    )
   }
 
   companion object {

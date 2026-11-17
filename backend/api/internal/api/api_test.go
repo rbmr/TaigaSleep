@@ -185,6 +185,13 @@ type recordPage[T any] struct {
 	TotalItems int `json:"totalItems"`
 }
 
+// analysisRecord is the record API's analysis. The view route attaches the result of a
+// finished analysis, which the queue's own responses never carry.
+type analysisRecord struct {
+	AnalysisView
+	Result any `json:"result"`
+}
+
 // createRecording sends the recording through the record API, as a client does. The
 // answer is 200 for a new recording and for a repeated create of an open one.
 func createRecording(s *server, token, id string, meta map[string]any) recordingRecord {
@@ -223,27 +230,27 @@ func requestAnalysis(s *server, token, id string, body map[string]any) (int, []b
 	return status, data
 }
 
-func mustRequestAnalysis(s *server, token, id string, body map[string]any) AnalysisView {
+func mustRequestAnalysis(s *server, token, id string, body map[string]any) analysisRecord {
 	s.t.Helper()
 	status, data := requestAnalysis(s, token, id, body)
 	if status != http.StatusOK {
 		s.t.Fatalf("request analysis = %d %s", status, data)
 	}
-	return decode[AnalysisView](s.t, data)
+	return decode[analysisRecord](s.t, data)
 }
 
-func getAnalysis(s *server, token, id string) (int, AnalysisView) {
+func getAnalysis(s *server, token, id string) (int, analysisRecord) {
 	s.t.Helper()
 	status, _, data := s.call(http.MethodGet, analysesAPI+"/"+id, token, nil, nil)
 	if status != http.StatusOK {
-		return status, AnalysisView{}
+		return status, analysisRecord{}
 	}
-	return status, decode[AnalysisView](s.t, data)
+	return status, decode[analysisRecord](s.t, data)
 }
 
-func listAnalyses(s *server, token, query string) recordPage[AnalysisView] {
+func listAnalyses(s *server, token, query string) recordPage[analysisRecord] {
 	s.t.Helper()
-	return decode[recordPage[AnalysisView]](s.t, s.expect(http.StatusOK, http.MethodGet, analysesAPI+query, token, nil, nil))
+	return decode[recordPage[analysisRecord]](s.t, s.expect(http.StatusOK, http.MethodGet, analysesAPI+query, token, nil, nil))
 }
 
 func testMeta(id, state string) map[string]any {
@@ -1228,7 +1235,7 @@ func TestLeasesAndRetries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	state := func() AnalysisView {
+	state := func() analysisRecord {
 		t.Helper()
 		status, got := getAnalysis(s, alice, analysis.ID)
 		if status != 200 {

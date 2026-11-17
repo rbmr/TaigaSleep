@@ -109,7 +109,6 @@ Class order is part of the checkpoint contract and must not change:
 | `checkpoint` | `""` | Local checkpoint directory. Empty reads `TAIGA_WAV2SLEEP_CHECKPOINT`. |
 | `max_length_hours` | `10` | Truncate the model input; longer recordings keep unscored epochs. |
 | `pad_to_max_length` | `false` | Zero-pad to `max_length_hours` for upstream parity. |
-| `batch_size` | `1` | Accepted for API parity; one job analyses one night. |
 | `min_ecg_coverage` | `0.5` | Minimum fraction of an epoch with real ECG samples. |
 | `min_usable_epochs` | `60` | Refuse the night below this many usable epochs (30 min). |
 | `min_hr_contact_fraction` | `0.5` | Reject epochs without enough Polar HR contact when the strap reports it. |

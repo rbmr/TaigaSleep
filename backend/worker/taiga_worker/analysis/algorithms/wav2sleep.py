@@ -76,7 +76,6 @@ INFO = AlgorithmInfo(
         "checkpoint": "",
         "max_length_hours": 10,
         "pad_to_max_length": False,
-        "batch_size": 1,
         "min_ecg_coverage": 0.5,
         "min_usable_epochs": 60,
         "min_hr_contact_fraction": 0.5,
@@ -101,12 +100,6 @@ INFO = AlgorithmInfo(
                     "Zero-pad the model input to max_length_hours, matching upstream's "
                     "fixed 10 h inference. Off by default: shorter nights run as-is."
                 ),
-            },
-            "batch_size": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 64,
-                "description": "Not used. One job analyzes one recording.",
             },
             "min_ecg_coverage": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "min_usable_epochs": {"type": "integer", "minimum": 1, "maximum": 1440},
@@ -222,14 +215,6 @@ def _params(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     if not 1 <= max_hours <= 24:
         raise AnalysisError("invalid_params", "max_length_hours must be between 1 and 24")
     merged["max_length_hours"] = max_hours
-
-    try:
-        batch_size = int(merged["batch_size"])
-    except (TypeError, ValueError) as exc:
-        raise AnalysisError("invalid_params", "batch_size must be an integer") from exc
-    if not 1 <= batch_size <= 64:
-        raise AnalysisError("invalid_params", "batch_size must be between 1 and 64")
-    merged["batch_size"] = batch_size
 
     try:
         min_coverage = float(merged["min_ecg_coverage"])
@@ -464,9 +449,6 @@ def _checkpoint_digest(checkpoint: Path) -> tuple[str, int]:
     return hashlib.sha256(data).hexdigest(), len(data)
 
 
-_MODEL_CACHE: dict[tuple[str, str], Any] = {}
-
-
 def _load_model(checkpoint: Path, device: str) -> Any:
     digest, size = _checkpoint_digest(checkpoint)
     if digest != CHECKPOINT_SHA256 or size != CHECKPOINT_BYTES:
@@ -477,11 +459,6 @@ def _load_model(checkpoint: Path, device: str) -> Any:
         )
     if not (checkpoint / "config.yaml").is_file():
         raise AnalysisError("invalid_checkpoint", f"config.yaml is missing in {checkpoint}")
-
-    key = (str(checkpoint), device)
-    cached = _MODEL_CACHE.get(key)
-    if cached is not None:
-        return cached
 
     try:
         import torch
@@ -510,7 +487,6 @@ def _load_model(checkpoint: Path, device: str) -> Any:
             f"the checkpoint has {getattr(model, 'num_classes', 0)} classes, "
             f"expected {len(CLASSES)}",
         )
-    _MODEL_CACHE[key] = model
     return model
 
 
@@ -665,7 +641,6 @@ class Wav2SleepStager(Stager):
             "smooth_window_epochs": int(config["smooth_window_epochs"]),
             "max_length_hours": int(config["max_length_hours"]),
             "pad_to_max_length": bool(config["pad_to_max_length"]),
-            "batch_size": int(config["batch_size"]),
             "device": str(config["device"]),
             "torch": torch_version,
             "normalization": "zscore_stageable",

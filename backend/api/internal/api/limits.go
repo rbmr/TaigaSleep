@@ -24,13 +24,21 @@ const (
 	maxExpansionRatio                   = 200.0
 )
 
+// envInt reads a positive integer setting, or returns fallback when it is absent, not
+// a number or not positive.
 func envInt(name string, fallback int64) int64 {
-	value := os.Getenv(name)
+	return envIntAtLeast(name, fallback, 1)
+}
+
+// envIntAtLeast reads an integer setting of at least least, or returns fallback when
+// it is absent, not a number or below least.
+func envIntAtLeast(name string, fallback, least int64) int64 {
+	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
 		return fallback
 	}
 	parsed, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || parsed <= 0 {
+	if err != nil || parsed < least {
 		return fallback
 	}
 	return parsed
@@ -40,15 +48,7 @@ func envInt(name string, fallback int64) int64 {
 // recordings. TAIGA_USER_QUOTA_GB sets it in GB; 0 removes the limit; unset, negative
 // or not a whole number means the default.
 func userQuotaBytes() int64 {
-	value := strings.TrimSpace(os.Getenv("TAIGA_USER_QUOTA_GB"))
-	if value == "" {
-		return defaultUserQuotaGB * 1024 * 1024 * 1024
-	}
-	parsed, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || parsed < 0 {
-		return defaultUserQuotaGB * 1024 * 1024 * 1024
-	}
-	return parsed * 1024 * 1024 * 1024
+	return envIntAtLeast("TAIGA_USER_QUOTA_GB", defaultUserQuotaGB, 0) * 1024 * 1024 * 1024
 }
 
 func maxTotalBytes() int64 {

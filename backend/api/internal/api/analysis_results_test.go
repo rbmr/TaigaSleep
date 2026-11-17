@@ -30,7 +30,7 @@ func TestAResultOverTheLimitFailsTheAnalysisOnce(t *testing.T) {
 	completeRecording(s, alice, id)
 	announce(s, "baseline", "1.0.0")
 	analysis := mustRequestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline"})
-	claimed := decode[AnalysisView](t, s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil))
+	claimed := decode[analysisRecord](t, s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil))
 	if claimed.ID != analysis.ID {
 		t.Fatalf("claimed %s, want %s", claimed.ID, analysis.ID)
 	}
@@ -71,7 +71,7 @@ func TestListAndClaimNeverReadAResult(t *testing.T) {
 	announce(s, "baseline", "1.0.0")
 	done := mustRequestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline", "params": map[string]any{"n": 1}})
 	mustRequestAnalysis(s, alice, id, map[string]any{"algorithm": "baseline", "params": map[string]any{"n": 2}})
-	claimed := decode[AnalysisView](t, s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil))
+	claimed := decode[analysisRecord](t, s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil))
 	if claimed.ID != done.ID {
 		t.Fatalf("claimed %s, want %s", claimed.ID, done.ID)
 	}
@@ -91,7 +91,7 @@ func TestListAndClaimNeverReadAResult(t *testing.T) {
 				t.Fatalf("a list carried a result: %+v", item)
 			}
 		}
-		next := decode[AnalysisView](t, s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil))
+		next := decode[analysisRecord](t, s.expect(200, http.MethodPost, "/v1/analyses/claim", worker, nil, nil))
 		if next.Result != nil {
 			t.Fatalf("a claim carried a result: %+v", next)
 		}

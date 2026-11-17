@@ -104,7 +104,7 @@ def test_unknown_algorithm_fails_clearly(tmp_path: Path) -> None:
     assert context.value.code == "unknown_algorithm"
 
 
-def test_poor_data_withholds_the_sleep_score_and_carries_the_reason(tmp_path: Path) -> None:
+def test_poor_data_withholds_the_sleep_score(tmp_path: Path) -> None:
     from taiga_worker.analysis.derive import MIN_QUALITY_FOR_SLEEP_SCORE
 
     fx.write_recording(tmp_path, duration_s=240, contact=False)
@@ -113,11 +113,6 @@ def test_poor_data_withholds_the_sleep_score_and_carries_the_reason(tmp_path: Pa
     quality = next(item for item in output.items if item["id"] == "data_quality")
     assert quality["value"] < MIN_QUALITY_FOR_SLEEP_SCORE
     assert all(item["id"] != "sleep_quality" for item in output.items)
-    assert output.sleep_quality["score"] is None
-    assert output.support["sleep_quality"] == {
-        "status": "insufficient_data",
-        "reason": "not_enough_good_data",
-    }
 
 
 def test_typed_items_carry_their_own_labels_units_and_sources(tmp_path: Path) -> None:

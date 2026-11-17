@@ -4,13 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,6 +19,8 @@ import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.ListRowTrailing
 import com.rbmr.taigasleep.ui.components.SegmentedControl
 import com.rbmr.taigasleep.ui.components.TaigaSheet
+import com.rbmr.taigasleep.ui.components.TimePickerDialog
+import com.rbmr.taigasleep.ui.components.TimePickerText
 import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 
@@ -81,21 +78,6 @@ private fun SectionNote(text: String) {
 }
 
 @Composable
-private fun SwitchRow(
-    title: String,
-    checked: Boolean,
-    enabled: Boolean = true,
-    onChange: (Boolean) -> Unit,
-) {
-  ListRow(
-      title = title,
-      trailing = ListRowTrailing.Switch(checked),
-      enabled = enabled,
-      onClick = { onChange(!checked) },
-  )
-}
-
-@Composable
 private fun DataSection(
     config: StartConfig,
     onStream: (String, Boolean) -> Unit,
@@ -106,11 +88,12 @@ private fun DataSection(
     // Only the streams this tracker offers are shown; a choice the mode rules out stays in place
     // and is disabled, so the sheet says what is available rather than what is missing.
     for (option in config.options) {
-      SwitchRow(
+      val chosen = option.id in config.streams.chosen
+      ListRow(
           title = stringResource(labelOf(option.type)),
-          checked = option.id in config.streams.chosen,
+          trailing = ListRowTrailing.Switch(chosen),
           enabled = streaming || option.type == "heart_rate" || option.type == "rr_interval",
-          onChange = { onStream(option.id, it) },
+          onClick = { onStream(option.id, !chosen) },
       )
     }
   }
@@ -177,32 +160,31 @@ private fun WakeSection(config: StartConfig, onWake: (WakeChoice?) -> Unit) {
   val on = wake != null
   Column {
     SectionTitle(stringResource(R.string.wake_title))
-    SwitchRow(
+    ListRow(
         title = stringResource(R.string.wake_enable),
-        checked = on,
+        trailing = ListRowTrailing.Switch(on),
         enabled = !config.onTracker,
-    ) {
-      onWake(if (on) null else DEFAULT_WAKE)
-    }
+        onClick = { onWake(if (on) null else DEFAULT_WAKE) },
+    )
     TimeRow(stringResource(R.string.wake_start), shown.startMinute, on) { picked ->
       onWake(shown.copy(startMinute = picked))
     }
     LengthRow(shown.lengthMinutes, on) { onWake(shown.copy(lengthMinutes = it)) }
-    SwitchRow(
+    val heartRateOn = on && shown.heartRate && config.streams.hr
+    ListRow(
         title = stringResource(R.string.wake_trigger_hr),
-        checked = on && shown.heartRate && config.streams.hr,
+        trailing = ListRowTrailing.Switch(heartRateOn),
         enabled = on && config.streams.hr,
-    ) {
-      onWake(shown.copy(heartRate = it))
-    }
+        onClick = { onWake(shown.copy(heartRate = !heartRateOn)) },
+    )
     if (config.canRecordAcc) {
-      SwitchRow(
+      val movementOn = on && shown.movement && config.streams.acc
+      ListRow(
           title = stringResource(R.string.wake_trigger_movement),
-          checked = on && shown.movement && config.streams.acc,
+          trailing = ListRowTrailing.Switch(movementOn),
           enabled = on && config.streams.acc,
-      ) {
-        onWake(shown.copy(movement = it))
-      }
+          onClick = { onWake(shown.copy(movement = !movementOn)) },
+      )
     }
     if (on && !shown.triggers) SectionNote(stringResource(R.string.wake_trigger_none))
   }
@@ -220,28 +202,30 @@ internal fun LiveWakeSheet(wake: LiveWake, onWake: (WakeChoice?) -> Unit, onDism
   TaigaSheet(onDismiss = onDismiss) {
     Column(modifier = Modifier.fillMaxWidth().padding(bottom = MaterialTheme.taiga.space.l)) {
       SectionTitle(stringResource(R.string.wake_title))
-      SwitchRow(title = stringResource(R.string.wake_enable), checked = on) {
-        onWake(if (on) null else shown)
-      }
+      ListRow(
+          title = stringResource(R.string.wake_enable),
+          trailing = ListRowTrailing.Switch(on),
+          onClick = { onWake(if (on) null else shown) },
+      )
       TimeRow(stringResource(R.string.wake_start), shown.startMinute, on) { picked ->
         onWake(shown.copy(startMinute = picked))
       }
       LengthRow(shown.lengthMinutes, on) { onWake(shown.copy(lengthMinutes = it)) }
-      SwitchRow(
+      val heartRateOn = on && shown.heartRate && wake.heartRateRecorded
+      ListRow(
           title = stringResource(R.string.wake_trigger_hr),
-          checked = on && shown.heartRate && wake.heartRateRecorded,
+          trailing = ListRowTrailing.Switch(heartRateOn),
           enabled = on && wake.heartRateRecorded,
-      ) {
-        onWake(shown.copy(heartRate = it))
-      }
+          onClick = { onWake(shown.copy(heartRate = !heartRateOn)) },
+      )
       if (wake.movementSupported) {
-        SwitchRow(
+        val movementOn = on && shown.movement && wake.movementRecorded
+        ListRow(
             title = stringResource(R.string.wake_trigger_movement),
-            checked = on && shown.movement && wake.movementRecorded,
+            trailing = ListRowTrailing.Switch(movementOn),
             enabled = on && wake.movementRecorded,
-        ) {
-          onWake(shown.copy(movement = it))
-        }
+            onClick = { onWake(shown.copy(movement = !movementOn)) },
+        )
       }
       val triggers =
           (shown.heartRate && wake.heartRateRecorded) || (shown.movement && wake.movementRecorded)
@@ -277,7 +261,6 @@ private fun LengthRow(minutes: Int, enabled: Boolean, onChange: (Int) -> Unit) {
 }
 
 /** The time of day the window opens at; the picker is one dialog and one value. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun TimeRow(label: String, minute: Int, enabled: Boolean, onChange: (Int) -> Unit) {
   var editing by remember { mutableStateOf(false) }
@@ -290,28 +273,12 @@ internal fun TimeRow(label: String, minute: Int, enabled: Boolean, onChange: (In
       onClick = { editing = true },
   )
   if (editing) {
-    val state =
-        rememberTimePickerState(
-            initialHour = minute / 60,
-            initialMinute = minute % 60,
-            is24Hour = formats.is24Hour,
-        )
-    AlertDialog(
-        onDismissRequest = { editing = false },
-        text = { TimePicker(state = state) },
-        confirmButton = {
-          TextButton(
-              onClick = {
-                onChange(state.hour * 60 + state.minute)
-                editing = false
-              }
-          ) {
-            Text(stringResource(R.string.rec_done))
-          }
-        },
-        dismissButton = {
-          TextButton(onClick = { editing = false }) { Text(stringResource(R.string.action_cancel)) }
-        },
+    TimePickerDialog(
+        minuteOfDay = minute,
+        is24Hour = formats.is24Hour,
+        text = TimePickerText(title = label, confirm = stringResource(R.string.rec_done)),
+        onConfirm = onChange,
+        onDismiss = { editing = false },
     )
   }
 }

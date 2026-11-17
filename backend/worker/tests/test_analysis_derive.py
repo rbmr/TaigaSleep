@@ -164,6 +164,21 @@ def test_sleep_score_without_sleep_has_no_deceptive_value(tmp_path: Path) -> Non
     assert derived.sleep_quality["components"]["sleep_latency"]["available"] is False
 
 
+def test_poor_data_reports_why_the_sleep_score_is_withheld(tmp_path: Path) -> None:
+    from taiga_worker.analysis.derive import MIN_QUALITY_FOR_SLEEP_SCORE
+
+    fx.write_recording(tmp_path, duration_s=240, contact=False)
+    recording = load_recording(tmp_path)
+    derived = derive(recording, recording.epochs(30), ["light"] * 8, AASM4_INFO)
+
+    assert derived.quality["score"] < MIN_QUALITY_FOR_SLEEP_SCORE
+    assert derived.sleep_quality["score"] is None
+    assert derived.support["sleep_quality"] == {
+        "status": "insufficient_data",
+        "reason": "not_enough_good_data",
+    }
+
+
 def test_missing_acc_is_an_unsupported_metric_not_a_failure(tmp_path: Path) -> None:
     recording = _recording(tmp_path, include_acc=False)
     grid = recording.epochs(30)

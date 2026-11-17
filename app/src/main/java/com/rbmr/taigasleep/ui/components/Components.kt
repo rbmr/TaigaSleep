@@ -7,16 +7,26 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -27,9 +37,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
@@ -176,6 +189,78 @@ fun TaigaSwitch(
               uncheckedBorderColor = off,
           ),
   )
+}
+
+/** The Remove action of a [TimePickerDialog], for a value that can be cleared. */
+data class TimePickerClear(val label: String, val onClick: () -> Unit, val enabled: Boolean = true)
+
+/** The words and the optional Remove action of a [TimePickerDialog]. */
+data class TimePickerText(
+    val title: String,
+    val confirm: String,
+    val clear: TimePickerClear? = null,
+)
+
+/**
+ * Picks a time of day, in minutes since midnight, and uses the clock the caller chose with
+ * [is24Hour]. The picker opens at the [minuteOfDay] it was given.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TimePickerDialog(
+    minuteOfDay: Int,
+    is24Hour: Boolean,
+    text: TimePickerText,
+    onConfirm: (minuteOfDay: Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+  val state =
+      rememberTimePickerState(
+          initialHour = minuteOfDay / 60,
+          initialMinute = minuteOfDay % 60,
+          is24Hour = is24Hour,
+      )
+  Dialog(onDismissRequest = onDismiss) {
+    Surface(
+        shape = MaterialTheme.taiga.shape.card,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 6.dp,
+    ) {
+      Column(
+          modifier =
+              Modifier.padding(MaterialTheme.taiga.space.l).verticalScroll(rememberScrollState()),
+      ) {
+        Text(text = text.title, style = MaterialTheme.taiga.text.section)
+        Spacer(Modifier.height(MaterialTheme.taiga.space.m))
+        TimePicker(state = state)
+        Spacer(Modifier.height(MaterialTheme.taiga.space.s))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          val clear = text.clear
+          if (clear != null) {
+            TextButton(
+                onClick = {
+                  clear.onClick()
+                  onDismiss()
+                },
+                enabled = clear.enabled,
+            ) {
+              Text(clear.label)
+            }
+          }
+          Spacer(Modifier.weight(1f))
+          TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+          TextButton(
+              onClick = {
+                onConfirm(state.hour * 60 + state.minute)
+                onDismiss()
+              }
+          ) {
+            Text(text.confirm)
+          }
+        }
+      }
+    }
+  }
 }
 
 @Preview(name = "Light")
