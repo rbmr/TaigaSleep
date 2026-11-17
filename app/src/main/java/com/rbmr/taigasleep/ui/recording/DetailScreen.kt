@@ -14,9 +14,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.library.NightHeaderText
 import com.rbmr.taigasleep.library.formatNightHeader
 import com.rbmr.taigasleep.library.formatRecordingDate
 import com.rbmr.taigasleep.ui.components.TaigaScreen
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 
 /**
  * The recording screen: one scrolling screen that draws [RecordingDetailUiState] and forwards the
@@ -64,8 +66,12 @@ fun RecordingDetailScreen(
           tracker = state.recordingTracker.ifBlank { stringResource(R.string.night_device_unknown) },
           startUtcMs = state.recordingStartUtcMs,
           endUtcMs = state.recordingEndUtcMs,
-          lineFormat = stringResource(R.string.night_recording_meta),
-          startOnlyFormat = stringResource(R.string.night_recording_meta_start_only),
+          text =
+              NightHeaderText(
+                  withEnd = stringResource(R.string.night_recording_meta),
+                  startOnly = stringResource(R.string.night_recording_meta_start_only),
+              ),
+          formats = LocalFormats.current,
       )
 
   TaigaScreen(

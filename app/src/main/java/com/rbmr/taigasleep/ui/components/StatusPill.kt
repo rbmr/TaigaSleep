@@ -27,6 +27,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rbmr.taigasleep.ui.theme.LocalReduceMotion
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /** The six states a pill can report. [Checking] is the quiet grey pill with a spinner. */
@@ -89,11 +90,14 @@ fun StatusPill(
           horizontalArrangement = Arrangement.spacedBy(4.dp),
       ) {
         if (state == StatusPillState.Busy || state == StatusPillState.Checking) {
-          CircularProgressIndicator(
-              modifier = Modifier.size(14.dp),
-              color = ink,
-              strokeWidth = 1.5.dp,
-          )
+          // The small spinner is motion; with animations off the pill's own words say the state.
+          if (!LocalReduceMotion.current) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                color = ink,
+                strokeWidth = 1.5.dp,
+            )
+          }
         } else {
           state.icon?.let { Icon(it, contentDescription = null, modifier = Modifier.size(14.dp)) }
         }

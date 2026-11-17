@@ -19,7 +19,10 @@ FIGURE_IDS = {
     "hr_min_bpm",
     "hr_max_bpm",
     "hrv_rmssd_ms",
-    "hrv_sdnn_ms",
+    "hrv_sdnn_median_ms",
+    "hrv_ln_rmssd",
+    "hrv_artifact_share",
+    "hrv_window_count",
     "hrv_rr_count",
     "movement_index",
     "movement_mean_g",
@@ -27,6 +30,7 @@ FIGURE_IDS = {
     "scored_duration_s",
     "unscored_s",
     "hr",
+    "hrv",
     "sleep_quality",
     "data_quality",
 }
@@ -37,7 +41,8 @@ def item_ids(payload: dict) -> set[str]:
 
 
 def test_every_figure_the_app_shows_is_an_item(tmp_path: Path) -> None:
-    fx.write_recording(tmp_path, duration_s=240)
+    # HRV is computed over 5-minute windows, so the recording has to span at least one.
+    fx.write_recording(tmp_path, duration_s=600, include_ecg=False)
     payload = run_analysis(tmp_path, "baseline", {}).to_dict()
 
     missing = FIGURE_IDS - item_ids(payload)

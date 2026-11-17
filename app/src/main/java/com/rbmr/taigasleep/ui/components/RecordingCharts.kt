@@ -12,6 +12,7 @@ import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +33,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,10 +45,14 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.PointMode
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -60,6 +66,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -73,15 +80,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.HrSeriesDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
+import com.rbmr.taigasleep.insights.Formats
 import com.rbmr.taigasleep.insights.applicableStages
 import com.rbmr.taigasleep.insights.stageLabelRes
 import com.rbmr.taigasleep.insights.stageSeconds
-import com.rbmr.taigasleep.insights.formatDuration
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.serialization.json.JsonObject
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -183,6 +188,14 @@ fun ScoreRing(
   }
 }
 
+/** One run of the stage bar: one stage and the share of the bar it takes. */
+private data class StageRun(val stage: String, val start: Float, val end: Float)
+
+/**
+ * The stages of a night as one bar: the segments in order, each as wide as its share of the night.
+ * Two neighbours of the same stage are one run, and the runs are remembered for the segment list,
+ * so drawing a row again draws the same bar instead of one box per segment.
+ */
 @Composable
 fun StageBar(
     segments: List<StageSegmentDto>,
@@ -190,27 +203,52 @@ fun StageBar(
     height: Dp = 10.dp,
     description: String = stringResource(R.string.history_stage_bar_description),
 ) {
-  val visible = segments.filter { it.count > 0 }
-  Row(
-      modifier =
-          modifier
-              .fillMaxWidth()
-              .height(height)
-              .clip(RoundedCornerShape(50))
-              .background(MaterialTheme.colorScheme.surfaceVariant)
-              .semantics { contentDescription = description },
+  val runs = remember(segments) { stageRuns(segments) }
+  val colors = mutableMapOf<String, Color>()
+  for (run in runs) {
+    if (!colors.containsKey(run.stage)) colors[run.stage] = stageColor(run.stage)
+  }
+  Canvas(
+      modifier
+          .fillMaxWidth()
+          .height(height)
+          .clip(RoundedCornerShape(50))
+          .background(MaterialTheme.colorScheme.surfaceVariant)
+          .semantics { contentDescription = description }
   ) {
-    if (visible.isEmpty()) {
-      Spacer(Modifier.fillMaxWidth().fillMaxHeight())
-    } else {
-      visible.forEach { segment ->
-        Box(
-            Modifier.weight(segment.count.toFloat())
-                .fillMaxHeight()
-                .background(stageColor(segment.stage))
-        )
-      }
+    for (run in runs) {
+      drawRect(
+          color = colors.getValue(run.stage),
+          topLeft = Offset(size.width * run.start, 0f),
+          size = Size(size.width * (run.end - run.start), size.height),
+      )
     }
+  }
+}
+
+/**
+ * The runs of one stage bar: neighbours of the same stage merged, empty segments dropped, and each
+ * run placed by its share of the counted segments. A run ends where the next one starts, so the
+ * bar has no seams and its last run ends exactly at the right edge.
+ */
+private fun stageRuns(segments: List<StageSegmentDto>): List<StageRun> {
+  val merged = mutableListOf<Pair<String, Long>>()
+  for (segment in segments) {
+    if (segment.count <= 0) continue
+    val last = merged.lastOrNull()
+    if (last != null && last.first == segment.stage) {
+      merged[merged.lastIndex] = last.first to last.second + segment.count.toLong()
+    } else {
+      merged += segment.stage to segment.count.toLong()
+    }
+  }
+  val total = merged.sumOf { it.second }
+  if (total <= 0L) return emptyList()
+  var counted = 0L
+  return merged.map { (stage, count) ->
+    val start = counted.toFloat() / total
+    counted += count
+    StageRun(stage, start, counted.toFloat() / total)
   }
 }
 
@@ -390,164 +428,258 @@ private fun HideDialogSystemBars() {
   }
 }
 
+/** The time a time chart covers: its start, its length in seconds and how many points it has. */
+private class TimeChartSpan(val startUnixMs: Long, val totalSeconds: Long, val pointCount: Int)
+
+/** The value axis of a time chart: its labels from the top, its lane lines and its label width. */
+private class TimeChartAxis(
+    val labels: List<Pair<Float, String>>,
+    val lines: List<Float>,
+    val labelWidth: Dp,
+)
+
+/** What a time chart draws that does not change while the finger moves. */
+private class TimeChartSpec(
+    val span: TimeChartSpan,
+    val axis: TimeChartAxis,
+    val description: String,
+    val valueAt: (Int) -> String,
+    val timeLabel: (Long) -> String,
+    val large: Boolean,
+)
+
+/** The room a time chart keeps clear of its plot, in pixels. */
+private class TimeChartSpace(val leftPx: Float, val topPx: Float, val bottomPx: Float)
+
+/** The colours and the label paint of a time chart, read once from the theme. */
+private class TimeChartStyle(
+    val paint: Paint,
+    val gridColor: Color,
+    val axisColor: Color,
+    val selectedColor: Color,
+)
+
+private fun timeChartSpace(spec: TimeChartSpec, density: Density) =
+    TimeChartSpace(
+        leftPx = with(density) { spec.axis.labelWidth.toPx() },
+        topPx = with(density) { (if (spec.large) 2.dp else 8.dp).toPx() },
+        bottomPx = with(density) { (if (spec.large) 26.dp else 22.dp).toPx() },
+    )
+
+@Composable
+private fun timeChartStyle(density: Density, large: Boolean): TimeChartStyle {
+  val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+  val labelSp = if (large) 13.sp else 12.sp
+  val paint =
+      remember(labelColor, labelSp, density.density, density.fontScale) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+          color = labelColor.toArgb()
+          textSize = with(density) { labelSp.toPx() }
+        }
+      }
+  return TimeChartStyle(
+      paint = paint,
+      gridColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f),
+      axisColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+      selectedColor = MaterialTheme.colorScheme.primary,
+  )
+}
+
+private fun timePlot(width: Float, height: Float, space: TimeChartSpace): PlotBounds? {
+  if (width <= space.leftPx || height <= space.topPx + space.bottomPx) return null
+  return PlotBounds(
+      left = space.leftPx,
+      top = space.topPx,
+      width = width - space.leftPx,
+      height = height - space.topPx - space.bottomPx,
+  )
+}
+
+/**
+ * A chart of one night over its clock time: the hour grid, the axis labels and the plot the caller
+ * draws, with a crosshair the finger moves.
+ *
+ * The chart is drawn in two layers. The data layer is one canvas that reads no selection, so a drag
+ * never draws it again; the crosshair and the mark of the selected point are a canvas of their own
+ * above it.
+ */
 @Composable
 private fun TimeChart(
-    startUnixMs: Long,
-    totalSeconds: Long,
-    pointCount: Int,
-    yLabels: List<Pair<Float, String>>,
-    horizontalLines: List<Float>,
-    leftLabelWidth: Dp,
-    description: String,
-    valueAt: (Int) -> String,
-    large: Boolean,
+    spec: TimeChartSpec,
     modifier: Modifier = Modifier,
-    drawPlot: DrawScope.(PlotBounds, Int?) -> Unit,
+    drawPlot: DrawScope.(PlotBounds) -> Unit,
+    drawMark: DrawScope.(PlotBounds, Int) -> Unit = { _, _ -> },
 ) {
   val density = LocalDensity.current
-  val leftPx = with(density) { leftLabelWidth.toPx() }
-  val topPx = with(density) { (if (large) 2.dp else 8.dp).toPx() }
-  val bottomPx = with(density) { (if (large) 26.dp else 22.dp).toPx() }
-  val labelSp = if (large) 13.sp else 12.sp
-  val gridColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f)
-  val axisColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-  val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-  val selectedColor = MaterialTheme.colorScheme.primary
-  val ticks = remember(startUnixMs, totalSeconds) { hourTicks(startUnixMs, totalSeconds) }
-  var selected by remember { mutableStateOf<Int?>(null) }
-  val selectedFraction = selected?.let { index -> markFraction(index, pointCount) }
+  val space =
+      remember(density.density, density.fontScale, spec.large, spec.axis.labelWidth) {
+        timeChartSpace(spec, density)
+      }
+  val style = timeChartStyle(density, spec.large)
+  val ticks =
+      remember(spec.span.startUnixMs, spec.span.totalSeconds) {
+        hourTicks(spec.span.startUnixMs, spec.span.totalSeconds)
+      }
+  val selection = remember { mutableStateOf<Int?>(null) }
 
   Box(modifier) {
     Canvas(
-        Modifier.fillMaxSize().semantics { contentDescription = description }.pointerInput(
-            pointCount,
-            leftPx,
-        ) {
-          fun indexAt(x: Float): Int {
-            val width = (size.width.toFloat() - leftPx).coerceAtLeast(1f)
-            val fraction = ((x - leftPx) / width).coerceIn(0f, 1f)
-            return (fraction * (pointCount - 1).coerceAtLeast(0)).roundToInt()
-          }
+        Modifier.fillMaxSize()
+            .graphicsLayer()
+            .semantics { contentDescription = spec.description }
+            .pointerInput(spec.span.pointCount, space.leftPx) {
+              fun indexAt(x: Float): Int {
+                val width = (size.width.toFloat() - space.leftPx).coerceAtLeast(1f)
+                val fraction = ((x - space.leftPx) / width).coerceIn(0f, 1f)
+                return (fraction * (spec.span.pointCount - 1).coerceAtLeast(0)).roundToInt()
+              }
 
-          scrubChart(onSelect = { x -> selected = indexAt(x) }, onClear = { selected = null })
-        }
+              scrubChart(
+                  onSelect = { x -> selection.value = indexAt(x) },
+                  onClear = { selection.value = null },
+              )
+            }
     ) {
-      if (size.width <= leftPx || size.height <= topPx + bottomPx) return@Canvas
-      val plot =
-          PlotBounds(
-              left = leftPx,
-              top = topPx,
-              width = size.width - leftPx,
-              height = size.height - topPx - bottomPx,
-          )
-      val labelPaint =
-          Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = labelColor.toArgb()
-            textSize = with(density) { labelSp.toPx() }
-          }
-      // The lane lines and the grid are dashed, so they never read as data.
-      val dash = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx()))
+      val plot = timePlot(size.width, size.height, space) ?: return@Canvas
+      drawTimeGrid(plot, spec, style)
+      drawTimeLabels(plot, spec, ticks, style)
+      drawPlot(plot)
+      drawTimeAxes(plot, style)
+      drawTimeValues(plot, spec, style)
+    }
+    Canvas(Modifier.fillMaxSize()) {
+      val index = selection.value ?: return@Canvas
+      val plot = timePlot(size.width, size.height, space) ?: return@Canvas
+      val x = plot.x(markFraction(index, spec.span.pointCount))
+      drawLine(
+          style.selectedColor,
+          Offset(x, plot.top),
+          Offset(x, plot.top + plot.height),
+          1.5.dp.toPx(),
+      )
+      drawMark(plot, index)
+    }
+    TimeTooltip(selection, spec)
+  }
+}
 
-      for (line in horizontalLines) {
-        val y = plot.y(line)
-        drawLine(
-            color = gridColor,
-            start = Offset(plot.left, y),
-            end = Offset(plot.left + plot.width, y),
-            strokeWidth = 1.dp.toPx(),
-            pathEffect = dash,
-        )
-      }
-      if (ticks.isEmpty() && startUnixMs > 0) {
-        labelPaint.textAlign = Paint.Align.LEFT
-        drawContext.canvas.nativeCanvas.drawText(
-            clock(startUnixMs),
-            plot.left,
-            plot.top + plot.height + labelPaint.textSize + 4.dp.toPx(),
-            labelPaint,
-        )
-        labelPaint.textAlign = Paint.Align.RIGHT
-        drawContext.canvas.nativeCanvas.drawText(
-            clock(startUnixMs + totalSeconds * 1000L),
-            plot.left + plot.width,
-            plot.top + plot.height + labelPaint.textSize + 4.dp.toPx(),
-            labelPaint,
-        )
-      } else if (ticks.isNotEmpty()) {
-        // Every hour gets a grid line, but a label only when it clears the one before it, so
-        // a narrow chart names every second hour instead of printing labels over each other.
-        val gap = 8.dp.toPx()
-        var lastRight = Float.NEGATIVE_INFINITY
-        for (tick in ticks) {
-          val x = plot.x(tick.fraction)
-          drawLine(gridColor, Offset(x, plot.top), Offset(x, plot.top + plot.height), 1.dp.toPx())
-          val text = clock(tick.timeMs)
-          val textWidth = labelPaint.measureText(text)
-          val align =
-              when {
-                tick.fraction <= 0.02f -> Paint.Align.LEFT
-                tick.fraction >= 0.98f -> Paint.Align.RIGHT
-                else -> Paint.Align.CENTER
-              }
-          val textLeft =
-              when (align) {
-                Paint.Align.LEFT -> x
-                Paint.Align.RIGHT -> x - textWidth
-                else -> x - textWidth / 2f
-              }
-          if (textLeft < lastRight + gap || textLeft + textWidth > size.width) continue
-          lastRight = textLeft + textWidth
-          labelPaint.textAlign = align
-          drawContext.canvas.nativeCanvas.drawText(
-              text,
-              x,
-              plot.top + plot.height + labelPaint.textSize + 4.dp.toPx(),
-              labelPaint,
-          )
+/** The time and value of the selected point, which is the only part a drag recomposes. */
+@Composable
+private fun BoxScope.TimeTooltip(selection: State<Int?>, spec: TimeChartSpec) {
+  val index = selection.value ?: return
+  ChartTooltip(
+      time =
+          spec.timeLabel(
+              epochTimeMs(
+                  spec.span.startUnixMs,
+                  spec.span.totalSeconds,
+                  spec.span.pointCount,
+                  index,
+              )
+          ),
+      value = spec.valueAt(index),
+      fraction = markFraction(index, spec.span.pointCount),
+      labelWidth = spec.axis.labelWidth,
+  )
+}
+
+/** The lane lines: dashed, so they never read as data. */
+private fun DrawScope.drawTimeGrid(plot: PlotBounds, spec: TimeChartSpec, style: TimeChartStyle) {
+  val dash = dashEffect()
+  for (line in spec.axis.lines) {
+    val y = plot.y(line)
+    drawLine(
+        color = style.gridColor,
+        start = Offset(plot.left, y),
+        end = Offset(plot.left + plot.width, y),
+        strokeWidth = 1.dp.toPx(),
+        pathEffect = dash,
+    )
+  }
+}
+
+/** The hour grid and the clock labels under the plot. */
+private fun DrawScope.drawTimeLabels(
+    plot: PlotBounds,
+    spec: TimeChartSpec,
+    ticks: List<HourTick>,
+    style: TimeChartStyle,
+) {
+  val paint = style.paint
+  val labelY = plot.top + plot.height + paint.textSize + 4.dp.toPx()
+  if (ticks.isEmpty()) {
+    if (spec.span.startUnixMs <= 0) return
+    paint.textAlign = Paint.Align.LEFT
+    drawContext.canvas.nativeCanvas.drawText(
+        spec.timeLabel(spec.span.startUnixMs),
+        plot.left,
+        labelY,
+        paint,
+    )
+    paint.textAlign = Paint.Align.RIGHT
+    drawContext.canvas.nativeCanvas.drawText(
+        spec.timeLabel(spec.span.startUnixMs + spec.span.totalSeconds * 1000L),
+        plot.left + plot.width,
+        labelY,
+        paint,
+    )
+    return
+  }
+  // Every hour gets a grid line, but a label only when it clears the one before it, so a narrow
+  // chart names every second hour instead of printing labels over each other.
+  val gap = 8.dp.toPx()
+  var lastRight = Float.NEGATIVE_INFINITY
+  for (tick in ticks) {
+    val x = plot.x(tick.fraction)
+    drawLine(style.gridColor, Offset(x, plot.top), Offset(x, plot.top + plot.height), 1.dp.toPx())
+    val text = spec.timeLabel(tick.timeMs)
+    val textWidth = paint.measureText(text)
+    val align =
+        when {
+          tick.fraction <= 0.02f -> Paint.Align.LEFT
+          tick.fraction >= 0.98f -> Paint.Align.RIGHT
+          else -> Paint.Align.CENTER
         }
-      }
-      drawPlot(plot, selected)
-      labelPaint.textAlign = Paint.Align.RIGHT
-      for ((fraction, label) in yLabels) {
-        drawContext.canvas.nativeCanvas.drawText(
-            label,
-            plot.left - 6.dp.toPx(),
-            plot.y(fraction) + labelPaint.textSize / 3f,
-            labelPaint,
-        )
-      }
-      drawLine(
-          axisColor,
-          Offset(plot.left, plot.top),
-          Offset(plot.left, plot.top + plot.height),
-          1.dp.toPx(),
-      )
-      drawLine(
-          axisColor,
-          Offset(plot.left, plot.top + plot.height),
-          Offset(plot.left + plot.width, plot.top + plot.height),
-          1.dp.toPx(),
-      )
-      if (selectedFraction != null) {
-        val x = plot.x(selectedFraction)
-        drawLine(
-            selectedColor,
-            Offset(x, plot.top),
-            Offset(x, plot.top + plot.height),
-            1.5.dp.toPx(),
-        )
-      }
-    }
-    val selectedIndex = selected
-    val fraction = selectedFraction
-    if (selectedIndex != null && fraction != null) {
-      ChartTooltip(
-          time = clock(epochTimeMs(startUnixMs, totalSeconds, pointCount, selectedIndex)),
-          value = valueAt(selectedIndex),
-          fraction = fraction,
-          labelWidth = leftLabelWidth,
-      )
-    }
+    val textLeft =
+        when (align) {
+          Paint.Align.LEFT -> x
+          Paint.Align.RIGHT -> x - textWidth
+          else -> x - textWidth / 2f
+        }
+    if (textLeft < lastRight + gap || textLeft + textWidth > size.width) continue
+    lastRight = textLeft + textWidth
+    paint.textAlign = align
+    drawContext.canvas.nativeCanvas.drawText(text, x, labelY, paint)
+  }
+}
+
+/** The two axes of the plot. */
+private fun DrawScope.drawTimeAxes(plot: PlotBounds, style: TimeChartStyle) {
+  drawLine(
+      style.axisColor,
+      Offset(plot.left, plot.top),
+      Offset(plot.left, plot.top + plot.height),
+      1.dp.toPx(),
+  )
+  drawLine(
+      style.axisColor,
+      Offset(plot.left, plot.top + plot.height),
+      Offset(plot.left + plot.width, plot.top + plot.height),
+      1.dp.toPx(),
+  )
+}
+
+/** The values of the y axis, right-aligned beside the plot. */
+private fun DrawScope.drawTimeValues(plot: PlotBounds, spec: TimeChartSpec, style: TimeChartStyle) {
+  val paint = style.paint
+  paint.textAlign = Paint.Align.RIGHT
+  for ((fraction, label) in spec.axis.labels) {
+    drawContext.canvas.nativeCanvas.drawText(
+        label,
+        plot.left - 6.dp.toPx(),
+        plot.y(fraction) + paint.textSize / 3f,
+        paint,
+    )
   }
 }
 
@@ -561,6 +693,15 @@ private fun stageAtEpoch(segments: List<StageSegmentDto>, epoch: Int): String {
   return "unknown"
 }
 
+/** What a screen reader is told a stage chart spans: its start and its end. */
+@Composable
+private fun stagesDescription(startUnixMs: Long, endUnixMs: Long, formats: Formats): String =
+    stringResource(
+        R.string.night_sleep_stages_description,
+        formats.clockTime(startUnixMs),
+        formats.clockTime(endUnixMs),
+    )
+
 @Composable
 fun SleepStagesChart(
     segments: List<StageSegmentDto>,
@@ -571,20 +712,18 @@ fun SleepStagesChart(
     capabilities: JsonObject? = null,
     fullscreen: Boolean = false,
 ) {
-  val lanes = applicableStages(segments, capabilities).ifEmpty { listOf("unknown") }
-  val total = segments.sumOf { it.count }.coerceAtLeast(1)
+  // Everything the chart draws is derived from the segments once, not on every recomposition.
+  val lanes =
+      remember(segments, capabilities) {
+        applicableStages(segments, capabilities).ifEmpty { listOf("unknown") }
+      }
+  val total = remember(segments) { segments.sumOf { it.count }.coerceAtLeast(1) }
   val totalSeconds = total.toLong() * epochSeconds.coerceAtLeast(1)
   val endUnixMs = if (startUnixMs > 0) startUnixMs + totalSeconds * 1000L else 0L
-  val description =
-      stringResource(
-          R.string.night_sleep_stages_description,
-          clock(startUnixMs),
-          clock(endUnixMs),
-      )
+  val formats = LocalFormats.current
+  val description = stagesDescription(startUnixMs, endUnixMs, formats)
   val colors = mutableMapOf<String, Color>()
-  for (segment in segments) {
-    if (!colors.containsKey(segment.stage)) colors[segment.stage] = stageColor(segment.stage)
-  }
+  for (stage in segments.map { it.stage }.distinct()) colors[stage] = stageColor(stage)
   val labels = lanes.associateWith { stringResource(stageLabelRes(it)) }
   val unknownLabel = stringResource(R.string.night_stage_unknown)
   val fallbackColor = MaterialTheme.colorScheme.outlineVariant
@@ -592,41 +731,71 @@ fun SleepStagesChart(
       lanes.mapIndexed { index, lane ->
         ((index + 0.5f) / lanes.size) to (labels[lane] ?: unknownLabel)
       }
-  val horizontalLines = (1 until lanes.size).map { it.toFloat() / lanes.size }
+  val horizontalLines = remember(lanes) { (1 until lanes.size).map { it.toFloat() / lanes.size } }
+  val spec =
+      remember(
+          segments,
+          capabilities,
+          startUnixMs,
+          total,
+          yLabels,
+          horizontalLines,
+          description,
+          formats,
+          fullscreen,
+      ) {
+        TimeChartSpec(
+            span = TimeChartSpan(startUnixMs, totalSeconds, total),
+            axis =
+                TimeChartAxis(
+                    labels = yLabels,
+                    lines = horizontalLines,
+                    labelWidth = if (fullscreen) 96.dp else 68.dp,
+                ),
+            description = description,
+            valueAt = { index -> labels[stageAtEpoch(segments, index)] ?: unknownLabel },
+            timeLabel = { formats.clockTime(it) },
+            large = fullscreen,
+        )
+      }
   TimeChart(
-      startUnixMs = startUnixMs,
-      totalSeconds = totalSeconds,
-      pointCount = total,
-      yLabels = yLabels,
-      horizontalLines = horizontalLines,
-      leftLabelWidth = if (fullscreen) 96.dp else 68.dp,
-      description = description,
-      valueAt = { index -> labels[stageAtEpoch(segments, index)] ?: unknownLabel },
-      large = fullscreen,
+      spec = spec,
       modifier =
           if (fullscreen) modifier.fillMaxSize()
           else modifier.fillMaxWidth().height(chartHeight.dp),
-  ) { plot, _ ->
-    var cursor = 0
-    for (segment in segments) {
-      if (segment.count <= 0) continue
-      val lane = lanes.indexOf(segment.stage)
-      if (lane < 0) {
-        cursor += segment.count
-        continue
-      }
-      val x0 = plot.left + (cursor.toFloat() / total.toFloat()) * plot.width
-      val x1 = plot.left + ((cursor + segment.count).toFloat() / total.toFloat()) * plot.width
-      val laneHeight = plot.height / lanes.size
+      drawPlot = { plot ->
+        drawStageLanes(plot, segments, StageLanes(lanes, total, colors), fallbackColor)
+      },
+  )
+}
+
+/** The lanes of a stage chart: their order, how many segments the night has and their colours. */
+private class StageLanes(val stages: List<String>, val total: Int, val colors: Map<String, Color>)
+
+/** The stages of the night as one lane per stage, in the order they happened. */
+private fun DrawScope.drawStageLanes(
+    plot: PlotBounds,
+    segments: List<StageSegmentDto>,
+    lanes: StageLanes,
+    fallback: Color,
+) {
+  val laneHeight = plot.height / lanes.stages.size
+  var cursor = 0
+  for (segment in segments) {
+    if (segment.count <= 0) continue
+    val lane = lanes.stages.indexOf(segment.stage)
+    if (lane >= 0) {
+      val x0 = plot.left + (cursor.toFloat() / lanes.total.toFloat()) * plot.width
+      val x1 = plot.left + ((cursor + segment.count).toFloat() / lanes.total.toFloat()) * plot.width
       val top = plot.top + lane * laneHeight + laneHeight * 0.17f
       drawRoundRect(
-          color = colors[segment.stage] ?: fallbackColor,
+          color = lanes.colors[segment.stage] ?: fallback,
           topLeft = Offset(x0, top),
           size = Size((x1 - x0).coerceAtLeast(1f), laneHeight * 0.66f),
           cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
       )
-      cursor += segment.count
     }
+    cursor += segment.count
   }
 }
 
@@ -663,18 +832,23 @@ fun HeartRateChart(
     chartHeight: Int = 176,
     fullscreen: Boolean = false,
 ) {
-  val points = hrSeriesPoints(series)
-  val values = points.filterNotNull()
+  // A long night is thousands of points: the points, their range, the runs and the axis are what
+  // the chart draws, and all of them are read once for the series they belong to.
+  val formats = LocalFormats.current
+  val points = remember(series) { hrSeriesPoints(series) }
+  val values = remember(points) { points.filterNotNull() }
   if (values.isEmpty()) return
-  val low = values.min()
-  val high = values.max()
+  val low = remember(values) { values.min() }
+  val high = remember(values) { values.max() }
+  val runs = remember(points) { hrSeriesRuns(points) }
+  val axis = remember(low, high) { seriesAxis(low, high) }
   val totalSeconds = series.count.toLong() * series.epoch_seconds.coerceAtLeast(1)
   val endUnixMs = if (series.start_unix_ms > 0) series.start_unix_ms + totalSeconds * 1000L else 0L
   val description =
       stringResource(
           R.string.night_heart_rate_chart_description,
-          clock(series.start_unix_ms),
-          clock(endUnixMs),
+          formats.clockTime(series.start_unix_ms),
+          formats.clockTime(endUnixMs),
           low.roundToInt(),
           high.roundToInt(),
       )
@@ -682,60 +856,103 @@ fun HeartRateChart(
   val noValue = stringResource(R.string.night_chart_no_value)
   // A flat series still gets a readable axis: at least 10 bpm, centred on the samples, with whole
   // tick values that never repeat. The unit sits on the top label, so the others stay plain numbers.
-  val axis = seriesAxis(low, high)
   val yLabels =
       seriesAxisTicks(axis).mapIndexed { index, value ->
         val label = value.toString()
         (index / 4f) to
-            if (index == 0) stringResource(R.string.night_chart_bpm, label) else label
+            if (index == 0) formats.beatsPerMinute(label) else label
+      }
+  val spec =
+      remember(series, axis, points, yLabels, description, formats, fullscreen, noValue) {
+        TimeChartSpec(
+            span = TimeChartSpan(series.start_unix_ms, totalSeconds, series.count),
+            axis =
+                TimeChartAxis(
+                    labels = yLabels,
+                    lines = HeartRateGridLines,
+                    labelWidth = if (fullscreen) 84.dp else 60.dp,
+                ),
+            description = description,
+            valueAt = { index ->
+              points.getOrNull(index)?.let { formats.beatsPerMinute(it) } ?: noValue
+            },
+            timeLabel = { formats.clockTime(it) },
+            large = fullscreen,
+        )
       }
   TimeChart(
-      startUnixMs = series.start_unix_ms,
-      totalSeconds = totalSeconds,
-      pointCount = series.count,
-      yLabels = yLabels,
-      horizontalLines = (0..4).map { it / 4f },
-      leftLabelWidth = if (fullscreen) 84.dp else 60.dp,
-      description = description,
-      valueAt = { index ->
-        points.getOrNull(index)?.let { "${it.roundToInt()} bpm" } ?: noValue
-      },
-      large = fullscreen,
+      spec = spec,
       modifier =
           if (fullscreen) modifier.fillMaxSize()
           else modifier.fillMaxWidth().height(chartHeight.dp),
-  ) { plot, selected ->
-    val span = axis.endInclusive - axis.start
-    fun y(value: Double): Float =
-        plot.y(((axis.endInclusive - value) / span).toFloat())
-    fun x(index: Int): Float =
-        if (series.count <= 1) plot.x(0.5f)
-        else plot.x(index.toFloat() / (series.count - 1).toFloat())
+      drawPlot = { plot -> drawHeartRateLine(plot, runs, series.count, axis, line) },
+      drawMark = { plot, index ->
+        points.getOrNull(index)?.let { value ->
+          drawCircle(
+              line,
+              radius = 3.dp.toPx(),
+              center = heartRatePoint(plot, index, value, series.count, axis),
+          )
+        }
+      },
+  )
+}
 
-    for (run in hrSeriesRuns(points)) {
-      if (run.size == 1) {
-        val point = run.first()
-        drawCircle(line, radius = 1.5.dp.toPx(), center = Offset(x(point.index), y(point.value)))
-        continue
-      }
-      for (position in 1 until run.size) {
-        val from = run[position - 1]
-        val to = run[position]
-        drawLine(
-            color = line,
-            start = Offset(x(from.index), y(from.value)),
-            end = Offset(x(to.index), y(to.value)),
-            strokeWidth = 2.dp.toPx(),
-            cap = StrokeCap.Round,
-        )
-      }
+/** The five dashed lanes of the heart-rate axis, from the top of the plot to the bottom. */
+private val HeartRateGridLines = (0..4).map { it / 4f }
+
+/** Where the HR point at [index] sits in the plot: its time across, its value down. */
+private fun heartRatePoint(
+    plot: PlotBounds,
+    index: Int,
+    value: Double,
+    count: Int,
+    axis: ClosedFloatingPointRange<Double>,
+): Offset {
+  val span = axis.endInclusive - axis.start
+  val y = plot.y(((axis.endInclusive - value) / span).toFloat())
+  val x = if (count <= 1) plot.x(0.5f) else plot.x(index.toFloat() / (count - 1).toFloat())
+  return Offset(x, y)
+}
+
+/**
+ * The heart-rate line as one path and its lone points as one batch of dots: a night of a thousand
+ * points is two draw calls, not a thousand.
+ */
+private fun DrawScope.drawHeartRateLine(
+    plot: PlotBounds,
+    runs: List<List<IndexedValue<Double>>>,
+    count: Int,
+    axis: ClosedFloatingPointRange<Double>,
+    color: Color,
+) {
+  val path = Path()
+  val dots = mutableListOf<Offset>()
+  for (run in runs) {
+    val first = run.first()
+    if (run.size == 1) {
+      dots += heartRatePoint(plot, first.index, first.value, count, axis)
+      continue
     }
-    selected?.let { index ->
-      points.getOrNull(index)?.let { value ->
-        drawCircle(line, radius = 3.dp.toPx(), center = Offset(x(index), y(value)))
-      }
+    val start = heartRatePoint(plot, first.index, first.value, count, axis)
+    path.moveTo(start.x, start.y)
+    for (position in 1 until run.size) {
+      val at = heartRatePoint(plot, run[position].index, run[position].value, count, axis)
+      path.lineTo(at.x, at.y)
     }
   }
+  drawPath(
+      path,
+      color,
+      style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+  )
+  drawPoints(
+      points = dots,
+      pointMode = PointMode.Points,
+      color = color,
+      strokeWidth = 3.dp.toPx(),
+      cap = StrokeCap.Round,
+  )
 }
 
 /**
@@ -750,9 +967,10 @@ fun StageBreakdown(
     capabilities: JsonObject? = null,
 ) {
   val space = MaterialTheme.taiga.space
-  val durations = stageSeconds(segments, epochSeconds)
+  val formats = LocalFormats.current
+  val durations = remember(segments, epochSeconds) { stageSeconds(segments, epochSeconds) }
   val total = durations.values.sum().coerceAtLeast(1)
-  val stages = applicableStages(segments, capabilities)
+  val stages = remember(segments, capabilities) { applicableStages(segments, capabilities) }
   Column(modifier, verticalArrangement = Arrangement.spacedBy(space.s)) {
     for (stage in stages) {
       val seconds = durations[stage] ?: 0L
@@ -765,10 +983,10 @@ fun StageBreakdown(
             style = MaterialTheme.taiga.text.body,
             modifier = Modifier.weight(1f),
         )
-        Text(text = formatDuration(seconds * 1000L), style = MaterialTheme.taiga.text.body)
+        Text(text = formats.duration(seconds * 1000L), style = MaterialTheme.taiga.text.body)
         Spacer(Modifier.width(space.m))
         Text(
-            text = "${share}%",
+            text = formats.percent(share.toDouble()),
             style = MaterialTheme.taiga.text.meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -776,10 +994,6 @@ fun StageBreakdown(
     }
   }
 }
-
-private fun clock(ms: Long): String =
-    if (ms <= 0) "-"
-    else SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
 
 @Preview(name = "Light", widthDp = 360)
 @Preview(name = "Dark", widthDp = 360, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)

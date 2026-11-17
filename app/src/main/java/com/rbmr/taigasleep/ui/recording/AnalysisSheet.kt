@@ -40,6 +40,7 @@ import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.components.TaigaSheet
 import com.rbmr.taigasleep.ui.components.TertiaryButton
+import com.rbmr.taigasleep.ui.theme.LocalReduceMotion
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
 
@@ -124,7 +125,9 @@ internal fun AnalysisSheet(
         when {
           loading -> {
             Row(verticalAlignment = Alignment.CenterVertically) {
-              CircularProgressIndicator(modifier = Modifier.size(20.dp))
+              if (!LocalReduceMotion.current) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp))
+              }
               Spacer(Modifier.width(space.s))
               Text(
                   text = stringResource(R.string.night_analysis_loading),

@@ -5,6 +5,7 @@ import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,9 +30,13 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.PointMode
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -38,13 +44,16 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.insights.Formats
 import com.rbmr.taigasleep.insights.TrendNight
 import com.rbmr.taigasleep.insights.clockMinuteOfNightMinute
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -92,12 +101,6 @@ sealed interface TrendChartKind {
 
   /** One floating bar per recording, from [TrendSpanPoint.start] to [TrendSpanPoint.end]. */
   data class FloatingBars(val spans: List<TrendSpanPoint?>) : TrendChartKind
-}
-
-/** Minutes since noon draw as a clock time, crossing midnight. */
-fun trendClock(minuteOfDay: Int): String {
-  val minute = (minuteOfDay % 1440 + 1440) % 1440
-  return String.format(Locale.getDefault(), "%02d:%02d", minute / 60, minute % 60)
 }
 
 /**
@@ -211,12 +214,12 @@ fun trendNumber(value: Double): String {
 fun totalSleepHours(seconds: Double?): Double? = seconds?.div(3600.0)
 
 /** The total-sleep axis in hours, covering the values and the intended duration. */
-fun hoursAxis(values: List<Double?>, targetHours: Double?): TrendAxis {
+fun hoursAxis(values: List<Double?>, targetHours: Double?, formats: Formats): TrendAxis {
   val highest = maxOf(values.filterNotNull().maxOfOrNull { it } ?: 0.0, targetHours ?: 0.0, 1.0)
   return trendAxis(
       min = 0.0,
       max = highest,
-      format = { "${trendNumber(it)} h" },
+      format = { formats.hours(trendNumber(it)) },
       steps = HourSteps,
       minStep = 1.0,
   )
@@ -286,7 +289,12 @@ fun TrendChart(
 ) {
   val space = MaterialTheme.taiga.space
   var expanded by rememberSaveable { mutableStateOf(false) }
-  val axis = trendChartAxis(kind, axisFormat, steps, minStep, references)
+  // The axis is a pure function of the data and its format, so it is computed when one of them
+  // changes and not on every recomposition or drag.
+  val axis =
+      remember(kind, axisFormat, steps, minStep, references) {
+        trendChartAxis(kind, axisFormat, steps, minStep, references)
+      }
   val series = (kind as? TrendChartKind.Line)?.series.orEmpty()
   TaigaCard(modifier, contentPadding = PaddingValues(top = space.xs)) {
     ChartHeader(title = title) {
@@ -302,10 +310,7 @@ fun TrendChart(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       } else if (axis != null) {
-        if (summary.isNotEmpty()) TrendSummaryRow(summary)
-        if (series.size > 1 || references.isNotEmpty()) {
-          TrendLegend(series, references, Modifier.padding(top = space.xs))
-        }
+        TrendHeader(summary, series, references)
         TrendPlotCanvas(
             days = days,
             kind = kind,
@@ -323,10 +328,7 @@ fun TrendChart(
   if (expanded && axis != null && emptyMessage == null) {
     ChartFullscreenDialog(title = title, onDismiss = { expanded = false }) { contentModifier ->
       Column(contentModifier) {
-        if (summary.isNotEmpty()) TrendSummaryRow(summary)
-        if (series.size > 1 || references.isNotEmpty()) {
-          TrendLegend(series, references, Modifier.padding(top = space.xs))
-        }
+        TrendHeader(summary, series, references)
         TrendPlotCanvas(
             days = days,
             kind = kind,
@@ -340,6 +342,19 @@ fun TrendChart(
         )
       }
     }
+  }
+}
+
+/** The summary values and the legend above a chart, the same in the card and full screen. */
+@Composable
+private fun TrendHeader(
+    summary: List<TrendSummary>,
+    series: List<TrendSeries>,
+    references: List<TrendReference>,
+) {
+  if (summary.isNotEmpty()) TrendSummaryRow(summary)
+  if (series.size > 1 || references.isNotEmpty()) {
+    TrendLegend(series, references, Modifier.padding(top = MaterialTheme.taiga.space.xs))
   }
 }
 
@@ -464,20 +479,111 @@ private fun LegendEntry(label: String, color: Color, dashed: Boolean, dotted: Bo
   }
 }
 
-private fun DrawScope.dashEffect(): PathEffect =
+/** The dash of a grid or a second series, in dp so it reads the same at every density. */
+internal fun Density.dashEffect(): PathEffect =
     PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx()))
 
 /** The reference lines are thinner and dotted, so they stay clearly apart from the data. */
-private fun DrawScope.dotEffect(): PathEffect =
+private fun Density.dotEffect(): PathEffect =
     PathEffect.dashPathEffect(
         floatArrayOf(1.5.dp.toPx(), 3.dp.toPx()),
         phase = 0f,
     )
 
 /**
+ * The room a chart keeps clear of its plot, in pixels, and the label width it hands to a tooltip.
+ * Both layers of the chart measure the plot from here, so they always agree.
+ */
+private class ChartGeometry(
+    val leftPx: Float,
+    val topPx: Float,
+    val bottomPx: Float,
+    val leftLabelWidth: Dp,
+)
+
+private fun chartGeometry(large: Boolean, density: Density): ChartGeometry {
+  val space = chartLabelSpace(large, density.fontScale)
+  return ChartGeometry(
+      leftPx = with(density) { space.left.toPx() },
+      topPx = with(density) { space.top.toPx() },
+      bottomPx = with(density) { space.bottom.toPx() },
+      leftLabelWidth = space.left,
+  )
+}
+
+/** The plot of a chart of [width] by [height], or null when there is no room left for one. */
+private fun trendPlot(width: Float, height: Float, geometry: ChartGeometry): TrendPlot? {
+  if (width <= geometry.leftPx || height <= geometry.topPx + geometry.bottomPx) return null
+  return TrendPlot(
+      left = geometry.leftPx,
+      top = geometry.topPx,
+      width = width - geometry.leftPx,
+      height = height - geometry.topPx - geometry.bottomPx,
+  )
+}
+
+/** What a trend chart draws: the axis, the marks and the labels, fixed while the finger moves. */
+private class TrendContent(
+    val days: List<LocalDate>,
+    val kind: TrendChartKind,
+    val axis: TrendAxis,
+    val references: List<TrendReference>,
+    val description: String,
+    val topLabel: ((String) -> String)?,
+) {
+  /** The first, middle and last date of the range, the only x labels a chart needs. */
+  val labels: Map<Int, String> = dayLabels(days)
+}
+
+/** The colours of a trend chart: its grid, its axes, its reference lines and its marks. */
+private class TrendColors(val grid: Color, val axis: Color, val reference: Color, val mark: Color)
+
+/** The colours and line effects of a trend chart, read once from the theme. */
+private class TrendStyle(
+    val paint: Paint,
+    val colors: TrendColors,
+    val large: Boolean,
+    val dash: PathEffect,
+    val dot: PathEffect,
+)
+
+/** The style of one chart at [large]; the label paint and the effects are made once per chart. */
+@Composable
+private fun trendStyle(density: Density, large: Boolean): TrendStyle {
+  val labelSp = if (large) 13.sp else 12.sp
+  val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+  val paint =
+      remember(labelColor, labelSp, density.density, density.fontScale) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+          color = labelColor.toArgb()
+          textSize = with(density) { labelSp.toPx() }
+        }
+      }
+  val dash = remember(density.density) { with(density) { dashEffect() } }
+  val dot = remember(density.density) { with(density) { dotEffect() } }
+  return TrendStyle(
+      paint = paint,
+      colors =
+          TrendColors(
+              grid = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f),
+              axis = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+              reference = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+              mark = MaterialTheme.colorScheme.primary,
+          ),
+      large = large,
+      dash = dash,
+      dot = dot,
+  )
+}
+
+/**
  * The frame and the marks of a trend chart. The labels stay clear of the plot. Touching or
  * dragging selects the day under the finger: a crosshair marks its column and a tooltip gives the
  * date and its values.
+ *
+ * The chart is drawn in two layers. Everything the data decides is one canvas, kept as it is while
+ * the finger moves; the crosshair is a canvas of its own above it. A drag therefore draws the
+ * crosshair and gives the chart itself nothing to do.
  */
 @Composable
 private fun TrendPlotCanvas(
@@ -492,177 +598,217 @@ private fun TrendPlotCanvas(
     modifier: Modifier = Modifier,
 ) {
   val density = LocalDensity.current
-  // A large system font enlarges the axis labels too, so the room reserved for them follows it.
-  val labelSpace = chartLabelSpace(large, density.fontScale)
-  val leftLabelWidth = labelSpace.left
-  val leftPx = with(density) { leftLabelWidth.toPx() }
-  val topPx = with(density) { labelSpace.top.toPx() }
-  val bottomPx = with(density) { labelSpace.bottom.toPx() }
-  val labelSp = if (large) 13.sp else 12.sp
-  val gridColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f)
-  val axisColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-  val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-  val markColor = MaterialTheme.colorScheme.primary
-  val referenceColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
-  val labels = dayLabels(days)
-  var selected by remember { mutableStateOf<Int?>(null) }
-  val selectedColor = MaterialTheme.colorScheme.primary
+  val geometry =
+      remember(density.density, density.fontScale, large) { chartGeometry(large, density) }
+  val style = trendStyle(density, large)
+  val content =
+      remember(days, kind, axis, references, description, topLabel) {
+        TrendContent(
+            days = days,
+            kind = kind,
+            axis = axis,
+            references = references,
+            description = description,
+            topLabel = topLabel,
+        )
+      }
+  val selection = remember { mutableStateOf<Int?>(null) }
 
   Box(modifier) {
     Canvas(
         modifier =
-            Modifier.fillMaxSize().semantics { contentDescription = description }.pointerInput(
-                days,
-                leftPx,
-            ) {
-              fun indexAt(x: Float): Int {
-                val width = (size.width.toFloat() - leftPx).coerceAtLeast(1f)
-                return (((x - leftPx) / width) * days.size).toInt().coerceIn(0, days.lastIndex)
-              }
+            Modifier.fillMaxSize()
+                .graphicsLayer()
+                .semantics { contentDescription = description }
+                .pointerInput(days, geometry.leftPx) {
+                  fun indexAt(x: Float): Int {
+                    val width = (size.width.toFloat() - geometry.leftPx).coerceAtLeast(1f)
+                    return (((x - geometry.leftPx) / width) * days.size)
+                        .toInt()
+                        .coerceIn(0, days.lastIndex)
+                  }
 
-              scrubChart(
-                  accept = { x -> days.isNotEmpty() && x >= leftPx },
-                  onSelect = { x -> selected = indexAt(x) },
-                  onClear = { selected = null },
-              )
-            }
+                  scrubChart(
+                      accept = { x -> days.isNotEmpty() && x >= geometry.leftPx },
+                      onSelect = { x -> selection.value = indexAt(x) },
+                      onClear = { selection.value = null },
+                  )
+                }
     ) {
-      if (size.width <= leftPx || size.height <= topPx + bottomPx) return@Canvas
-      val plot =
-          TrendPlot(
-              left = leftPx,
-              top = topPx,
-              width = size.width - leftPx,
-              height = size.height - topPx - bottomPx,
-          )
-      val paint =
-          Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = labelColor.toArgb()
-            textSize = labelSp.toPx()
-          }
-      val dash = dashEffect()
-      val dot = dotEffect()
+      // The data layer reads no selection: the finger moves without drawing it again.
+      val plot = trendPlot(size.width, size.height, geometry) ?: return@Canvas
+      drawTrendGrid(plot, style)
+      drawTrendDates(plot, content, style)
+      drawTrendMarks(plot, content, style)
+      drawTrendAxes(plot, style)
+      drawTrendValues(plot, content, style)
+    }
+    Canvas(Modifier.fillMaxSize()) {
+      val index = selection.value ?: return@Canvas
+      if (index !in days.indices) return@Canvas
+      val plot = trendPlot(size.width, size.height, geometry) ?: return@Canvas
+      val x = plot.column(index, days.size)
+      drawLine(
+          style.colors.mark,
+          Offset(x, plot.top),
+          Offset(x, plot.top + plot.height),
+          1.5.dp.toPx(),
+      )
+    }
+    TrendTooltip(selection, content, valueFormat, geometry.leftLabelWidth)
+  }
+}
 
-      for (fraction in floatArrayOf(0f, 0.5f)) {
-        val y = plot.y(fraction)
+/** The date and values of the selected day, which is the only part a drag recomposes. */
+@Composable
+private fun BoxScope.TrendTooltip(
+    selection: State<Int?>,
+    content: TrendContent,
+    valueFormat: (Double) -> String,
+    labelWidth: Dp,
+) {
+  val index = selection.value ?: return
+  if (index !in content.days.indices) return
+  val lines = content.kind.valueLines(index, valueFormat)
+  ChartTooltip(
+      time = content.days[index].format(tooltipDate()),
+      value = lines.joinToString("\n").ifEmpty { stringResource(R.string.trends_no_value) },
+      fraction = (index + 0.5f) / content.days.size,
+      labelWidth = labelWidth,
+  )
+}
+
+/** The two dashed grid lines at the top and the middle of the plot. */
+private fun DrawScope.drawTrendGrid(plot: TrendPlot, style: TrendStyle) {
+  for (fraction in floatArrayOf(0f, 0.5f)) {
+    val y = plot.y(fraction)
+    drawLine(
+        color = style.colors.grid,
+        start = Offset(plot.left, y),
+        end = Offset(plot.right, y),
+        strokeWidth = 1.dp.toPx(),
+        pathEffect = style.dash,
+    )
+  }
+}
+
+/** The first, middle and last date under the plot. */
+private fun DrawScope.drawTrendDates(plot: TrendPlot, content: TrendContent, style: TrendStyle) {
+  val paint = style.paint
+  val days = content.days
+  for ((index, label) in content.labels) {
+    val x = plot.column(index, days.size)
+    paint.textAlign =
+        when {
+          days.size == 1 -> Paint.Align.CENTER
+          index == 0 -> Paint.Align.LEFT
+          index == days.lastIndex -> Paint.Align.RIGHT
+          else -> Paint.Align.CENTER
+        }
+    drawContext.canvas.nativeCanvas.drawText(
+        label,
+        x,
+        plot.top + plot.height + paint.textSize + 4.dp.toPx(),
+        paint,
+    )
+  }
+}
+
+/** The marks of the recordings and the dotted reference lines above them. */
+private fun DrawScope.drawTrendMarks(plot: TrendPlot, content: TrendContent, style: TrendStyle) {
+  when (val kind = content.kind) {
+    is TrendChartKind.Line ->
+        for (series in kind.series) {
+          drawTrendLine(plot, series, content.axis, style.large, style.dash)
+        }
+    is TrendChartKind.Bars -> {
+      drawTrendBars(plot, kind.points, content.axis, style.large, style.colors.mark)
+      kind.average?.let { average ->
+        val y = plot.y(content.axis.fraction(average))
         drawLine(
-            color = gridColor,
+            color = style.colors.reference,
             start = Offset(plot.left, y),
             end = Offset(plot.right, y),
-            strokeWidth = 1.dp.toPx(),
-            pathEffect = dash,
-        )
-      }
-
-      for ((index, label) in labels) {
-        val x = plot.column(index, days.size)
-        paint.textAlign =
-            when {
-              days.size == 1 -> Paint.Align.CENTER
-              index == 0 -> Paint.Align.LEFT
-              index == days.lastIndex -> Paint.Align.RIGHT
-              else -> Paint.Align.CENTER
-            }
-        drawContext.canvas.nativeCanvas.drawText(
-            label,
-            x,
-            plot.top + plot.height + paint.textSize + 4.dp.toPx(),
-            paint,
-        )
-      }
-
-      when (kind) {
-        is TrendChartKind.Line -> {
-          for (series in kind.series) {
-            drawTrendLine(plot, series, axis, large, dash)
-          }
-        }
-        is TrendChartKind.Bars -> {
-          drawTrendBars(plot, kind.points, axis, large, markColor)
-          kind.average?.let { average ->
-            val y = plot.y(axis.fraction(average))
-            drawLine(
-                color = referenceColor,
-                start = Offset(plot.left, y),
-                end = Offset(plot.right, y),
-                strokeWidth = 1.5.dp.toPx(),
-                pathEffect = dash,
-            )
-          }
-        }
-        is TrendChartKind.FloatingBars -> {
-          drawTrendSpans(plot, kind.spans, axis, large, markColor)
-        }
-      }
-
-      // The reference lines sit above the marks: thin, dotted, and labelled at their right end.
-      paint.textAlign = Paint.Align.RIGHT
-      for (reference in references) {
-        val y = plot.y(axis.fraction(reference.value))
-        drawLine(
-            color = referenceColor,
-            start = Offset(plot.left, y),
-            end = Offset(plot.right, y),
-            strokeWidth = 1.dp.toPx(),
-            pathEffect = dot,
-        )
-        // A label that would sit above the plot goes under its line instead.
-        val above = y - paint.textSize - 2.dp.toPx() >= plot.top
-        drawContext.canvas.nativeCanvas.drawText(
-            reference.label,
-            plot.right - 2.dp.toPx(),
-            if (above) y - 2.dp.toPx() else y + paint.textSize + 2.dp.toPx(),
-            paint,
-        )
-      }
-
-      drawLine(
-          axisColor,
-          Offset(plot.left, plot.top),
-          Offset(plot.left, plot.top + plot.height),
-          1.dp.toPx(),
-      )
-      drawLine(
-          axisColor,
-          Offset(plot.left, plot.top + plot.height),
-          Offset(plot.right, plot.top + plot.height),
-          1.dp.toPx(),
-      )
-
-      selected?.takeIf { it < days.size }?.let { index ->
-        val x = plot.column(index, days.size)
-        drawLine(selectedColor, Offset(x, plot.top), Offset(x, plot.top + plot.height), 1.5.dp.toPx())
-      }
-
-      paint.textAlign = Paint.Align.RIGHT
-      for ((tickIndex, tick) in axis.ticks.withIndex()) {
-        val label =
-            if (tickIndex == 0 && topLabel != null) topLabel(tick.second) else tick.second
-        drawContext.canvas.nativeCanvas.drawText(
-            label,
-            plot.left - 6.dp.toPx(),
-            plot.y(tick.first) + paint.textSize / 3f,
-            paint,
+            strokeWidth = 1.5.dp.toPx(),
+            pathEffect = style.dash,
         )
       }
     }
-    val index = selected
-    if (index != null && index < days.size) {
-      val lines = kind.valueLines(index, valueFormat)
-      ChartTooltip(
-          time = days[index].format(tooltipDate()),
-          value = lines.joinToString("\n").ifEmpty { stringResource(R.string.trends_no_value) },
-          fraction = (index + 0.5f) / days.size,
-          labelWidth = leftLabelWidth,
-      )
-    }
+    is TrendChartKind.FloatingBars ->
+        drawTrendSpans(plot, kind.spans, content.axis, style.large, style.colors.mark)
+  }
+  drawTrendReferences(plot, content, style)
+}
+
+/** The reference lines: thin, dotted, and labelled at their right end. */
+private fun DrawScope.drawTrendReferences(
+    plot: TrendPlot,
+    content: TrendContent,
+    style: TrendStyle,
+) {
+  val paint = style.paint
+  paint.textAlign = Paint.Align.RIGHT
+  for (reference in content.references) {
+    val y = plot.y(content.axis.fraction(reference.value))
+    drawLine(
+        color = style.colors.reference,
+        start = Offset(plot.left, y),
+        end = Offset(plot.right, y),
+        strokeWidth = 1.dp.toPx(),
+        pathEffect = style.dot,
+    )
+    // A label that would sit above the plot goes under its line instead.
+    val above = y - paint.textSize - 2.dp.toPx() >= plot.top
+    drawContext.canvas.nativeCanvas.drawText(
+        reference.label,
+        plot.right - 2.dp.toPx(),
+        if (above) y - 2.dp.toPx() else y + paint.textSize + 2.dp.toPx(),
+        paint,
+    )
+  }
+}
+
+/** The value axis on the left and the time axis under the plot. */
+private fun DrawScope.drawTrendAxes(plot: TrendPlot, style: TrendStyle) {
+  drawLine(
+      style.colors.axis,
+      Offset(plot.left, plot.top),
+      Offset(plot.left, plot.top + plot.height),
+      1.dp.toPx(),
+  )
+  drawLine(
+      style.colors.axis,
+      Offset(plot.left, plot.top + plot.height),
+      Offset(plot.right, plot.top + plot.height),
+      1.dp.toPx(),
+  )
+}
+
+/** The round values of the axis, with the unit on the top label. */
+private fun DrawScope.drawTrendValues(plot: TrendPlot, content: TrendContent, style: TrendStyle) {
+  val paint = style.paint
+  paint.textAlign = Paint.Align.RIGHT
+  for ((tickIndex, tick) in content.axis.ticks.withIndex()) {
+    val label =
+        if (tickIndex == 0 && content.topLabel != null) content.topLabel(tick.second)
+        else tick.second
+    drawContext.canvas.nativeCanvas.drawText(
+        label,
+        plot.left - 6.dp.toPx(),
+        plot.y(tick.first) + paint.textSize / 3f,
+        paint,
+    )
   }
 }
 
 private fun tooltipDate(): DateTimeFormatter =
     DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())
 
-/** One line with a point per recording; a day without a value leaves a gap in the line. */
+/**
+ * One line with a point per recording. The line is two paths, one for the segments drawn at full
+ * strength and one for those of a night with poor data, and the points are two batches of round
+ * dots. A day without a value breaks both, so the line never bridges a gap.
+ */
 private fun DrawScope.drawTrendLine(
     plot: TrendPlot,
     series: TrendSeries,
@@ -670,29 +816,57 @@ private fun DrawScope.drawTrendLine(
     large: Boolean,
     dash: PathEffect,
 ) {
+  val points = series.points
+  val solid = Path()
+  val faint = Path()
+  val solidPoints = mutableListOf<Offset>()
+  val faintPoints = mutableListOf<Offset>()
+  var solidPen: Offset? = null
+  var faintPen: Offset? = null
+  for (index in 1 until points.size) {
+    val from = points[index - 1] ?: continue
+    val to = points[index] ?: continue
+    val start = Offset(plot.column(index - 1, points.size), plot.y(axis.fraction(from.value)))
+    val end = Offset(plot.column(index, points.size), plot.y(axis.fraction(to.value)))
+    if (from.poor || to.poor) {
+      faint.advance(faintPen, start, end)
+      faintPen = end
+    } else {
+      solid.advance(solidPen, start, end)
+      solidPen = end
+    }
+  }
+  for ((index, point) in points.withIndex()) {
+    if (point == null) continue
+    val at = Offset(plot.column(index, points.size), plot.y(axis.fraction(point.value)))
+    if (point.poor) faintPoints += at else solidPoints += at
+  }
   val stroke = (if (large) 2.5.dp else 2.dp).toPx()
   val radius = (if (large) 3.5.dp else 2.5.dp).toPx()
-  for (index in 1 until series.points.size) {
-    val from = series.points[index - 1] ?: continue
-    val to = series.points[index] ?: continue
-    val alpha = if (from.poor || to.poor) 0.4f else 1f
-    drawLine(
-        color = series.color.copy(alpha = alpha),
-        start = Offset(plot.column(index - 1, series.points.size), plot.y(axis.fraction(from.value))),
-        end = Offset(plot.column(index, series.points.size), plot.y(axis.fraction(to.value))),
-        strokeWidth = stroke,
-        cap = StrokeCap.Round,
-        pathEffect = if (series.dashed) dash else null,
-    )
-  }
-  for ((index, point) in series.points.withIndex()) {
-    if (point == null) continue
-    drawCircle(
-        color = series.color.copy(alpha = if (point.poor) 0.4f else 1f),
-        radius = radius,
-        center = Offset(plot.column(index, series.points.size), plot.y(axis.fraction(point.value))),
-    )
-  }
+  val lineStyle =
+      Stroke(width = stroke, cap = StrokeCap.Round, pathEffect = if (series.dashed) dash else null)
+  if (!faint.isEmpty) drawPath(faint, series.color.copy(alpha = 0.4f), style = lineStyle)
+  if (!solid.isEmpty) drawPath(solid, series.color, style = lineStyle)
+  drawPoints(
+      points = faintPoints,
+      pointMode = PointMode.Points,
+      color = series.color.copy(alpha = 0.4f),
+      strokeWidth = radius * 2f,
+      cap = StrokeCap.Round,
+  )
+  drawPoints(
+      points = solidPoints,
+      pointMode = PointMode.Points,
+      color = series.color,
+      strokeWidth = radius * 2f,
+      cap = StrokeCap.Round,
+  )
+}
+
+/** Adds one segment to a line path, starting a new part where the line was broken. */
+private fun Path.advance(pen: Offset?, start: Offset, end: Offset) {
+  if (pen == start) lineTo(start.x, start.y) else moveTo(start.x, start.y)
+  lineTo(end.x, end.y)
 }
 
 /** One bar per recording, from the bottom of the axis. */
@@ -752,6 +926,19 @@ private fun dayLabels(days: List<LocalDate>): Map<Int, String> {
 /** The compact integer a score or a percent tick shows. */
 fun trendWhole(value: Double): String = value.roundToInt().toString()
 
+/**
+ * The axis formats the charts pass in. They are made once, so a chart that remembers its axis by
+ * its format keeps that axis on every recomposition.
+ */
+val NumberAxisFormat: (Double) -> String = ::trendNumber
+
+val WholeAxisFormat: (Double) -> String = ::trendWhole
+
+/** The schedule chart's axis: minutes since noon, read as a time of day. */
+fun clockAxisFormat(formats: Formats): (Double) -> String = { value ->
+  formats.minuteOfDay(clockMinuteOfNightMinute(value.roundToInt()))
+}
+
 private fun previewNight(date: LocalDate): TrendNight =
     TrendNight(
         key = date.toString(),
@@ -779,6 +966,7 @@ private fun previewNight(date: LocalDate): TrendNight =
 @Composable
 private fun TrendChartPreview() {
   PreviewTheme {
+    val formats = LocalFormats.current
     val days = List(7) { LocalDate.of(2026, 11, 5).plusDays(it.toLong()) }
     val nights = days.map(::previewNight)
     val primary = MaterialTheme.colorScheme.primary
@@ -800,7 +988,7 @@ private fun TrendChartPreview() {
             ),
         summary = listOf(TrendSummary("Average", "74")),
         description = "Sleep score over seven recordings",
-        axisFormat = ::trendWhole,
+        axisFormat = WholeAxisFormat,
     )
     TrendChart(
         title = "Total sleep",
@@ -813,10 +1001,10 @@ private fun TrendChartPreview() {
                     },
                 average = 7.1,
             ),
-        summary = listOf(TrendSummary("Average", "7h 6m")),
+        summary = listOf(TrendSummary("Average", formats.duration(7 * 3_600_000L + 6 * 60_000L))),
         description = "Total sleep over seven recordings",
         references = listOf(TrendReference("Intended", 7.5)),
-        topLabel = { "$it h" },
+        topLabel = { formats.hours(it) },
         steps = HourSteps,
         minStep = 1.0,
     )
@@ -829,8 +1017,8 @@ private fun TrendChartPreview() {
             ),
         summary =
             listOf(
-                TrendSummary("Average bedtime", "23:12"),
-                TrendSummary("Average wake time", "07:04"),
+                TrendSummary("Average bedtime", formats.clockTime(23, 12)),
+                TrendSummary("Average wake time", formats.clockTime(7, 4)),
             ),
         description = "Sleep schedule over seven recordings",
         references =
@@ -838,7 +1026,7 @@ private fun TrendChartPreview() {
                 TrendReference("Usual bedtime", 400.0),
                 TrendReference("Usual wake time", 1120.0),
             ),
-        axisFormat = { trendClock(clockMinuteOfNightMinute(it.roundToInt())) },
+        axisFormat = clockAxisFormat(formats),
         steps = ClockSteps,
         minStep = 60.0,
     )

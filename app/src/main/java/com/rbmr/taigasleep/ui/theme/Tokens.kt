@@ -36,9 +36,13 @@ object TaigaSpacing {
 /**
  * The two corner radii: controls are 12 dp and cards are 20 dp.
  *
+ * A card a lazy list draws row by row needs the radius itself, because each row paints its own
+ * rounded end.
+ *
  * Reached through `MaterialTheme.taiga.shape`.
  */
 object TaigaShapes {
   val control = RoundedCornerShape(12.dp)
   val card = RoundedCornerShape(20.dp)
+  val cardRadius = 20.dp
 }

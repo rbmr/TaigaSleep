@@ -27,8 +27,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Total asleep",
         "s",
         "sleep",
-        "Time scored as sleep across REM, light and deep sleep. It excludes wake and "
-        "unscored time.",
+        "Time scored as sleep across REM, light and deep sleep. "
+        "It excludes wake and unscored time.",
         ("stages",),
     ),
     NumberItem(
@@ -37,7 +37,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "s",
         "sleep",
         "Time from the first scored 30-second interval to the first interval of sleep. "
-        "Unscored time before it is not counted.",
+        "Unscored time before "
+        "it is not counted.",
         ("stages",),
     ),
     NumberItem(
@@ -102,18 +103,51 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "HRV RMSSD",
         "ms",
         "heart",
-        "Beat-to-beat variation in the sleep intervals only. It is the root mean square of "
-        "successive RR-interval differences, combined over uninterrupted stretches weighted "
-        "by beat count.",
+        "Beat-to-beat variation: the median of the RMSSD of the valid 5-minute windows. "
+        "The RMSSD is the root mean square of successive RR-interval differences; a "
+        "difference that touches a removed artifact beat or crosses a break in the R-R "
+        "data is not used. A window counts when it has at least 30 clean beats covering "
+        "half of it, an artifact share of at most 5% and, when movement was recorded, "
+        "movement in at most a fifth of its 30-second intervals.",
         ("hr",),
     ),
     NumberItem(
-        "hrv_sdnn_ms",
-        "HRV SDNN",
+        "hrv_sdnn_median_ms",
+        "HRV SDNN (5-minute median)",
         "ms",
         "heart",
-        "Overall heart-rate variability in the sleep intervals only. It is the standard "
-        "deviation of the RR intervals.",
+        "Short-term variability: the standard deviation of the RR intervals in each "
+        "5-minute window, summarised as the median of the valid windows. It is not a "
+        "whole-night SDNN and is not comparable with one. The same window rule as HRV "
+        "RMSSD decides which windows count.",
+        ("hr",),
+    ),
+    NumberItem(
+        "hrv_ln_rmssd",
+        "HRV ln RMSSD",
+        "ln(ms)",
+        "heart",
+        "Natural logarithm of the RMSSD of each valid 5-minute window, summarised as the "
+        "median. The logarithm makes beat-to-beat variation comparable across nights and "
+        "people. The same window rule as HRV RMSSD decides which windows count.",
+        ("hr",),
+    ),
+    NumberItem(
+        "hrv_artifact_share",
+        "Artifact share",
+        "%",
+        "heart_support",
+        "Share of all R-R intervals removed as artifacts (ectopic, missed, extra or "
+        "otherwise out-of-line beats) before the HRV figures were computed.",
+        ("hr",),
+    ),
+    NumberItem(
+        "hrv_window_count",
+        "Valid 5-minute windows",
+        "count",
+        "heart_support",
+        "Number of 5-minute windows that met the data, artifact and movement rules and "
+        "therefore contributed to the HRV figures.",
         ("hr",),
     ),
     NumberItem(
@@ -121,7 +155,7 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "RR intervals used",
         "count",
         "heart_support",
-        "Number of clean RR intervals from the sleep intervals used for HRV after filtering.",
+        "Number of clean R-R intervals in the valid 5-minute windows behind the HRV figures.",
         ("hr",),
     ),
     NumberItem(
@@ -129,8 +163,8 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Movement index",
         "%",
         "movement",
-        "Share of 30-second intervals with movement above 0.08 g, measured from the night's "
-        "median accelerometer magnitude.",
+        "Share of 30-second intervals with movement above 0.08 g, measured from the night's median "
+        "accelerometer magnitude.",
         ("acc",),
     ),
     NumberItem(
@@ -138,8 +172,9 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Average movement",
         "g",
         "movement",
-        "Average movement per 30-second interval, the deviation from the night's median "
-        "accelerometer magnitude.",
+        "Average movement per 30-second interval, the deviation from the "
+        "night's median accelerometer "
+        "magnitude.",
         ("acc",),
     ),
     NumberItem(
@@ -147,8 +182,9 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
         "Intervals with movement",
         "count",
         "movement",
-        "Number of 30-second intervals with movement above 0.08 g, measured from the night's "
-        "median accelerometer magnitude.",
+        "Number of 30-second intervals with movement above 0.08 g, measured from the "
+        "night's median "
+        "accelerometer magnitude.",
         ("acc",),
     ),
     NumberItem(
@@ -169,7 +205,7 @@ NUMBER_ITEMS: tuple[NumberItem, ...] = (
     ),
 )
 
-PERCENT_FROM_FRACTION = {"sleep_efficiency", "movement_index"}
+PERCENT_FROM_FRACTION = {"sleep_efficiency", "movement_index", "hrv_artifact_share"}
 
 QUALITY_COMPONENTS = {
     "usable_epoch_coverage": "Usable coverage",
@@ -304,8 +340,30 @@ def series_item(hr: Mapping[str, Any] | None) -> dict[str, Any] | None:
         "group": "heart",
         "unit": "bpm",
         "series": hr,
-        "explanation": "Mean heart rate for each 30-second interval. Gaps are intervals "
-        "without a valid sample.",
+        "explanation": (
+            "Mean heart rate for each 30-second interval. "
+            "Gaps are intervals without a valid sample."
+        ),
+        "sources": ["hr"],
+    }
+
+
+def hrv_series_item(hrv: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if not hrv or not hrv.get("count"):
+        return None
+    return {
+        "kind": "series",
+        "id": "hrv",
+        "label": "HRV by 5-minute window",
+        "group": "heart",
+        "unit": "ms",
+        "series": hrv,
+        "explanation": (
+            "RMSSD, SDNN, ln RMSSD, mean heart rate and artifact share of every 5-minute "
+            "window. A window is left out of the summary figures when it has too little "
+            "clean data, an artifact share above 5% or, when movement was recorded, "
+            "movement; the reason says which rule did not pass."
+        ),
         "sources": ["hr"],
     }
 
@@ -316,10 +374,14 @@ def build_items(
     quality: Mapping[str, Any] | None,
     sleep_quality: Mapping[str, Any] | None,
     hr: Mapping[str, Any] | None,
+    hrv: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     items = number_items(metrics, support)
     items.extend(score_items(quality, sleep_quality))
     series = series_item(hr)
     if series is not None:
         items.append(series)
+    hrv_series = hrv_series_item(hrv)
+    if hrv_series is not None:
+        items.append(hrv_series)
     return items

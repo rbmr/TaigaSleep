@@ -70,6 +70,7 @@ func TestFailedChunkWriteLeavesTheCommittedSize(t *testing.T) {
 // rows cannot be saved: the file goes back to the last committed size, or disappears
 // when the chunk created it, and the next chunk at that offset succeeds.
 func TestFailedCommitRollsTheChunkBack(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice := s.tokens["alice"]
 	id := "rec1"
@@ -126,6 +127,7 @@ func TestFailedCommitRollsTheChunkBack(t *testing.T) {
 // at once. The append is serialised per recording, so one claims the offset and the
 // other is told the size it committed.
 func TestConcurrentChunksForOneFileHaveOneWinner(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice := s.tokens["alice"]
 	id := "race"

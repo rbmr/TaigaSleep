@@ -24,6 +24,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rbmr.taigasleep.ui.theme.LocalReduceMotion
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /** One bar per step; the first [current] bars are filled. [description] is read by TalkBack. */
@@ -67,7 +68,9 @@ sealed interface ProgressTrackState {
 
 /**
  * The 8 dp bar under a list row: a known progress, an indeterminate one, or an empty track. The
- * bar is the same height in every state, so the rows it sits in keep one height.
+ * bar is the same height in every state, so the rows it sits in keep one height. With animations
+ * off the indeterminate bar stands still on the quiet track: the row's own text still says what is
+ * going on.
  */
 @Composable
 fun ProgressTrack(
@@ -83,13 +86,17 @@ fun ProgressTrack(
     ProgressTrackState.Empty ->
         Box(bar.background(MaterialTheme.taiga.segment))
     ProgressTrackState.Indeterminate ->
-        LinearProgressIndicator(
-            modifier = bar,
-            color = MaterialTheme.colorScheme.primary,
-            trackColor = MaterialTheme.taiga.segment,
-            strokeCap = StrokeCap.Round,
-            gapSize = 0.dp,
-        )
+        if (LocalReduceMotion.current) {
+          Box(bar.background(MaterialTheme.taiga.segment))
+        } else {
+          LinearProgressIndicator(
+              modifier = bar,
+              color = MaterialTheme.colorScheme.primary,
+              trackColor = MaterialTheme.taiga.segment,
+              strokeCap = StrokeCap.Round,
+              gapSize = 0.dp,
+          )
+        }
     is ProgressTrackState.Determinate ->
         LinearProgressIndicator(
             progress = { state.fraction.coerceIn(0f, 1f) },

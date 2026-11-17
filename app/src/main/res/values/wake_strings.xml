@@ -8,7 +8,6 @@
   <string name="wake_trigger_hr">Wake on a rise in heart rate</string>
   <string name="wake_trigger_movement">Wake on movement</string>
   <string name="wake_trigger_none">Choose at least one signal. Without one, the alarm rings only at the end of the window.</string>
-  <string name="wake_time">%1$02d:%2$02d</string>
 
   <!-- The smart alarm while recording: off, its window, or when it rang. -->
   <string name="wake_live_off">Off</string>

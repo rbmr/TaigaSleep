@@ -2,12 +2,66 @@ package api
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 
+	"github.com/pocketbase/dbx"
+	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/types"
+
+	"github.com/rbmr/TaigaSleep/backend/api/internal/results"
 	"github.com/rbmr/TaigaSleep/backend/api/internal/summary"
 )
+
+// analysisResultsCollection holds the large result of an analysis apart from the
+// analyses table, which is also the queue. A result never takes part in a queue
+// query, and deleting its analysis deletes it through the relation's cascade.
+const analysisResultsCollection = "analysis_results"
+
+// resultTooLargeMessage is what an analysis is failed with when a worker sends a
+// result the API cannot store, so the failure is readable and final.
+func resultTooLargeMessage() string {
+	return fmt.Sprintf("analysis result is larger than %d bytes", results.MaxBytes)
+}
+
+// analysisResult returns the stored result of one analysis, or sql.ErrNoRows while
+// it has none.
+func analysisResult(app core.App, analysisID string) (json.RawMessage, error) {
+	row := struct {
+		Result string `db:"result"`
+	}{}
+	err := app.DB().NewQuery("SELECT result FROM analysis_results WHERE analysis = {:analysis}").
+		Bind(dbx.Params{"analysis": analysisID}).One(&row)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(row.Result), nil
+}
+
+// storeAnalysisResult writes the result next to its analysis. The relation is
+// one-to-one, so a second save replaces the row instead of adding another.
+func storeAnalysisResult(app core.App, analysisID string, raw json.RawMessage) error {
+	collection, err := app.FindCollectionByNameOrId(analysisResultsCollection)
+	if err != nil {
+		return err
+	}
+	record, err := app.FindFirstRecordByFilter(
+		analysisResultsCollection,
+		"analysis = {:analysis}",
+		dbx.Params{"analysis": analysisID},
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		record = core.NewRecord(collection)
+		record.Set("analysis", analysisID)
+	} else if err != nil {
+		return err
+	}
+	record.Set("result", types.JSONRaw(raw))
+	return app.Save(record)
+}
 
 // The result of an analysis is stored as the worker sent it. The API only checks the
 // envelope the app and the contract rely on (see docs/analysis-contract.md), so an

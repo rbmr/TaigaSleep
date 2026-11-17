@@ -15,8 +15,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.insights.formatDuration
-import com.rbmr.taigasleep.library.formatRecordingDateAndTime
 import com.rbmr.taigasleep.recording.store.StreamId
 import com.rbmr.taigasleep.ui.components.ButtonSize
 import com.rbmr.taigasleep.ui.components.DestructiveButton
@@ -29,6 +27,7 @@ import com.rbmr.taigasleep.ui.components.Section
 import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
@@ -45,6 +44,7 @@ internal fun RecordingSection(
 ) {
   val space = MaterialTheme.taiga.space
   val context = LocalContext.current
+  val formats = LocalFormats.current
   val local = state.local
   val uploaded = state.remoteId != null
   Section(title = stringResource(R.string.night_title)) {
@@ -58,21 +58,21 @@ internal fun RecordingSection(
         SettingsDivider()
         ListRow(
             title = stringResource(R.string.night_details_started),
-            value = formatRecordingDateAndTime(state.startUtcMs),
+            value = formats.dateAndTime(state.startUtcMs),
             trailing = ListRowTrailing.None,
         )
         SettingsDivider()
         ListRow(
             title = stringResource(R.string.night_details_stopped),
             value =
-                state.endUtcMs?.takeIf { it > 0 }?.let { formatRecordingDateAndTime(it) }
+                state.endUtcMs?.takeIf { it > 0 }?.let { formats.dateAndTime(it) }
                     ?: stringResource(R.string.night_value_none),
             trailing = ListRowTrailing.None,
         )
         SettingsDivider()
         ListRow(
             title = stringResource(R.string.night_details_duration),
-            value = formatDuration(state.durationMs),
+            value = formats.duration(state.durationMs),
             trailing = ListRowTrailing.None,
         )
         SettingsDivider()
@@ -121,7 +121,7 @@ internal fun RecordingSection(
             subtitle =
                 state.remoteCreatedAtMs
                     ?.takeIf { uploaded }
-                    ?.let { formatRecordingDateAndTime(it) },
+                    ?.let { formats.dateAndTime(it) },
             trailing =
                 ListRowTrailing.Pill(
                     label =
