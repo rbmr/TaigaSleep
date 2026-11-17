@@ -493,8 +493,8 @@ Measured on x86_64 Linux (`docker image ls`, uncompressed):
 | `--build-arg WITH_WAV2SLEEP=false` | **192 MB** | baseline |
 
 A wav2sleep analysis needs Python 3.11+, one CPU and about 2 GB of address
-space. On a 9 h synthetic night in the default image the job peaked at **677 MB**
-of RSS at the default 2048 MB limit; the real 9.4 h night in
+space. On a 9 h synthetic night in the default image the job peaked at about
+**700 MB** of RSS at the default 2048 MB limit; the real 9.4 h night in
 [`docs/wav2sleep.md`](../docs/wav2sleep.md) peaked at 859 MB.
 `TAIGA_JOB_MEMORY_MB=1536` is the smallest limit that worked, and 1280 failed
 while allocating the model input, so the default is 2048 MB whenever an ML

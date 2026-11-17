@@ -285,7 +285,7 @@ Numeric libraries are already limited to one thread; the adapter also calls
 `torch.set_num_threads(1)`.
 
 On a 9 h synthetic night in the default image, a job at the default limit peaked
-at **677 MB** of RSS; the real-night table above peaked at 859 MB. The 2 GB
+at about **700 MB** of RSS; the real-night table above peaked at 859 MB. The 2 GB
 container limit leaves headroom for the supervisor, the torch import and page
 cache. A host below 4 GB should use the baseline-only image.
 
