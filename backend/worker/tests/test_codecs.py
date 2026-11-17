@@ -15,7 +15,10 @@ from taiga_worker.analysis.pipeline import run_analysis
 from tests import analysis_fixture as fx
 
 FIXTURE = (
-    Path(__file__).resolve().parents[3] / "shared" / "codec-fixtures" / "heart-rate-measurement.json"
+    Path(__file__).resolve().parents[3]
+    / "shared"
+    / "codec-fixtures"
+    / "heart-rate-measurement.json"
 )
 
 
@@ -66,9 +69,7 @@ def _ble_hr_log(duration_s: int = 8) -> bytes:
         # flags: contact supported, contact and RR present; 60 bpm, one 1 s interval
         value = bytes([0x16, 60]) + (1024).to_bytes(2, "little")
         data += frames.encode_frame(
-            _ble_hrs_payload(
-                fx.START_NS + second * 1_000_000_000, second * 1_000_000_000, value
-            )
+            _ble_hrs_payload(fx.START_NS + second * 1_000_000_000, second * 1_000_000_000, value)
         )
     return bytes(data)
 
@@ -76,7 +77,9 @@ def _ble_hr_log(duration_s: int = 8) -> bytes:
 def _ppi_log(duration_s: int = 8) -> bytes:
     data = bytearray(frames.frame_header(frames.STREAM_PPI))
     for second in range(duration_s):
-        payload = struct.pack("<qqH", fx.START_NS + second * 1_000_000_000, second * 1_000_000_000, 1)
+        payload = struct.pack(
+            "<qqH", fx.START_NS + second * 1_000_000_000, second * 1_000_000_000, 1
+        )
         payload += struct.pack("<qHHBB", second * 1_000_000_000, 1000, 10, 60, 3)
         data += frames.encode_frame(payload)
     return bytes(data)
@@ -99,7 +102,13 @@ def test_every_heart_rate_flag_combination_matches_the_app_fixture() -> None:
 @pytest.mark.parametrize("kind", ["polar-h10", "polar-verity-sense", "polar-loop"])
 def test_a_polar_tracker_kind_decodes_and_yields_heart_rate(tmp_path: Path, kind: str) -> None:
     streams = [
-        {"id": "hr", "type": "heart_rate", "codec": "polar-hr-v1", "file": "hr.log", "rate_hz": 1.0},
+        {
+            "id": "hr",
+            "type": "heart_rate",
+            "codec": "polar-hr-v1",
+            "file": "hr.log",
+            "rate_hz": 1.0,
+        },
         {"id": "rr", "type": "rr_interval", "codec": "polar-hr-v1", "file": "hr.log"},
     ]
     _write(tmp_path, _meta(kind, streams), {"hr.log": _polar_hr_log()})

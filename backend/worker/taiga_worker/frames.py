@@ -286,7 +286,7 @@ def iter_frames(
         # A frame needs its 8-byte length-and-CRC shell, so the last candidate
         # starts at len(data) - 8.
         for candidate in range(pos + 1, len(data) - 7):
-            if _frame_at(data, stream, candidate, codec) is not None:
+            if _frame_at(data, stream, candidate, codec=codec) is not None:
                 next_pos = candidate
                 break
         if next_pos is None:
@@ -632,7 +632,9 @@ def read_ppi(payload: bytes) -> PpiBatch:
         error.append(estimate)
         hr.append(beats)
         flags.append(bits)
-    return PpiBatch(phone_ns, elapsed_ns, tuple(timestamps), tuple(ppi), tuple(error), tuple(hr), tuple(flags))
+    return PpiBatch(
+        phone_ns, elapsed_ns, tuple(timestamps), tuple(ppi), tuple(error), tuple(hr), tuple(flags)
+    )
 
 
 @dataclass(frozen=True)

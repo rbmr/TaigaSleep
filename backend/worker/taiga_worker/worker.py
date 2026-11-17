@@ -295,9 +295,7 @@ class Worker:
         meta = recording.get("meta")
         if not isinstance(meta, dict) or not meta:
             return Outcome(ok=False, error="recording has no meta", retryable=False)
-        entries = [
-            entry for entry in entries if is_recording_file(str(entry.get("name") or ""))
-        ]
+        entries = [entry for entry in entries if is_recording_file(str(entry.get("name") or ""))]
         if not entries:
             return Outcome(ok=False, error="recording has no files", retryable=False)
 

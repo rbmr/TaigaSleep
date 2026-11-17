@@ -141,7 +141,9 @@ class RecordingStream:
     settings: Mapping[str, str] = field(default_factory=dict)
 
 
-def legacy_streams(hr: bool, ecg: bool, acc: bool, ecg_rate: float, acc_rate: float) -> tuple[RecordingStream, ...]:
+def legacy_streams(
+    hr: bool, ecg: bool, acc: bool, ecg_rate: float, acc_rate: float
+) -> tuple[RecordingStream, ...]:
     """The streams an H10 recording wrote before meta.json listed them."""
 
     streams: list[RecordingStream] = []
@@ -155,7 +157,9 @@ def legacy_streams(hr: bool, ecg: bool, acc: bool, ecg_rate: float, acc_rate: fl
     return tuple(streams)
 
 
-def _streams_from(meta: Mapping[str, Any], config: Mapping[str, Any]) -> tuple[RecordingStream, ...]:
+def _streams_from(
+    meta: Mapping[str, Any], config: Mapping[str, Any]
+) -> tuple[RecordingStream, ...]:
     declared = meta.get("streams")
     if isinstance(declared, list) and declared:
         streams = []
@@ -169,9 +173,7 @@ def _streams_from(meta: Mapping[str, Any], config: Mapping[str, Any]) -> tuple[R
                         type=str(item["type"]),
                         codec=str(item["codec"]),
                         file=str(item["file"]),
-                        rate_hz=None
-                        if item.get("rate_hz") is None
-                        else float(item["rate_hz"]),
+                        rate_hz=None if item.get("rate_hz") is None else float(item["rate_hz"]),
                         settings={
                             str(key): str(value)
                             for key, value in (item.get("settings") or {}).items()

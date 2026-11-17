@@ -24,8 +24,6 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
-from .signals import ecg_saturation
-
 from ..frames import (
     BLE_HRS_CODEC,
     POLAR_EPOCH_OFFSET_NS,
@@ -45,8 +43,6 @@ from ..frames import (
     read_ppi,
     read_vector,
 )
-from .signals import ecg_saturation
-
 from .contract import (
     AccStream,
     AnalysisError,
@@ -61,6 +57,7 @@ from .contract import (
     RecordingMeta,
     StreamReport,
 )
+from .signals import ecg_saturation
 
 ECG_RAIL_UV = 18_000.0
 HR_MIN_BPM = 20.0
@@ -383,9 +380,7 @@ def _decode_extra(
 
     info = _scan(path, stream_id, on_payload, checked, codec)
     decoded = {
-        key: np.concatenate(items).astype(dtype, copy=False)
-        if items
-        else np.empty(0, dtype=dtype)
+        key: np.concatenate(items).astype(dtype, copy=False) if items else np.empty(0, dtype=dtype)
         for key, items, dtype in (
             ("phone_ns", batches["phone_ns"], np.int64),
             ("elapsed_ns", batches["elapsed_ns"], np.int64),
