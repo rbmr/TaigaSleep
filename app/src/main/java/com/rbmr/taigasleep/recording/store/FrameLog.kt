@@ -33,6 +33,13 @@ object StreamId {
         StreamType.GYROSCOPE -> GYRO
         StreamType.MAGNETOMETER -> MAG
       }
+
+  /**
+   * The type a stored id stands for, or null for an id this version does not know. Heart rate and
+   * beat intervals share the heart rate log, as they do on the way in.
+   */
+  fun typeOf(stream: Int): StreamType? =
+      StreamType.entries.firstOrNull { forType(it) == stream }
 }
 
 object FrameLog {

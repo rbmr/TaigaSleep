@@ -25,6 +25,7 @@ import com.rbmr.taigasleep.library.RecordingView
 import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.RecordingMode
+import com.rbmr.taigasleep.tracker.StreamType
 import com.rbmr.taigasleep.ui.components.TaigaScreen
 import com.rbmr.taigasleep.ui.history.HistoryScreen
 import com.rbmr.taigasleep.ui.history.HistoryUiState
@@ -34,6 +35,7 @@ import com.rbmr.taigasleep.ui.history.TrendsUiState
 import com.rbmr.taigasleep.ui.home.IdleHome
 import com.rbmr.taigasleep.ui.home.InactiveView
 import com.rbmr.taigasleep.ui.home.StartConfig
+import com.rbmr.taigasleep.ui.home.StreamOption
 import com.rbmr.taigasleep.ui.home.Streams
 import com.rbmr.taigasleep.ui.home.TrackerView
 import com.rbmr.taigasleep.ui.home.WakeChoice
@@ -293,9 +295,15 @@ class LargeTextScreensTest {
                 streams = Streams(hr = true, ecg = true, acc = true),
                 modes = setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE),
                 mode = RecordingMode.STREAM,
-                canRecordEcg = true,
                 canRecordAcc = true,
                 wake = WakeChoice(startMinute = 6 * 60 + 30, lengthMinutes = 30),
+                options =
+                    listOf(
+                        StreamOption("hr", StreamType.HEART_RATE),
+                        StreamOption("rr", StreamType.RR_INTERVAL),
+                        StreamOption("ecg", StreamType.ECG),
+                        StreamOption("acc", StreamType.ACCELEROMETER),
+                    ),
             ),
         guard = HomeState.READY,
         denied = false,

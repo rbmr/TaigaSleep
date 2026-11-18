@@ -1,5 +1,7 @@
 package com.rbmr.taigasleep.recording
 
+import com.rbmr.taigasleep.tracker.StreamType
+
 /**
  * Immutable snapshot of one live recording. Owned and derived only by [RecordingMonitor]; the UI,
  * the notification and the repository only format it.
@@ -64,14 +66,15 @@ data class RecordingState(
       val offBodyMs: Long = 0,
   )
 
-  enum class StreamKind {
-    HR,
-    ECG,
-    ACC,
-    PPG,
-    PPI,
-    GYRO,
-    MAG,
+  /** One kind of data the live state tracks, with the tracker stream it comes from. */
+  enum class StreamKind(val type: StreamType) {
+    HR(StreamType.HEART_RATE),
+    ECG(StreamType.ECG),
+    ACC(StreamType.ACCELEROMETER),
+    PPG(StreamType.PPG),
+    PPI(StreamType.PULSE_INTERVAL),
+    GYRO(StreamType.GYROSCOPE),
+    MAG(StreamType.MAGNETOMETER),
   }
 
   enum class StreamStatus {

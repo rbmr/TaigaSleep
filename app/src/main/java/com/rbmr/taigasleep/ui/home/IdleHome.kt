@@ -33,6 +33,7 @@ import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.components.streamLabel
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
@@ -180,14 +181,11 @@ private fun ChecklistCard(
   }
 }
 
-/** The chosen streams and mode as one line, e.g. `Heart rate · ECG · Streaming`. */
+/** The chosen streams and mode as one line, e.g. `Heart rate · ECG · Movement · Streaming`. */
 @Composable
 private fun streamsText(config: StartConfig): String {
   if (!config.streams.any) return stringResource(R.string.rec_config_none)
-  val parts = mutableListOf<String>()
-  if (config.streams.hr) parts += stringResource(R.string.rec_active_hr)
-  if (config.streams.ecg) parts += stringResource(R.string.rec_active_ecg)
-  if (config.streams.acc) parts += stringResource(R.string.rec_active_acc)
+  val parts = config.chosenStreams.map { streamLabel(it.type) }.toMutableList()
   if (config.modes.size > 1) {
     parts +=
         stringResource(

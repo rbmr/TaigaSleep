@@ -23,6 +23,7 @@ components/Separator.kt 0
 components/StatTile.kt 0
 components/Status.kt 0
 components/StatusPill.kt 0
+components/StreamLabels.kt 1
 components/StepList.kt 0
 components/TaigaBottomBar.kt 0
 components/TaigaLogo.kt 0
@@ -31,11 +32,11 @@ components/TrendsCharts.kt 0
 history/HistoryScreen.kt 1
 history/TrendsScreen.kt 0
 home/ActiveHome.kt 3
-home/ConfigureSheet.kt 3
+home/ConfigureSheet.kt 4
 home/FinishingHome.kt 1
 home/HomeFactory.kt 14
 home/HomeScreen.kt 3
-home/HomeUiState.kt 9
+home/HomeUiState.kt 10
 home/IdleHome.kt 2
 home/RecordingCard.kt 3
 home/SensorPickerSheet.kt 2

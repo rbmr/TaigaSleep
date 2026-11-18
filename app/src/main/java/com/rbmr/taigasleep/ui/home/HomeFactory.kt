@@ -181,7 +181,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
                       WakeChoice(it.startMinute, it.lengthMinutes, it.heartRate, it.movement)
                     },
             ),
-        offered = sensor.streams.sortedBy { it.order }.map { StreamOption(it.id, it.type.wire) },
+        offered = sensor.streams.sortedBy { it.order }.map { StreamOption(it.id, it.type) },
         modes = sensor.recordingModes(chosen),
     )
   }

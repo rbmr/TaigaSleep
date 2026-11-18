@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.ui.home
 
 import com.rbmr.taigasleep.tracker.RecordingMode
+import com.rbmr.taigasleep.tracker.StreamType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -24,10 +25,10 @@ private fun saved(
 
 private fun offered(ecg: Boolean = true, acc: Boolean = true): List<StreamOption> =
     buildList {
-      add(StreamOption("hr", "heart_rate"))
-      add(StreamOption("rr", "rr_interval"))
-      if (ecg) add(StreamOption("ecg", "ecg"))
-      if (acc) add(StreamOption("acc", "accelerometer"))
+      add(StreamOption("hr", StreamType.HEART_RATE))
+      add(StreamOption("rr", StreamType.RR_INTERVAL))
+      if (ecg) add(StreamOption("ecg", StreamType.ECG))
+      if (acc) add(StreamOption("acc", StreamType.ACCELEROMETER))
     }
 
 private fun resolve(
@@ -103,7 +104,6 @@ class StartConfigTest {
 
     assertEquals(listOf("hr", "rr"), config.options.map { it.id })
     assertEquals(Streams(hr = true, ecg = false, acc = false), config.streams)
-    assertFalse(config.canRecordEcg)
     assertFalse(config.canRecordAcc)
   }
 
@@ -113,5 +113,14 @@ class StartConfigTest {
 
     assertEquals(RecordingMode.STREAM, config.mode)
     assertEquals(ALARM, config.wake)
+  }
+
+  @Test
+  fun `a stream is found by its type`() {
+    val config = resolve(saved(hr = false, ecg = false, acc = true))
+
+    assertEquals(listOf("acc"), config.chosenStreams.map { it.id })
+    assertTrue(config.records(StreamType.ACCELEROMETER))
+    assertFalse(config.records(StreamType.HEART_RATE))
   }
 }
