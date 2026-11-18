@@ -255,7 +255,8 @@ class AndroidAlarmDevice(private val context: Context) :
       AlarmSound.USER_RINGTONE -> prepared(userRingtone())
       AlarmSound.DEFAULT_ALARM ->
           prepared(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
-      AlarmSound.BUNDLED_TONE -> MediaPlayer.create(context, R.raw.alarm_tone)
+      AlarmSound.BUNDLED_TONE ->
+          MediaPlayer.create(context, R.raw.alarm_tone, attributes, 0)
     }
   }
 
