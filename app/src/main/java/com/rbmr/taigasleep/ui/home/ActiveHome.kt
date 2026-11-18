@@ -25,6 +25,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -231,29 +233,41 @@ private fun WakeRow(wake: LiveWake, enabled: Boolean, onClick: () -> Unit) {
   }
 }
 
-/** The recording label breathes while data arrives; with animations off it stays still. */
+/**
+ * The recording label breathes while data arrives. The clock is read while drawing, so a frame
+ * only fades the label again without recomposing it; with animations off it stays still.
+ */
 @Composable
 private fun PulsingLabel(text: String) {
   val reduceMotion = LocalReduceMotion.current
-  val alpha =
+  val pulse =
       if (reduceMotion) {
-        1f
+        null
       } else {
-        val transition = rememberInfiniteTransition(label = "recording")
-        val pulse by
-            transition.animateFloat(
+        rememberInfiniteTransition(label = "recording")
+            .animateFloat(
                 initialValue = 0.45f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse),
                 label = "pulse",
             )
-        pulse
+      }
+  // Modulating the alpha draws the label exactly as the colour's own alpha does, without a layer.
+  val breathe =
+      if (pulse == null) {
+        Modifier
+      } else {
+        Modifier.graphicsLayer {
+          alpha = pulse.value
+          compositingStrategy = CompositingStrategy.ModulateAlpha
+        }
       }
   Text(
       text = text,
       style = MaterialTheme.taiga.text.section,
-      color = MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+      color = MaterialTheme.colorScheme.primary,
       textAlign = TextAlign.Center,
+      modifier = breathe,
   )
 }
 

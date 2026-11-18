@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisResultDto
+import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.ui.components.ChartExpandButton
 import com.rbmr.taigasleep.ui.components.InfoContent
 import com.rbmr.taigasleep.ui.components.Section
@@ -18,7 +19,9 @@ import com.rbmr.taigasleep.ui.theme.taiga
 /** The stages of the recording in time, how long each lasted, and the sleep numbers. */
 @Composable
 internal fun SleepStatsSection(
-    state: RecordingDetailUiState,
+    segments: List<StageSegmentDto>,
+    epochSeconds: Int,
+    startUnixMs: Long,
     analysis: AnalysisResultDto,
     onExpand: () -> Unit,
 ) {
@@ -31,15 +34,15 @@ internal fun SleepStatsSection(
   ) {
     Column(verticalArrangement = Arrangement.spacedBy(space.m)) {
       SleepStagesChart(
-          segments = state.segments,
-          epochSeconds = state.epochSeconds,
-          startUnixMs = state.start,
+          segments = segments,
+          epochSeconds = epochSeconds,
+          startUnixMs = startUnixMs,
           capabilities = analysis.capabilities,
       )
-      StageBar(segments = state.segments)
+      StageBar(segments = segments)
       StageBreakdown(
-          segments = state.segments,
-          epochSeconds = state.epochSeconds,
+          segments = segments,
+          epochSeconds = epochSeconds,
           capabilities = analysis.capabilities,
       )
       val items = numberItems(analysis.items, "sleep")

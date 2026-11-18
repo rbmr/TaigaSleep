@@ -53,7 +53,7 @@ recording/RecordingOverlays.kt 0
 recording/RecordingSection.kt 1
 recording/ScoreCard.kt 2
 recording/SharedComponents.kt 1
-recording/SleepSection.kt 1
+recording/SleepSection.kt 2
 recording/StatusCards.kt 1
 settings/AboutScreen.kt 0
 settings/AccessTokenExpiry.kt 0

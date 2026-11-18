@@ -34,7 +34,7 @@ internal fun LazyListScope.statusCards(
 ) {
   when {
     state.status == RecordingStatus.PROCESSING -> {
-      item {
+      item(key = "status") {
         StatusCard(
             title = stringResource(R.string.night_processing_title),
             body = stringResource(R.string.night_processing_body),
@@ -48,7 +48,7 @@ internal fun LazyListScope.statusCards(
       }
     }
     state.status == RecordingStatus.NOT_ANALYZED -> {
-      item {
+      item(key = "status") {
         StatusCard(
             title = stringResource(R.string.night_not_analyzed_title),
             body = stringResource(R.string.night_not_analyzed_body),
@@ -62,7 +62,7 @@ internal fun LazyListScope.statusCards(
       }
     }
     state.status == RecordingStatus.QUEUED || state.status == RecordingStatus.UPLOADING -> {
-      item {
+      item(key = "status") {
         val uploading = state.status == RecordingStatus.UPLOADING
         val percent = (state.progress * 100).toInt().coerceIn(0, 100)
         StatusCard(
@@ -108,7 +108,7 @@ internal fun LazyListScope.statusCards(
       }
     }
     state.status == RecordingStatus.FAILED -> {
-      item {
+      item(key = "status") {
         StatusCard(
             title =
                 stringResource(
@@ -149,7 +149,7 @@ internal fun LazyListScope.statusCards(
       }
     }
     state.local != null -> {
-      item {
+      item(key = "status") {
         StatusCard(
             title = stringResource(R.string.night_local_only_title),
             body = stringResource(R.string.night_local_only_body),
