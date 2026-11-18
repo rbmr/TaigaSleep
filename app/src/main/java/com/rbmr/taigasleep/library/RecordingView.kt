@@ -5,7 +5,6 @@ import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.insights.StagerPreference
-import com.rbmr.taigasleep.insights.nightDate
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.sync.LibraryEntry
@@ -13,9 +12,6 @@ import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.sync.UploadPhase
 import com.rbmr.taigasleep.sync.UploadRecord
 import com.rbmr.taigasleep.sync.recordingIdOf
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 /**
  * The one display state of a recording. It is derived from the two independent layers below:
@@ -393,17 +389,6 @@ private fun String.toAnalysisStatus(): AnalysisStatus =
 
 /** A server time in epoch milliseconds (see [parseServerTime]); unparseable is 0. */
 fun parseApiDate(value: String): Long = parseServerTime(value)?.toEpochMilli() ?: 0
-
-/**
- * The date a recording is filed under, e.g. `Sat 7 Nov`: the night it belongs to (see
- * [nightDate]), so a recording started just after midnight is dated by the evening before, the
- * same as in Trends.
- */
-fun formatRecordingDate(ms: Long, zone: ZoneId = ZoneId.systemDefault()): String =
-    if (ms <= 0) "-"
-    else
-        nightDate(ms, zone)
-            .format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))
 
 /**
  * Where the bytes are according to the sync store. This is the only place that reads the upload

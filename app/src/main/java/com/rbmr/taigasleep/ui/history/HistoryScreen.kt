@@ -34,7 +34,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.library.RecordingView
-import com.rbmr.taigasleep.library.formatRecordingDate
 import com.rbmr.taigasleep.sync.UploadFailure
 import com.rbmr.taigasleep.ui.components.CardRow
 import com.rbmr.taigasleep.ui.components.CardRowPosition
@@ -225,7 +224,7 @@ private fun RecordingRow(item: RecordingView, onOpen: () -> Unit) {
             formats.duration(item.durationMs),
         )
       }
-  val date = formatRecordingDate(item.startUtcMs)
+  val date = formats.recordingDate(item.startUtcMs)
   val pill = rowPill(item)
   Pressable(
       onClick = onOpen,
