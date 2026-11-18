@@ -1,7 +1,6 @@
 package com.rbmr.taigasleep.recording
 
 import android.util.Log
-import com.rbmr.taigasleep.diagnostics.BluetoothPower
 import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.diagnostics.RecordingCost
 import com.rbmr.taigasleep.recording.store.EventLog
@@ -24,15 +23,12 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -60,8 +56,9 @@ data class StartRequest(
  * again on a new control thread. A refused foreground start is handled the same way, because it
  * has to clean up a session that may itself be stuck.
  *
- * The service performs [RecordingHost]'s Android work; everything else — the lifecycle
- * transitions, the recovery steps, the fetch retries — is here and is tested on the JVM.
+ * The service performs [RecordingHost]'s Android work, and [LiveLoop] keeps an attached session
+ * alive; everything else — the lifecycle transitions, the fetch retries — is here and is tested on
+ * the JVM.
  */
 class RecordingControl(
     private val store: RecordingStore,
@@ -73,41 +70,12 @@ class RecordingControl(
 
   @Volatile private var control: ExecutorService = newControlThread()
   @Volatile private var scope: CoroutineScope = CoroutineScope(SupervisorJob() + control.asCoroutineDispatcher())
-  @Volatile private var live: Live? = null
+  @Volatile private var live: LiveSession? = null
+  private val loop = LiveLoop(clock, host) { live === it }
 
   /** True while a live session is attached; the service logs it on the way out. */
   val hasLiveSession: Boolean
     get() = live != null
-
-  @Suppress("LongParameterList")
-  private class Live(
-      val writer: RecordingWriter,
-      val sensor: Tracker,
-      val mode: RecordingMode,
-      val lifecycle: RecordingLifecycle,
-      val fanout: SampleFanout,
-      val wakeLock: RecordingWakeLock?,
-      val monitor: RecordingMonitor,
-  ) {
-    var jobs = emptyList<Job>()
-
-    /**
-     * Set when the session is dropped. A control thread that was blocked inside a tracker call keeps
-     * running once that call returns, and must not attach the dropped session again.
-     */
-    @Volatile var dropped = false
-
-    /** Elapsed-realtime ms when the wake lock was last acquired, so it can be renewed in time. */
-    var wakeLockSinceMs = 0L
-
-    private val claimed = AtomicBoolean(false)
-
-    /**
-     * Only one path may end this session: the stop that closes it, a forced stop, or a restart that
-     * drops it. A path that cannot claim leaves the session to the one that did.
-     */
-    fun claim(): Boolean = claimed.compareAndSet(false, true)
-  }
 
   // Actions. Each is queued on the control thread, except the ones that must run when it cannot.
 
@@ -458,7 +426,7 @@ class RecordingControl(
         SampleFanout(writer, monitor, armed?.let(::watchFor)) { message ->
           writer.event("error", message)
         }
-    val s = Live(writer, sensor, mode, lifecycle, fanout, wakeLock, monitor)
+    val s = LiveSession(writer, sensor, mode, lifecycle, fanout, wakeLock, monitor)
     s.wakeLockSinceMs = acquiredAtMs
     live = s
     host.markRunning(true)
@@ -502,23 +470,7 @@ class RecordingControl(
     if (s.dropped) return
     if (contact && sensor.connection.value == ConnectionState.DISCONNECTED) sensor.connect()
 
-    s.jobs =
-        buildList {
-          // One collector feeds both consumers, so the screen and the notification never disagree.
-          add(
-              scope.launch {
-                monitor.state.collect { state ->
-                  if (live !== s) return@collect
-                  RecordingRepository.update { it.copy(state = state) }
-                  host.onState(state)
-                }
-              }
-          )
-          add(scope.launch { watchConnection(s) })
-          add(scope.launch { tickLoop(s) })
-          // A streamed recording is the only one whose link can be lost with the radio.
-          if (mode == RecordingMode.STREAM) add(scope.launch { watchBluetooth(s) })
-        }
+    s.jobs = loop.jobs(scope, s)
     host.refreshRecordings()
   }
 
@@ -613,7 +565,7 @@ class RecordingControl(
   }
 
   /** Picks up the on-device recording that is running on the tracker, after the service was gone. */
-  private suspend fun adopt(contact: Boolean): Live? {
+  private suspend fun adopt(contact: Boolean): LiveSession? {
     if (live == null) resumeRecording(contact = contact)
     return live
   }
@@ -674,7 +626,7 @@ class RecordingControl(
   }
 
   /** The on-device part of a stop: one timeout, then either a finished night or a retry. */
-  private suspend fun fetchFromTracker(s: Live, finishing: FinishingState) {
+  private suspend fun fetchFromTracker(s: LiveSession, finishing: FinishingState) {
     val tracker = s.sensor as? OnDeviceTracker
     if (tracker == null) {
       if (!s.claim()) return
@@ -722,7 +674,7 @@ class RecordingControl(
       }
 
   /** A failed fetch keeps the tracker's copy and leaves the recording ready for another attempt. */
-  private suspend fun failFetch(s: Live, reason: String) {
+  private suspend fun failFetch(s: LiveSession, reason: String) {
     s.writer.event("error", "fetching the tracker recording failed: $reason")
     apply(s, s.lifecycle.fetchFailed())
     end(
@@ -884,7 +836,7 @@ class RecordingControl(
   }
 
   /** Performs the effects a lifecycle transition asked for, in order. */
-  private suspend fun apply(s: Live, effects: List<LifecycleEffect>) {
+  private suspend fun apply(s: LiveSession, effects: List<LifecycleEffect>) {
     for (effect in effects) {
       when (effect) {
         LifecycleEffect.AcquireWakeLock -> Unit // Acquired in attach, before the first samples.
@@ -917,7 +869,7 @@ class RecordingControl(
     }
   }
 
-  private fun end(s: Live, pending: PendingFetch? = null, done: FinishingState? = null) {
+  private fun end(s: LiveSession, pending: PendingFetch? = null, done: FinishingState? = null) {
     Diagnostics.log("service_stop", mapOf("state" to s.writer.meta.state.name.lowercase()))
     Diagnostics.markCleanShutdown("recording_ended")
     s.jobs.forEach { it.cancel() }
@@ -956,7 +908,7 @@ class RecordingControl(
   }
 
   /** Why the cost event says the recording ended, from the state the transition left behind. */
-  private fun costReason(s: Live): String {
+  private fun costReason(s: LiveSession): String {
     if (s.lifecycle.state == LifecycleState.DISCARDED) return "discarded"
     return when (s.writer.meta.state) {
       RecordingPhase.STOPPED -> "stopped"
@@ -967,7 +919,7 @@ class RecordingControl(
     }
   }
 
-  private fun releaseWakeLock(s: Live) {
+  private fun releaseWakeLock(s: LiveSession) {
     val lock = s.wakeLock ?: return
     if (!lock.isHeld) return
     lock.release()
@@ -979,7 +931,7 @@ class RecordingControl(
    * so the directory can be opened again. meta.json stays as it is, so the recording stays open.
    * Returns false when another path is already ending the session, which is then left to it.
    */
-  private suspend fun teardown(s: Live): Boolean {
+  private suspend fun teardown(s: LiveSession): Boolean {
     if (!s.claim()) return false
     s.dropped = true
     s.jobs.forEach { it.cancel() }
@@ -1045,89 +997,6 @@ class RecordingControl(
     host.finishService()
   }
 
-  // Live work.
-
-  private suspend fun watchConnection(s: Live) {
-    // The monitor owns the recorded connect/reconnect/disconnect events; these lines are only for
-    // the diagnostics log.
-    var everConnected = false
-    var wasConnected = false
-    s.sensor.connection.collect { state ->
-      s.monitor.onLink(state)
-      if (state == ConnectionState.CONNECTED) {
-        Diagnostics.log(if (everConnected) "ble_reconnect" else "ble_connect", mapOf("sensor" to s.sensor.name))
-        everConnected = true
-        wasConnected = true
-      } else if (wasConnected) {
-        Diagnostics.log("ble_disconnect", mapOf("state" to state.name.lowercase()))
-        wasConnected = false
-      }
-    }
-  }
-
-  /** Watches the radio so a recording that lost Bluetooth reconnects as soon as it is back. */
-  private suspend fun watchBluetooth(s: Live) {
-    BluetoothPower.enabled.collect { enabled ->
-      if (enabled == null) return@collect
-      for (step in s.monitor.onBluetooth(enabled)) applyRecovery(s, step)
-    }
-  }
-
-  private suspend fun tickLoop(s: Live) {
-    var lastHeartbeat = 0L
-    var lastReadinessCheck = 0L
-    var readiness = host.readinessSummary()
-    while (true) {
-      // The recording may have been ended or rebuilt by another path: only the live session ticks.
-      if (live !== s) return
-      RecordingCost.tick()
-      val nowNs = clock.elapsedNs()
-      val nowMs = nowNs / NS_PER_MS
-
-      // The monitor derives everything; the control flow only feeds it the sensor's raw values and
-      // performs the recovery steps it asks for. A step never ends the recording.
-      s.writer.syncIfDue(nowMs)
-      s.monitor.onBattery(s.sensor.battery.value)
-      for (step in s.monitor.tick(nowNs)) applyRecovery(s, step)
-
-      // One night is longer than one wake-lock timeout, so the lock is taken again before it lapses.
-      val lock = s.wakeLock
-      if (lock != null && RecordingRecovery.wakeLockNeedsRenewal(nowMs - s.wakeLockSinceMs)) {
-        lock.acquire(RecordingRecovery.WAKE_LOCK_MS)
-        s.wakeLockSinceMs = nowMs
-        RecordingCost.wakeLockAcquired(nowMs)
-      }
-
-      if (nowMs - lastHeartbeat >= HEARTBEAT_MS) {
-        lastHeartbeat = nowMs
-        host.heartbeatMs = clock.phoneNs() / NS_PER_MS
-      }
-      if (nowMs - lastReadinessCheck >= READINESS_MS) {
-        lastReadinessCheck = nowMs
-        val now = host.readinessSummary()
-        if (now != readiness) s.writer.event("readiness", now)
-        readiness = now
-      }
-      delay(1000)
-    }
-  }
-
-  /**
-   * Performs the step the monitor's recovery policy asked for. A failure is recorded and never ends
-   * the recording; the policy asks again on its next step.
-   */
-  private suspend fun applyRecovery(s: Live, step: RecoveryStep) {
-    if (live !== s) return
-    val selected = s.writer.meta.streams.map { it.id }.toSet()
-    try {
-      executeRecovery(step, s.sensor, selected, s.fanout)
-    } catch (e: CancellationException) {
-      throw e
-    } catch (e: Exception) {
-      s.writer.event("error", "recovery step failed: ${e.message ?: e.javaClass.simpleName}")
-    }
-  }
-
   companion object {
     private const val TAG = "RecordingControl"
     private const val NS_PER_MS = 1_000_000L
@@ -1141,8 +1010,6 @@ class RecordingControl(
     /** The smart alarm tried to ring but no sound started; the message says why. */
     private const val EVENT_WAKE_FAILED = "wake_alarm_failed"
     private const val STOP_STREAMS_TIMEOUT_MS = 3_000L
-    private const val HEARTBEAT_MS = 15_000L
-    private const val READINESS_MS = 10_000L
 
     /** Written to the recording when the system refuses the foreground state. */
     const val REASON_NO_FOREGROUND = "the system refused to keep the service in the foreground"
