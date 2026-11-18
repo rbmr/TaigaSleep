@@ -115,9 +115,49 @@ Not enforced; keep them lower_snake_case and keep `diag_heartbeat` for the diagn
 | `ble_connect`, `ble_disconnect`, `ble_reconnect` | `sensor_id`, `status`, `attempt`, `auto_connect` |
 | `watchdog_fire`, `watchdog_restart` | `action`, `service_running`, `last_heartbeat_age_s` |
 | `boot_resume`, `resume_refused`, `service_foreground_refused` | `recording`, `error` |
-| `wake_trigger`, `wake_alarm` | `recording`, `at_utc_ms`, `source` (`window_end`), `reason` (`signal`/`window_end`), `notifications` |
+| `wake_trigger` | `recording`, `at_utc_ms` |
+| `wake_alarm`, `wake_rang`, `wake_alarm_failed`, `wake_alarm_stopped` | see "The wake-up alarm" below |
+| `wake_alarm_already_ringing` | `source`, `reason`, `volume` when a ring request arrives while one is active |
 | `wake_change` | `recording`, `start_utc_ms`, `end_utc_ms` (empty when the alarm was switched off) |
 | `wakelock` | `action` (acquire/release), `timeout_ms` |
+
+## The wake-up alarm
+
+The ringing service starts the alarm on the alarm audio stream, independent of the ringer's silent
+mode. Whether it was heard is what these events answer.
+
+`wake_alarm` is written when the ring starts: `source` (`signal`, `window_end` or `test`), `reason`
+(`signal` or `window_end`, the same words the notification uses), `ringer_mode` (`silent`, `vibrate`,
+`normal` or `unknown`), `dnd_filter` (`all`, `priority`, `none`, `alarms` or `unknown`),
+`dnd_alarms_allowed` (whether Do Not Disturb currently lets alarms through), the alarm stream's
+`alarm_volume_before`, `alarm_volume_after` and `alarm_volume_max`, `playback_started`, `audible`,
+`sound` (`user_ringtone`, `default_alarm` or `bundled_tone`), `audio_focus`, `notification_posted` and
+`vibration_started`. The stream is raised to 70 % of its maximum when it was below that, and the
+raise is only ever upward. `audible` is false when playback started but the stream stayed at zero or
+below a few percent of its maximum, which a refused raise or a fixed volume policy can do.
+
+`wake_rang` is written only when the sound actually started and the stream was above that audible
+threshold, with the same `source` and `reason` and the `volume` and `volume_max` it played at. A ring
+that produced no sound writes `wake_alarm_failed` instead, with the `reason` (`no sound could be
+played` or `the alarm stream is silent`), the ringer mode, the Do Not Disturb filter and whether
+notifications are allowed. An inaudible ring keeps its sound and vibration, and the notification is
+posted in its sounding form as a second attempt.
+
+`wake_alarm_stopped` is written when Stop ends the alarm: `how` (`user`, `service`, `test` or
+`timeout`), `rang_ms` (how long it rang), `volume_restored` (whether the stream was put back) and
+`wake_lock_ms` (how long the ring's partial wake lock was held). The lock is acquired when the ring
+starts and released on stop, with a 15 minute safety timeout so a bug cannot hold it forever. A ring
+never lasts longer than 60 minutes, even if Stop is never pressed; the service then ends it with
+`how=timeout`. It is what keeps the CPU awake when the alarm came from the end-of-window broadcast
+with the recording process gone. A test ring reports the same `playback_started`, `audible` and
+volume through the alarm's settings.
+
+`wake_alarm_already_ringing` is written when a start request arrives while a ring is active. It
+changes nothing, so the volume raised for the first ring is still put back when that ring stops.
+
+The start of a recording and the alarm's own settings warn when Do Not Disturb is set to total
+silence, when priority mode does not allow alarms, when notifications are off or when the phone has
+no audio output. Those are the phone's choices and are reported, not overridden.
 
 ## The cost of a recording
 

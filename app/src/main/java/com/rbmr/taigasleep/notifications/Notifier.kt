@@ -78,7 +78,7 @@ object Notifier {
           }
           .build()
 
-  /** A ringing alarm: it sounds and vibrates until [stop] is used. */
+  /** A ringing alarm: it sounds and vibrates until [stop] is used. The fallback path. */
   fun wakeAlarm(
       context: Context,
       text: String,
@@ -100,6 +100,29 @@ object Notifier {
     // Insistent: the sound repeats until the notification is stopped, like an alarm clock.
     return notification.apply { flags = flags or Notification.FLAG_INSISTENT }
   }
+
+  /**
+   * The ringing alarm's visible control: the same title and Stop, but silent, because the ringing
+   * service owns the sound and the vibration.
+   */
+  fun wakeAlarmControl(
+      context: Context,
+      text: String,
+      stop: PendingIntent,
+      activity: String,
+  ): Notification =
+      NotificationCompat.Builder(context, Channels.WAKE_ALARM_CONTROL)
+          .setSmallIcon(R.drawable.ic_stat_alarm)
+          .setContentTitle(context.getString(R.string.wake_notification_title))
+          .setContentText(text)
+          .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+          .setCategory(NotificationCompat.CATEGORY_ALARM)
+          .setContentIntent(openApp(context, activity))
+          .setAutoCancel(true)
+          .setOngoing(true)
+          .setSilent(true)
+          .addAction(0, context.getString(R.string.wake_notification_stop), stop)
+          .build()
 
   /** The upload in progress, as the foreground work that keeps the transfer alive. */
   fun upload(context: Context, activity: String): Notification =
@@ -154,12 +177,14 @@ object Notifier {
           .setCategory(NotificationCompat.CATEGORY_STATUS)
           .build()
 
-  /** Posts [notification] under [id]; a phone that refuses it says so in the log. */
-  fun post(context: Context, id: Int, notification: Notification) {
-    try {
+  /** Posts [notification] under [id]; false when the phone refuses it. */
+  fun post(context: Context, id: Int, notification: Notification): Boolean {
+    return try {
       NotificationManagerCompat.from(context).notify(id, notification)
+      true
     } catch (e: SecurityException) {
       Log.e(TAG, "notification $id could not be posted", e)
+      false
     }
   }
 

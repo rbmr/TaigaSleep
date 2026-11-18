@@ -10,6 +10,7 @@ import com.rbmr.taigasleep.recording.CaptureStatus
 import com.rbmr.taigasleep.recording.Phase
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,7 +29,11 @@ class RecordingHomeTest {
   private fun stopping() = CaptureStatus(phase = Phase.STOPPING, liveStreaming = true)
 
   /** The recording screen animates, so the test draws its frames itself. */
-  private fun show(onForceStop: () -> Unit = {}) {
+  private fun show(
+      onForceStop: () -> Unit = {},
+      ringing: Boolean = false,
+      onStopAlarm: () -> Unit = {},
+  ) {
     compose.mainClock.autoAdvance = false
     compose.setContent {
       TaigaTheme {
@@ -39,6 +44,8 @@ class RecordingHomeTest {
             onForceStop = onForceStop,
             onDiscard = {},
             onWake = {},
+            ringing = ringing,
+            onStopAlarm = onStopAlarm,
         )
       }
     }
@@ -61,6 +68,17 @@ class RecordingHomeTest {
     compose.onNodeWithText("Force stop").assertIsEnabled()
     compose.onNodeWithText("Stop and save").assertIsNotEnabled()
     compose.onNodeWithText("Discard").assertIsNotEnabled()
+  }
+
+  @Test
+  fun `a ringing alarm can be stopped from the recording screen`() {
+    var stopped = false
+    show(ringing = true, onStopAlarm = { stopped = true })
+
+    compose.onNodeWithText("Smart alarm is ringing").assertExists()
+    press("Stop alarm")
+
+    assertTrue("the screen stops the ringing alarm", stopped)
   }
 
   @Test

@@ -10,13 +10,18 @@ import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.guard.GuidanceFlows
 import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.guard.ReadinessState
+import com.rbmr.taigasleep.recording.AlarmTestResult
 import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.RecordingService
+import com.rbmr.taigasleep.recording.WakeAlarm
+import com.rbmr.taigasleep.recording.WakeAlarmWarning
 import com.rbmr.taigasleep.recording.WakeWindow
+import com.rbmr.taigasleep.recording.readWakeAlarmAudibility
 import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -86,6 +91,21 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
 
           override fun guard(mode: RecordingMode): HomeState =
               ReadinessState.state(app, guidance, GuidanceFlows.previewOf(guidance), mode)
+
+          override fun wakeWarnings(): Set<WakeAlarmWarning> =
+              readWakeAlarmAudibility(app).warnings
+
+          override val alarmTest: StateFlow<AlarmTestResult?> = WakeAlarm.testResult
+
+          override val ringing: StateFlow<Boolean> = WakeAlarm.ringing
+
+          override fun stopAlarm() {
+            WakeAlarm.stopNow(app)
+          }
+
+          override fun testAlarm() {
+            WakeAlarm.test(app)
+          }
 
           override fun start(config: StartConfig) {
             val sensor = sensors.sensor.value ?: return

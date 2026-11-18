@@ -20,8 +20,11 @@ object Channels {
   /** The recording in progress. */
   const val RECORDING = "recording"
 
-  /** A ringing wake-up alarm. */
+  /** A ringing wake-up alarm, when the sound has to come from the notification. */
   const val WAKE_ALARM = "wake_alarm"
+
+  /** The ringing alarm's visible Stop, silent because the ringing service owns the sound. */
+  const val WAKE_ALARM_CONTROL = "wake_alarm_control"
 
   /** Uploads, and the analyses that follow them. */
   const val UPLOADS = "uploads"
@@ -87,10 +90,11 @@ object Channels {
             .apply { group = GROUP_DEVICE_HEALTH }
     )
     manager.createNotificationChannel(alarm(context))
+    manager.createNotificationChannel(alarmControl(context))
     manager.deleteNotificationChannel(RETIRED_SCREEN_ALARM)
   }
 
-  /** The alarm's channel, on the alarm sound and volume. */
+  /** The alarm's channel, on the alarm sound and volume. The ringing service's fallback uses it. */
   private fun alarm(context: Context): NotificationChannel {
     val attributes =
         AudioAttributes.Builder()
@@ -109,6 +113,19 @@ object Channels {
           group = GROUP_ALARM
         }
   }
+
+  /** The visible control of a ringing alarm: high priority so it shows, but silent. */
+  private fun alarmControl(context: Context): NotificationChannel =
+      NotificationChannel(
+              WAKE_ALARM_CONTROL,
+              context.getString(R.string.wake_channel_alarm_control),
+              NotificationManager.IMPORTANCE_HIGH,
+          )
+          .apply {
+            setSound(null, null)
+            enableVibration(false)
+            group = GROUP_ALARM
+          }
 
   private fun group(context: Context, id: String, @StringRes name: Int) =
       NotificationChannelGroup(id, context.getString(name))

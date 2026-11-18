@@ -6,6 +6,7 @@ import android.content.Intent
 import com.rbmr.taigasleep.tracker.RecordingMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -60,6 +61,45 @@ class WakeAlarmTest {
         )
 
     assertTrue("a dismissed alarm is not left scheduled", shadowOf(alarms).scheduledAlarms.isEmpty())
+  }
+
+  @Test
+  fun `the end of the window starts the ringing service with no recording service running`() {
+    WakeAlarmReceiver().onReceive(context, Intent(context, WakeAlarmReceiver::class.java))
+
+    val started = shadowOf(RuntimeEnvironment.getApplication()).nextStartedService
+    assertEquals(WakeAlarmService::class.java.name, started.component?.className)
+    assertEquals(WakeAlarmService.ACTION_RING, started.action)
+    assertEquals(
+        WakeAlarmService.SOURCE_WINDOW_END,
+        started.getStringExtra(WakeAlarmService.EXTRA_SOURCE),
+    )
+    assertEquals(
+        WakeReason.WINDOW_END.wire,
+        started.getStringExtra(WakeAlarmService.EXTRA_REASON),
+    )
+  }
+
+  @Test
+  fun `the stop action goes to the ringing service`() {
+    val intent = shadowOf(WakeAlarm.stop(context)).savedIntent
+
+    assertEquals(WakeAlarmService::class.java.name, intent.component?.className)
+    assertEquals(WakeAlarmService.ACTION_STOP, intent.action)
+  }
+
+  @Test
+  fun `the test action starts the same ringing service for a few seconds`() {
+    WakeAlarm.testResult.value =
+        AlarmTestResult(started = true, audible = true, volume = 5, maxVolume = 10)
+
+    WakeAlarm.test(context)
+
+    assertNull("a new test clears what the old one reported", WakeAlarm.testResult.value)
+    val started = shadowOf(RuntimeEnvironment.getApplication()).nextStartedService
+    assertEquals(WakeAlarmService.ACTION_RING, started.action)
+    assertEquals(WakeAlarmService.SOURCE_TEST, started.getStringExtra(WakeAlarmService.EXTRA_SOURCE))
+    assertTrue(started.getIntExtra(WakeAlarmService.EXTRA_TEST_MS, 0) > 0)
   }
 
   private object TestHooks : RecordingHooks {

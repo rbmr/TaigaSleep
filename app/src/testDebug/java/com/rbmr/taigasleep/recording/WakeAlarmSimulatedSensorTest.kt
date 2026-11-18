@@ -68,7 +68,9 @@ class WakeAlarmSimulatedSensorTest {
       sensor.pump(clock.elapsedNs())
     }
 
-    // The trigger is handed to the control thread; the screen's update is the last thing it does.
+    // The trigger is handed to the control thread; the ringing service then reports the sound.
+    awaitStatus { host.firedAlarms == 1 }
+    control!!.wakeRang(WakeAlarmService.SOURCE_SIGNAL)
     awaitStatus { it.wakeRangAtUtcMs != null }
     // The window rang for this night and will not ring again: the recording goes on.
     assertNull(host.armed)
@@ -266,6 +268,8 @@ class WakeAlarmSimulatedSensorTest {
       sensor.pump(clock.elapsedNs())
     }
 
+    awaitStatus { host.firedAlarms == 1 }
+    control!!.wakeRang(WakeAlarmService.SOURCE_SIGNAL)
     awaitStatus { it.wakeRangAtUtcMs != null }
     assertTrue("the screen says it rang", RecordingRepository.status.value.wakeRangAtUtcMs != null)
     assertEquals(1, host.firedAlarms)
@@ -280,6 +284,8 @@ class WakeAlarmSimulatedSensorTest {
       clock.advanceMs(100)
       sensor.pump(clock.elapsedNs())
     }
+    awaitStatus { host.firedAlarms == 1 }
+    control!!.wakeRang(WakeAlarmService.SOURCE_SIGNAL)
     awaitStatus { it.wakeRangAtUtcMs != null }
 
     control!!.changeWake(windowAroundNow())
@@ -290,6 +296,8 @@ class WakeAlarmSimulatedSensorTest {
       sensor.pump(clock.elapsedNs())
     }
 
+    awaitStatus { host.firedAlarms == 2 }
+    control!!.wakeRang(WakeAlarmService.SOURCE_SIGNAL)
     awaitStatus { it.wakeRangAtUtcMs != null }
     assertEquals(2, host.firedAlarms)
   }
@@ -307,6 +315,8 @@ class WakeAlarmSimulatedSensorTest {
       clock.advanceMs(100)
       sensor.pump(clock.elapsedNs())
     }
+    awaitStatus { host.firedAlarms == 1 }
+    first.wakeRang(WakeAlarmService.SOURCE_SIGNAL)
     val rang = awaitStatus { it.wakeRangAtUtcMs != null }.wakeRangAtUtcMs!!
     val id = host.activeSessionId!!
 
@@ -327,12 +337,13 @@ class WakeAlarmSimulatedSensorTest {
     assertNull(RecordingRepository.status.value.wake)
   }
 
+  @Suppress("FunctionNaming")
   @Test
-  fun `the end of the window is noted in the recording`() {
+  fun `the end of the window is noted in the recording when the sound started`() {
     val host = startWithWindow()
     val id = host.activeSessionId!!
 
-    control!!.wakeWindowEnded()
+    control!!.wakeRang(WakeAlarmService.SOURCE_WINDOW_END)
 
     // The event is written before the screen says the alarm rang.
     awaitStatus { it.wakeRangAtUtcMs != null }
