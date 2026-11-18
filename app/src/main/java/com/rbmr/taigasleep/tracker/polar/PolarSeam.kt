@@ -191,7 +191,7 @@ object PolarSdkSeam : PolarSeam {
 
         override fun disInformationReceived(identifier: String, uuid: UUID, value: String) {
           if (uuid == BleDisClient.SOFTWARE_REVISION_STRING) {
-            listeners[identifier]?.onFirmware(value)
+            listeners[identifier]?.onFirmware(polarFirmware(value))
           }
         }
 
@@ -305,6 +305,9 @@ object PolarSdkSeam : PolarSeam {
   private fun requireContext(): Context =
       checkNotNull(context) { "PolarSdkSeam.install was not called" }
 }
+
+/** The strap pads the revision string with a NUL; every driver sees the trimmed value. */
+internal fun polarFirmware(value: String): String = value.trimEnd('\u0000').trim()
 
 /** The Polar kind a device name names; a device no Polar driver knows is not listed. */
 internal fun polarKindOf(name: String): SensorKind? =

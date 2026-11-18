@@ -443,8 +443,7 @@ class PolarH10Sensor(
   }
 
   override fun onFirmware(value: String?) {
-    // The strap pads the revision string with a NUL.
-    _firmware.value = value?.trimEnd('\u0000')?.trim()
+    _firmware.value = value
   }
 
   // On-device recording. Everything below runs on the control thread.

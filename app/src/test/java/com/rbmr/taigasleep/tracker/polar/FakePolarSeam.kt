@@ -50,6 +50,11 @@ class FakePolarSeam : PolarSeam {
 
   fun listener(id: String): PolarSeam.ConnectionListener? = listeners[id]
 
+  /** Reports a firmware revision as the seam does: the SDK's NUL padding is already trimmed. */
+  fun emitFirmware(id: String, value: String) {
+    listeners[id]?.onFirmware(polarFirmware(value))
+  }
+
   override fun register(id: String, listener: PolarSeam.ConnectionListener) {
     registered += id
     listeners[id] = listener
