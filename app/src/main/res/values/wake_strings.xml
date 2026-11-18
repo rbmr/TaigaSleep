@@ -10,7 +10,7 @@
   <string name="wake_trigger_none">Choose at least one signal. Without one, the alarm rings only at the end of the window.</string>
   <string name="wake_test">Test alarm</string>
   <string name="wake_test_started">Sound started at volume %1$d of %2$d.</string>
-  <string name="wake_test_silent">The alarm played at volume %1$d of %2$d but could not be heard.</string>
+  <string name="wake_test_silent">The alarm could not be heard at volume %1$d of %2$d.</string>
   <string name="wake_test_failed">Sound did not start.</string>
   <string name="wake_warning_title">The alarm may not be heard</string>
   <string name="wake_warning_silence">Do Not Disturb is set to total silence, so the alarm will not sound.</string>

@@ -198,8 +198,8 @@ fun readWakeAlarmAudibility(context: Context): WakeAlarmAudibility {
  */
 private fun dndAllowsAlarms(notifications: NotificationManager): Boolean =
     when (notifications.currentInterruptionFilter) {
-      AlarmEnvironment.INTERRUPTION_FILTER_NONE -> false
-      AlarmEnvironment.INTERRUPTION_FILTER_PRIORITY ->
+      NotificationManager.INTERRUPTION_FILTER_NONE -> false
+      NotificationManager.INTERRUPTION_FILTER_PRIORITY ->
           (notifications.notificationPolicy.priorityCategories and
               NotificationManager.Policy.PRIORITY_CATEGORY_ALARMS) != 0
       else -> true
