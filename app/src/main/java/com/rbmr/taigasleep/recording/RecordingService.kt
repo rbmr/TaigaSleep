@@ -22,6 +22,7 @@ import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.tracker.SystemClockSource
+import kotlinx.coroutines.launch
 
 /**
  * Foreground service that runs one recording. It survives the screen being off (partial wake
@@ -232,7 +233,9 @@ class RecordingService : Service(), RecordingHost {
           }
       )
 
-  override fun refreshRecordings() = RecordingRepository.refreshRecordings(this)
+  override fun refreshRecordings() {
+    appContainer.scope.launch { RecordingRepository.refreshRecordings(this@RecordingService) }
+  }
 
   override fun onRecordingFinished(recordingId: String) = hooks.onRecordingFinished(this, recordingId)
 
