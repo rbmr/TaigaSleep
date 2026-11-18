@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
 
 /** The generic Bluetooth Heart Rate Service: service 0x180D, measurement 0x2A37, battery 0x180F. */
 object Hrs {
@@ -171,6 +172,7 @@ class BleHrsTracker(
     _connection.value = ConnectionState.DISCONNECTED
   }
 
+
   override fun startStreams(selected: Set<String>, listener: TrackerListener) {
     this.selected = selected
     this.listener = listener
@@ -193,7 +195,12 @@ class BleHrsTracker(
   override fun readClock(): Long? = null
 
   private fun onEvent(event: GattEvent) {
-    if (event.handle !== gatt) return
+    // Counted before the handle check: disconnect() has already dropped the handle, and the drop it
+    // asked for is still the callback a reconnect has to wait for.
+    if (event.handle === gatt) handleEvent(event)
+  }
+
+  private fun handleEvent(event: GattEvent) {
     when (event) {
       is GattEvent.Connected -> {
         _connection.value = ConnectionState.CONNECTED

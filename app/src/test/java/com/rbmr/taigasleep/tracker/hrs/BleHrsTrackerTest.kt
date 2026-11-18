@@ -7,6 +7,7 @@ import com.rbmr.taigasleep.tracker.Stamp
 import com.rbmr.taigasleep.tracker.TrackerFrame
 import com.rbmr.taigasleep.tracker.TrackerListener
 import java.util.UUID
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -141,6 +142,18 @@ class BleHrsTrackerTest {
     assertTrue(handle.closed)
     assertTrue(scheduler.pending)
   }
+
+  @Test
+  fun `a disconnect is complete once the link is closed`() = runTest {
+    val seam = FakeSeam()
+    val tracker = BleHrsTracker(context, "AA:BB", "Strap", seam, FakeScheduler())
+    tracker.startStreams(setOf("hr"), notesListener(mutableListOf()))
+
+    // Closing the GATT handle ends the link for this app at once: no callback follows a close.
+    assertTrue(tracker.disconnectAndWait(5_000))
+    assertEquals(ConnectionState.DISCONNECTED, tracker.connection.value)
+  }
+
 
   @Test
   fun framesReachTheListenerThroughTheSeam() {

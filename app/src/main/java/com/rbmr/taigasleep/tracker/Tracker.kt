@@ -125,6 +125,8 @@ data class FoundSensor(val kind: SensorKind, val id: String, val name: String, v
  * A tracker the app can record with. It reports the streams it offers and hands the recorder raw
  * device bytes; it does not know the recording format beyond its codec.
  */
+// It is the one contract every driver implements, so each of its calls is a part of that contract.
+@Suppress("TooManyFunctions")
 interface Tracker {
   val kind: SensorKind
   val id: String
@@ -165,6 +167,16 @@ interface Tracker {
   fun connect()
 
   fun disconnect()
+
+  /**
+   * Disconnects and waits for the link to be gone, up to [timeoutMs]; true when it is gone. A driver
+   * whose stack drops the link asynchronously waits for its own callback, because a connect issued
+   * before it is lost. The default cannot watch for one and returns true once [disconnect] was asked.
+   */
+  suspend fun disconnectAndWait(timeoutMs: Long): Boolean {
+    disconnect()
+    return true
+  }
 
   /**
    * Starts the tracker's transport over, so the next [connect] cannot be answered from a stale

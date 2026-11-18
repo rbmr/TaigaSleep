@@ -190,9 +190,8 @@ class SimulatedRecordingTest {
           recoveries += step
           executeRecovery(
               step,
-              sensor,
-              setOf("hr", "ecg", "acc"),
-              fanout,
+              RecoveryTarget(sensor, setOf("hr", "ecg", "acc"), fanout),
+              clock,
               reconnectPauseMs = 0,
           )
         }

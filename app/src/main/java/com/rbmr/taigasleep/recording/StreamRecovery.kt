@@ -1,8 +1,13 @@
 package com.rbmr.taigasleep.recording
 
+import com.rbmr.taigasleep.diagnostics.Diagnostics
+import com.rbmr.taigasleep.tracker.Clock
+import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.TrackerListener
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** The device work one recovery step asks for. */
 enum class RecoveryStepKind {
@@ -254,39 +259,142 @@ class StreamRecoveryPolicy(startedAtMs: Long) {
 
     /** A fresh connection needs the old one gone; this pause lets the stack drop it first. */
     const val RECONNECT_PAUSE_MS = 1_000L
+
+    /**
+     * How long a reconnect waits for the tracker's own disconnect callback. The link is only gone
+     * when the stack says so, and a connect issued before that is lost.
+     */
+    const val RECONNECT_DISCONNECT_TIMEOUT_MS = 5_000L
+
+    /** How long a reconnect waits for the link to come up, once per connect attempt. */
+    const val RECONNECT_CONNECT_TIMEOUT_MS = 15_000L
   }
 }
 
 /**
+ * What one reconnect step did. [connectMs] runs from the first connect to the link coming back; it is
+ * null when the link never did.
+ */
+data class ReconnectReport(
+    val disconnectMs: Long,
+    val disconnectTimedOut: Boolean,
+    val connectMs: Long?,
+    val secondConnect: Boolean,
+) {
+  val connected: Boolean
+    get() = connectMs != null
+
+  /** One line for events.jsonl: what the step did, and nothing else. */
+  fun message(): String =
+      buildString {
+        append("reconnect: disconnect ")
+        if (disconnectTimedOut) append("timed out after $disconnectMs ms")
+        else append("took $disconnectMs ms")
+        if (connected) {
+          append(", connected after $connectMs ms")
+          if (secondConnect) append(" on a second connect")
+        } else {
+          append(", no link after a second connect")
+        }
+      }
+
+  /** The same facts as fields, for the diagnostics line. */
+  fun fields(): Map<String, Any?> =
+      mapOf(
+          "disconnect_ms" to disconnectMs,
+          "disconnect_timed_out" to disconnectTimedOut,
+          "connect_ms" to connectMs,
+          "second_connect" to secondConnect,
+          "connected" to connected,
+      )
+}
+
+/**
+ * What a recovery step acts on: the tracker, the streams this recording chose and the listener their
+ * frames go to.
+ */
+data class RecoveryTarget(
+    val sensor: Tracker,
+    val streams: Set<String>,
+    val listener: TrackerListener,
+)
+
+/**
  * Performs one step on the sensor. The recording service is the only caller in the app, and the
  * simulated-sensor test uses the same function, so a strap and a test cannot drift apart.
+ *
+ * A reconnect waits for the old link to be gone before it connects, since a connect the tracker
+ * cannot answer yet is lost, then confirms the new link before starting the streams. A link that
+ * does not come up within [StreamRecoveryPolicy.RECONNECT_CONNECT_TIMEOUT_MS] is tried once more in
+ * the same step, so a missed connect costs one wait and not a whole backoff interval. The step
+ * writes what it did as a `reconnect_step` event and returns it as a [ReconnectReport].
  */
 suspend fun executeRecovery(
     step: RecoveryStep,
-    sensor: Tracker,
-    selected: Set<String>,
-    listener: TrackerListener,
+    target: RecoveryTarget,
+    clock: Clock,
+    event: (type: String, message: String) -> Unit = { _, _ -> },
     reconnectPauseMs: Long = StreamRecoveryPolicy.RECONNECT_PAUSE_MS,
-) {
-  when (step.kind) {
-    RecoveryStepKind.WAIT -> Unit
-    RecoveryStepKind.RESTART_STREAMS -> {
-      sensor.stopStreams()
-      sensor.startStreams(selected, listener)
+): ReconnectReport? =
+    when (step.kind) {
+      RecoveryStepKind.WAIT -> null
+      RecoveryStepKind.RESTART_STREAMS -> {
+        target.sensor.stopStreams()
+        target.sensor.startStreams(target.streams, target.listener)
+        null
+      }
+      RecoveryStepKind.RECONNECT -> {
+        val report = reconnect(target, clock, reconnectPauseMs)
+        event("reconnect_step", report.message())
+        Diagnostics.log("reconnect_step", report.fields())
+        report
+      }
+      RecoveryStepKind.RESET_SENSOR -> {
+        // The streams belong to the instance being replaced, so they are stopped before it goes.
+        target.sensor.stopStreams()
+        target.sensor.resetTransport()
+        delay(reconnectPauseMs)
+        target.sensor.connect()
+        target.sensor.startStreams(target.streams, target.listener)
+        null
+      }
     }
-    RecoveryStepKind.RECONNECT -> {
-      sensor.disconnect()
-      delay(reconnectPauseMs)
-      sensor.connect()
-      sensor.startStreams(selected, listener)
-    }
-    RecoveryStepKind.RESET_SENSOR -> {
-      // The streams belong to the instance being replaced, so they are stopped before it goes.
-      sensor.stopStreams()
-      sensor.resetTransport()
-      delay(reconnectPauseMs)
-      sensor.connect()
-      sensor.startStreams(selected, listener)
-    }
+
+/** Drops the link, waits for it to be gone and makes it again; the caller records the outcome. */
+private suspend fun reconnect(
+    target: RecoveryTarget,
+    clock: Clock,
+    pauseMs: Long,
+): ReconnectReport {
+  val sensor = target.sensor
+  val startedMs = clock.elapsedNs() / NS_PER_MS
+  val disconnected = sensor.disconnectAndWait(StreamRecoveryPolicy.RECONNECT_DISCONNECT_TIMEOUT_MS)
+  val disconnectedMs = clock.elapsedNs() / NS_PER_MS
+  delay(pauseMs)
+  val connectStartedMs = clock.elapsedNs() / NS_PER_MS
+  sensor.connect()
+  var connected = awaitConnected(sensor)
+  var secondConnect = false
+  if (!connected) {
+    secondConnect = true
+    sensor.connect()
+    connected = awaitConnected(sensor)
   }
+  val connectedMs = clock.elapsedNs() / NS_PER_MS
+  if (connected) sensor.startStreams(target.streams, target.listener)
+  return ReconnectReport(
+      disconnectMs = disconnectedMs - startedMs,
+      disconnectTimedOut = !disconnected,
+      connectMs = if (connected) connectedMs - connectStartedMs else null,
+      secondConnect = secondConnect,
+  )
 }
+
+/** Waits for the link the tracker has just been asked for, up to the step's connect timeout. */
+private suspend fun awaitConnected(sensor: Tracker): Boolean =
+    withTimeoutOrNull(StreamRecoveryPolicy.RECONNECT_CONNECT_TIMEOUT_MS) {
+      sensor.connection.first { it == ConnectionState.CONNECTED }
+      true
+    } ?: false
+
+private const val NS_PER_MS = 1_000_000L

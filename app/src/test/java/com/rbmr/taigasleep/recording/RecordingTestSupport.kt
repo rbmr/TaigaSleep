@@ -2,16 +2,26 @@
 
 package com.rbmr.taigasleep.recording
 
+import com.rbmr.taigasleep.tracker.Codec
+import com.rbmr.taigasleep.tracker.ConnectionState
+import com.rbmr.taigasleep.tracker.OfferedStream
 import com.rbmr.taigasleep.tracker.OnDeviceTracker
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
+import com.rbmr.taigasleep.tracker.StreamType
 import com.rbmr.taigasleep.tracker.Tracker
+import com.rbmr.taigasleep.tracker.TrackerCapabilities
 import com.rbmr.taigasleep.tracker.TrackerEntry
+import com.rbmr.taigasleep.tracker.TrackerListener
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 
@@ -145,6 +155,73 @@ internal class TestRecordingHost(val sensor: Tracker) : RecordingHost {
     finished = true
     signal(TestHostSignal.FINISHED)
   }
+}
+
+/**
+ * A tracker whose link a recovery test scripts. [disconnectCallbackMs] is how long its SDK takes to
+ * report a disconnect, and null means it never does; its connect is ignored until that callback has
+ * arrived when [connectNeedsDisconnect] is set, like a driver whose stack is still dropping the old
+ * link. [connectSucceeds] false leaves it connecting for ever, and [ignoredConnects] drops that many
+ * connects first, like a connect the stack was not ready for.
+ */
+internal class ScriptedLinkTracker : Tracker {
+  override val kind = SensorKind.POLAR_H10
+  override val id = "SCRIPT0001"
+  override val name = "Scripted strap"
+  override val streams =
+      listOf(OfferedStream("hr", StreamType.HEART_RATE, Codec.POLAR_HR, "hr.log", listOf(1.0)))
+  override val capabilities = TrackerCapabilities()
+
+  private val _connection = MutableStateFlow(ConnectionState.DISCONNECTED)
+  override val connection: StateFlow<ConnectionState> = _connection.asStateFlow()
+  override val battery: StateFlow<Int?> = MutableStateFlow(80)
+  override val firmware: StateFlow<String?> = MutableStateFlow("fake-1.0")
+
+  var disconnectCallbackMs: Long? = 100L
+  var connectNeedsDisconnect = false
+  var connectSucceeds = true
+  var ignoredConnects = 0
+
+  var connects = 0
+    private set
+  var disconnects = 0
+    private set
+  var streamStarts = 0
+    private set
+
+  private var disconnectCompleted = true
+
+  override fun connect() {
+    connects++
+    if (ignoredConnects > 0) {
+      ignoredConnects--
+      return
+    }
+    if (connectNeedsDisconnect && !disconnectCompleted) return
+    _connection.value = ConnectionState.CONNECTING
+    if (connectSucceeds) _connection.value = ConnectionState.CONNECTED
+  }
+
+  override fun disconnect() {
+    disconnects++
+    disconnectCompleted = false
+    _connection.value = ConnectionState.DISCONNECTED
+  }
+
+  override suspend fun disconnectAndWait(timeoutMs: Long): Boolean {
+    val callbackMs = disconnectCallbackMs
+    disconnect()
+    delay(callbackMs ?: timeoutMs)
+    // The timeout means the stack had long enough, so the link is treated as gone either way.
+    disconnectCompleted = true
+    return callbackMs != null
+  }
+
+  override fun startStreams(selected: Set<String>, listener: TrackerListener) {
+    streamStarts++
+  }
+
+  override fun stopStreams() = Unit
 }
 
 /**
