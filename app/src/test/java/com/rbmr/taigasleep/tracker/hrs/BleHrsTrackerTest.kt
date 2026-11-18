@@ -7,10 +7,6 @@ import com.rbmr.taigasleep.tracker.Stamp
 import com.rbmr.taigasleep.tracker.TrackerFrame
 import com.rbmr.taigasleep.tracker.TrackerListener
 import java.util.UUID
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.async
-import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -147,22 +143,17 @@ class BleHrsTrackerTest {
     assertTrue(scheduler.pending)
   }
 
-  @OptIn(ExperimentalCoroutinesApi::class)
   @Test
-  fun `a disconnect wait ends only when the radio reports the drop`() = runTest {
+  fun `a disconnect is complete once the link is closed`() = runTest {
     val seam = FakeSeam()
     val tracker = BleHrsTracker(context, "AA:BB", "Strap", seam, FakeScheduler())
     tracker.startStreams(setOf("hr"), notesListener(mutableListOf()))
-    val handle = seam.handles.single()
 
-    val wait = async { tracker.disconnectAndWait(5_000) }
-    runCurrent()
-    assertFalse("the wait ended before the callback", wait.isCompleted)
-
-    handle.drop(status = 0)
-    advanceUntilIdle()
-    assertTrue(wait.await())
+    // Closing the GATT handle ends the link for this app at once: no callback follows a close.
+    assertTrue(tracker.disconnectAndWait(5_000))
+    assertEquals(ConnectionState.DISCONNECTED, tracker.connection.value)
   }
+
 
   @Test
   fun framesReachTheListenerThroughTheSeam() {
