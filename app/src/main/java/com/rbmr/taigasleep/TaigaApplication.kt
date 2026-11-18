@@ -14,8 +14,6 @@ import com.rbmr.taigasleep.recording.Exporter
 import com.rbmr.taigasleep.recording.PhoneStorageWatch
 import com.rbmr.taigasleep.recording.RecordingHooks
 import com.rbmr.taigasleep.tracker.RecordingMode
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class TaigaApplication : Application() {
@@ -28,8 +26,10 @@ class TaigaApplication : Application() {
     // Debug builds report disk and network work on the main thread from the first call on.
     DebugTools.startStrictMode()
     super.onCreate()
-    // Before anything else: every collaborator is reached through this one instance.
+    // Before anything else: every collaborator is reached through this one instance, and the
+    // container starts building them on its own scope right away.
     container = AppContainer(this)
+    container.start()
     // Before anything can start a recording: the service asks these to decide and to hand over.
     RecordingHooks.install(RecordingWiring)
     Diagnostics.init(this)
@@ -37,14 +37,18 @@ class TaigaApplication : Application() {
     Channels.create(this)
     registerActivityLifecycleCallbacks(lifecycleLogger)
     DebugTools.install(this)
-    CoroutineScope(Dispatchers.IO).launch {
+    // Automatic upload and analysis catch up on everything that is due now, again at every event
+    // that can make something due, and every few hours as a safety net. Start-up work runs on the
+    // container's scope, so nothing of it touches the main thread.
+    container.scope.launch {
+      container.awaitReady()
       // Apply the raw-retention setting to any recording whose cleanup time has passed.
       container.syncService.enforceRawRetention()
     }
-    // Automatic upload and analysis catch up on everything that is due now, again at every event
-    // that can make something due, and every few hours as a safety net. The remote stack is built
-    // here, on the IO scope, so a wake-up never touches the Keystore on the main thread.
-    container.scope.launch { container.syncService.start() }
+    container.scope.launch {
+      container.awaitReady()
+      container.syncService.start()
+    }
     container.scope.launch {
       // An export a share target may still be reading is kept for an hour, then removed.
       Exporter.cleanupOnStart(this@TaigaApplication)

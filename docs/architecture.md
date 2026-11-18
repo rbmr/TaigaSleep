@@ -105,8 +105,11 @@ Two things sit outside the table:
   know each other are connected: `recording` defines what it needs from the rest of the app
   (`RecordingHooks`: may it start, what are the phone's readiness settings, a recording
   ended) and the wiring answers with `guard` and `sync`. `AppContainer` holds the one
-  instance of each long-lived collaborator; other packages read it through the
-  `Context.appContainer` accessor, so they share state without importing the wiring itself.
+  instance of each long-lived collaborator and builds them on its own scope when the app
+  starts; a caller that needs one earlier suspends until they are ready, so nothing that
+  opens the database, reads preferences or opens the Keystore runs on the main thread. Other
+  packages read the container through the `Context.appContainer` accessor, so they share
+  state without importing the wiring itself.
 - **`debug` is a build-variant seam, not a package of the app.** `src/debug` holds the
   debug-only tools and `src/release` an empty twin with the same API (see
   [`debug-build.md`](debug-build.md)), so any package may use `debug`. It stands in for
