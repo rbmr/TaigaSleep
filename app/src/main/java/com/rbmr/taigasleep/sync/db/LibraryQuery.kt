@@ -3,7 +3,6 @@ package com.rbmr.taigasleep.sync.db
 import androidx.room.Dao
 import androidx.room.Query
 import com.rbmr.taigasleep.backend.AnalysisDto
-import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.backend.AnalysisSummaryDto
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.sync.LibraryEntry
@@ -59,7 +58,7 @@ data class LibraryRow(
     val analysisFinishedAt: String? = null,
     val analysisParamsJson: String? = null,
     val analysisSummaryJson: String? = null,
-    val analysisResultJson: String? = null,
+    val analysisHasResult: Boolean? = null,
 )
 
 /**
@@ -76,6 +75,9 @@ data class LibraryRow(
  * payload still comes back as one row with the facts it has. The runs come from two places with one
  * shape: the server's list when it has the recording, and the payloads this phone holds. The reader
  * decides which of the two a recording is drawn from, which is the same rule the list always had.
+ *
+ * A cached run is read from its columns and its headline alone, plus whether this phone holds the
+ * full payload; the payload itself is read only where it is shown.
  */
 @Dao
 interface LibraryDao {
@@ -108,7 +110,7 @@ WITH keys(k) AS (
 ),
 runs(
   k, fromCache, analysisId, recordingId, algorithm, version, status, error, attempts, created,
-  updated, finishedAt, paramsJson, summaryJson, resultJson
+  updated, finishedAt, paramsJson, summaryJson, hasResult
 ) AS (
   SELECT
     CASE
@@ -116,7 +118,7 @@ runs(
       ELSE :remotePrefix || r.recordingId
     END,
     0, ra.analysisId, ra.recordingId, ra.algorithm, ra.version, ra.status, ra.error, ra.attempts,
-    ra.created, ra.updated, ra.finishedAt, ra.paramsJson, ra.summaryJson, NULL
+    ra.created, ra.updated, ra.finishedAt, ra.paramsJson, ra.summaryJson, 0
   FROM remote_recording r
   JOIN remote_analysis ra ON ra.account = :account AND ra.recordingId = r.recordingId
   WHERE r.account = :account
@@ -124,7 +126,7 @@ runs(
   SELECT
     ar.recordingKey, 1, ar.analysisId, ar.recordingId, ar.algorithm, ar.version, ar.status,
     ar.error, ar.attempts, ar.created, ar.updated, ar.finishedAt, ar.paramsJson, ar.summaryJson,
-    ar.resultJson
+    CASE WHEN ar.resultJson IS NULL THEN 0 ELSE 1 END
   FROM analysis_result ar
   WHERE ar.account = :account
 )
@@ -168,7 +170,7 @@ SELECT
   runs.finishedAt AS analysisFinishedAt,
   runs.paramsJson AS analysisParamsJson,
   runs.summaryJson AS analysisSummaryJson,
-  runs.resultJson AS analysisResultJson
+  runs.hasResult AS analysisHasResult
 FROM keys
 LEFT JOIN upload_state u ON u.account = :account AND u.recordingId = keys.k
 LEFT JOIN remote_recording r ON r.account = :account
@@ -189,13 +191,16 @@ ORDER BY keys.k
 internal fun List<LibraryRow>.toEntries(account: String): List<LibraryEntry> =
     groupBy { it.recordingKey }.map { (key, rows) ->
       val first = rows.first()
+      val cached = rows.filter { it.fromCache == 1 }
       LibraryEntry(
           key = key,
           record = first.toRecord(account),
           recording = first.toRecording(account),
           runs = rows.filter { it.fromCache == 0 }.mapNotNull { it.toAnalysis() },
           selectedAnalysisId = first.selectedAnalysisId,
-          cachedResults = rows.filter { it.fromCache == 1 }.mapNotNull { it.toAnalysis() },
+          cachedResults = cached.mapNotNull { it.toAnalysis() },
+          storedResultIds =
+              cached.filter { it.analysisHasResult == true }.mapNotNull { it.analysisId }.toSet(),
           hidden = first.remoteHidden == true || first.pendingDeletes != 0,
       )
     }
@@ -255,6 +260,5 @@ private fun LibraryRow.toAnalysis(): AnalysisDto? =
           updated = analysisUpdated.orEmpty(),
           finished_at = analysisFinishedAt,
           summary = analysisSummaryJson?.let { rowJson.decodeFromString<AnalysisSummaryDto>(it) },
-          result = analysisResultJson?.let { rowJson.decodeFromString<AnalysisResultDto>(it) },
       )
     }

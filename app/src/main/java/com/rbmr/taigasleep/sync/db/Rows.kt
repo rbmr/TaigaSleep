@@ -231,7 +231,7 @@ fun RemoteAnalysisRow.toAnalysisDto(): AnalysisDto =
  * The row of one downloaded run. [recordingKey] is the History key the run is shown under, which
  * the caller knows: the phone's recording id when the phone has the recording, the remote key
  * otherwise. The payload and its headline are kept as the server sent them, so a row reproduces the
- * payload the cache wrote.
+ * payload the cache wrote; a payload without a headline gets one derived from it.
  */
 fun AnalysisDto.toResultRow(account: String, recordingKey: String): AnalysisResultRow =
     AnalysisResultRow(
@@ -248,7 +248,7 @@ fun AnalysisDto.toResultRow(account: String, recordingKey: String): AnalysisResu
         updated = updated,
         finishedAt = finished_at,
         paramsJson = params?.toString(),
-        summaryJson = summary?.let { rowJson.encodeToString(it) },
+        summaryJson = (summary ?: result?.let { summaryOf(it) })?.let { rowJson.encodeToString(it) },
         resultJson = result?.let { rowJson.encodeToString(it) },
     )
 
