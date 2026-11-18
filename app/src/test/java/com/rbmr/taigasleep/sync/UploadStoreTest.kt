@@ -1,6 +1,8 @@
 package com.rbmr.taigasleep.sync
 
 import com.rbmr.taigasleep.sync.db.TaigaDatabase
+import com.rbmr.taigasleep.sync.db.UploadStateDao
+import com.rbmr.taigasleep.sync.db.UploadStateRow
 import com.rbmr.taigasleep.sync.db.storeScope
 import com.rbmr.taigasleep.sync.db.testDatabase
 import kotlinx.coroutines.CoroutineScope
@@ -74,6 +76,33 @@ class UploadStoreTest {
     assertEquals(UploadPhase.UPLOADING, record.phase)
     assertNull(record.uploadedAtMs)
     assertNull(record.uploadConfirmedAt())
+  }
+
+  @Test
+  fun `a chunk that does not move the shown percentage writes nothing`() = runBlocking {
+    val states = CountingStates(database.uploadStates())
+    val store = UploadStore(states, active, scope)
+
+    store.markUploading("r1", 0f)
+    // Three chunks of the same percent, as a fast upload reports them.
+    store.markUploading("r1", 0.004f)
+    store.markUploading("r1", 0.009f)
+    assertEquals(1, states.writes)
+
+    store.markUploading("r1", 0.011f)
+    assertEquals(2, states.writes)
+    assertEquals(0.011f, store.row("r1")!!.progress, 0.0001f)
+  }
+
+  /** A state DAO that counts the rows written through it. */
+  private class CountingStates(private val delegate: UploadStateDao) :
+      UploadStateDao by delegate {
+    var writes = 0
+
+    override suspend fun upsert(row: UploadStateRow) {
+      writes++
+      delegate.upsert(row)
+    }
   }
 
   @Test

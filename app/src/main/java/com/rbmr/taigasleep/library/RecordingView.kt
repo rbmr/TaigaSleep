@@ -189,6 +189,7 @@ private fun buildRecording(
   val remoteSession = shown?.recording
   val selectedAnalysisId = shown?.selectedAnalysisId
   val cached = entry?.cachedResults.orEmpty()
+  val storedResults = entry?.storedResultIds.orEmpty()
   val remoteRuns = shown?.runs.orEmpty()
   val record = entry?.record
   val start = local?.startUtcMs ?: parseApiDate(remoteSession?.started_at.orEmpty())
@@ -210,9 +211,9 @@ private fun buildRecording(
   // gone, not hidden.
   val cachedRuns =
       if (remoteSession == null) {
-        cached.map { run -> run.toRun(downloaded = true) }
+        cached.map { run -> run.toRun(downloaded = run.id in storedResults) }
       } else {
-        remoteRuns.map { run -> run.toRun(downloaded = cached.any { it.id == run.id }) }
+        remoteRuns.map { run -> run.toRun(downloaded = run.id in storedResults) }
       }
   val runs =
       cachedRuns.map { run ->

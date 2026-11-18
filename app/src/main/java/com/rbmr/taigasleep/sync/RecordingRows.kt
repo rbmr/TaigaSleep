@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.map
 
 /**
  * One recording as the database describes the library: its sync state, its server row with the runs
- * the server lists, the run it shows, and the payloads this phone holds for it.
+ * the server lists, the run it shows, and the runs this phone holds a payload for.
  *
  * The recordings on disk are not in the database, so an entry never carries one: the library joins
  * an entry with the recording of the same id.
@@ -24,8 +24,10 @@ data class LibraryEntry(
     val runs: List<AnalysisDto>,
     /** The run the user chose, when the choice is still one of [runs]. */
     val selectedAnalysisId: String?,
-    /** The payloads of this phone, by the run they belong to. */
+    /** The runs this phone holds, with the headline the database keeps for each; no payload. */
     val cachedResults: List<AnalysisDto>,
+    /** The ids of [cachedResults] whose full payload is stored here. */
+    val storedResultIds: Set<String> = emptySet(),
     /**
      * The server copy is on its way out or already gone: it is never drawn as remote. A recording
      * that is still on this phone stays as the recording it is.

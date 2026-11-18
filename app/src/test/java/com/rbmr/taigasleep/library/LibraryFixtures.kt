@@ -40,6 +40,7 @@ internal fun libraryEntries(
         runs = summary?.analyses.orEmpty(),
         selectedAnalysisId = selectedAnalysisIds[key],
         cachedResults = cachedResults[key].orEmpty(),
+        storedResultIds = cachedResults[key].orEmpty().map { it.id }.toSet(),
         hidden = recordingIdOf(key) in hiddenRemoteIds,
     )
   }

@@ -179,15 +179,21 @@ class UploadStore internal constructor(
     val observedAt = now()
     // Bytes on the wire are not the server's word, not even the last ones: the recording counts as
     // uploaded when completeRecording succeeded, which is what markUploadConfirmed records.
-    update(id, account) {
-      it.copy(
-          phase = UploadPhase.UPLOADING,
-          progress = value,
-          failure = null,
-          errorDetail = null,
-          warning = null,
-          updatedAtMs = observedAt,
-      )
+    update(id, account) { current ->
+      // A whole recording sends many chunks. Only the percentage a screen shows is worth a write:
+      // every write publishes the library again, and a chunk that does not move it changes nothing.
+      if (current.phase == UploadPhase.UPLOADING && shownPercent(current.progress) == shownPercent(value)) {
+        null
+      } else {
+        current.copy(
+            phase = UploadPhase.UPLOADING,
+            progress = value,
+            failure = null,
+            errorDetail = null,
+            warning = null,
+            updatedAtMs = observedAt,
+        )
+      }
     }
   }
 
@@ -316,14 +322,18 @@ class UploadStore internal constructor(
   private suspend fun update(
       id: String,
       account: String? = null,
-      transform: (UploadRecord) -> UploadRecord,
+      transform: (UploadRecord) -> UploadRecord?,
   ) {
     val target = account ?: active()
     writes.withLock {
       val current = states.row(target, id)?.toUploadRecord() ?: UploadRecord(id = id)
-      states.upsert(transform(current).toRow(target))
+      // A transform that returns null leaves the row as it is.
+      val next = transform(current) ?: return
+      states.upsert(next.toRow(target))
     }
   }
+
+  private fun shownPercent(progress: Float): Int = (progress.coerceIn(0f, 1f) * 100).toInt()
 
   private fun now(): Long = System.currentTimeMillis()
 

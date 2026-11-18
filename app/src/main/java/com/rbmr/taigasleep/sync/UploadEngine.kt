@@ -163,9 +163,9 @@ class UploadEngine(
         throw UploadException("$name: a compressed chunk exceeds the server limit")
       }
 
-      // Record the member and its boundary before sending it, so a crash can never leave the
-      // server ahead of the cache.
-      cache.append(name, localLength, member, offset + size)
+      // Record the member's boundary before sending it, so a crash can never leave the server
+      // ahead of the index.
+      cache.append(name, localLength, member.size, offset + size)
       val newLength =
           try {
             client.appendFile(id, name, serverLength, member, ENCODING_GZIP)
