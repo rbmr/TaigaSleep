@@ -143,8 +143,11 @@ notifications are allowed. An inaudible ring keeps its sound and vibration, and 
 posted in its sounding form as a second attempt.
 
 `wake_alarm_stopped` is written when Stop ends the alarm: `how` (`user`, `service` or `test`),
-`rang_ms` (how long it rang) and `volume_restored` (whether the stream was put back). A test ring
-reports the same `playback_started` and volume through the alarm's settings.
+`rang_ms` (how long it rang), `volume_restored` (whether the stream was put back) and `wake_lock_ms`
+(how long the ring's partial wake lock was held). The lock is acquired when the ring starts and
+released on stop, with a 15 minute safety timeout so a bug cannot hold it forever. It is what keeps
+the CPU awake when the alarm came from the end-of-window broadcast with the recording process gone.
+A test ring reports the same `playback_started`, `audible` and volume through the alarm's settings.
 
 The start of a recording and the alarm's own settings warn when Do Not Disturb is set to total
 silence, notifications are off or the phone has no audio output. Those are the phone's choices and

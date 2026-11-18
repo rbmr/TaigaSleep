@@ -78,6 +78,15 @@ interface AlarmNotifications {
   fun cancel()
 }
 
+/** Holds the CPU awake for exactly the time the alarm rings. */
+interface AlarmWakeLock {
+  /** Acquires a partial wake lock for at most [timeoutMs], so the system drops it after that. */
+  fun acquire(timeoutMs: Long)
+
+  /** Releases the lock and returns how long it was held, in milliseconds. */
+  fun release(): Long
+}
+
 /** What one ring did, as the service reports it and the diagnostics record it. */
 data class AlarmRing(
     val playbackStarted: Boolean,
@@ -120,6 +129,7 @@ data class AlarmTestResult(
  * fallbacks are testable without a phone. [WakeAlarmService] supplies the phone; the settings'
  * test action uses the same class.
  */
+@Suppress("LongParameterList")
 class WakeAlarmRing(
     private val phone: AlarmEnvironment,
     private val player: AlarmSoundPlayer,
@@ -127,6 +137,7 @@ class WakeAlarmRing(
     private val notifications: AlarmNotifications,
     private val log: (String, Map<String, Any?>) -> Unit = Diagnostics::log,
     private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val wakeLock: AlarmWakeLock? = null,
 ) {
   private var startedAtMs: Long? = null
 
@@ -138,6 +149,9 @@ class WakeAlarmRing(
     private set
 
   fun start(reason: WakeReason, source: String): AlarmRing {
+    // The sound and the vibration are the only things keeping the phone awake when the recording
+    // process is gone, so the ring holds the CPU for as long as it may take.
+    wakeLock?.acquire(WAKE_LOCK_TIMEOUT_MS)
     val before = phone.alarmVolume
     val max = phone.alarmMaxVolume
     if (before < volumeFloor(max)) phone.setAlarmVolume(volumeFloor(max))
@@ -220,6 +234,7 @@ class WakeAlarmRing(
     phone.releaseFocus()
     notifications.cancel()
     restoreVolume?.let { phone.setAlarmVolume(it) }
+    val wakeLockMs = wakeLock?.release() ?: 0L
     val rangMs = startedAtMs?.let { (nowMs() - it).coerceAtLeast(0L) }
     log(
         "wake_alarm_stopped",
@@ -227,6 +242,7 @@ class WakeAlarmRing(
             "how" to how,
             "rang_ms" to rangMs,
             "volume_restored" to (restoreVolume != null),
+            "wake_lock_ms" to wakeLockMs,
         ),
     )
     startedAtMs = null
@@ -257,6 +273,9 @@ class WakeAlarmRing(
 
     /** Below this share of the maximum the stream is treated as inaudible, even with playback. */
     const val AUDIBLE_MIN_PERCENT = 5
+
+    /** A bug cannot keep the ring's wake lock forever: the system drops it after this long. */
+    const val WAKE_LOCK_TIMEOUT_MS = 15 * 60_000L
 
     fun volumeFloor(max: Int): Int = ceil(max * VOLUME_FLOOR_PERCENT / 100.0).toInt()
 

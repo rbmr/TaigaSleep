@@ -17,11 +17,18 @@ class WakeAlarmRingTest {
   private val player = FakePlayer()
   private val vibrator = FakeVibrator()
   private val notifications = FakeNotifications()
+  private val wakeLock = FakeWakeLock()
   private var now = 1_000L
   private val ring =
-      WakeAlarmRing(phone, player, vibrator, notifications, { type, fields -> logs += type to fields }) {
-        now
-      }
+      WakeAlarmRing(
+          phone = phone,
+          player = player,
+          vibrator = vibrator,
+          notifications = notifications,
+          log = { type, fields -> logs += type to fields },
+          nowMs = { now },
+          wakeLock = wakeLock,
+      )
 
   @Test
   fun `a silent ringer still rings on the alarm stream`() {
@@ -118,6 +125,22 @@ class WakeAlarmRingTest {
     assertEquals("user", stopped.second["how"])
     assertEquals(4_500L, stopped.second["rang_ms"])
     assertTrue(stopped.second["volume_restored"] as Boolean)
+  }
+
+  @Test
+  fun `the ring holds a wake lock for the alarm and logs how long`() {
+    wakeLock.heldMs = 4_500
+
+    ring.start(WakeReason.WINDOW_END, "window_end")
+    assertEquals("a bug cannot hold the lock forever", 15 * 60_000L, wakeLock.timeoutMs)
+    assertTrue(wakeLock.acquired)
+
+    ring.stop("user")
+
+    assertTrue(wakeLock.released)
+    val stopped = logs.last().second
+    assertEquals("wake_alarm_stopped", logs.last().first)
+    assertEquals(4_500L, stopped["wake_lock_ms"])
   }
 
   @Test
@@ -285,6 +308,23 @@ class WakeAlarmRingTest {
 
     override fun stopVibration() {
       stopped = true
+    }
+  }
+
+  private class FakeWakeLock : AlarmWakeLock {
+    var acquired = false
+    var released = false
+    var timeoutMs = 0L
+    var heldMs = 0L
+
+    override fun acquire(timeoutMs: Long) {
+      acquired = true
+      this.timeoutMs = timeoutMs
+    }
+
+    override fun release(): Long {
+      released = true
+      return heldMs
     }
   }
 

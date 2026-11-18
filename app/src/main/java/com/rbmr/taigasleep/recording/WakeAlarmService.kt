@@ -17,6 +17,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
+import android.os.SystemClock
 import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -25,6 +27,7 @@ import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.diagnostics.Diagnostics
+import com.rbmr.taigasleep.diagnostics.RecordingCost
 import com.rbmr.taigasleep.notifications.Channels
 import com.rbmr.taigasleep.notifications.Notifier
 
@@ -51,6 +54,7 @@ class WakeAlarmService : Service() {
             player = device,
             vibrator = device,
             notifications = device,
+            wakeLock = AndroidAlarmWakeLock(this),
         )
   }
 
@@ -169,6 +173,46 @@ fun readWakeAlarmAudibility(context: Context): WakeAlarmAudibility {
       notificationsOff = !NotificationManagerCompat.from(app).areNotificationsEnabled(),
       noOutput = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).isEmpty(),
   )
+}
+
+/**
+ * The partial wake lock that keeps the CPU running while the alarm rings. The system drops it after
+ * the safety timeout even if a bug never calls release.
+ */
+class AndroidAlarmWakeLock(context: Context) : AlarmWakeLock {
+  private val lock =
+      context
+          .getSystemService(PowerManager::class.java)
+          .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TaigaSleep::wake-alarm")
+          .apply { setReferenceCounted(false) }
+  private var heldAtMs: Long? = null
+
+  override fun acquire(timeoutMs: Long) {
+    if (heldAtMs != null) return
+    try {
+      lock.acquire(timeoutMs)
+    } catch (e: SecurityException) {
+      Log.w(TAG, "the alarm wake lock was refused", e)
+      return
+    }
+    val now = SystemClock.elapsedRealtime()
+    heldAtMs = now
+    // Count the acquisition with the recording's cost. Its release is not fed back there: the
+    // recording may hold its own lock across the whole night and this one would end that window.
+    RecordingCost.wakeLockAcquired(now)
+  }
+
+  override fun release(): Long {
+    val held = heldAtMs ?: return 0L
+    heldAtMs = null
+    val now = SystemClock.elapsedRealtime()
+    if (lock.isHeld) lock.release()
+    return (now - held).coerceAtLeast(0L)
+  }
+
+  private companion object {
+    const val TAG = "AndroidAlarmWakeLock"
+  }
 }
 
 /**

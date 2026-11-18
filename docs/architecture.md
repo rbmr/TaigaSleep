@@ -251,8 +251,9 @@ armed separately with `AlarmManager.setAlarmClock`, so it rings even when the se
 are gone, and a trigger that rings first drops it, so one night rings once.
 
 The alarm rings from a foreground service on the alarm audio stream, with the alarm attributes and
-a vibration of its own, so the ringer's silent mode does not mute it. It raises the stream to 70 % of
-its maximum when it is below that and puts the volume back when it is stopped. If the stream cannot
+a vibration of its own, so the ringer's silent mode does not mute it. A partial wake lock keeps the
+CPU awake while it rings, with a 15 minute safety timeout. It raises the stream to 70 % of its
+maximum when it is below that and puts the volume back when it is stopped. If the stream cannot
 be played it falls back to the notification's alarm sound, and the failure is recorded. The
 notification stays as the visible control, silent, with one Stop button. Stopping ends the alarm,
 never the recording. When the phone would block the alarm outright (Do Not Disturb total silence,
