@@ -1,13 +1,10 @@
 package com.rbmr.taigasleep.ui.components
 
-import com.rbmr.taigasleep.testFormats
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TrendsChartsTest {
-  private val formats = testFormats()
-
   private fun labels(axis: TrendAxis) = axis.ticks.map { it.second }
 
   @Test
@@ -27,33 +24,6 @@ class TrendsChartsTest {
     assertEquals(listOf("80", "60", "40", "20", "0"), labels(axis))
     assertEquals(0.0, axis.min, 0.0)
     assertEquals(80.0, axis.max, 0.0)
-  }
-
-  @Test
-  fun `total sleep is drawn in hours, so its ticks are whole hours`() {
-    val hours = totalSleepHours(29_670.0)!!
-    assertEquals(8.2417, hours, 1e-4)
-
-    val axis = hoursAxis(listOf(hours), null, formats)
-
-    assertEquals(listOf("9 h", "6 h", "3 h", "0 h"), labels(axis))
-    assertEquals(0.0, axis.min, 0.0)
-    assertEquals(9.0, axis.max, 0.0)
-  }
-
-  @Test
-  fun `the intended sleep duration widens the hours axis`() {
-    val axis = hoursAxis(listOf(6.0), 8.0, formats)
-
-    assertEquals(listOf("8 h", "6 h", "4 h", "2 h", "0 h"), labels(axis))
-    assertEquals(8.0, axis.max, 0.0)
-  }
-
-  @Test
-  fun `short total sleep still gets whole-hour ticks`() {
-    val axis = hoursAxis(listOf(1.2), null, formats)
-
-    assertEquals(listOf("2 h", "1 h", "0 h"), labels(axis))
   }
 
   @Test

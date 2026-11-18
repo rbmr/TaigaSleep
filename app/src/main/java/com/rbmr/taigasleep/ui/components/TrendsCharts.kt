@@ -203,18 +203,6 @@ fun trendNumber(value: Double): String {
 /** Total sleep arrives in seconds; the charts draw it in hours. */
 fun totalSleepHours(seconds: Double?): Double? = seconds?.div(3600.0)
 
-/** The total-sleep axis in hours, covering the values and the intended duration. */
-fun hoursAxis(values: List<Double?>, targetHours: Double?, formats: Formats): TrendAxis {
-  val highest = maxOf(values.filterNotNull().maxOfOrNull { it } ?: 0.0, targetHours ?: 0.0, 1.0)
-  return trendAxis(
-      min = 0.0,
-      max = highest,
-      format = { formats.hours(trendNumber(it)) },
-      steps = HourSteps,
-      minStep = 1.0,
-  )
-}
-
 private val ChartHeight = 176.dp
 
 /**
@@ -747,8 +735,6 @@ fun trendWhole(value: Double): String = value.roundToInt().toString()
  * The axis formats the charts pass in. They are made once, so a chart that remembers its axis by
  * its format keeps that axis on every recomposition.
  */
-val NumberAxisFormat: (Double) -> String = ::trendNumber
-
 val WholeAxisFormat: (Double) -> String = ::trendWhole
 
 /** The schedule chart's axis: minutes since noon, read as a time of day. */
