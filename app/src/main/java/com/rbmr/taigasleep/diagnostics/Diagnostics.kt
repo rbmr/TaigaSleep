@@ -128,12 +128,15 @@ object Diagnostics {
 
   /** Marks the run as alive again (after a clean mark); call when a service starts recording. */
   fun markRunning() {
+    // Only a run that is alive keeps the alarm; one left behind would cold-start the app for good.
+    app?.let { DiagnosticsAlarm.schedule(it) }
     submit { marker?.write("running", Process.myPid(), nowMs()) }
   }
 
   /** Marks the run as finished normally, so the next start does not report an unclean exit. */
   fun markCleanShutdown(reason: String) {
     log("clean_shutdown", mapOf("reason" to reason))
+    app?.let { DiagnosticsAlarm.cancel(it) }
     submit { marker?.write("clean", Process.myPid(), nowMs()) }
   }
 
@@ -177,7 +180,6 @@ object Diagnostics {
     // the main thread that is starting the app does neither.
     submit { start(application) }
     EventListeners(application).register()
-    DiagnosticsAlarm.schedule(application)
     pool.scheduleWithFixedDelay(
         {
           RecordingCost.timerFired()

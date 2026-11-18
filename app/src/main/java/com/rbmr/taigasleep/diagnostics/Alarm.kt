@@ -11,6 +11,10 @@ import android.os.SystemClock
  * A slow inexact alarm that keeps the log alive while the JVM timer is paused (screen off, Doze).
  * `setAndAllowWhileIdle` needs no permission; the system batches it, so it costs about four
  * wakeups an hour at most. How late it fires is itself evidence of Doze or standby deferral.
+ *
+ * It exists only while the run is marked running: a wakeup of its own cold-starts the app, and a
+ * process started for it marks the run alive, so one left behind would turn every such start into
+ * an unclean exit.
  */
 object DiagnosticsAlarm {
   const val INTERVAL_MS = 15L * 60_000
@@ -25,13 +29,34 @@ object DiagnosticsAlarm {
     } catch (_: Exception) {}
   }
 
+  fun cancel(context: Context) {
+    try {
+      val existing = existing(context) ?: return
+      val alarms = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+      alarms.cancel(existing)
+      existing.cancel()
+    } catch (_: Exception) {}
+  }
+
   private fun pending(context: Context, at: Long): PendingIntent =
       PendingIntent.getBroadcast(
           context,
           REQUEST_CODE,
-          Intent(context, AlarmReceiver::class.java).putExtra(EXTRA_AT, at),
+          intent(context, at),
           PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
       )
+
+  /** The pending intent of a scheduled alarm, or null when none was made. */
+  private fun existing(context: Context): PendingIntent? =
+      PendingIntent.getBroadcast(
+          context,
+          REQUEST_CODE,
+          intent(context, 0L),
+          PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+      )
+
+  private fun intent(context: Context, at: Long): Intent =
+      Intent(context, AlarmReceiver::class.java).putExtra(EXTRA_AT, at)
 }
 
 /** Declared in the manifest so a fired alarm also records that the process was started for it. */
