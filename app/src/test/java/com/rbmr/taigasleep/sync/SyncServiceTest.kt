@@ -237,6 +237,50 @@ class SyncServiceTest {
   }
 
   @Test
+  fun `a refresh saves the server summary and the run it shows`() = runBlocking {
+    val environment = FakeEnvironment()
+    environment.client = StubTaigaClient()
+    environment.shown = AnalysisDto(id = "a2", recording = "r1")
+
+    service(environment).refresh("r1")
+
+    assertEquals(listOf("$SESSION_ACCOUNT r1"), environment.saved)
+    assertEquals(listOf("r1 a2 $SESSION_ACCOUNT"), environment.selections)
+  }
+
+  @Test
+  fun `a refresh whose account changed while it ran saves nothing`() = runBlocking {
+    val environment = FakeEnvironment()
+    environment.client = StubTaigaClient()
+    environment.accountOnRefresh = OTHER_ACCOUNT
+
+    service(environment).refresh("r1")
+
+    assertEquals(emptyList<String>(), environment.saved)
+    assertEquals(emptyList<String>(), environment.selections)
+  }
+
+  @Test
+  fun `a refresh that answers 404 forgets the server row`() = runBlocking {
+    val environment = FakeEnvironment().apply { files = false }
+    environment.client = StubTaigaClient()
+    environment.refreshFailure = TaigaHttpException(404, "recording not found")
+
+    service(environment).refresh("remote-r1")
+
+    assertEquals(listOf("r1"), environment.forgotten)
+  }
+
+  @Test
+  fun `selecting a run stores the selection`() {
+    val environment = FakeEnvironment()
+
+    service(environment).selectAnalysis("r1", "a2")
+
+    assertEquals(listOf("r1 a2 -"), environment.selections)
+  }
+
+  @Test
   fun `a retry keeps the analysis the screen is showing`() = runBlocking {
     val environment = FakeEnvironment()
 
@@ -281,12 +325,19 @@ class SyncServiceTest {
 
   private companion object {
     const val SESSION_ACCOUNT = "https://sleep.example|u1"
+    const val OTHER_ACCOUNT = "https://sleep.example|u2"
   }
 
   private class FakeEnvironment : SyncEnvironment {
     val calls = mutableListOf<String>()
     val state = mutableMapOf<String, UploadRecord>()
     private val stateFlow = MutableStateFlow<Map<String, UploadRecord>>(emptyMap())
+
+    // What the service stored, as the assertions read it: "account recording", "key run account".
+    val saved = mutableListOf<String>()
+    val selections = mutableListOf<String>()
+    val forgotten = mutableListOf<String>()
+    private val selected = mutableMapOf<String, String?>()
 
     override val records: StateFlow<Map<String, UploadRecord>> = stateFlow
 
@@ -295,6 +346,12 @@ class SyncServiceTest {
     var started = listOf(StartedAnalysis("a1", "queued"))
     var requestFailure: Exception? = null
     var refreshFailure: Exception? = null
+    var shown: AnalysisDto? = null
+
+    /** The account a refresh finds active when it answers, as a login in between would leave it. */
+    var accountOnRefresh: String? = null
+
+    var activeAccount: String? = SESSION_ACCOUNT
 
     override suspend fun record(id: String, account: String?): UploadRecord? = state[id]
 
@@ -318,9 +375,12 @@ class SyncServiceTest {
     }
 
     override val account: String?
-      get() = SESSION_ACCOUNT
+      get() = activeAccount
 
-    override fun session(): RemoteSession? = client?.let { RemoteSession(SESSION_ACCOUNT, it) }
+    override fun session(): RemoteSession? {
+      val api = client ?: return null
+      return activeAccount?.let { RemoteSession(it, api) }
+    }
 
     override fun logout() {
       calls += "logout"
@@ -411,7 +471,8 @@ class SyncServiceTest {
     ): RecordingSnapshot {
       calls += "refresh $id"
       refreshFailure?.let { throw it }
-      return RecordingSnapshot(RecordingDto(id = recordingId), emptyList(), null)
+      accountOnRefresh?.let { activeAccount = it }
+      return RecordingSnapshot(RecordingDto(id = recordingId), emptyList(), shown)
     }
 
     override fun observeRows(account: String, localIds: List<String>): Flow<List<LibraryEntry>> =
@@ -430,18 +491,27 @@ class SyncServiceTest {
 
     override suspend fun uploadedElsewhere(localId: String): Boolean = false
 
-    override suspend fun selectedAnalysis(key: String, account: String?): String? = null
+    override suspend fun selectedAnalysis(key: String, account: String?): String? = selected[key]
 
-    override suspend fun selectAnalysis(key: String, analysisId: String?, account: String?) {}
+    override suspend fun selectAnalysis(key: String, analysisId: String?, account: String?) {
+      selections += "$key ${analysisId ?: "-"} ${account ?: "-"}"
+      selected[key] = analysisId
+    }
 
-    override suspend fun saveList(account: String, list: RecordingSummaryListDto) {}
+    override suspend fun saveList(account: String, list: RecordingSummaryListDto) {
+      calls += "saveList $account"
+    }
 
-    override suspend fun saveSummary(account: String, snapshot: RecordingSnapshot) {}
+    override suspend fun saveSummary(account: String, snapshot: RecordingSnapshot) {
+      saved += "$account ${snapshot.recording.id}"
+    }
 
     override suspend fun hiddenRecordings(): Set<String> = emptySet()
 
     override suspend fun isGone(recordingId: String): Boolean = false
 
-    override suspend fun forget(recordingId: String) {}
+    override suspend fun forget(recordingId: String) {
+      forgotten += recordingId
+    }
   }
 }
