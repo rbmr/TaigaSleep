@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisResultDto
@@ -24,7 +25,9 @@ internal fun HeartRateStatsSection(
   val space = MaterialTheme.taiga.space
   val title = stringResource(R.string.night_heart_rate_stats)
   val series = analysis.items.firstOrNull { it.kind == "series" && it.id == "hr" }?.series
-  val hasSamples = hrSeriesPoints(series).any { it != null }
+  // Whether the series has a sample at all is all the header needs, and a night of thousands of
+  // points is only kept for the series it belongs to.
+  val hasSamples = remember(series) { hrSeriesPoints(series).any { it != null } }
   Section(
       title = title,
       info = InfoContent(title, stringResource(R.string.night_heart_rate_info)),

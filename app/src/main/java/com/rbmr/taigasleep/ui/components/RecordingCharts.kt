@@ -446,12 +446,13 @@ private class TimeChartSpec(
 /** The room a time chart keeps clear of its plot, in pixels. */
 private class TimeChartSpace(val leftPx: Float, val topPx: Float, val bottomPx: Float)
 
-/** The colours and the label paint of a time chart, read once from the theme. */
+/** The colours, the label paint and the dash of a time chart, read once from the theme. */
 private class TimeChartStyle(
     val paint: Paint,
     val gridColor: Color,
     val axisColor: Color,
     val selectedColor: Color,
+    val dash: PathEffect,
 )
 
 private fun timeChartSpace(spec: TimeChartSpec, density: Density) =
@@ -477,6 +478,7 @@ private fun timeChartStyle(density: Density, large: Boolean): TimeChartStyle {
       gridColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f),
       axisColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
       selectedColor = MaterialTheme.colorScheme.primary,
+      dash = remember(density.density) { with(density) { dashEffect() } },
   )
 }
 
@@ -580,7 +582,6 @@ private fun BoxScope.TimeTooltip(selection: State<Int?>, spec: TimeChartSpec) {
 
 /** The lane lines: dashed, so they never read as data. */
 private fun DrawScope.drawTimeGrid(plot: PlotBounds, spec: TimeChartSpec, style: TimeChartStyle) {
-  val dash = dashEffect()
   for (line in spec.axis.lines) {
     val y = plot.y(line)
     drawLine(
@@ -588,7 +589,7 @@ private fun DrawScope.drawTimeGrid(plot: PlotBounds, spec: TimeChartSpec, style:
         start = Offset(plot.left, y),
         end = Offset(plot.left + plot.width, y),
         strokeWidth = 1.dp.toPx(),
-        pathEffect = dash,
+        pathEffect = style.dash,
     )
   }
 }
