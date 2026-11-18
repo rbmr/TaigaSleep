@@ -2,9 +2,7 @@ package com.rbmr.taigasleep.diagnostics
 
 import android.app.Application
 import android.net.TrafficStats
-import android.os.BatteryManager
 import android.os.Debug
-import android.os.PowerManager
 import android.os.Process
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -95,6 +93,7 @@ object RecordingCost {
   @Volatile private var counters = Counters()
 
   /** The phone's state at the start of a segment, one heartbeat, or its end. */
+  @Suppress("LongParameterList")
   private class Reading(
       val atMs: Long = 0,
       val batteryPct: Int? = null,
@@ -483,34 +482,22 @@ object RecordingCost {
    * The phone behind [Sources]. Every read is guarded: a phone that does not report a value says
    * null and the field is left out, instead of losing the line.
    *
-   * The percentage and the charging flag come from the sticky battery intent through [DeviceState],
-   * the same readings the heartbeat records, so a segment's ends cannot disagree with its beats.
+   * The battery and power readings come from [PhoneState], the same reader the heartbeat uses, so a
+   * segment's ends cannot disagree with its beats.
    */
   private class AndroidSources(private val context: Application) : Sources {
-    private val batteryManager: BatteryManager? by lazy {
-      context.getSystemService(BatteryManager::class.java)
-    }
-    private val power: PowerManager? by lazy { context.getSystemService(PowerManager::class.java) }
     private val uid = Process.myUid()
 
-    override fun batteryPercent(): Int? = DeviceState.batteryPercent(DeviceState.battery(context))
+    override fun batteryPercent(): Int? =
+        PhoneState.batteryPercent(PhoneState.battery(context))
 
-    override fun chargeCounterUah(): Long? =
-        batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)?.takeIf {
-          it != Long.MIN_VALUE
-        }
+    override fun chargeCounterUah(): Long? = PhoneState.chargeCounterUah(context)
 
-    override fun currentNowUa(): Long? =
-        batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)?.takeIf {
-          it != Int.MIN_VALUE
-        }?.toLong()
+    override fun currentNowUa(): Long? = PhoneState.currentNowUa(context)
 
-    override fun energyNwh(): Long? =
-        batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_ENERGY_COUNTER)?.takeIf {
-          it != Long.MIN_VALUE
-        }
+    override fun energyNwh(): Long? = PhoneState.energyNwh(context)
 
-    override fun charging(): Boolean? = DeviceState.charging(DeviceState.battery(context))
+    override fun charging(): Boolean? = PhoneState.charging(PhoneState.battery(context))
 
     override fun processCpuMs(): Long = Process.getElapsedCpuTime()
 
@@ -525,12 +512,7 @@ object RecordingCost {
 
     override fun rxBytes(): Long? = TrafficStats.getUidRxBytes(uid).takeIf { it >= 0 }
 
-    override fun thermalHeadroom(): Float? =
-        try {
-          power?.getThermalHeadroom(0)
-        } catch (_: Exception) {
-          null
-        }
+    override fun thermalHeadroom(): Float? = PhoneState.thermalHeadroom(context)
 
     private fun runtimeStat(name: String): Long? = Debug.getRuntimeStat(name)?.toLongOrNull()
   }

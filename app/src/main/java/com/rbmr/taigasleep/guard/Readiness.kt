@@ -1,9 +1,7 @@
 package com.rbmr.taigasleep.guard
 
-import android.app.ActivityManager
-import android.app.usage.UsageStatsManager
 import android.content.Context
-import android.os.PowerManager
+import com.rbmr.taigasleep.diagnostics.PhoneState
 import com.rbmr.taigasleep.tracker.RecordingMode
 
 /**
@@ -40,16 +38,11 @@ data class Readiness(
 
     fun read(context: Context): Readiness {
       val app = context.applicationContext
-      val bucket =
-          runCatching { app.getSystemService(UsageStatsManager::class.java).appStandbyBucket }
-              .getOrNull()
+      val bucket = runCatching { PhoneState.standbyBucket(app) }.getOrNull()
       return Readiness(
-          ignoringBatteryOptimizations =
-              app.getSystemService(PowerManager::class.java)
-                  .isIgnoringBatteryOptimizations(app.packageName),
+          ignoringBatteryOptimizations = PhoneState.ignoringBatteryOptimizations(app),
           standbyBucket = bucket,
-          backgroundRestricted =
-              app.getSystemService(ActivityManager::class.java).isBackgroundRestricted,
+          backgroundRestricted = PhoneState.backgroundRestricted(app),
       )
     }
   }
