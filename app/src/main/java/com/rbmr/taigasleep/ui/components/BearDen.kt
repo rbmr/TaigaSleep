@@ -10,9 +10,9 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -175,121 +176,160 @@ fun BearDen(
         Modifier
       }
 
-  Canvas(modifier.fillMaxWidth().height(DenHeight).then(tap).then(described)) {
-    val side = 24.dp.toPx()
-    val ground = DenGround.toPx()
-    // The horizon sits near the bottom of the header: only a thin strip of ground lies below it.
-    val horizon = this.size.height - ground
-    val sky = (horizon - statusBarTop).coerceAtLeast(1f)
-    // The arch keeps the logo's proportions, is never wider than DenWidth and always fits between
-    // the status bar and the horizon, so sky stays visible beside and above it.
-    val unit =
-        minOf(
-            DenWidth.toPx() / VIEW_WIDTH,
-            (this.size.width - 2 * side) / VIEW_WIDTH,
-            sky / VIEW_HEIGHT,
-        )
-    val left = (this.size.width - VIEW_WIDTH * unit) / 2f
-    // The arch stands on the horizon, so its feet meet the ground at the end of the header.
-    val top = horizon - ARCH_BOTTOM * unit
-
-    // Sky above the horizon, ground below it. The ground is the colour the content sits on.
-    drawRect(color = scheme.background, size = Size(this.size.width, horizon))
-    if (colors.dark) drawStars(this.size.width, statusBarTop.toFloat(), sky, scheme.onBackground)
-    drawRect(
-        color = scheme.surface,
-        topLeft = Offset(0f, horizon),
-        size = Size(this.size.width, this.size.height - horizon),
-    )
-    // The horizon itself carries the arch's colours and fades out towards both screen edges.
-    drawLine(
-        brush =
-            Brush.horizontalGradient(
-                0f to Color.Transparent,
-                0.35f to colors.auroraStart,
-                0.65f to colors.auroraEnd,
-                1f to Color.Transparent,
-            ),
-        start = Offset(0f, horizon),
-        end = Offset(this.size.width, horizon),
-        strokeWidth = 1.5.dp.toPx(),
-    )
-
-    translate(left, top) {
-      scale(unit, pivot = Offset.Zero) {
-        // A faint aurora lives inside the arch, and a recording adds the lighter den glow.
-        clipPath(archInterior) {
-          drawRect(
-              brush =
+  Spacer(
+      modifier
+          .fillMaxWidth()
+          .height(DenHeight)
+          .drawWithCache {
+            // The den itself depends on the size and the colours alone: its brushes, its stroke and
+            // the z's paint are built here once, and a frame only draws with them.
+            val side = 24.dp.toPx()
+            val ground = DenGround.toPx()
+            // The horizon sits near the bottom of the header: only a thin strip of ground lies
+            // below it.
+            val horizon = size.height - ground
+            val sky = (horizon - statusBarTop).coerceAtLeast(1f)
+            // The arch keeps the logo's proportions, is never wider than DenWidth and always fits
+            // between the status bar and the horizon, so sky stays visible beside and above it.
+            val unit =
+                minOf(
+                    DenWidth.toPx() / VIEW_WIDTH,
+                    (size.width - 2 * side) / VIEW_WIDTH,
+                    sky / VIEW_HEIGHT,
+                )
+            val left = (size.width - VIEW_WIDTH * unit) / 2f
+            // The arch stands on the horizon, so its feet meet the ground at the end of the header.
+            val top = horizon - ARCH_BOTTOM * unit
+            // Stars sit in the sky beside and above the arch, and only in the dark theme.
+            val starDots =
+                if (colors.dark) {
+                  starSpots(size.width, statusBarTop.toFloat(), sky, scheme.onBackground)
+                } else {
+                  emptyList()
+                }
+            val starRadius = 1.3.dp.toPx()
+            // The horizon itself carries the arch's colours and fades out towards both screen edges.
+            val horizonLine =
+                Brush.horizontalGradient(
+                    0f to Color.Transparent,
+                    0.35f to colors.auroraStart,
+                    0.65f to colors.auroraEnd,
+                    1f to Color.Transparent,
+                )
+            val horizonWidth = 1.5.dp.toPx()
+            // A faint aurora lives inside the arch.
+            val aurora =
+                Brush.radialGradient(
+                    colors =
+                        listOf(
+                            colors.auroraStart.copy(alpha = 0.16f),
+                            colors.auroraEnd.copy(alpha = 0.06f),
+                            Color.Transparent,
+                        ),
+                    center = Offset(VIEW_WIDTH / 2f, 84f),
+                    radius = 96f,
+                )
+            val auroraTopLeft = Offset(ARCH_LEFT, ARCH_TOP)
+            val auroraSize = Size(ARCH_RIGHT - ARCH_LEFT, ARCH_BOTTOM - ARCH_TOP)
+            // A recording adds the lighter den glow.
+            val glowCenter = Offset(VIEW_WIDTH / 2f, ARCH_BOTTOM - 4f)
+            val glowRadius = VIEW_WIDTH * 0.72f
+            val glowBrush =
+                if (glow) {
                   Brush.radialGradient(
                       colors =
-                          listOf(
-                              colors.auroraStart.copy(alpha = 0.16f),
-                              colors.auroraEnd.copy(alpha = 0.06f),
-                              Color.Transparent,
-                          ),
-                      center = Offset(VIEW_WIDTH / 2f, 84f),
-                      radius = 96f,
-                  ),
-              topLeft = Offset(ARCH_LEFT, ARCH_TOP),
-              size = Size(ARCH_RIGHT - ARCH_LEFT, ARCH_BOTTOM - ARCH_TOP),
-          )
-        }
-        if (glow) {
-          val center = Offset(VIEW_WIDTH / 2f, ARCH_BOTTOM - 4f)
-          scale(scaleX = 1f, scaleY = GLOW_FLATTENING, pivot = center) {
-            drawCircle(
-                brush =
-                    Brush.radialGradient(
-                        colors =
-                            listOf(colors.auroraStart.copy(alpha = 0.26f), Color.Transparent),
-                        center = center,
-                        radius = VIEW_WIDTH * 0.72f,
-                    ),
-                radius = VIEW_WIDTH * 0.72f,
-                center = center,
-            )
-          }
-        }
-        // Every running tap tints the den once more; the tints stack while they fade.
-        pulses.forEach { pulse -> drawTint(pulse, colors.auroraStart, colors.auroraEnd) }
-
-        // The arch's own gradient, exactly as the logo draws it: solid, feet included.
-        drawPath(
-            path = archPath,
-            brush =
+                          listOf(colors.auroraStart.copy(alpha = 0.26f), Color.Transparent),
+                      center = glowCenter,
+                      radius = glowRadius,
+                  )
+                } else {
+                  null
+                }
+            // The arch's own gradient, exactly as the logo draws it: solid, feet included.
+            val arch =
                 Brush.linearGradient(
                     colors = listOf(colors.auroraStart, colors.auroraEnd),
                     start = Offset(ARCH_LEFT, ARCH_BOTTOM),
                     end = Offset(ARCH_RIGHT, ARCH_TOP),
-                ),
-            style = Stroke(width = ARCH_STROKE, cap = StrokeCap.Round, join = StrokeJoin.Round),
-        )
+                )
+            val archStroke =
+                Stroke(width = ARCH_STROKE, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val zPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = ZTypeface }
+            onDrawBehind {
+              // Sky above the horizon, ground below it. The ground is the colour the content sits
+              // on.
+              drawRect(color = scheme.background, size = Size(size.width, horizon))
+              starDots.forEach { star ->
+                drawCircle(color = star.color, radius = starRadius, center = star.centre)
+              }
+              drawRect(
+                  color = scheme.surface,
+                  topLeft = Offset(0f, horizon),
+                  size = Size(size.width, size.height - horizon),
+              )
+              drawLine(
+                  brush = horizonLine,
+                  start = Offset(0f, horizon),
+                  end = Offset(size.width, horizon),
+                  strokeWidth = horizonWidth,
+              )
 
-        // The tap animation only moves the eyes: the outline and the ink never change.
-        val body =
-            when {
-              waking -> wakingBear(eyeScaleY(wakeTime.value, animations))
-              variant == LogoVariant.Awake -> awakeBearPath
-              else -> sleepingBearPath
+              translate(left, top) {
+                scale(unit, pivot = Offset.Zero) {
+                  clipPath(archInterior) {
+                    drawRect(
+                        brush = aurora,
+                        topLeft = auroraTopLeft,
+                        size = auroraSize,
+                    )
+                  }
+                  glowBrush?.let { brush ->
+                    scale(scaleX = 1f, scaleY = GLOW_FLATTENING, pivot = glowCenter) {
+                      drawCircle(brush = brush, radius = glowRadius, center = glowCenter)
+                    }
+                  }
+                  // Every running tap tints the den once more; the tints stack while they fade.
+                  pulses.forEach { pulse ->
+                    drawTint(pulse, colors.auroraStart, colors.auroraEnd)
+                  }
+
+                  drawPath(path = archPath, brush = arch, style = archStroke)
+
+                  // The tap animation only moves the eyes: the outline and the ink never change.
+                  val body =
+                      when {
+                        waking -> wakingBear(eyeScaleY(wakeTime.value, animations))
+                        variant == LogoVariant.Awake -> awakeBearPath
+                        else -> sleepingBearPath
+                      }
+                  drawPath(path = body, color = colors.bear)
+                  // The z's float only while he sleeps: the eyes are open for the whole wake
+                  // animation.
+                  if (zClock != null) {
+                    drawSleepZ(zClock.value, animations, colors.auroraEnd, zPaint)
+                  }
+
+                  // The band is light inside the arch; the ring grows freely over the whole header.
+                  clipPath(archInterior) {
+                    pulses.forEach { pulse ->
+                      drawBand(pulse, colors.auroraStart)
+                    }
+                  }
+                  pulses.forEach { pulse ->
+                    val at =
+                        Offset(
+                            (pulse.at.x - left) / unit,
+                            (pulse.at.y - top) / unit,
+                        )
+                    drawRing(pulse, at, colors.auroraStart, colors.auroraEnd)
+                  }
+                }
+              }
             }
-        drawPath(path = body, color = colors.bear)
-        // The z's float only while he sleeps: the eyes are open for the whole wake animation.
-        if (zClock != null) {
-          drawSleepZ(zClock.value, animations, colors.auroraEnd)
-        }
-
-        // The band is light inside the arch; the ring grows freely over the whole header.
-        clipPath(archInterior) {
-          pulses.forEach { pulse -> drawBand(pulse, colors.auroraStart) }
-        }
-        pulses.forEach { pulse ->
-          val at = Offset((pulse.at.x - left) / unit, (pulse.at.y - top) / unit)
-          drawRing(pulse, at, colors.auroraStart, colors.auroraEnd)
-        }
-      }
-    }
-  }
+          }
+          .then(tap)
+          .then(described)
+  )
 }
 
 /** The one clock the sleeping bear's z's float on, composed only while he sleeps. */
@@ -421,15 +461,13 @@ private val stars =
 /** A star at a fraction of the header's width and of the sky's height, with its own opacity. */
 private class Star(val x: Float, val y: Float, val alpha: Float)
 
-private fun DrawScope.drawStars(width: Float, skyTop: Float, sky: Float, ink: Color) {
-  stars.forEach { star ->
-    drawCircle(
-        color = ink.copy(alpha = star.alpha),
-        radius = 1.3.dp.toPx(),
-        center = Offset(width * star.x, skyTop + sky * star.y),
-    )
-  }
-}
+/** A star's place in a header of [width] and a sky of [sky] pixels, and the ink it is drawn in. */
+private class StarSpot(val centre: Offset, val color: Color)
+
+private fun starSpots(width: Float, skyTop: Float, sky: Float, ink: Color): List<StarSpot> =
+    stars.map {
+      StarSpot(Offset(width * it.x, skyTop + sky * it.y), ink.copy(alpha = it.alpha))
+    }
 
 /** The tint's strength over the pulse: 0 to 1 at 12 %, then back to 0, each leg eased out. */
 private fun tintStrength(progress: Float): Float =
@@ -503,12 +541,11 @@ private fun DrawScope.drawRing(pulse: DenPulse, at: Offset, start: Color, end: C
   )
 }
 
+/** The bold face of the z's, made once: a typeface is expensive and never changes. */
+private val ZTypeface: Typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+
 /** The two z's drifting up and to the right of the sleeping bear's head, or still when static. */
-private fun DrawScope.drawSleepZ(clock: Float, animated: Boolean, color: Color) {
-  val paint =
-      Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-      }
+private fun DrawScope.drawSleepZ(clock: Float, animated: Boolean, color: Color, paint: Paint) {
   fun z(origin: Offset, size: Float, phase: Float) {
     val alpha: Float
     var dx = 0f
