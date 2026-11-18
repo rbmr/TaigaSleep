@@ -125,6 +125,8 @@ data class FoundSensor(val kind: SensorKind, val id: String, val name: String, v
  * A tracker the app can record with. It reports the streams it offers and hands the recorder raw
  * device bytes; it does not know the recording format beyond its codec.
  */
+// It is the one contract every driver implements, so each of its calls is a part of that contract.
+@Suppress("TooManyFunctions")
 interface Tracker {
   val kind: SensorKind
   val id: String
