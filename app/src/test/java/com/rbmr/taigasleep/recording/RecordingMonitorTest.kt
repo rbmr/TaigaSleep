@@ -4,12 +4,15 @@ import com.rbmr.taigasleep.TestClock
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
+import com.rbmr.taigasleep.recording.store.RecordingStream
 import com.rbmr.taigasleep.tracker.AccBatch
+import com.rbmr.taigasleep.tracker.Codec
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.EcgBatch
 import com.rbmr.taigasleep.tracker.HrSample
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.Stamp
+import com.rbmr.taigasleep.tracker.StreamType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -43,6 +46,15 @@ class RecordingMonitorTest {
 
   private fun monitor() =
       RecordingMonitor(meta(), clock, { type, message -> events += type to message }) { health }
+
+  private fun metaWithPpi(): RecordingMeta {
+    val base = meta()
+    return base.copy(
+        streams =
+            base.streams +
+                RecordingStream("ppi", StreamType.PULSE_INTERVAL, Codec.POLAR_PPI, "ppi.log")
+    )
+  }
 
   private fun RecordingMonitor.hr(contact: Boolean = true, supported: Boolean = true) =
       onHr(Stamp.now(clock), HrSample(60, supported, contact, true, IntArray(0)))
@@ -195,6 +207,48 @@ class RecordingMonitorTest {
     assertTrue("hr $hr", hr in 0.9..1.1)
     assertTrue("ecg $ecg", ecg in 125.0..135.0)
     assertTrue("acc $acc", acc in 47.0..53.0)
+  }
+
+  @Test
+  fun pulseIntervalsCountUnderThePpiStreamAndNotHeartRate() {
+    val m =
+        RecordingMonitor(
+            metaWithPpi(),
+            clock,
+            { type, message -> events += type to message },
+        ) { health }
+    m.hr()
+    m.tick()
+    val heartRateSamples = m.state.value.streams.getValue(RecordingState.StreamKind.HR).samples
+
+    clock.advanceMs(1_000)
+    m.onOther(StreamType.PULSE_INTERVAL, Stamp.now(clock), 3)
+    m.tick()
+
+    val streams = m.state.value.streams
+    assertEquals(RecordingState.StreamStatus.OK, streams.getValue(RecordingState.StreamKind.PPI).status)
+    assertEquals(3L, streams.getValue(RecordingState.StreamKind.PPI).samples)
+    assertEquals(heartRateSamples, streams.getValue(RecordingState.StreamKind.HR).samples)
+  }
+
+  @Test
+  fun pulseIntervalsKeepStallRecoveryQuietWithoutHeartRateSamples() {
+    val m =
+        RecordingMonitor(
+            metaWithPpi(),
+            clock,
+            { type, message -> events += type to message },
+        ) { health }
+    m.onPhase(RecordingState.Phase.RECORDING)
+    m.onLink(ConnectionState.CONNECTED)
+
+    // A minute of pulse intervals and no heart-rate frames is a delivering strap, not a stall.
+    repeat(60) { second ->
+      clock.advanceMs(1_000)
+      m.onOther(StreamType.PULSE_INTERVAL, Stamp.now(clock), 1)
+      val steps = m.tick()
+      assertTrue("step after ${second + 1} s: $steps", steps.isEmpty())
+    }
   }
 
   @Test

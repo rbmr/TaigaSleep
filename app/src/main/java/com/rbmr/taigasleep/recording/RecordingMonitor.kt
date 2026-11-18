@@ -164,6 +164,8 @@ class RecordingMonitor(
   override fun onOther(type: StreamType, stamp: Stamp, samples: Int) {
     if (samples <= 0) return
     synchronized(lock) {
+      // Pulse intervals are beats too, so they prove the strap is delivering where only they flow.
+      if (type == StreamType.PULSE_INTERVAL) recovery.onHrSample(stamp.elapsedNs / NS_PER_MS)
       streamKind(type)?.let { recordStream(it, stamp.elapsedNs, samples) }
     }
   }
