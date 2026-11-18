@@ -93,7 +93,6 @@ android {
     targetSdk = 36
     versionCode = appVersionCode
     versionName = appVersion
-    buildConfigField("String", "GIT_COMMIT", "\"${gitShortCommit()}\"")
     buildConfigField("int", "API_VERSION", requiredApiVersion.toString())
   }
 
@@ -113,8 +112,13 @@ android {
       // A different package name lets a test build and the real app coexist.
       applicationIdSuffix = ".debug"
       versionNameSuffix = "-debug"
+      // A fixed value keeps the debug build up to date across commits: the hash is provenance for
+      // what was released, and a debug build is not that.
+      buildConfigField("String", "GIT_COMMIT", "\"debug\"")
     }
     release {
+      // The hash is part of the release's provenance, so it changes with every commit it ships.
+      buildConfigField("String", "GIT_COMMIT", "\"${gitShortCommit()}\"")
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
