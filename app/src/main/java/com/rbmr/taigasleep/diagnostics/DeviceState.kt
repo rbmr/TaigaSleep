@@ -1,20 +1,14 @@
 package com.rbmr.taigasleep.diagnostics
 
 import android.app.ActivityManager
-import android.app.KeyguardManager
 import android.app.AlarmManager
 import android.app.NotificationManager
-import android.app.usage.UsageStatsManager
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.os.BatteryManager
 import android.os.Build
 import android.os.Debug
-import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
 import android.provider.Settings
@@ -76,18 +70,18 @@ object DeviceState {
    * the sticky battery intent the caller already read, so one heartbeat asks the phone only once.
    */
   fun volatileState(context: Context, batteryRead: Map<*, *>? = null): Map<String, Any?> {
-    val battery = batteryRead ?: safe { battery(context) } as? Map<*, *>
+    val battery = batteryRead ?: safe { PhoneState.battery(context) } as? Map<*, *>
     return linkedMapOf(
-        "bucket" to safe { bucketName(context) },
-        "whitelisted" to safe { power(context).isIgnoringBatteryOptimizations(context.packageName) },
-        "background_restricted" to safe { activity(context).isBackgroundRestricted },
+        "bucket" to safe { Names.standbyBucket(PhoneState.standbyBucket(context)) },
+        "whitelisted" to safe { PhoneState.ignoringBatteryOptimizations(context) },
+        "background_restricted" to safe { PhoneState.backgroundRestricted(context) },
         "exact_alarms" to safe { alarms(context).canScheduleExactAlarms() },
-        "power_save" to safe { power(context).isPowerSaveMode },
-        "doze" to safe { power(context).isDeviceIdleMode },
-        "interactive" to safe { power(context).isInteractive },
-        "locked" to safe { keyguard(context).isKeyguardLocked },
+        "power_save" to safe { PhoneState.batterySaverOn(context) },
+        "doze" to safe { PhoneState.dozing(context) },
+        "interactive" to safe { PhoneState.interactive(context) },
+        "locked" to safe { PhoneState.keyguardLocked(context) },
         "plugged" to battery?.get("plugged"),
-        "charging" to charging(battery),
+        "charging" to PhoneState.charging(battery),
     )
   }
 
@@ -98,7 +92,7 @@ object DeviceState {
   fun heartbeat(context: Context): Map<String, Any?> {
     val nowElapsed = SystemClock.elapsedRealtime()
     // An absent intent is passed on as an empty read, so the state below does not ask again.
-    val battery = safe { battery(context) } as? Map<*, *> ?: emptyMap<Any?, Any?>()
+    val battery = safe { PhoneState.battery(context) } as? Map<*, *> ?: emptyMap<Any?, Any?>()
     val memory = safe { memoryInfo(context) } as? ActivityManager.MemoryInfo
     return linkedMapOf<String, Any?>(
         "uptime_s" to (nowElapsed - Process.getStartElapsedRealtime()) / 1000
@@ -106,7 +100,7 @@ object DeviceState {
       putAll(volatileState(context, battery))
       put("battery_pct", battery["level_pct"])
       put("battery_temp_c", battery["temperature_c"])
-      put("thermal", safe { Names.thermal(power(context).currentThermalStatus) })
+      put("thermal", safe { Names.thermal(PhoneState.thermalStatus(context)) })
       put("importance", safe { processState()["importance"] })
       put("mem_avail_mb", memory?.let { it.availMem / MB })
       put("java_heap_kb", safe { javaHeapKb() })
@@ -122,22 +116,23 @@ object DeviceState {
           "power" to
               linkedMapOf(
                   "ignoring_battery_optimizations" to
-                      safe { power(context).isIgnoringBatteryOptimizations(context.packageName) },
-                  "power_save_mode" to safe { power(context).isPowerSaveMode },
-                  "device_idle_mode" to safe { power(context).isDeviceIdleMode },
-                  "interactive" to safe { power(context).isInteractive },
-                  "thermal_status" to safe { Names.thermal(power(context).currentThermalStatus) },
+                      safe { PhoneState.ignoringBatteryOptimizations(context) },
+                  "power_save_mode" to safe { PhoneState.batterySaverOn(context) },
+                  "device_idle_mode" to safe { PhoneState.dozing(context) },
+                  "interactive" to safe { PhoneState.interactive(context) },
+                  "thermal_status" to safe { Names.thermal(PhoneState.thermalStatus(context)) },
               ),
           "app" to
               linkedMapOf(
-                  "standby_bucket" to safe { usage(context).appStandbyBucket },
-                  "standby_bucket_name" to safe { bucketName(context) },
-                  "background_restricted" to safe { activity(context).isBackgroundRestricted },
+                  "standby_bucket" to safe { PhoneState.standbyBucket(context) },
+                  "standby_bucket_name" to
+                      safe { Names.standbyBucket(PhoneState.standbyBucket(context)) },
+                  "background_restricted" to safe { PhoneState.backgroundRestricted(context) },
                   "notifications_enabled" to safe { notifications(context).areNotificationsEnabled() },
                   "can_schedule_exact_alarms" to safe { alarms(context).canScheduleExactAlarms() },
                   "process" to safe { processState() },
               ),
-          "battery" to safe { battery(context) },
+          "battery" to safe { PhoneState.battery(context) },
           "bluetooth" to linkedMapOf("adapter_state" to safe { bluetoothState(context) }),
           "system" to
               linkedMapOf(
@@ -196,23 +191,17 @@ object DeviceState {
   }
 
   private fun vendor(context: Context): Map<String, Any?> {
-    val id = "${Build.MANUFACTURER} ${Build.BRAND}".lowercase(Locale.ROOT)
-    val family =
-        when {
-          "oneplus" in id || "oppo" in id || "realme" in id -> "oplus"
-          "samsung" in id -> "samsung"
-          else -> "other"
-        }
+    val family = PhoneState.maker().family
     val keys =
         COMMON_KEYS +
             when (family) {
-              "oplus" -> OPLUS_KEYS
-              "samsung" -> SAMSUNG_KEYS
-              else -> emptyList()
+              MakerFamily.OPLUS -> OPLUS_KEYS
+              MakerFamily.SAMSUNG -> SAMSUNG_KEYS
+              MakerFamily.OTHER -> emptyList()
             }
     val values = linkedMapOf<String, Any?>()
     for (key in keys) readSetting(context, key)?.let { values[key] = it }
-    return linkedMapOf("family" to family, "settings" to values)
+    return linkedMapOf("family" to family.id, "settings" to values)
   }
 
   /** First value found in Global, Secure, System; "unreadable" if all failed; null if absent. */
@@ -263,39 +252,11 @@ object DeviceState {
     )
   }
 
-  /** Sticky battery state; no health samples, just the phone's own battery. */
-  fun battery(context: Context): Map<String, Any?>? {
-    val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        ?: return null
-    val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-    val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
-    return linkedMapOf(
-        "level_pct" to if (level >= 0 && scale > 0) level * 100 / scale else -1,
-        "status" to Names.batteryStatus(intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)),
-        "plugged" to Names.plugged(intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)),
-        "temperature_c" to intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) / 10.0,
-        "health" to Names.batteryHealth(intent.getIntExtra(BatteryManager.EXTRA_HEALTH, 1)),
-    )
-  }
-
-  /**
-   * The charge percentage of [battery], the one figure the heartbeat and the cost share; null
-   * where the phone does not report one.
-   */
-  fun batteryPercent(battery: Map<*, *>?): Int? =
-      (battery?.get("level_pct") as? Int)?.takeIf { it in 0..100 }
-
-  /** Whether [battery] says the phone is charging, as the heartbeat's `charging` records it. */
-  fun charging(battery: Map<*, *>?): Boolean? =
-      (battery?.get("status") as? String)?.let { it == "charging" || it == "full" }
-
   fun bluetoothState(context: Context): String {
     val adapter: BluetoothAdapter? =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
     return if (adapter == null) "NO_ADAPTER" else Names.bluetoothState(adapter.state)
   }
-
-  fun bucketName(context: Context): String = Names.standbyBucket(usage(context).appStandbyBucket)
 
   private fun javaHeapKb(): Long {
     val rt = Runtime.getRuntime()
@@ -310,14 +271,7 @@ object DeviceState {
 
   private const val MB = 1024L * 1024L
 
-  private fun power(c: Context) = c.getSystemService(Context.POWER_SERVICE) as PowerManager
-
   private fun activity(c: Context) = c.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-
-  private fun usage(c: Context) =
-      c.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-
-  private fun keyguard(c: Context) = c.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
 
   private fun alarms(c: Context) = c.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 

@@ -2,9 +2,7 @@ package com.rbmr.taigasleep.diagnostics
 
 import android.app.Application
 import android.net.TrafficStats
-import android.os.BatteryManager
 import android.os.Debug
-import android.os.PowerManager
 import android.os.Process
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -73,50 +71,46 @@ object RecordingCost {
     Diagnostics.log(type, fields)
   }
 
-  // The current recording's counters. They are reset by begin() and only read here.
-  private val ticks = AtomicLong()
-  private val timers = AtomicLong()
-  private val heartbeats = AtomicLong()
-  private val prefWrites = AtomicLong()
-  private val recBytes = AtomicLong()
-  private val recWrites = AtomicLong()
-  private val eventBytes = AtomicLong()
-  private val eventWrites = AtomicLong()
-  private val diagBytes = AtomicLong()
-  private val diagWrites = AtomicLong()
-  private val fsyncs = AtomicLong()
-  private val stalls = AtomicLong()
-  private val reconnects = AtomicLong()
-  private val restarts = AtomicLong()
-  private val bleStreams = ConcurrentHashMap<String, StreamCost>()
+  /** One recording's counters; a new recording replaces the whole object instead of resetting. */
+  private class Counters {
+    val ticks = AtomicLong()
+    val timers = AtomicLong()
+    val heartbeats = AtomicLong()
+    val prefWrites = AtomicLong()
+    val recBytes = AtomicLong()
+    val recWrites = AtomicLong()
+    val eventBytes = AtomicLong()
+    val eventWrites = AtomicLong()
+    val diagBytes = AtomicLong()
+    val diagWrites = AtomicLong()
+    val fsyncs = AtomicLong()
+    val stalls = AtomicLong()
+    val reconnects = AtomicLong()
+    val restarts = AtomicLong()
+    val bleStreams = ConcurrentHashMap<String, StreamCost>()
+  }
 
-  /** What the phone showed when a segment began. */
-  private class Start(
-      val batteryPct: Int?,
-      val chargeUah: Long?,
-      val cpuMs: Long?,
-      val txBytes: Long?,
-      val rxBytes: Long?,
-  )
+  @Volatile private var counters = Counters()
 
-  /** The phone's state at one heartbeat, which is both the end of one interval and the next one. */
+  /** The phone's state at the start of a segment, one heartbeat, or its end. */
+  @Suppress("LongParameterList")
   private class Reading(
-      val atMs: Long,
-      val batteryPct: Int?,
-      val chargeUah: Long?,
-      val interactive: Boolean?,
-      val doze: Boolean?,
-      val charging: Boolean?,
+      val atMs: Long = 0,
+      val batteryPct: Int? = null,
+      val chargeUah: Long? = null,
+      val interactive: Boolean? = null,
+      val doze: Boolean? = null,
+      val charging: Boolean? = null,
+      val cpuMs: Long? = null,
+      val txBytes: Long? = null,
+      val rxBytes: Long? = null,
   )
-
-  /** What only the end of a segment needs, beyond its last [Reading]. */
-  private class Extras(val cpuMs: Long?, val txBytes: Long?, val rxBytes: Long?)
 
   private class Window(
       val recordingId: String,
       val startedUtcMs: Long,
       val beganElapsedMs: Long,
-      val start: Start,
+      val start: Reading,
   ) {
     var lastAtMs = beganElapsedMs
     var lastBatteryPct = start.batteryPct
@@ -165,9 +159,9 @@ object RecordingCost {
     synchronized(lock) {
       val current = window
       if (current != null && current.recordingId == recordingId) return
-      resetCounters()
+      counters = Counters()
       val start =
-          Start(
+          Reading(
               batteryPct = safe { s.batteryPercent() },
               chargeUah = safe { s.chargeCounterUah() },
               cpuMs = safe { s.processCpuMs() },
@@ -197,6 +191,7 @@ object RecordingCost {
     if (s == null || w == null) return null
     return synchronized(lock) {
       if (window !== w) return@synchronized null
+      val c = counters
       val collected = System.nanoTime()
       val charge = safe { s.chargeCounterUah() }
       val current = safe { s.currentNowUa() }
@@ -209,25 +204,25 @@ object RecordingCost {
       val rx = safe { s.rxBytes() }
       val headroom = safe { s.thermalHeadroom() }
       accumulate(w, Reading(nowElapsedMs, batteryPct, charge, interactive, doze, charging))
-      heartbeats.incrementAndGet()
+      c.heartbeats.incrementAndGet()
       val fields = LinkedHashMap<String, Any?>()
       if (charge != null) fields["c"] = charge
       if (current != null) fields["i"] = current
       if (energy != null) fields["e"] = energy
       if (cpu != null) fields["p"] = listOfNotNull(cpu, ownCpu)
       fields["w"] = listOf(heldMs(w, nowElapsedMs), w.wakeAcquires)
-      fields["t"] = listOf(ticks.get(), timers.get(), heartbeats.get(), prefWrites.get())
+      fields["t"] = listOf(c.ticks.get(), c.timers.get(), c.heartbeats.get(), c.prefWrites.get())
       fields["o"] =
           listOf(
-              recBytes.get(),
-              recWrites.get(),
-              eventBytes.get(),
-              eventWrites.get(),
-              diagBytes.get(),
-              diagWrites.get(),
-              fsyncs.get(),
+              c.recBytes.get(),
+              c.recWrites.get(),
+              c.eventBytes.get(),
+              c.eventWrites.get(),
+              c.diagBytes.get(),
+              c.diagWrites.get(),
+              c.fsyncs.get(),
           )
-      fields["b"] = bleFields()
+      fields["b"] = bleFields(c)
       traffic(w, tx, rx)?.let { fields["n"] = it }
       if (gcCount != null || gcTime != null) fields["g"] = listOfNotNull(gcCount, gcTime)
       fields["m"] = listOf(w.screenOnMs, w.dozeMs)
@@ -245,25 +240,26 @@ object RecordingCost {
   fun end(reason: String, nowUtcMs: Long, nowElapsedMs: Long) {
     val s = sources ?: return
     val w: Window
+    val c: Counters
     synchronized(lock) {
       w = window ?: return
+      c = counters
       window = null
     }
-    val charging = safe { s.charging() }
     val reading =
         Reading(
-            nowElapsedMs,
-            safe { s.batteryPercent() },
-            safe { s.chargeCounterUah() },
-            null,
-            null,
-            charging,
+            atMs = nowElapsedMs,
+            batteryPct = safe { s.batteryPercent() },
+            chargeUah = safe { s.chargeCounterUah() },
+            charging = safe { s.charging() },
+            cpuMs = safe { s.processCpuMs() },
+            txBytes = safe { s.txBytes() },
+            rxBytes = safe { s.rxBytes() },
         )
-    val extras = Extras(safe { s.processCpuMs() }, safe { s.txBytes() }, safe { s.rxBytes() })
     // The last interval belongs to the recording too: count it with the state the last heartbeat saw.
     synchronized(lock) { accumulate(w, reading) }
-    val fields = stopFields(w, reason, nowUtcMs, reading, extras)
-    if (charging != null) fields["charging_end"] = charging
+    val fields = stopFields(w, c, reason, nowUtcMs, reading)
+    if (reading.charging != null) fields["charging_end"] = reading.charging
     sink("recording_cost", fields)
   }
 
@@ -289,45 +285,49 @@ object RecordingCost {
     }
   }
 
-  fun tick() = ticks.incrementAndGet()
+  fun tick() = counters.ticks.incrementAndGet()
 
-  fun timerFired() = timers.incrementAndGet()
+  fun timerFired() = counters.timers.incrementAndGet()
 
-  fun preferenceWrite() = prefWrites.incrementAndGet()
+  fun preferenceWrite() = counters.prefWrites.incrementAndGet()
 
   /** A write of [bytes] to a recording's own files (a frame, meta.json). */
   fun recordingWrite(bytes: Long) {
     if (bytes <= 0) return
-    recBytes.addAndGet(bytes)
-    recWrites.incrementAndGet()
+    val c = counters
+    c.recBytes.addAndGet(bytes)
+    c.recWrites.incrementAndGet()
   }
 
   fun eventWrite(bytes: Long) {
     if (bytes <= 0) return
-    eventBytes.addAndGet(bytes)
-    eventWrites.incrementAndGet()
+    val c = counters
+    c.eventBytes.addAndGet(bytes)
+    c.eventWrites.incrementAndGet()
   }
 
   fun diagnosticsWrite(bytes: Long) {
     if (bytes <= 0) return
-    diagBytes.addAndGet(bytes)
-    diagWrites.incrementAndGet()
+    val c = counters
+    c.diagBytes.addAndGet(bytes)
+    c.diagWrites.incrementAndGet()
   }
 
-  fun fsync() = fsyncs.incrementAndGet()
+  fun fsync() = counters.fsyncs.incrementAndGet()
 
   /** One notification of the declared stream [stream], carrying [bytes] of encoded payload. */
   fun ble(stream: String, bytes: Long) {
-    val cost = bleStreams[stream] ?: bleStreams.computeIfAbsent(stream) { StreamCost() }
+    val streams = counters.bleStreams
+    val cost = streams[stream] ?: streams.computeIfAbsent(stream) { StreamCost() }
     cost.notifications.incrementAndGet()
     cost.bytes.addAndGet(bytes.coerceAtLeast(0))
   }
 
-  fun streamStalled() = stalls.incrementAndGet()
+  fun streamStalled() = counters.stalls.incrementAndGet()
 
-  fun reconnected() = reconnects.incrementAndGet()
+  fun reconnected() = counters.reconnects.incrementAndGet()
 
-  fun watchdogRestart() = restarts.incrementAndGet()
+  fun watchdogRestart() = counters.restarts.incrementAndGet()
 
   // Interval bookkeeping. Everything below runs under the lock.
 
@@ -362,20 +362,21 @@ object RecordingCost {
     if (chargeDrop > 0) if (on) w.drainOnUah += chargeDrop else w.drainOffUah += chargeDrop
   }
 
-  private fun drop(before: Int?, after: Int?): Double =
-      if (before != null && after != null) (before - after).coerceAtLeast(0).toDouble() else 0.0
-
-  private fun drop(before: Long?, after: Long?): Double =
-      if (before != null && after != null) (before - after).coerceAtLeast(0).toDouble() else 0.0
+  private fun <T : Number> drop(before: T?, after: T?): Double =
+      if (before != null && after != null) {
+        (before.toDouble() - after.toDouble()).coerceAtLeast(0.0)
+      } else {
+        0.0
+      }
 
   private fun heldMs(w: Window, nowMs: Long): Long =
       w.wakeHeldMs + (w.wakeSinceMs?.let { (nowMs - it).coerceAtLeast(0) } ?: 0)
 
   /** Notifications and payload bytes of every stream that delivered something, by stream id. */
-  private fun bleFields(): Map<String, List<Long>> {
+  private fun bleFields(c: Counters): Map<String, List<Long>> {
     val out = LinkedHashMap<String, List<Long>>()
-    for (id in bleStreams.keys.sorted()) {
-      val cost = bleStreams[id] ?: continue
+    for (id in c.bleStreams.keys.sorted()) {
+      val cost = c.bleStreams[id] ?: continue
       out[id] = listOf(cost.notifications.get(), cost.bytes.get())
     }
     return out
@@ -408,16 +409,16 @@ object RecordingCost {
 
   private fun stopFields(
       w: Window,
+      c: Counters,
       reason: String,
       nowUtcMs: Long,
       now: Reading,
-      extras: Extras,
   ): LinkedHashMap<String, Any?> {
     val segmentMs = (now.atMs - w.beganElapsedMs).coerceAtLeast(0)
     val durationS = (nowUtcMs - w.startedUtcMs).coerceAtLeast(0) / 1000
     val cpuMs =
-        if (extras.cpuMs != null && w.start.cpuMs != null) {
-          (extras.cpuMs - w.start.cpuMs).coerceAtLeast(0)
+        if (now.cpuMs != null && w.start.cpuMs != null) {
+          (now.cpuMs - w.start.cpuMs).coerceAtLeast(0)
         } else {
           null
         }
@@ -440,54 +441,34 @@ object RecordingCost {
             "wake_lock_n" to w.wakeAcquires,
             "cpu_ms" to cpuMs,
             "cpu_ms_per_h" to cpuMs?.let { perHour(it, segmentMs) },
-            "bytes_written" to recBytes.get(),
-            "event_bytes" to eventBytes.get(),
-            "diag_bytes" to diagBytes.get(),
-            "fsyncs" to fsyncs.get(),
-            "stream_stalls" to stalls.get(),
-            "reconnects" to reconnects.get(),
-            "watchdog_restarts" to restarts.get(),
+            "bytes_written" to c.recBytes.get(),
+            "event_bytes" to c.eventBytes.get(),
+            "diag_bytes" to c.diagBytes.get(),
+            "fsyncs" to c.fsyncs.get(),
+            "stream_stalls" to c.stalls.get(),
+            "reconnects" to c.reconnects.get(),
+            "watchdog_restarts" to c.restarts.get(),
             "drain_pct_per_h_on" to perHour(w.drainOnPct, w.drainableOnMs),
             "drain_pct_per_h_off" to perHour(w.drainOffPct, w.drainableOffMs),
             "drain_uah_per_h_on" to perHour(w.drainOnUah, w.drainableOnMs),
             "drain_uah_per_h_off" to perHour(w.drainOffUah, w.drainableOffMs),
-            "ticks" to ticks.get(),
-            "timers" to timers.get(),
-            "heartbeats" to heartbeats.get(),
+            "ticks" to c.ticks.get(),
+            "timers" to c.timers.get(),
+            "heartbeats" to c.heartbeats.get(),
         )
-    traffic(w, extras.txBytes, extras.rxBytes)?.let { fields["net"] = it }
+    traffic(w, now.txBytes, now.rxBytes)?.let { fields["net"] = it }
     return fields
   }
 
   /** [amount] grown to one hour, or null when nothing was measured in [ms]. */
-  private fun perHour(amount: Double, ms: Long): Double? =
-      if (ms <= 0 || amount <= 0) null else round(amount * HOUR_MS / ms, 1)
-
-  private fun perHour(amount: Long, ms: Long): Double? =
-      if (ms <= 0 || amount <= 0) null else round(amount.toDouble() * HOUR_MS / ms, 1)
+  private fun <T : Number> perHour(amount: T, ms: Long): Double? =
+      if (ms <= 0 || amount.toDouble() <= 0) null
+      else round(amount.toDouble() * HOUR_MS / ms, 1)
 
   private fun round(value: Double, decimals: Int): Double {
     var scale = 1.0
     repeat(decimals) { scale *= 10 }
     return Math.round(value * scale) / scale
-  }
-
-  private fun resetCounters() {
-    ticks.set(0)
-    timers.set(0)
-    heartbeats.set(0)
-    prefWrites.set(0)
-    recBytes.set(0)
-    recWrites.set(0)
-    eventBytes.set(0)
-    eventWrites.set(0)
-    diagBytes.set(0)
-    diagWrites.set(0)
-    fsyncs.set(0)
-    stalls.set(0)
-    reconnects.set(0)
-    restarts.set(0)
-    bleStreams.clear()
   }
 
   private inline fun <T> safe(block: () -> T?): T? =
@@ -501,34 +482,22 @@ object RecordingCost {
    * The phone behind [Sources]. Every read is guarded: a phone that does not report a value says
    * null and the field is left out, instead of losing the line.
    *
-   * The percentage and the charging flag come from the sticky battery intent through [DeviceState],
-   * the same readings the heartbeat records, so a segment's ends cannot disagree with its beats.
+   * The battery and power readings come from [PhoneState], the same reader the heartbeat uses, so a
+   * segment's ends cannot disagree with its beats.
    */
   private class AndroidSources(private val context: Application) : Sources {
-    private val batteryManager: BatteryManager? by lazy {
-      context.getSystemService(BatteryManager::class.java)
-    }
-    private val power: PowerManager? by lazy { context.getSystemService(PowerManager::class.java) }
     private val uid = Process.myUid()
 
-    override fun batteryPercent(): Int? = DeviceState.batteryPercent(DeviceState.battery(context))
+    override fun batteryPercent(): Int? =
+        PhoneState.batteryPercent(PhoneState.battery(context))
 
-    override fun chargeCounterUah(): Long? =
-        batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)?.takeIf {
-          it != Long.MIN_VALUE
-        }
+    override fun chargeCounterUah(): Long? = PhoneState.chargeCounterUah(context)
 
-    override fun currentNowUa(): Long? =
-        batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)?.takeIf {
-          it != Int.MIN_VALUE
-        }?.toLong()
+    override fun currentNowUa(): Long? = PhoneState.currentNowUa(context)
 
-    override fun energyNwh(): Long? =
-        batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_ENERGY_COUNTER)?.takeIf {
-          it != Long.MIN_VALUE
-        }
+    override fun energyNwh(): Long? = PhoneState.energyNwh(context)
 
-    override fun charging(): Boolean? = DeviceState.charging(DeviceState.battery(context))
+    override fun charging(): Boolean? = PhoneState.charging(PhoneState.battery(context))
 
     override fun processCpuMs(): Long = Process.getElapsedCpuTime()
 
@@ -543,12 +512,7 @@ object RecordingCost {
 
     override fun rxBytes(): Long? = TrafficStats.getUidRxBytes(uid).takeIf { it >= 0 }
 
-    override fun thermalHeadroom(): Float? =
-        try {
-          power?.getThermalHeadroom(0)
-        } catch (_: Exception) {
-          null
-        }
+    override fun thermalHeadroom(): Float? = PhoneState.thermalHeadroom(context)
 
     private fun runtimeStat(name: String): Long? = Debug.getRuntimeStat(name)?.toLongOrNull()
   }

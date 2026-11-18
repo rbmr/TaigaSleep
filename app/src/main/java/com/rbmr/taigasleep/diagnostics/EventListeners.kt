@@ -1,7 +1,6 @@
 package com.rbmr.taigasleep.diagnostics
 
 import android.app.Application
-import android.app.KeyguardManager
 import android.bluetooth.BluetoothAdapter
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -49,11 +48,11 @@ class EventListeners(private val app: Application) {
           val fields = linkedMapOf<String, Any?>()
           when (action) {
             PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED ->
-                fields["doze"] = DeviceState.safe { power().isDeviceIdleMode }
+                fields["doze"] = DeviceState.safe { PhoneState.dozing(app) }
             ACTION_LIGHT_DEVICE_IDLE_MODE_CHANGED ->
                 fields["note"] = "light doze changed (no public getter)"
             PowerManager.ACTION_POWER_SAVE_MODE_CHANGED ->
-                fields["power_save"] = DeviceState.safe { power().isPowerSaveMode }
+                fields["power_save"] = DeviceState.safe { PhoneState.batterySaverOn(app) }
             BluetoothAdapter.ACTION_STATE_CHANGED -> {
               val state =
                   intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
@@ -64,10 +63,10 @@ class EventListeners(private val app: Application) {
             Intent.ACTION_BATTERY_OKAY,
             Intent.ACTION_POWER_CONNECTED,
             Intent.ACTION_POWER_DISCONNECTED ->
-                fields["battery_pct"] = DeviceState.safe { DeviceState.battery(app)?.get("level_pct") }
+                fields["battery_pct"] = DeviceState.safe { PhoneState.battery(app)?.get("level_pct") }
           }
           if (action == Intent.ACTION_SCREEN_ON || action == Intent.ACTION_SCREEN_OFF) {
-            fields["locked"] = DeviceState.safe { keyguard().isKeyguardLocked }
+            fields["locked"] = DeviceState.safe { PhoneState.keyguardLocked(app) }
           }
           Diagnostics.log(eventType(action), fields)
           if (changesSnapshot(action)) Diagnostics.snapshot(eventType(action))
@@ -122,8 +121,6 @@ class EventListeners(private val app: Application) {
         caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> "bluetooth"
         else -> "other"
       }
-
-  private fun keyguard() = app.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
 
   private fun power() = app.getSystemService(Context.POWER_SERVICE) as PowerManager
 
