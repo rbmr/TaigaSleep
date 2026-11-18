@@ -178,6 +178,7 @@ class WakeAlarmRingTest {
     assertEquals("window_end", alarm["reason"])
     assertEquals("vibrate", alarm["ringer_mode"])
     assertEquals("alarms", alarm["dnd_filter"])
+    assertEquals(true, alarm["dnd_alarms_allowed"])
     assertEquals(0, alarm["alarm_volume_before"])
     assertEquals(7, alarm["alarm_volume_after"])
     assertEquals(10, alarm["alarm_volume_max"])
@@ -236,6 +237,16 @@ class WakeAlarmRingTest {
   }
 
   @Test
+  fun `the alarm records whether Do Not Disturb lets alarms through`() {
+    phone.alarmsAllowed = false
+
+    ring.start(WakeReason.SIGNAL, "signal")
+
+    val alarm = logs.first { it.first == "wake_alarm" }.second
+    assertEquals(false, alarm["dnd_alarms_allowed"])
+  }
+
+  @Test
   fun `the test ring reports whether sound started and at which volume`() {
     phone.volume = 3
     phone.max = 10
@@ -268,6 +279,16 @@ class WakeAlarmRingTest {
     assertEquals(setOf(WakeAlarmWarning.NOTIFICATIONS_OFF), blocked.warnings)
     assertEquals(setOf(WakeAlarmWarning.NO_OUTPUT), quiet.warnings)
     assertTrue(WakeAlarmAudibility.from(false, false, false).audible())
+
+    val priority =
+        WakeAlarmAudibility.from(
+            totalSilence = false,
+            notificationsOff = false,
+            noOutput = false,
+            dndAlarmsBlocked = true,
+        )
+    assertEquals(setOf(WakeAlarmWarning.DND_ALARMS_BLOCKED), priority.warnings)
+    assertFalse(priority.audible())
   }
 
   private class FakePhone : AlarmEnvironment {
@@ -278,6 +299,7 @@ class WakeAlarmRingTest {
     var focus = true
     var focusTaken = false
     var refuseRaise = false
+    var alarmsAllowed = true
 
     override val ringerMode: RingerMode
       get() = ringer
@@ -289,6 +311,9 @@ class WakeAlarmRingTest {
       get() = max
     override val hasOutput: Boolean
       get() = true
+
+    override val dndAlarmsAllowed: Boolean
+      get() = alarmsAllowed
 
     override fun setAlarmVolume(volume: Int): Boolean {
       if (refuseRaise) return false

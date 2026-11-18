@@ -256,9 +256,9 @@ CPU awake while it rings, with a 15 minute safety timeout. It raises the stream 
 maximum when it is below that and puts the volume back when it is stopped. If the stream cannot
 be played it falls back to the notification's alarm sound, and the failure is recorded. The
 notification stays as the visible control, silent, with one Stop button. Stopping ends the alarm,
-never the recording. When the phone would block the alarm outright (Do Not Disturb total silence,
-notifications off, no audio output) the start of the recording and the alarm's settings say so, and
-the alarm's settings ring a test through the same path.
+never the recording. When the phone would block the alarm outright (Do Not Disturb total silence or
+priority mode without alarms, notifications off, no audio output) the start of the recording and the
+alarm's settings say so, and the alarm's settings ring a test through the same path.
 
 While a streamed recording runs, the recording screen shows the alarm's window (or Off, or when it
 rang) and lets the user switch it on or off and move its start and length. A change goes to the

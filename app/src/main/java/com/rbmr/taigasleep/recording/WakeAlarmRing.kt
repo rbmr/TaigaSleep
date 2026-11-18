@@ -40,6 +40,10 @@ interface AlarmEnvironment {
 
   fun releaseFocus()
 
+  /** False when Do Not Disturb currently keeps alarms from sounding. */
+  val dndAlarmsAllowed: Boolean
+    get() = true
+
   companion object {
     /** `NotificationManager.INTERRUPTION_FILTER_*`; total silence is [INTERRUPTION_FILTER_NONE]. */
     const val INTERRUPTION_FILTER_ALL = 1
@@ -270,6 +274,7 @@ class WakeAlarmRing(
           "alarm_volume_max" to ring.maxVolume,
           "playback_started" to ring.playbackStarted,
           "audible" to ring.audible,
+          "dnd_alarms_allowed" to phone.dndAlarmsAllowed,
           "sound" to ring.sound?.wire,
           "audio_focus" to ring.focusGranted,
           "notification_posted" to ring.notificationPosted,
@@ -312,11 +317,13 @@ data class WakeAlarmAudibility(
     val totalSilence: Boolean,
     val notificationsOff: Boolean,
     val noOutput: Boolean,
+    val dndAlarmsBlocked: Boolean = false,
 ) {
   val warnings: Set<WakeAlarmWarning>
     get() =
         buildSet {
           if (totalSilence) add(WakeAlarmWarning.TOTAL_SILENCE)
+          if (dndAlarmsBlocked) add(WakeAlarmWarning.DND_ALARMS_BLOCKED)
           if (notificationsOff) add(WakeAlarmWarning.NOTIFICATIONS_OFF)
           if (noOutput) add(WakeAlarmWarning.NO_OUTPUT)
         }
@@ -324,14 +331,19 @@ data class WakeAlarmAudibility(
   fun audible(): Boolean = warnings.isEmpty()
 
   companion object {
-    fun from(totalSilence: Boolean, notificationsOff: Boolean, noOutput: Boolean) =
-        WakeAlarmAudibility(totalSilence, notificationsOff, noOutput)
+    fun from(
+        totalSilence: Boolean,
+        notificationsOff: Boolean,
+        noOutput: Boolean,
+        dndAlarmsBlocked: Boolean = false,
+    ) = WakeAlarmAudibility(totalSilence, notificationsOff, noOutput, dndAlarmsBlocked)
   }
 }
 
 /** One reason the alarm may not be heard, as the settings show it. */
 enum class WakeAlarmWarning {
   TOTAL_SILENCE,
+  DND_ALARMS_BLOCKED,
   NOTIFICATIONS_OFF,
   NO_OUTPUT,
 }

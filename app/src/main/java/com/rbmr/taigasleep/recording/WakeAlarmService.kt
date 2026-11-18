@@ -174,13 +174,28 @@ fun readWakeAlarmAudibility(context: Context): WakeAlarmAudibility {
   val app = context.applicationContext
   val audio = app.getSystemService(AudioManager::class.java)
   val notifications = app.getSystemService(NotificationManager::class.java)
+  val filter = notifications.currentInterruptionFilter
   return WakeAlarmAudibility.from(
-      totalSilence =
-          notifications.currentInterruptionFilter == AlarmEnvironment.INTERRUPTION_FILTER_NONE,
+      totalSilence = filter == AlarmEnvironment.INTERRUPTION_FILTER_NONE,
       notificationsOff = !NotificationManagerCompat.from(app).areNotificationsEnabled(),
       noOutput = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).isEmpty(),
+      dndAlarmsBlocked =
+          filter == AlarmEnvironment.INTERRUPTION_FILTER_PRIORITY && !dndAllowsAlarms(notifications),
   )
 }
+
+/**
+ * True when the current Do Not Disturb filter lets alarms through. Total silence does not; priority
+ * does only when the user also allowed the alarm category.
+ */
+private fun dndAllowsAlarms(notifications: NotificationManager): Boolean =
+    when (notifications.currentInterruptionFilter) {
+      AlarmEnvironment.INTERRUPTION_FILTER_NONE -> false
+      AlarmEnvironment.INTERRUPTION_FILTER_PRIORITY ->
+          (notifications.notificationPolicy.priorityCategories and
+              NotificationManager.Policy.PRIORITY_CATEGORY_ALARMS) != 0
+      else -> true
+    }
 
 /**
  * The partial wake lock that keeps the CPU running while the alarm rings. The system drops it after
@@ -267,6 +282,9 @@ class AndroidAlarmDevice(private val context: Context) :
 
   override val hasOutput: Boolean
     get() = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).isNotEmpty()
+
+  override val dndAlarmsAllowed: Boolean
+    get() = dndAllowsAlarms(notifications)
 
   override fun requestFocus(): Boolean {
     val request =

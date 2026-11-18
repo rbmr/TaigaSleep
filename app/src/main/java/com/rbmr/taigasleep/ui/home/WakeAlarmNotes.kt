@@ -63,6 +63,7 @@ internal fun WakeTestNote(result: AlarmTestResult?) {
 private fun textOf(warning: WakeAlarmWarning): Int =
     when (warning) {
       WakeAlarmWarning.TOTAL_SILENCE -> R.string.wake_warning_silence
+      WakeAlarmWarning.DND_ALARMS_BLOCKED -> R.string.wake_warning_priority_alarms
       WakeAlarmWarning.NOTIFICATIONS_OFF -> R.string.wake_warning_notifications
       WakeAlarmWarning.NO_OUTPUT -> R.string.wake_warning_output
     }

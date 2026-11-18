@@ -128,13 +128,13 @@ mode. Whether it was heard is what these events answer.
 
 `wake_alarm` is written when the ring starts: `source` (`signal`, `window_end` or `test`), `reason`
 (`signal` or `window_end`, the same words the notification uses), `ringer_mode` (`silent`, `vibrate`,
-`normal` or `unknown`), `dnd_filter` (`all`, `priority`, `none`, `alarms` or `unknown`), the alarm
-stream's `alarm_volume_before`, `alarm_volume_after` and `alarm_volume_max`, `playback_started`,
-`audible`, `sound` (`user_ringtone`, `default_alarm` or `bundled_tone`), `audio_focus`,
-`notification_posted` and `vibration_started`. The stream is raised to 70 % of its maximum when it
-was below that, and the raise is only ever upward. `audible` is false when playback started but the
-stream stayed at zero or below a few percent of its maximum, which a refused raise or a fixed
-volume policy can do.
+`normal` or `unknown`), `dnd_filter` (`all`, `priority`, `none`, `alarms` or `unknown`),
+`dnd_alarms_allowed` (whether Do Not Disturb currently lets alarms through), the alarm stream's
+`alarm_volume_before`, `alarm_volume_after` and `alarm_volume_max`, `playback_started`, `audible`,
+`sound` (`user_ringtone`, `default_alarm` or `bundled_tone`), `audio_focus`, `notification_posted` and
+`vibration_started`. The stream is raised to 70 % of its maximum when it was below that, and the
+raise is only ever upward. `audible` is false when playback started but the stream stayed at zero or
+below a few percent of its maximum, which a refused raise or a fixed volume policy can do.
 
 `wake_rang` is written only when the sound actually started and the stream was above that audible
 threshold, with the same `source` and `reason` and the `volume` and `volume_max` it played at. A ring
@@ -154,8 +154,8 @@ A test ring reports the same `playback_started`, `audible` and volume through th
 changes nothing, so the volume raised for the first ring is still put back when that ring stops.
 
 The start of a recording and the alarm's own settings warn when Do Not Disturb is set to total
-silence, notifications are off or the phone has no audio output. Those are the phone's choices and
-are reported, not overridden.
+silence, when priority mode does not allow alarms, when notifications are off or when the phone has
+no audio output. Those are the phone's choices and are reported, not overridden.
 
 ## The cost of a recording
 
