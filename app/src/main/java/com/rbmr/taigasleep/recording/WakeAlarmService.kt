@@ -56,7 +56,7 @@ class WakeAlarmService : Service() {
             notifications = device,
             wakeLock = AndroidAlarmWakeLock(this),
         )
-    session = WakeAlarmSession(ring, onStopped = { teardown() })
+    session = WakeAlarmSession(ring, HandlerAlarmTimers(handler), onStopped = { teardown() })
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -76,6 +76,7 @@ class WakeAlarmService : Service() {
     super.onDestroy()
   }
 
+  @Suppress("ReturnCount")
   private fun started(intent: Intent) {
     val reason = WakeReason.fromWire(intent.getStringExtra(EXTRA_REASON)) ?: WakeReason.WINDOW_END
     val source = intent.getStringExtra(EXTRA_SOURCE) ?: SOURCE_WINDOW_END
@@ -110,10 +111,9 @@ class WakeAlarmService : Service() {
       stopSelf()
       return
     }
-    val result = session.start(reason, source)
+    val result = session.start(reason, source, testMs.toLong()) ?: return
     if (testMs > 0) {
       WakeAlarm.testResult.value = result.testResult()
-      handler.postDelayed({ session.stop(HOW_TEST) }, testMs.toLong())
       return
     }
     report(result, source)
@@ -153,7 +153,17 @@ class WakeAlarmService : Service() {
 
     private const val HOW_USER = "user"
     private const val HOW_SERVICE = "service"
-    private const val HOW_TEST = "test"
+  }
+}
+
+/**
+ * The service's handler as [AlarmTimers]; cancelling removes the runnable it scheduled.
+ */
+private class HandlerAlarmTimers(private val handler: Handler) : AlarmTimers {
+  override fun schedule(delayMs: Long, action: () -> Unit): AlarmCancel {
+    val runnable = Runnable { action() }
+    handler.postDelayed(runnable, delayMs)
+    return AlarmCancel { handler.removeCallbacks(runnable) }
   }
 }
 

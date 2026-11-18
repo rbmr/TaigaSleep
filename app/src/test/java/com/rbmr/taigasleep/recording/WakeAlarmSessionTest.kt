@@ -15,11 +15,13 @@ class WakeAlarmSessionTest {
   private val vibrator = FakeVibrator()
   private val notifications = FakeNotifications()
   private val ring = WakeAlarmRing(phone, player, vibrator, notifications, log = { _, _ -> })
+  private val timers = FakeTimers()
   private val ringing = mutableListOf<Boolean>()
   private val stopped = mutableListOf<String>()
   private val session =
       WakeAlarmSession(
           ring,
+          timers,
           onRinging = { ringing += it },
           onStopped = { stopped += it },
       )
@@ -49,6 +51,58 @@ class WakeAlarmSessionTest {
     assertTrue(stopped.isEmpty())
     assertTrue(ringing.isEmpty())
     assertEquals(0, notifications.cancels)
+  }
+
+  @Test
+  fun `a test request while a real alarm rings is ignored`() {
+    session.start(WakeReason.SIGNAL, "signal")
+
+    val ignored = session.start(WakeReason.WINDOW_END, "test", testMs = 3_000)
+
+    assertEquals(null, ignored)
+    assertEquals(AlarmPhase.RINGING, session.phase)
+    assertEquals("the real ring is not started again", 1, player.plays)
+    assertTrue("no test stop is scheduled", timers.tasks.isEmpty())
+  }
+
+  @Test
+  fun `a real alarm cancels a pending test stop and wins`() {
+    session.start(WakeReason.WINDOW_END, "test", testMs = 3_000)
+    assertEquals(AlarmPhase.TEST, session.phase)
+    val testStop = timers.tasks.single()
+
+    session.start(WakeReason.SIGNAL, "signal")
+
+    assertEquals(AlarmPhase.RINGING, session.phase)
+    assertTrue("the test timer is cancelled", testStop.cancelled)
+    assertEquals("the test ring is ended, then the real one starts", 2, player.plays)
+    assertEquals(1, player.stops)
+  }
+
+  @Test
+  fun `the test stops itself after the requested time`() {
+    session.start(WakeReason.WINDOW_END, "test", testMs = 3_000)
+
+    timers.tasks.single().action()
+
+    assertFalse(session.ringing)
+    assertEquals(listOf("test"), stopped)
+    assertEquals(1, player.stops)
+  }
+
+  private class FakeTimers : AlarmTimers {
+    inner class Task(val delayMs: Long, val action: () -> Unit) : AlarmCancel {
+      var cancelled = false
+
+      override fun cancel() {
+        cancelled = true
+      }
+    }
+
+    val tasks = mutableListOf<Task>()
+
+    override fun schedule(delayMs: Long, action: () -> Unit): AlarmCancel =
+        Task(delayMs, action).also { tasks += it }
   }
 
   private class FakePhone : AlarmEnvironment {
