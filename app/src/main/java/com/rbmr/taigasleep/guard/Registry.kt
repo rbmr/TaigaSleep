@@ -2,6 +2,9 @@ package com.rbmr.taigasleep.guard
 
 import android.os.Build
 import com.rbmr.taigasleep.debug.DebugTools
+import com.rbmr.taigasleep.diagnostics.Maker
+import com.rbmr.taigasleep.diagnostics.MakerFamily
+import com.rbmr.taigasleep.diagnostics.PhoneState
 
 // Debug-only way to preview another brand's guidance on any phone or emulator.
 enum class PreviewDevice(
@@ -21,42 +24,39 @@ enum class PreviewDevice(
 object GuidanceFlows {
   private class Entry(
       val flow: Flow,
-      // Lowercase manufacturer or brand names that use this flow.
-      val brands: Set<String>,
-      // The subset of [brands] the steps were tested on.
+      val family: MakerFamily,
+      // The lowercase brand names the steps were tested on.
       val verifiedBrands: Set<String>,
   )
 
   private val entries =
       listOf(
-          Entry(OnePlusFlow, setOf("oneplus", "oppo", "realme"), setOf("oneplus")),
-          Entry(SamsungFlow, setOf("samsung"), setOf("samsung")),
+          Entry(OnePlusFlow, MakerFamily.OPLUS, setOf("oneplus")),
+          Entry(SamsungFlow, MakerFamily.SAMSUNG, setOf("samsung")),
       )
 
   val all: List<Flow> = entries.map { it.flow } + GenericFlow
 
-  private fun normalize(value: String?): String = value?.trim()?.lowercase().orEmpty()
-
-  // The manufacturer wins over the brand; unknown or blank values fall back to generic.
-  private fun entryFor(manufacturer: String?, brand: String?): Pair<Entry, String>? =
-      listOf(manufacturer, brand).map(::normalize).firstNotNullOfOrNull { name ->
-        entries.firstOrNull { name in it.brands }?.let { it to name }
-      }
+  // No exact brand means the generic flow, even when the family is known by a longer name.
+  private fun entryFor(maker: Maker): Entry? =
+      if (maker.matched == null) null
+      else entries.firstOrNull { it.family == maker.family }
 
   fun flowFor(manufacturer: String?, brand: String?): Flow =
-      entryFor(manufacturer, brand)?.first?.flow ?: GenericFlow
+      entryFor(PhoneState.maker(manufacturer, brand))?.flow ?: GenericFlow
 
   fun matchFor(manufacturer: String?, brand: String?, model: String?): DeviceMatch {
-    val found = entryFor(manufacturer, brand)
+    val maker = PhoneState.maker(manufacturer, brand)
+    val found = entryFor(maker)
     val fidelity =
         when {
           found == null -> Fidelity.UNRECOGNIZED
-          found.second in found.first.verifiedBrands -> Fidelity.VERIFIED
+          maker.matched != null && maker.matched in found.verifiedBrands -> Fidelity.VERIFIED
           else -> Fidelity.DERIVED
         }
     val label =
         listOf(manufacturer?.trim(), model?.trim()).filter { !it.isNullOrEmpty() }.joinToString(" ")
-    return DeviceMatch(found?.first?.flow ?: GenericFlow, fidelity, label)
+    return DeviceMatch(found?.flow ?: GenericFlow, fidelity, label)
   }
 
   fun matchFor(device: PreviewDevice): DeviceMatch =

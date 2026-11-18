@@ -125,6 +125,44 @@ class RecordingCostTest {
   }
 
   @Test
+  fun `a heartbeat's cost fields are pinned byte for byte`() {
+    begin()
+    fake.charge = 5_000_000L
+    fake.currentNowUa = -300_000L
+    fake.energyNwh = 60_000_000_000L
+    fake.cpuMs = 2_000
+    fake.ownThreadCpuMs = 20
+    fake.gcCount = 12
+    fake.gcTimeMs = 120
+    fake.txBytes = 4_000
+    fake.rxBytes = 6_000
+    fake.thermalHeadroom = 0.9f
+    RecordingCost.wakeLockAcquired(t0)
+    repeat(3) { RecordingCost.tick() }
+    RecordingCost.timerFired()
+    repeat(2) { RecordingCost.preferenceWrite() }
+    RecordingCost.recordingWrite(1_000)
+    RecordingCost.recordingWrite(500)
+    RecordingCost.eventWrite(100)
+    RecordingCost.diagnosticsWrite(450)
+    RecordingCost.fsync()
+    RecordingCost.ble("hr", 5)
+    RecordingCost.ble("ecg", 390)
+
+    val beat = heartbeat(t0 + 60_000, battery = 79)!!
+    // The collection time varies by machine; everything else is the format.
+    val pinned = beat.filterKeys { it != "u" }
+    val line = JsonLine.build(0, 0, 1, "diag_heartbeat", mapOf("uptime_s" to 60, "cost" to pinned))
+    assertEquals(
+        """{"t_ms":0,"elapsed_ms":0,"pid":1,"type":"diag_heartbeat","uptime_s":60,"cost":""" +
+            """{"c":5000000,"i":-300000,"e":60000000000,"p":[2000,20],"w":[60000,1],""" +
+            """"t":[3,1,1,2],"o":[1500,2,100,1,450,1,1],"b":{"ecg":[1,390],"hr":[1,5]},""" +
+            """"n":[3000,4000],"g":[12,120],"m":[0,0],"h":0.9}}""",
+        line,
+    )
+  }
+
+  @Test
   fun `the cost event of a normal stop divides drain, wake lock and CPU per hour`() {
     fake.cpuMs = 0
     fake.charge = 5_000_000L
