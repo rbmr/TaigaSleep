@@ -60,6 +60,9 @@ abstract class PolarGenericTracker(
 ) : Tracker, OnDeviceTracker, PolarSeam.ConnectionListener {
   private val _connection = MutableStateFlow(ConnectionState.DISCONNECTED)
   override val connection: StateFlow<ConnectionState> = _connection.asStateFlow()
+
+  override fun logLinesSince(sinceElapsedMs: Long): List<String> = seam.logSince(sinceElapsedMs)
+
   private val _battery = MutableStateFlow<Int?>(null)
   override val battery: StateFlow<Int?> = _battery.asStateFlow()
   private val _firmware = MutableStateFlow<String?>(null)

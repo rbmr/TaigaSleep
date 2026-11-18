@@ -3,7 +3,6 @@ package com.rbmr.taigasleep.recording
 import android.app.Notification
 import android.app.Service
 import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -125,41 +124,13 @@ class RecordingService : Service(), RecordingHost {
 
   override fun readinessSummary(): String = hooks.readinessSummary(this)
 
-  override fun strapView(sensorId: String, sensorName: String, address: String?): String {
-    val manager =
-        getSystemService(BluetoothManager::class.java)
-            ?: return "phone sees the strap: no Bluetooth service to ask"
-    return try {
-      val connected = manager.getConnectedDevices(BluetoothProfile.GATT)
-      val bonded = manager.adapter?.bondedDevices.orEmpty()
-      val resolved =
-          strapDeviceAddress(
-              knownAddress = address,
-              sensorId = sensorId,
-              connected = connected.map { ListedDevice(it.address, it.name) },
-              bonded = bonded.map { ListedDevice(it.address, it.name) },
-          )
-      if (resolved == null) {
-        "phone sees the strap: no device for $sensorName ($sensorId) among its connected or " +
-            "bonded devices"
-      } else {
-        val device = manager.adapter?.getRemoteDevice(resolved)
-        if (device == null) {
-          "phone sees the strap: no Bluetooth adapter"
-        } else {
-          val gatt = manager.getConnectionState(device, BluetoothProfile.GATT)
-          val listed = connected.any { it.address.equals(device.address, ignoreCase = true) }
-          "phone sees the strap at $resolved: gatt ${gattName(gatt)}, " +
-              if (listed) "listed in the phone's connected devices"
-              else "not listed in the phone's connected devices"
-        }
-      }
-    } catch (_: SecurityException) {
-      "phone sees the strap: not readable without the Bluetooth permission"
-    } catch (_: IllegalArgumentException) {
-      "phone sees the strap: the resolved device address is not valid"
-    }
-  }
+  override fun strapView(sensorId: String, sensorName: String, address: String?): String =
+      phoneStrapView(
+          manager = getSystemService(BluetoothManager::class.java),
+          sensorId = sensorId,
+          sensorName = sensorName,
+          knownAddress = address,
+      )
 
   override fun newWakeLock(): RecordingWakeLock? =
       getSystemService(PowerManager::class.java)
@@ -320,15 +291,6 @@ class RecordingService : Service(), RecordingHost {
 
   companion object {
     private const val TAG = "RecordingService"
-
-    private fun gattName(state: Int): String =
-        when (state) {
-          BluetoothProfile.STATE_DISCONNECTED -> "disconnected"
-          BluetoothProfile.STATE_CONNECTING -> "connecting"
-          BluetoothProfile.STATE_CONNECTED -> "connected"
-          BluetoothProfile.STATE_DISCONNECTING -> "disconnecting"
-          else -> "state $state"
-        }
 
     const val ACTION_START = "com.rbmr.taigasleep.recording.START"
     const val ACTION_STOP = "com.rbmr.taigasleep.recording.STOP"

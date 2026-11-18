@@ -121,6 +121,33 @@ Not enforced; keep them lower_snake_case and keep `diag_heartbeat` for the diagn
 | `wake_change` | `recording`, `start_utc_ms`, `end_utc_ms` (empty when the alarm was switched off) |
 | `wakelock` | `action` (acquire/release), `timeout_ms` |
 
+## A tracker connect that stays pending
+
+A connect that does not come up is the one failure with no evidence otherwise. One watch sits on the
+current tracker, so connects from Home, from the sensor picker and from a recording all pass it. It
+writes nothing while the connect works.
+
+- `connect_pending` is written when a tracker has been connecting for 30 s without becoming
+  connected. Fields: `kind` and `sensor_id` (the tracker), `pending_ms` (how long it has been
+  pending), `bluetooth_on` (the phone's adapter, null when it cannot be read), `strap` (the phone's
+  own view of the strap) and `sdk` (the driver's log lines since the connect began). While it stays
+  pending the line repeats at most every 5 minutes.
+- `connect_done` is written when such a connect finally comes up: the same `kind` and `sensor_id`
+  and `after_ms`, the whole time it was pending. A connect that succeeds before the first
+  `connect_pending` writes neither line.
+
+The `strap` view comes from the phone's Bluetooth service: the strap's GATT state, whether it is
+listed in the phone's connected devices, whether it is bonded, and whether any client on the phone
+holds its LE link. The last one is what a strap that stopped advertising because the phone's own
+Battery service still holds its link looks like; Android exposes it from 36.1 and the view says so
+when it does not.
+
+The `sdk` lines come from the Polar SDK's own logger, kept in a ring of the last 200 lines cut to
+300 characters each. The ring holds connection state only: a line that carries sample bytes (the
+SDK prints those after `hex:`) is dropped instead of stored, so no health data reaches the log. One
+`connect_pending` line carries at most 4 KB of the newest ring lines, so it stays a small line even
+when the ring is full. A tracker that keeps no log contributes an empty list.
+
 ## The wake-up alarm
 
 The ringing service starts the alarm on the alarm audio stream, independent of the ringer's silent
@@ -316,5 +343,7 @@ thread, to exercise the crash path.
 previous-run/heartbeat-gap scan, crash-handler chaining, the cost block and its size and time
 budgets, the `recording_cost` event for a stop, a charging night and a recovery after a kill, the
 alarm following the run marker, a heartbeat's single battery read, one fsync per appended batch,
-and which broadcasts take a snapshot, and runs the Python reader on a generated directory (skipped
+and which broadcasts take a snapshot, the connect watch (one pending line after 30 s, the next five
+minutes later, a done line, and silence for a connect that works) and the SDK log ring's size and
+line cut, and runs the Python reader on a generated directory (skipped
 if `python3` is missing), including its cost table for a killed recording.

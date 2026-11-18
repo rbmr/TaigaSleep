@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.recording
 
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -42,6 +43,10 @@ class SensorHub(private val registry: TrackerRegistry = TrackerRegistry.default(
   private val scanScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private val main = Handler(Looper.getMainLooper())
   private val stopScanRunnable = Runnable { stopScan() }
+
+  // One watch for every connect the current tracker makes, wherever it was asked from.
+  private val connects = ConnectWatch()
+  private val watchScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
   // The main thread and the recording control thread both obtain and drop trackers; one of them at
   // a time keeps two trackers for one id, and the loser's threads, from being created.
@@ -115,6 +120,7 @@ class SensorHub(private val registry: TrackerRegistry = TrackerRegistry.default(
             }
         _sensor.value = sensor
         sensor.connect()
+        watchConnects(context, sensor)
         sensor
       }
 
@@ -123,7 +129,25 @@ class SensorHub(private val registry: TrackerRegistry = TrackerRegistry.default(
     synchronized(lock) { dropCurrent() }
   }
 
+  private fun watchConnects(context: Context, sensor: Tracker) {
+    val app = context.applicationContext
+    connects.watch(
+        scope = watchScope,
+        tracker = sensor,
+        strapView = {
+          phoneStrapView(
+              manager = app.getSystemService(BluetoothManager::class.java),
+              sensorId = sensor.id,
+              sensorName = sensor.name,
+              knownAddress = sensor.address,
+          )
+        },
+        bluetoothOn = { bluetoothOn(app.getSystemService(BluetoothManager::class.java)) },
+    )
+  }
+
   private fun dropCurrent() {
+    connects.stop()
     val old = _sensor.value ?: return
     _sensor.value = null
     old.stopStreams()
