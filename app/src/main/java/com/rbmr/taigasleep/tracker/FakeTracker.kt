@@ -161,6 +161,12 @@ class FakeTracker(
     currentEntry = null
   }
 
+  /** Stops the simulation timer when the app forgets this tracker. */
+  @Synchronized
+  override fun release() {
+    disconnect()
+  }
+
   fun startOnDevice(
       config: StreamConfig,
       listener: TrackerListener,

@@ -64,7 +64,6 @@
     <ID>EmptyFunctionBlock:OnDeviceFetchRecoveryTest.kt$OnDeviceFetchRecoveryTest.FixedTracker${}</ID>
     <ID>EmptyFunctionBlock:OnDeviceFetchTest.kt$OnDeviceFetchTest.FixedTracker${}</ID>
     <ID>EmptyFunctionBlock:OnDeviceFetchTest.kt$OnDeviceFetchTest.NoMonitor${}</ID>
-    <ID>EmptyFunctionBlock:PolarH10Sensor.kt$PolarSdk.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:TaigaApplication.kt$TaigaApplication.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:TrackerCleanupTest.kt$TrackerCleanupTest.FakeTracker${}</ID>
     <ID>FunctionNaming:FinishingWithSimulatedSensorTest.kt$FinishingWithSimulatedSensorTest$@Test fun `a failed fetch shows why and the retry finishes the night`()</ID>

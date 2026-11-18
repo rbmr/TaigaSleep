@@ -94,6 +94,11 @@ on, and it is not what the writer, the uploader or the monitor read.
 Stream types are `heart_rate`, `rr_interval`, `ecg`, `accelerometer`, `ppg`,
 `pulse_interval`, `gyroscope` and `magnetometer`.
 
+Every Polar driver names the `settings` keys the same way: `rate_hz`, `resolution_bits`
+and `range_g`. A Verity Sense or Loop recording written before they were unified stores
+the same facts as `sample_rate`, `resolution` and `range`; the settings are informational,
+so an old recording keeps the names it was written with.
+
 `state` is one of `recording`, `stopped` (clean stop), `forced_stop` (one-sided
 stop without sensor connection), `interrupted` (found as `recording` on app
 start with no live marker and no live service, or ended because the phone refused to keep the

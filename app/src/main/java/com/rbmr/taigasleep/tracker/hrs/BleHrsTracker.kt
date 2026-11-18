@@ -156,6 +156,11 @@ class BleHrsTracker(
     }
   }
 
+  /** Stops the reconnect timer and closes the link when the app forgets this tracker. */
+  override fun release() {
+    disconnect()
+  }
+
   override fun disconnect() {
     userDisconnect = true
     retry.cancel()

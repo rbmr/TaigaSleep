@@ -85,6 +85,11 @@ class ReplayTracker(
     listener = null
   }
 
+  /** Stops the playback thread when the app forgets this tracker. */
+  override fun release() {
+    executor.shutdownNow()
+  }
+
   /** Emits every stored frame now, without the recording's spacing. */
   fun playAll() {
     val l = listener ?: return
