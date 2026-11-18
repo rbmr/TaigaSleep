@@ -64,6 +64,12 @@ interface HomeWork {
   /** The last test ring's result, updated by the ringing service. */
   val alarmTest: StateFlow<AlarmTestResult?>
 
+  /** True while the ringing service has an alarm sounding. */
+  val ringing: StateFlow<Boolean>
+
+  /** Stops a ringing alarm without going through its notification. */
+  fun stopAlarm()
+
   /** Rings the alarm for a few seconds through the same path the real alarm uses. */
   fun testAlarm()
 
@@ -120,6 +126,9 @@ class HomeViewModel(
 
   private val _state = MutableStateFlow<HomeUiState>(HomeUiState.NoTracker(guard))
   val state: StateFlow<HomeUiState> = _state.asStateFlow()
+
+  /** The ringing alarm's state, straight from the service. */
+  val ringing: StateFlow<Boolean> = work.ringing
 
   init {
     wakeWarnings = work.wakeWarnings()
@@ -214,6 +223,9 @@ class HomeViewModel(
     work.testAlarm()
     emit()
   }
+
+  /** Stops a ringing alarm from the screen; the recording goes on. */
+  fun stopAlarm() = work.stopAlarm()
 
   /** The user asked for the sensor picker; the Bluetooth permission may have to be asked first. */
   fun selectSensor() {

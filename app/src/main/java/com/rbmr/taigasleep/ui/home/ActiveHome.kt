@@ -58,6 +58,7 @@ internal enum class StopAction {
  * The recording stage: the live screen and the confirmation behind its three ways to end it. The
  * dialog sits where the actions are decided, so every one of them asks the same question.
  */
+@Suppress("LongParameterList")
 @Composable
 internal fun RecordingHome(
     state: HomeUiState.Recording,
@@ -66,6 +67,8 @@ internal fun RecordingHome(
     onForceStop: () -> Unit,
     onDiscard: () -> Unit,
     onWake: () -> Unit,
+    ringing: Boolean = false,
+    onStopAlarm: () -> Unit = {},
 ) {
   var confirm by remember { mutableStateOf<StopAction?>(null) }
   ActiveHome(
@@ -74,6 +77,8 @@ internal fun RecordingHome(
       onForceStop = { confirm = StopAction.FORCE_STOP },
       onDiscard = { confirm = StopAction.DISCARD },
       onWake = onWake,
+      ringing = ringing,
+      onStopAlarm = onStopAlarm,
   )
   confirm?.let { action ->
     StopConfirmDialog(
@@ -97,6 +102,7 @@ internal fun RecordingHome(
  * Recording: the smaller glowing den, the elapsed time, the status card and the three ways to end
  * the recording. Stop is the one large action; the two harsher ways sit together under it.
  */
+@Suppress("LongParameterList")
 @Composable
 internal fun ActiveHome(
     state: HomeUiState.Recording,
@@ -104,6 +110,8 @@ internal fun ActiveHome(
     onForceStop: () -> Unit,
     onDiscard: () -> Unit,
     onWake: () -> Unit,
+    ringing: Boolean = false,
+    onStopAlarm: () -> Unit = {},
 ) {
   val stopping = state.stopping
   val space = MaterialTheme.taiga.space
@@ -123,6 +131,7 @@ internal fun ActiveHome(
         modifier = Modifier.fillMaxWidth().padding(horizontal = space.m).padding(bottom = space.l),
         verticalArrangement = Arrangement.spacedBy(space.m),
     ) {
+      if (ringing) AlarmStopCard(onStopAlarm)
       RecordingHeader(state.status)
       if (state.status.state.overall.reason != null) OverallBanner(state.status)
       RecordingCard(state.status)

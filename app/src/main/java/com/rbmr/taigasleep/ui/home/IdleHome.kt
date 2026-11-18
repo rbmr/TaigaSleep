@@ -40,6 +40,7 @@ import com.rbmr.taigasleep.ui.theme.taiga
  * with the button of that next step. A row opens the step it stands for, so no button is ever
  * disabled with a hint below it.
  */
+@Suppress("LongParameterList", "LongMethod", "CyclomaticComplexMethod")
 @Composable
 internal fun IdleHome(
     view: InactiveView,
@@ -48,6 +49,8 @@ internal fun IdleHome(
     onGuard: () -> Unit,
     onGuardLongClick: (() -> Unit)?,
     onStart: () -> Unit,
+    ringing: Boolean = false,
+    onStopAlarm: () -> Unit = {},
 ) {
   val space = MaterialTheme.taiga.space
   val connected = view.tracker?.connection == ConnectionState.CONNECTED
@@ -86,6 +89,7 @@ internal fun IdleHome(
         modifier = Modifier.fillMaxWidth().padding(horizontal = space.m).padding(bottom = space.l),
         verticalArrangement = Arrangement.spacedBy(space.m),
     ) {
+      if (ringing) AlarmStopCard(onStopAlarm)
       Text(
           text = stringResource(headline),
           style = MaterialTheme.taiga.text.screenTitle,

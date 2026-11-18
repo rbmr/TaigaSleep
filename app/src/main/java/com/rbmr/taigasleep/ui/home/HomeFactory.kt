@@ -97,6 +97,12 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
 
           override val alarmTest: StateFlow<AlarmTestResult?> = WakeAlarm.testResult
 
+          override val ringing: StateFlow<Boolean> = WakeAlarm.ringing
+
+          override fun stopAlarm() {
+            WakeAlarm.stopNow(app)
+          }
+
           override fun testAlarm() {
             WakeAlarm.test(app)
           }

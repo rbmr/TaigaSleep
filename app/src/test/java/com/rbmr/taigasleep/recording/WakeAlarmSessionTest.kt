@@ -62,14 +62,14 @@ class WakeAlarmSessionTest {
     assertEquals(null, ignored)
     assertEquals(AlarmPhase.RINGING, session.phase)
     assertEquals("the real ring is not started again", 1, player.plays)
-    assertTrue("no test stop is scheduled", timers.tasks.isEmpty())
+    assertTrue("no test stop is scheduled", timers.tasks.none { it.delayMs == 3_000L })
   }
 
   @Test
   fun `a real alarm cancels a pending test stop and wins`() {
     session.start(WakeReason.WINDOW_END, "test", testMs = 3_000)
     assertEquals(AlarmPhase.TEST, session.phase)
-    val testStop = timers.tasks.single()
+    val testStop = timers.tasks.single { it.delayMs == 3_000L }
 
     session.start(WakeReason.SIGNAL, "signal")
 
@@ -83,11 +83,23 @@ class WakeAlarmSessionTest {
   fun `the test stops itself after the requested time`() {
     session.start(WakeReason.WINDOW_END, "test", testMs = 3_000)
 
-    timers.tasks.single().action()
+    timers.tasks.single { it.delayMs == 3_000L }.action()
 
     assertFalse(session.ringing)
     assertEquals(listOf("test"), stopped)
     assertEquals(1, player.stops)
+  }
+
+  @Test
+  fun `the alarm stops itself after the maximum ring time`() {
+    session.start(WakeReason.SIGNAL, "signal")
+
+    timers.tasks.single { it.delayMs == WakeAlarmSession.MAX_RING_MS }.action()
+
+    assertFalse(session.ringing)
+    assertEquals(listOf("timeout"), stopped)
+    assertEquals(1, player.stops)
+    assertEquals(1, notifications.cancels)
   }
 
   private class FakeTimers : AlarmTimers {

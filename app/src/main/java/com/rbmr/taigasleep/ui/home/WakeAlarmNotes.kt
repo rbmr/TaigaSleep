@@ -11,6 +11,9 @@ import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.recording.AlarmTestResult
 import com.rbmr.taigasleep.recording.WakeAlarmWarning
+import com.rbmr.taigasleep.ui.components.ButtonSize
+import com.rbmr.taigasleep.ui.components.PrimaryButton
+import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
@@ -35,6 +38,29 @@ internal fun WakeWarningNotes(warnings: Set<WakeAlarmWarning>) {
           text = stringResource(textOf(warning)),
           style = MaterialTheme.taiga.text.meta,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+  }
+}
+
+/** A ringing alarm is stoppable from inside the app, even when its notification is blocked. */
+@Composable
+internal fun AlarmStopCard(onStop: () -> Unit) {
+  val space = MaterialTheme.taiga.space
+  TaigaCard {
+    Column(verticalArrangement = Arrangement.spacedBy(space.s)) {
+      Text(
+          text = stringResource(R.string.wake_ringing_title),
+          style = MaterialTheme.taiga.text.section,
+      )
+      Text(
+          text = stringResource(R.string.wake_ringing_body),
+          style = MaterialTheme.taiga.text.body,
+      )
+      PrimaryButton(
+          text = stringResource(R.string.wake_ringing_stop),
+          onClick = onStop,
+          size = ButtonSize.Large,
       )
     }
   }

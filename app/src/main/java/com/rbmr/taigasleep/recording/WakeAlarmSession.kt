@@ -36,6 +36,7 @@ class WakeAlarmSession(
     get() = phase != AlarmPhase.IDLE
 
   private var testTimer: AlarmCancel? = null
+  private var timeoutTimer: AlarmCancel? = null
 
   /**
    * Rings for [reason]. Returns null when the request is ignored: a test while a real alarm rings,
@@ -52,8 +53,8 @@ class WakeAlarmSession(
       }
       AlarmPhase.TEST -> {
         if (test) return null
-        // A real alarm wins: end the test ring and its pending stop, then ring for real.
-        cancelTest()
+        // A real alarm wins: end the test ring and its pending stops, then ring for real.
+        cancelTimers()
         ring.stop(HOW_TEST)
         phase = AlarmPhase.IDLE
       }
@@ -62,6 +63,7 @@ class WakeAlarmSession(
     val result = ring.start(reason, source)
     phase = if (test) AlarmPhase.TEST else AlarmPhase.RINGING
     onRinging(true)
+    timeoutTimer = timers.schedule(MAX_RING_MS) { stop(HOW_TIMEOUT) }
     if (test) testTimer = timers.schedule(testMs) { stop(HOW_TEST) }
     return result
   }
@@ -69,7 +71,7 @@ class WakeAlarmSession(
   /** Ends the active ring. False when there was nothing to end. */
   fun stop(how: String): Boolean {
     if (!ringing) return false
-    cancelTest()
+    cancelTimers()
     phase = AlarmPhase.IDLE
     ring.stop(how)
     onRinging(false)
@@ -77,12 +79,18 @@ class WakeAlarmSession(
     return true
   }
 
-  private fun cancelTest() {
+  private fun cancelTimers() {
     testTimer?.cancel()
     testTimer = null
+    timeoutTimer?.cancel()
+    timeoutTimer = null
   }
 
   companion object {
     const val HOW_TEST = "test"
+    const val HOW_TIMEOUT = "timeout"
+
+    /** A ring never runs longer than this, even if Stop is never pressed. */
+    const val MAX_RING_MS = 60 * 60_000L
   }
 }

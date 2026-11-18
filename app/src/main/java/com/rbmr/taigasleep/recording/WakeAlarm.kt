@@ -39,6 +39,9 @@ object WakeAlarm {
   /** The last test ring's result, as the alarm settings show it. */
   val testResult = MutableStateFlow<AlarmTestResult?>(null)
 
+  /** True while the ringing service has an alarm sounding, wherever the app is. */
+  val ringing = MutableStateFlow(false)
+
   /** Arms the alarm at the end of the window; it fires even if the recording service is gone. */
   fun scheduleEnd(context: Context, endUtcMs: Long) {
     val alarms = context.getSystemService(AlarmManager::class.java)

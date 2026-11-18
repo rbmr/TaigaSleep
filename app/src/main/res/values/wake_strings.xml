@@ -18,6 +18,11 @@
   <string name="wake_warning_notifications">Notifications are off, so the alarm cannot show its Stop button.</string>
   <string name="wake_warning_output">This phone has no audio output for the alarm.</string>
 
+  <!-- A ringing alarm can be stopped from the app, without its notification. -->
+  <string name="wake_ringing_title">Smart alarm is ringing</string>
+  <string name="wake_ringing_body">Stop it here. The recording goes on.</string>
+  <string name="wake_ringing_stop">Stop alarm</string>
+
   <!-- The smart alarm while recording: off, its window, or when it rang. -->
   <string name="wake_live_off">Off</string>
   <string name="wake_live_window">%1$s to %2$s</string>

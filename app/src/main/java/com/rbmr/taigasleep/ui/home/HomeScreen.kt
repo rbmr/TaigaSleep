@@ -74,6 +74,7 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
   val factory = remember { HomeFactory(context) }
   val viewModel: HomeViewModel = viewModel(factory = factory)
   val state by viewModel.state.collectAsStateWithLifecycle()
+  val ringing by viewModel.ringing.collectAsStateWithLifecycle()
   val guidanceStore = context.appContainer.guidanceStore
   val autoUpload by viewModel.autoUpload.collectAsStateWithLifecycle(initialValue = false)
 
@@ -125,6 +126,8 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
             onForceStop = viewModel::forceStop,
             onDiscard = viewModel::discard,
             onWake = viewModel::openLiveWake,
+            ringing = ringing,
+            onStopAlarm = viewModel::stopAlarm,
         )
     is HomeUiState.Finishing ->
         FinishingHome(
@@ -147,6 +150,8 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
               onGuard = onGuidanceClick,
               onGuardLongClick = readinessLongClick,
               onStart = ::start,
+              ringing = ringing,
+              onStopAlarm = viewModel::stopAlarm,
           )
         }
   }

@@ -55,7 +55,13 @@ class WakeAlarmService : Service() {
             notifications = device,
             wakeLock = AndroidAlarmWakeLock(this),
         )
-    session = WakeAlarmSession(ring, HandlerAlarmTimers(handler), onStopped = { teardown() })
+    session =
+        WakeAlarmSession(
+            ring,
+            HandlerAlarmTimers(handler),
+            onRinging = { WakeAlarm.ringing.value = it },
+            onStopped = { teardown() },
+        )
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -80,6 +86,8 @@ class WakeAlarmService : Service() {
     val reason = WakeReason.fromWire(intent.getStringExtra(EXTRA_REASON)) ?: WakeReason.WINDOW_END
     val source = intent.getStringExtra(EXTRA_SOURCE) ?: SOURCE_WINDOW_END
     val testMs = intent.getIntExtra(EXTRA_TEST_MS, 0)
+    // A test never interrupts a ring, and must not replace its notification either.
+    if (testMs > 0 && session.phase != AlarmPhase.IDLE) return
     val text = getString(R.string.wake_notification_text, getString(reason.text))
     val placeholder =
         Notifier.wakeAlarmControl(this, text, WakeAlarm.stop(this), Notifier.APP_ACTIVITY)

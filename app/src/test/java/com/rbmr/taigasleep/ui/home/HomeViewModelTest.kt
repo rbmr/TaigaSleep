@@ -124,6 +124,12 @@ private class FakeWork : HomeWork {
 
   override val alarmTest = MutableStateFlow<AlarmTestResult?>(null)
 
+  override val ringing = MutableStateFlow(false)
+
+  override fun stopAlarm() {
+    calls += "stopAlarm"
+  }
+
   override fun testAlarm() {
     calls += "testAlarm"
   }
@@ -570,6 +576,17 @@ class HomeViewModelTest {
     model.discard()
 
     assertEquals(listOf("stop", "forceStop", "discard"), work.calls)
+  }
+
+  @Test
+  fun `stopping a ringing alarm goes to the alarm and the screen sees it`() {
+    val model = viewModel()
+    work.ringing.value = true
+
+    assertTrue(model.ringing.value)
+    model.stopAlarm()
+
+    assertEquals(listOf("stopAlarm"), work.calls)
   }
 
   @Test
