@@ -105,8 +105,11 @@ Two things sit outside the table:
   know each other are connected: `recording` defines what it needs from the rest of the app
   (`RecordingHooks`: may it start, what are the phone's readiness settings, a recording
   ended) and the wiring answers with `guard` and `sync`. `AppContainer` holds the one
-  instance of each long-lived collaborator; other packages read it through the
-  `Context.appContainer` accessor, so they share state without importing the wiring itself.
+  instance of each long-lived collaborator and builds them on its own scope when the app
+  starts; a caller that needs one earlier suspends until they are ready, so nothing that
+  opens the database, reads preferences or opens the Keystore runs on the main thread. Other
+  packages read the container through the `Context.appContainer` accessor, so they share
+  state without importing the wiring itself.
 - **`debug` is a build-variant seam, not a package of the app.** `src/debug` holds the
   debug-only tools and `src/release` an empty twin with the same API (see
   [`debug-build.md`](debug-build.md)), so any package may use `debug`. It stands in for
@@ -123,8 +126,8 @@ Four rules inside the packages:
   that writes it. Screens observe; they do not decide.
 - **`sync` has one entry point.** `SyncService` owns the sequences: the upload queue, the
   retention policy, the analysis requests and the result cache are its pieces. Nothing
-  outside the package reaches them, and the sync-surface check in `ArchitectureTest` keeps
-  it that way.
+  outside the package reaches them — not even through the container — and the sync-surface
+  check in `ArchitectureTest` keeps it that way.
 - **A screen has a state holder.** The History, Home and recording detail screens take their
   state from a view model: it reads the library, sync and the settings, owns what the screen is
   waiting on, and the composable draws that state and forwards the user's actions. The import
@@ -304,7 +307,9 @@ the analysis provides and hides what it does not; it does not announce what is m
 ## Tests that keep this true
 
 - The architecture test (package dependencies, above).
-- The sync-surface check in the same test: nothing outside `sync` reaches past `SyncService`.
+- The sync-surface check in the same test: nothing outside `sync` reaches past
+  `SyncService`, and no file outside it and the wiring reads one of the stores the container
+  holds for it.
 - The UI import ratchet (`ui-import-baseline.txt`), described under the rules above.
 - The API contract test on the backend: every registered route is in the OpenAPI
   document and the other way round.

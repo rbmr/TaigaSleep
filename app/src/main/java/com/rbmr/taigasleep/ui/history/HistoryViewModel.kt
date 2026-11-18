@@ -149,7 +149,7 @@ class HistoryViewModel(
           }
       return HistoryViewModel(
           library = library,
-          pendingDeletes = context.appContainer.pendingDeleteStore.pending,
+          pendingDeletes = sync.pendingDeletes,
           work = work,
       ) as T
     }

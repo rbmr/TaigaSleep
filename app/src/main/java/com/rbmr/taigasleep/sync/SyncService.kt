@@ -1,12 +1,15 @@
 package com.rbmr.taigasleep.sync
 
 import com.rbmr.taigasleep.backend.AlgorithmDto
+import com.rbmr.taigasleep.backend.AnalysisDto
+import com.rbmr.taigasleep.backend.RecordingSummaryListDto
 import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,6 +41,50 @@ class SyncService internal constructor(
 ) {
   /** The durable sync state of every recording, as History and the recording screen observe it. */
   val records: StateFlow<Map<String, UploadRecord>> = environment.records
+
+  /** The queued server deletes of the account that is active, as History observes them. */
+  val pendingDeletes: StateFlow<Map<String, PendingDelete>> = environment.pendingDeletes
+
+  /**
+   * The rows the library reads: the sync state, the server's list with its runs, the run each
+   * recording shows and the payloads this phone holds, for [account] and the recordings on this
+   * phone. A write anywhere in the app reaches the screens through the flow.
+   */
+  fun observeRows(account: String, localIds: List<String>): Flow<List<LibraryEntry>> =
+      environment.observeRows(account, localIds)
+
+  /** The same read, once, for a step that is not drawing a screen. */
+  suspend fun loadRows(account: String, localIds: List<String>): List<LibraryEntry> =
+      environment.loadRows(account, localIds)
+
+  /** The full cached payload of one run, if the active account's copy is on this phone. */
+  suspend fun cachedResult(key: String, analysisId: String?): AnalysisDto? =
+      environment.cachedResult(key, analysisId)
+
+  /** Whether an account other than the active one already has this recording on its server. */
+  suspend fun uploadedElsewhere(localId: String): Boolean =
+      environment.uploadedElsewhere(localId)
+
+  /** Remember which finished run the user wants to see. */
+  fun selectAnalysis(key: String, analysisId: String?) {
+    scope.launch { environment.selectAnalysis(key, analysisId) }
+  }
+
+  /** The recordings a list fetched now must leave out, because their server copy is being deleted. */
+  suspend fun hiddenRecordings(): Set<String> = environment.hiddenRecordings()
+
+  /** Remember the server's list for the account it was fetched for. */
+  suspend fun saveList(account: String, list: RecordingSummaryListDto) =
+      environment.saveList(account, list)
+
+  /**
+   * Whether the server copy of [recordingId] is on its way out or already gone. Nothing reads such a
+   * recording back: it would only answer 404 and undo the delete.
+   */
+  suspend fun isGone(recordingId: String): Boolean = environment.isGone(recordingId)
+
+  /** The server said the recording is gone: forget its row, without reading it back. */
+  suspend fun forget(recordingId: String) = environment.forget(recordingId)
 
   /**
    * The app started: do everything that is due, and from now on do it again whenever a switch, the
@@ -170,10 +217,14 @@ class SyncService internal constructor(
 
   /**
    * Read one recording and its analyses from the server and store what it says. [preferred] are
-   * analysis ids in order of preference, for example the run the user selected.
+   * analysis ids in order of preference, for example the run the user selected; the run this
+   * recording showed last is the last resort. The server's row and the run it shows are remembered
+   * here, with the account the read was taken for: a login in between means this recording is not the
+   * new account's, so nothing of it is stored for it.
    *
    * A 404 means the server does not have the recording, not that it could not be reached: the
-   * recording's stored state follows that ([recordingGone]) and the failure says so.
+   * recording's stored state follows that ([recordingGone]), its row is forgotten, and the failure
+   * says so.
    */
   suspend fun refresh(
       id: String,
@@ -184,21 +235,23 @@ class SyncService internal constructor(
             environment.session()
                 ?: return@withContext Result.failure(IllegalStateException("login required"))
         try {
-          Result.success(
+          val snapshot =
               environment.refresh(
                   session.api,
                   session.account,
                   id,
                   recordingIdOf(id),
-                  preferred,
+                  preferred + environment.selectedAnalysis(id, session.account),
               )
-          )
+          if (environment.account == session.account) remember(session.account, id, snapshot)
+          Result.success(snapshot)
         } catch (e: TaigaUnauthorizedException) {
           if (environment.account == session.account) environment.logout()
           Result.failure(e)
         } catch (e: TaigaHttpException) {
           if (e.status != 404) return@withContext Result.failure(e)
           recordingGone(id, e.message, session.account)
+          if (environment.account == session.account) environment.forget(recordingIdOf(id))
           Result.failure(RecordingNotOnServerException(e.message))
         } catch (e: CancellationException) {
           throw e
@@ -206,6 +259,17 @@ class SyncService internal constructor(
           Result.failure(e)
         }
       }
+
+  /**
+   * The saved list follows a recording that was just read: its row keeps its place, one the list does
+   * not have yet is added, and the runs become the ones the server lists now. The run the server says
+   * the recording shows is the remembered one until the user picks another; a recording with no run
+   * at all forgets it.
+   */
+  private suspend fun remember(account: String, key: String, snapshot: RecordingSnapshot) {
+    environment.saveSummary(account, snapshot)
+    environment.selectAnalysis(key, snapshot.shown?.id, account)
+  }
 
   /** Apply the raw-retention policy to every uploaded recording whose cleanup time has passed. */
   suspend fun enforceRawRetention() = environment.enforceRawRetention()
@@ -221,6 +285,11 @@ class SyncService internal constructor(
   suspend fun installedAlgorithms(): Result<List<AlgorithmDto>> {
     val session =
         environment.session() ?: return Result.failure(IllegalStateException("login required"))
-    return environment.installedAlgorithms(session.api)
+    val installed = environment.installedAlgorithms(session.api)
+    val failure = installed.exceptionOrNull()
+    if (failure is TaigaUnauthorizedException && environment.account == session.account) {
+      environment.logout()
+    }
+    return installed
   }
 }

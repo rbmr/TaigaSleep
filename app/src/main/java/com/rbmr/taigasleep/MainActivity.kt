@@ -31,42 +31,45 @@ class MainActivity : ComponentActivity() {
     // A start from the results notification read its counts; any other start changes nothing.
     resultsOpened(this, intent)
     enableEdgeToEdge()
-    // Results arrive live while the app is on screen: the realtime stream is open exactly while the
-    // activity is started, and is closed when it is not. Nothing is kept running in the background.
+    // Nothing on this screen is read before the container has built it: the start-up work happens
+    // on the container's scope, and this waits for it instead of blocking the main thread.
     lifecycleScope.launch {
-      repeatOnLifecycle(Lifecycle.State.STARTED) { appContainer.liveSync.run() }
-    }
-    // The display choices are one store of the app, so this screen and the Display screen that
-    // changes them always agree.
-    val display = appContainer.displaySettings
-    setContent {
-      val themeMode by display.themeMode.collectAsStateWithLifecycle()
-      val textSize by display.textSize.collectAsStateWithLifecycle()
-      val animations by display.animations.collectAsStateWithLifecycle()
-      val darkTheme =
-          when (themeMode) {
-            ThemeMode.SYSTEM -> isSystemInDarkTheme()
-            ThemeMode.LIGHT -> false
-            ThemeMode.DARK -> true
+      appContainer.awaitReady()
+      // Results arrive live while the app is on screen: the realtime stream is open exactly while the
+      // activity is started, and is closed when it is not. Nothing is kept running in the background.
+      launch { repeatOnLifecycle(Lifecycle.State.STARTED) { appContainer.liveSync.run() } }
+      // The display choices are one store of the app, so this screen and the Display screen that
+      // changes them always agree.
+      val display = appContainer.displaySettings
+      setContent {
+        val themeMode by display.themeMode.collectAsStateWithLifecycle()
+        val textSize by display.textSize.collectAsStateWithLifecycle()
+        val animations by display.animations.collectAsStateWithLifecycle()
+        val darkTheme =
+            when (themeMode) {
+              ThemeMode.SYSTEM -> isSystemInDarkTheme()
+              ThemeMode.LIGHT -> false
+              ThemeMode.DARK -> true
+            }
+        val motionScale = rememberMotionScale(animations)
+        val formats = rememberFormats()
+        val contrast = rememberContrastLevel()
+        val view = LocalView.current
+        if (!view.isInEditMode) {
+          SideEffect {
+            val controller = WindowCompat.getInsetsController(this@MainActivity.window, view)
+            controller.isAppearanceLightStatusBars = !darkTheme
+            controller.isAppearanceLightNavigationBars = !darkTheme
           }
-      val motionScale = rememberMotionScale(animations)
-      val formats = rememberFormats()
-      val contrast = rememberContrastLevel()
-      val view = LocalView.current
-      if (!view.isInEditMode) {
-        SideEffect {
-          val controller = WindowCompat.getInsetsController(this@MainActivity.window, view)
-          controller.isAppearanceLightStatusBars = !darkTheme
-          controller.isAppearanceLightNavigationBars = !darkTheme
         }
-      }
-      TaigaTheme(
-          darkTheme = darkTheme,
-          contrast = contrast,
-          textSize = textSize,
-          motionScale = motionScale,
-      ) {
-        CompositionLocalProvider(LocalFormats provides formats) { TaigaApp() }
+        TaigaTheme(
+            darkTheme = darkTheme,
+            contrast = contrast,
+            textSize = textSize,
+            motionScale = motionScale,
+        ) {
+          CompositionLocalProvider(LocalFormats provides formats) { TaigaApp() }
+        }
       }
     }
   }

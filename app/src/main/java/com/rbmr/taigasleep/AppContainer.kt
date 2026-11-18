@@ -2,7 +2,6 @@ package com.rbmr.taigasleep
 
 import android.app.Application
 import android.content.Context
-import android.os.Looper
 import com.rbmr.taigasleep.backend.HttpClients
 import com.rbmr.taigasleep.backend.OkHttpRemoteApi
 import com.rbmr.taigasleep.backend.RemoteRepository
@@ -29,10 +28,11 @@ import com.rbmr.taigasleep.sync.UploadStore
 import com.rbmr.taigasleep.sync.db.TaigaDatabase
 import com.rbmr.taigasleep.ui.theme.DisplaySettings
 import java.io.File
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 
 /**
@@ -40,24 +40,28 @@ import okhttp3.OkHttpClient
  * caller. [TaigaApplication] owns the one instance; other packages reach it through
  * [Context.appContainer] and never construct these classes themselves.
  *
- * A collaborator whose constructor opens the database, reads preferences or decrypts the token is
- * built through [offMain]: the first caller may be a screen on the main thread, and starting the
- * app is not the place to pay for a Keystore call or a directory scan.
+ * Every collaborator is built on [scope] by [start], in the order below: opening the database,
+ * reading preferences and opening the Keystore are the app's start-up work, and nothing that runs on
+ * the main thread pays for them. A caller that needs one before the build is done suspends in
+ * [awaitReady] — the first screen does — instead of blocking the thread it is on.
  */
 class AppContainer(private val application: Application) {
-  /** Long-lived work of the wiring itself: what the stores publish. */
+  /** Long-lived work of the wiring itself: what the stores publish and what start-up builds. */
   val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-  val recordingStore: RecordingStore by offMain {
+  /** Completed when [start] has built every collaborator below. */
+  private val ready = CompletableDeferred<Unit>()
+
+  val recordingStore: RecordingStore by lazy {
     val base = application.getExternalFilesDir(null) ?: application.filesDir
     RecordingStore(File(base, "recordings"))
   }
 
   /** Everything the app learned from the server, in one database. */
-  val database: TaigaDatabase by offMain { TaigaDatabase.open(application) }
+  val database: TaigaDatabase by lazy { TaigaDatabase.open(application) }
 
   /** The sync state of every recording, for the account that is active. */
-  val uploadStore: UploadStore by offMain {
+  val uploadStore: UploadStore by lazy {
     UploadStore(database.uploadStates(), remoteRepository.accounts, scope)
   }
 
@@ -70,7 +74,7 @@ class AppContainer(private val application: Application) {
   private val httpClients: HttpClients by lazy { HttpClients(httpClient) }
 
   /** The remote stack; its constructor reads the saved session and opens the token. */
-  val remoteRepository: RemoteRepository by offMain {
+  val remoteRepository: RemoteRepository by lazy {
     RemoteRepository(
         store = remoteStore(application),
         api = OkHttpRemoteApi(client = httpClients.remote),
@@ -80,53 +84,51 @@ class AppContainer(private val application: Application) {
     )
   }
 
-  val pendingDeleteStore: PendingDeleteStore by offMain {
+  val pendingDeleteStore: PendingDeleteStore by lazy {
     PendingDeleteStore(database.pendingDeletes(), remoteRepository.accounts, scope)
   }
 
-  val resultCache: ResultCache by offMain { ResultCache(database.analysisResults()) }
+  val resultCache: ResultCache by lazy { ResultCache(database.analysisResults()) }
 
   /**
    * The one read of the library: every fact the screens show about a recording, in one query joined
    * with the recordings on this phone. Every store that writes a row publishes through it.
    */
-  val recordingRows: RecordingRows by offMain { RecordingRows(database.library()) }
+  val recordingRows: RecordingRows by lazy { RecordingRows(database.library()) }
 
-  val remoteHistoryCache: RemoteHistoryCache by offMain {
+  val remoteHistoryCache: RemoteHistoryCache by lazy {
     RemoteHistoryCache(database.remoteRecordings())
   }
 
-  val analysisSettingsStore: AnalysisSettingsStore by offMain {
-    AnalysisSettingsStore(application)
-  }
+  val analysisSettingsStore: AnalysisSettingsStore by lazy { AnalysisSettingsStore(application) }
 
   /** The preventing-shutdown steps the user confirmed and the flow they picked, for every screen. */
-  val guidanceStore: GuidanceStore by offMain { GuidanceStore(application) }
+  val guidanceStore: GuidanceStore by lazy { GuidanceStore(application) }
 
   /** The recorder's stored choices: last tracker, its streams, its window and the live marker. */
-  val recordingPrefs: RecordingPrefs by offMain { RecordingPrefs.get(application) }
+  val recordingPrefs: RecordingPrefs by lazy { RecordingPrefs.get(application) }
 
   /** The automatic upload policy the screens show and the stop confirmation reads. */
-  val uploadSettings: UploadSettings by offMain { UploadSettings.get(application) }
+  val uploadSettings: UploadSettings by lazy { UploadSettings.get(application) }
 
   /** The personal data the user entered, kept on the phone and read when SleepECG is requested. */
-  val personalDataStore: PersonalDataStore by offMain { PersonalDataStore(application) }
+  val personalDataStore: PersonalDataStore by lazy { PersonalDataStore(application) }
 
   /** The theme, the text size and the animations: one store, read by the activity and the screen. */
-  val displaySettings: DisplaySettings by offMain { DisplaySettings(application) }
+  val displaySettings: DisplaySettings by lazy { DisplaySettings(application) }
 
-  val recordingLibrary: RecordingLibrary by offMain { RecordingLibrary(application) }
+  val recordingLibrary: RecordingLibrary by lazy { RecordingLibrary(application) }
 
-  val syncService: SyncService by offMain { SyncService(AppSyncEnvironment(application), scope) }
+  val syncService: SyncService by lazy { SyncService(AppSyncEnvironment(application), scope) }
 
   /** The one way an analysis is asked for, on every path that requests one. */
-  internal val analysisRequests: AnalysisRequester by offMain {
+  internal val analysisRequests: AnalysisRequester by lazy {
     AnalysisRequester(AppAnalysisRequestEnvironment(application))
   }
 
   val sensorHub: SensorHub by lazy { SensorHub() }
 
-  val liveSync: LiveSync by offMain {
+  val liveSync: LiveSync by lazy {
     LiveSync(
         gate = remoteRepository.streamAccount,
         events = remoteRepository.events(),
@@ -135,17 +137,40 @@ class AppContainer(private val application: Application) {
   }
 
   /**
-   * A collaborator built on a background thread when the main thread asks for it first. A caller on
-   * any other thread builds it in place, so nothing pays for a thread hand-off it does not need.
+   * Builds every collaborator on [scope], once, in dependency order: each one reads only what is
+   * built before it. Called by the application before anything can ask for one.
    */
-  private fun <T> offMain(build: () -> T): Lazy<T> =
-      lazy {
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-          runBlocking(Dispatchers.IO) { build() }
-        } else {
-          build()
-        }
+  fun start() {
+    scope.launch {
+      try {
+        remoteRepository
+        database
+        uploadStore
+        pendingDeleteStore
+        resultCache
+        recordingRows
+        remoteHistoryCache
+        analysisSettingsStore
+        guidanceStore
+        recordingPrefs
+        uploadSettings
+        personalDataStore
+        displaySettings
+        recordingStore
+        analysisRequests
+        syncService
+        recordingLibrary
+        liveSync
+      } finally {
+        // A build that failed still lets the callers through: the collaborator throws when it is
+        // read, instead of leaving the first screen waiting for ever.
+        ready.complete(Unit)
       }
+    }
+  }
+
+  /** Suspends until [start] has built every collaborator; a caller waits here, not on disk. */
+  suspend fun awaitReady() = ready.await()
 }
 
 /** The process-wide container, reached from any Context through the application object. */
