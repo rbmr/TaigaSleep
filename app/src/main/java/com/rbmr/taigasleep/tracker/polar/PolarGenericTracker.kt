@@ -3,6 +3,7 @@
 package com.rbmr.taigasleep.tracker.polar
 
 import android.content.Context
+import com.polar.sdk.api.PolarBleApi.PolarBleSdkFeature
 import com.polar.sdk.api.PolarBleApi.PolarDeviceDataType
 import com.polar.sdk.api.model.PolarOfflineRecordingData
 import com.polar.sdk.api.model.PolarOfflineRecordingEntry
@@ -54,6 +55,7 @@ abstract class PolarGenericTracker(
     override val id: String,
     override val name: String,
     private val seam: PolarSeam,
+    features: Set<PolarBleSdkFeature>,
     private val clock: Clock = SystemClockSource,
 ) : Tracker, OnDeviceTracker, PolarSeam.ConnectionListener {
   private val _connection = MutableStateFlow(ConnectionState.DISCONNECTED)
@@ -99,6 +101,8 @@ abstract class PolarGenericTracker(
   }
 
   init {
+    // The instance is made for this driver's features before any of its callbacks can arrive.
+    seam.useFeatures(features)
     seam.register(id, this)
   }
 
@@ -403,6 +407,27 @@ private suspend fun <T> kotlinx.coroutines.flow.Flow<T>.collectToList(): List<T>
   return list
 }
 
+/** The SDK features the Verity Sense's calls need: its live streams and its own recordings. */
+internal val VERITY_FEATURES =
+    setOf(
+        PolarBleSdkFeature.FEATURE_HR,
+        PolarBleSdkFeature.FEATURE_DEVICE_INFO,
+        PolarBleSdkFeature.FEATURE_BATTERY_INFO,
+        PolarBleSdkFeature.FEATURE_POLAR_ONLINE_STREAMING,
+        PolarBleSdkFeature.FEATURE_POLAR_OFFLINE_RECORDING,
+        PolarBleSdkFeature.FEATURE_POLAR_DEVICE_TIME_SETUP,
+    )
+
+/** The SDK features the Loop's calls need: it only records on itself and never streams live. */
+internal val LOOP_FEATURES =
+    setOf(
+        PolarBleSdkFeature.FEATURE_HR,
+        PolarBleSdkFeature.FEATURE_DEVICE_INFO,
+        PolarBleSdkFeature.FEATURE_BATTERY_INFO,
+        PolarBleSdkFeature.FEATURE_POLAR_OFFLINE_RECORDING,
+        PolarBleSdkFeature.FEATURE_POLAR_DEVICE_TIME_SETUP,
+    )
+
 /** Polar Verity Sense: live HR/RR, pulse intervals, PPG and ACC, and on-device recordings. */
 class PolarVerityTracker(
     context: Context,
@@ -410,7 +435,7 @@ class PolarVerityTracker(
     name: String,
     seam: PolarSeam = PolarSdkSeam.install(context),
     clock: Clock = SystemClockSource,
-) : PolarGenericTracker(context, id, name, seam, clock) {
+) : PolarGenericTracker(context, id, name, seam, VERITY_FEATURES, clock) {
   override val kind = SensorKind.POLAR_VERITY
 
   override fun liveStreams(): List<OfferedStream> =
@@ -441,7 +466,7 @@ class PolarLoopTracker(
     name: String,
     seam: PolarSeam = PolarSdkSeam.install(context),
     clock: Clock = SystemClockSource,
-) : PolarGenericTracker(context, id, name, seam, clock) {
+) : PolarGenericTracker(context, id, name, seam, LOOP_FEATURES, clock) {
   override val kind = SensorKind.POLAR_LOOP
 
   override fun live(): Boolean = false

@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.mapNotNull
  * tested with a fake instead of a strap. [PolarSdkSeam] is the real one; tests supply their own.
  *
  * Every Polar tracker shares the one instance, so one SDK drives GATT and scanning on the radio.
+ * The instance carries the features of the driver using it, never those of another.
  */
 interface PolarSeam {
   /** What a driver needs to hear from the SDK; a driver implements the calls it needs. */
@@ -53,6 +54,12 @@ interface PolarSeam {
     fun onFirmware(value: String?) {}
   }
 
+  /**
+   * The SDK features this driver's calls need. The instance is made with them, so a feature one
+   * strap mishandles is not enabled on another.
+   */
+  fun useFeatures(features: Set<PolarBleSdkFeature>)
+
   /** Registers the tracker that owns this device id; one tracker per id. */
   fun register(id: String, listener: ConnectionListener)
 
@@ -64,8 +71,8 @@ interface PolarSeam {
   fun disconnect(id: String)
 
   /**
-   * Shuts the SDK down and makes a fresh one; the next call creates it. A dropped session can be
-   * parked until a scan hears the strap advertise, and a new instance is what clears that.
+   * Replaces the SDK instance, made again with the same features. A dropped session can be parked
+   * until a scan hears the strap advertise, and a new instance is what clears that.
    */
   fun recreate()
 
@@ -116,20 +123,84 @@ interface PolarSeam {
   suspend fun removeExercise(id: String, entry: PolarExerciseEntry)
 }
 
+/**
+ * The one live Polar SDK instance and the feature set it was made for. The features are fixed at
+ * creation, so a driver that needs another set gets a new instance and the old one is shut down
+ * first: there is never more than one alive.
+ */
+internal class PolarInstance<Api>(
+    private val create: (Set<PolarBleSdkFeature>) -> Api,
+    private val shutDown: (Api) -> Unit,
+) {
+  private val lock = Any()
+  private var api: Api? = null
+  private var features: Set<PolarBleSdkFeature>? = null
+
+  /** The instance for [features]; one made for another set is shut down and replaced. */
+  fun forFeatures(features: Set<PolarBleSdkFeature>): Api = synchronized(lock) {
+    api?.takeIf { this.features == features } ?: createFor(features)
+  }
+
+  /** The live instance, whatever set it was made for, or a new one for [features] when none is. */
+  fun live(features: Set<PolarBleSdkFeature>): Api = synchronized(lock) { api ?: createFor(features) }
+
+  /** Shuts the live instance down and makes it again for the set it had. */
+  fun recreate() {
+    synchronized(lock) {
+      val kept = features
+      dispose()
+      kept?.let { createFor(it) }
+    }
+  }
+
+  private fun createFor(features: Set<PolarBleSdkFeature>): Api {
+    dispose()
+    return create(features).also {
+      api = it
+      this.features = features
+    }
+  }
+
+  private fun dispose() {
+    api?.let(shutDown)
+    api = null
+  }
+}
+
+/**
+ * Scanning reads advertisements and needs no SDK feature, so it makes the smallest instance it
+ * can; the driver that connects replaces it with the set it needs.
+ */
+internal val SCAN_FEATURES = emptySet<PolarBleSdkFeature>()
+
 /** The Polar SDK, one instance for every Polar driver in the app. */
 object PolarSdkSeam : PolarSeam {
-  // One lock for the context and the instance, so a tracker created on any thread sees the same
-  // SDK rather than a second one that would fight it for the radio.
+  // One lock for the context, so a tracker created on any thread sees the same SDK rather than a
+  // second one that would fight it for the radio.
   private val lock = Any()
 
-  @Volatile private var api: PolarBleApi? = null
   @Volatile private var context: Context? = null
   private val listeners = ConcurrentHashMap<String, PolarSeam.ConnectionListener>()
+
+  private val sdk =
+      PolarInstance<PolarBleApi>(
+          create = { features -> newApi(requireContext(), features) },
+          shutDown = { runCatching { it.shutDown() } },
+      )
+
+  // The set the driver that last asked for the instance needs. A scan makes a minimal instance
+  // before any driver does, and the driver's first call replaces it.
+  @Volatile private var required: Set<PolarBleSdkFeature> = SCAN_FEATURES
 
   /** Keeps the app context the SDK needs and returns this seam. */
   fun install(context: Context): PolarSeam {
     synchronized(lock) { this.context = context.applicationContext }
     return this
+  }
+
+  override fun useFeatures(features: Set<PolarBleSdkFeature>) {
+    required = features
+    sdk.forFeatures(features)
   }
 
   override fun register(id: String, listener: PolarSeam.ConnectionListener) {
@@ -140,32 +211,16 @@ object PolarSdkSeam : PolarSeam {
     listeners.remove(id)
   }
 
-  private fun api(context: Context): PolarBleApi {
-    api?.let {
-      return it
-    }
-    return synchronized(lock) {
-      api
-          ?: PolarBleApiDefaultImpl.defaultImplementation(
-                  context.applicationContext,
-                  setOf(
-                      PolarBleSdkFeature.FEATURE_HR,
-                      PolarBleSdkFeature.FEATURE_DEVICE_INFO,
-                      PolarBleSdkFeature.FEATURE_BATTERY_INFO,
-                      PolarBleSdkFeature.FEATURE_POLAR_ONLINE_STREAMING,
-                      PolarBleSdkFeature.FEATURE_POLAR_H10_EXERCISE_RECORDING,
-                      PolarBleSdkFeature.FEATURE_POLAR_OFFLINE_RECORDING,
-                      PolarBleSdkFeature.FEATURE_POLAR_DEVICE_TIME_SETUP,
-                  ),
-              )
-              .also {
-                // The SDK reconnects dropped links itself (it decides how to call connectGatt).
-                it.setAutomaticReconnection(true)
-                it.setApiCallback(callback)
-                api = it
-              }
-    }
-  }
+  private fun newApi(context: Context, features: Set<PolarBleSdkFeature>): PolarBleApi =
+      PolarBleApiDefaultImpl.defaultImplementation(context.applicationContext, features)
+          .also {
+            // The SDK reconnects dropped links itself (it decides how to call connectGatt).
+            it.setAutomaticReconnection(true)
+            it.setApiCallback(callback)
+          }
+
+  /** The instance for the features of the driver that last asked for it. */
+  private fun live(): PolarBleApi = sdk.forFeatures(required)
 
   private val callback =
       object : PolarBleApiCallback() {
@@ -205,70 +260,70 @@ object PolarSdkSeam : PolarSeam {
       }
 
   override fun connect(id: String) {
-    context?.let { api(it).connectToDevice(id) }
+    if (context != null) live().connectToDevice(id)
   }
 
   override fun disconnect(id: String) {
-    context?.let { api(it).disconnectFromDevice(id) }
+    if (context != null) live().disconnectFromDevice(id)
   }
 
   override fun recreate() {
-    synchronized(lock) {
-      api?.let { runCatching { it.shutDown() } }
-      api = null
-    }
+    sdk.recreate()
   }
 
-  override fun scan(context: Context): Flow<PolarDeviceInfo> = api(context).searchForDevice()
+  override fun scan(context: Context): Flow<PolarDeviceInfo> {
+    install(context)
+    return sdk.live(SCAN_FEATURES).searchForDevice()
+  }
 
-  override fun startHr(id: String): Flow<PolarHrData> = api(requireContext()).startHrStreaming(id)
+  override fun startHr(id: String): Flow<PolarHrData> = live().startHrStreaming(id)
 
   override fun startEcg(id: String, settings: PolarSensorSetting): Flow<PolarEcgData> =
-      api(requireContext()).startEcgStreaming(id, settings)
+      live().startEcgStreaming(id, settings)
 
   override fun startPpg(id: String, settings: PolarSensorSetting): Flow<PolarPpgData> =
-      api(requireContext()).startPpgStreaming(id, settings)
+      live().startPpgStreaming(id, settings)
 
-  override fun startPpi(id: String): Flow<PolarPpiData> = api(requireContext()).startPpiStreaming(id)
+  override fun startPpi(id: String): Flow<PolarPpiData> = live().startPpiStreaming(id)
 
   override fun startAcc(id: String, settings: PolarSensorSetting): Flow<PolarAccelerometerData> =
-      api(requireContext()).startAccStreaming(id, settings)
+      live().startAccStreaming(id, settings)
 
   override suspend fun streamSettings(
       id: String,
       type: PolarDeviceDataType,
-  ): PolarSensorSetting = api(requireContext()).requestStreamSettings(id, type)
+  ): PolarSensorSetting = live().requestStreamSettings(id, type)
 
   override suspend fun setLocalTime(id: String, time: LocalDateTime) {
-    api(requireContext()).setLocalTime(id, time)
+    live().setLocalTime(id, time)
   }
 
   override suspend fun getLocalTime(id: String): LocalDateTime =
-      api(requireContext()).getLocalTime(id)
+      live().getLocalTime(id)
 
   override suspend fun startOffline(
       id: String,
       type: PolarDeviceDataType,
       settings: PolarSensorSetting,
   ) {
-    api(requireContext()).startOfflineRecording(id, type, settings, null)
+    live().startOfflineRecording(id, type, settings, null)
   }
 
   override suspend fun stopOffline(id: String, type: PolarDeviceDataType) {
-    api(requireContext()).stopOfflineRecording(id, type)
+    live().stopOfflineRecording(id, type)
   }
 
   override fun listOffline(id: String): Flow<PolarOfflineRecordingEntry> =
-      api(requireContext()).listOfflineRecordings(id)
+      live().listOfflineRecordings(id)
 
   override suspend fun readOffline(
       id: String,
       entry: PolarOfflineRecordingEntry,
   ): PolarOfflineRecordingData =
-      api(requireContext()).getOfflineRecord(id, entry, null)
+      live().getOfflineRecord(id, entry, null)
 
   override suspend fun removeOffline(id: String, entry: PolarOfflineRecordingEntry) {
-    api(requireContext()).removeOfflineRecord(id, entry)
+    live().removeOfflineRecord(id, entry)
   }
 
   override suspend fun startExercise(
@@ -276,7 +331,7 @@ object PolarSdkSeam : PolarSeam {
       exerciseId: String,
       sampleType: PolarH10OfflineExerciseApi.SampleType,
   ) {
-    api(requireContext())
+    live()
         .startRecording(
             id,
             exerciseId,
@@ -286,20 +341,20 @@ object PolarSdkSeam : PolarSeam {
   }
 
   override suspend fun stopExercise(id: String) {
-    api(requireContext()).stopRecording(id)
+    live().stopRecording(id)
   }
 
   override suspend fun exerciseOngoing(id: String): Boolean =
-      api(requireContext()).requestRecordingStatus(id).ongoing
+      live().requestRecordingStatus(id).ongoing
 
   override fun listExercises(id: String): Flow<PolarExerciseEntry> =
-      api(requireContext()).listExercises(id)
+      live().listExercises(id)
 
   override suspend fun fetchExercise(id: String, entry: PolarExerciseEntry): PolarExerciseData =
-      api(requireContext()).fetchExercise(id, entry)
+      live().fetchExercise(id, entry)
 
   override suspend fun removeExercise(id: String, entry: PolarExerciseEntry) {
-    api(requireContext()).removeExercise(id, entry)
+    live().removeExercise(id, entry)
   }
 
   private fun requireContext(): Context =

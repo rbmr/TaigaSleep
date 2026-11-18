@@ -75,6 +75,20 @@ internal data class PolarSelection(val hr: Boolean, val ecg: Boolean, val acc: B
   }
 }
 
+/**
+ * The SDK features the H10's calls need. Offline recording is not one of them: the H10 stores
+ * exercises on itself, and that feature on its instance keeps a recovery reconnect from coming up.
+ */
+internal val H10_FEATURES =
+    setOf(
+        PolarBleSdkFeature.FEATURE_HR,
+        PolarBleSdkFeature.FEATURE_DEVICE_INFO,
+        PolarBleSdkFeature.FEATURE_BATTERY_INFO,
+        PolarBleSdkFeature.FEATURE_POLAR_ONLINE_STREAMING,
+        PolarBleSdkFeature.FEATURE_POLAR_H10_EXERCISE_RECORDING,
+        PolarBleSdkFeature.FEATURE_POLAR_DEVICE_TIME_SETUP,
+    )
+
 /** A Polar H10 over BLE: HR (with RR), ECG at 130 Hz and ACC at 50 Hz, ±8 G, raw SDK values. */
 class PolarH10Sensor(
     context: Context,
@@ -153,6 +167,8 @@ class PolarH10Sensor(
   @Volatile private var streamGeneration = 0
 
   init {
+    // The instance is made for this driver's features before any of its callbacks can arrive.
+    seam.useFeatures(H10_FEATURES)
     seam.register(id, this)
   }
 

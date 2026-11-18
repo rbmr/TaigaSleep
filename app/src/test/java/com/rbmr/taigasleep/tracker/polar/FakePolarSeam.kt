@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.tracker.polar
 
 import android.content.Context
+import com.polar.sdk.api.PolarBleApi.PolarBleSdkFeature
 import com.polar.sdk.api.PolarBleApi.PolarDeviceDataType
 import com.polar.sdk.api.PolarH10OfflineExerciseApi
 import com.polar.sdk.api.model.PolarAccelerometerData
@@ -32,6 +33,7 @@ class FakePolarSeam : PolarSeam {
   private val listeners = ConcurrentHashMap<String, PolarSeam.ConnectionListener>()
 
   val registered = CopyOnWriteArrayList<String>()
+  val requestedFeatures = CopyOnWriteArrayList<Set<PolarBleSdkFeature>>()
   val connected = CopyOnWriteArrayList<String>()
   val disconnected = CopyOnWriteArrayList<String>()
   val startedOffline = CopyOnWriteArrayList<PolarDeviceDataType>()
@@ -56,6 +58,10 @@ class FakePolarSeam : PolarSeam {
   /** Reports a firmware revision as the seam does: the SDK's NUL padding is already trimmed. */
   fun emitFirmware(id: String, value: String) {
     listeners[id]?.onFirmware(polarFirmware(value))
+  }
+
+  override fun useFeatures(features: Set<PolarBleSdkFeature>) {
+    requestedFeatures += features
   }
 
   override fun register(id: String, listener: PolarSeam.ConnectionListener) {
