@@ -2,8 +2,6 @@ package com.rbmr.taigasleep.sync
 
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileOutputStream
-import java.io.RandomAccessFile
 import java.util.zip.CRC32
 import java.util.zip.Deflater
 import kotlinx.serialization.Serializable
@@ -70,9 +68,10 @@ internal data class CompressionIndex(
  * The compressed upload cache for one local recording.
  *
  * The server only knows the compressed byte offset, so the phone must remember which local byte
- * offset each compressed member ends at. The cache appends every member locally before sending it,
- * records the boundary, and then sends. A crash can therefore leave the cache ahead of the server,
- * never behind it, and the next attempt cuts the cache back to the boundary the server reports.
+ * offset each compressed member ends at. The cache records the boundary of every member before it
+ * is sent, and never keeps the members themselves: a resume needs the offsets, not the bytes. A
+ * crash can therefore leave the index ahead of the server, never behind it, and the next attempt
+ * cuts the index back to the boundary the server reports.
  */
 internal class CompressionCache(private val root: File) {
   private val json =
@@ -83,11 +82,9 @@ internal class CompressionCache(private val root: File) {
       }
   private val indexFile = File(root, "index.json")
 
-  fun dataFile(name: String): File = File(root, "$name.gz")
-
   /**
    * Return the local uncompressed offset that corresponds to [serverLength], or null when the
-   * cache cannot explain the server state. The server is authoritative: the cache is cut back to
+   * cache cannot explain the server state. The server is authoritative: the index is cut back to
    * the matching boundary, discarding members that were never accepted.
    */
   fun resume(name: String, localLength: Long, serverLength: Long): Long? {
@@ -96,18 +93,12 @@ internal class CompressionCache(private val root: File) {
       if (serverLength != 0L) return null
       entry = null
     }
-    val boundaries = entry?.boundaries?.ifEmpty { listOf(CompressionBoundary()) } ?: listOf(CompressionBoundary())
+    val boundaries = entry?.boundaries?.ifEmpty { START } ?: START
     val match = boundaries.lastOrNull { it.compressed == serverLength }
     if (match == null) {
       if (serverLength != 0L) return null
       reset(name, localLength)
       return 0L
-    }
-    val file = dataFile(name)
-    if (file.length() > match.compressed) {
-      RandomAccessFile(file, "rw").use { it.setLength(match.compressed) }
-    } else if (file.length() < match.compressed) {
-      return null
     }
     val kept = boundaries.takeWhile { it.compressed <= match.compressed }
     if (entry == null || kept.size != boundaries.size) {
@@ -116,26 +107,33 @@ internal class CompressionCache(private val root: File) {
     return match.uncompressed
   }
 
-  /** Append [member] to the cache and record the boundary before it is sent. */
-  fun append(name: String, localLength: Long, member: ByteArray, uncompressedAfter: Long): Long {
-    root.mkdirs()
-    val file = dataFile(name)
-    FileOutputStream(file, true).use { it.write(member) }
+  /**
+   * Record [memberSize] compressed bytes, ending at [uncompressedAfter], before they are sent.
+   * Returns the compressed length the server will hold once it accepts them.
+   */
+  fun append(
+      name: String,
+      localLength: Long,
+      memberSize: Int,
+      uncompressedAfter: Long,
+  ): Long {
     val entry =
         loadIndex().files[name]?.takeIf { it.localLength == localLength }
-            ?: CompressionFile(localLength, listOf(CompressionBoundary()))
-    val boundaries = entry.boundaries + CompressionBoundary(file.length(), uncompressedAfter)
-    writeFile(name, entry.copy(localLength = localLength, boundaries = boundaries))
-    return file.length()
+            ?: CompressionFile(localLength, START)
+    val boundaries = entry.boundaries.ifEmpty { START }
+    val compressed = boundaries.last().compressed + memberSize
+    writeFile(
+        name,
+        entry.copy(
+            localLength = localLength,
+            boundaries = boundaries + CompressionBoundary(compressed, uncompressedAfter),
+        ),
+    )
+    return compressed
   }
 
   fun reset(name: String, localLength: Long) {
-    dataFile(name).delete()
-    writeFile(name, CompressionFile(localLength, listOf(CompressionBoundary())))
-  }
-
-  fun discard() {
-    root.deleteRecursively()
+    writeFile(name, CompressionFile(localLength, START))
   }
 
   private fun loadIndex(): CompressionIndex =
@@ -156,5 +154,10 @@ internal class CompressionCache(private val root: File) {
       indexFile.delete()
       tmp.renameTo(indexFile)
     }
+  }
+
+  private companion object {
+    /** A file whose first member has not been sent: both offsets are zero. */
+    val START = listOf(CompressionBoundary())
   }
 }

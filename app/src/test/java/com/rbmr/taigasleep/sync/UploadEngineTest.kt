@@ -470,6 +470,61 @@ class UploadEngineTest {
   }
 
   @Test
+  fun aCompressedUploadKeepsOnlyItsIndexAcrossACrash() = runBlocking {
+    val data = ByteArray(3 * 1024 * 1024 + 3) { ((it * 7) % 251).toByte() }
+    File(dir, "hr.log").writeBytes(data)
+    val cache = Files.createTempDirectory("taiga-cache").toFile()
+    val seen = mutableListOf<Set<String>>()
+
+    val first = FakeClient()
+    first.failAfterAppends = 1
+    first.onAppend = { seen += cacheFiles(cache) }
+    val failed = runCatching { engine(first, compress = true, cacheDir = cache).run() }
+
+    assertTrue(failed.isFailure)
+    assertTrue(seen.isNotEmpty())
+    // The resume needs the offsets, not the members: nothing but the index is kept.
+    assertEquals(setOf("index.json"), seen.flatten().toSet())
+
+    val accepted = first.stored.getValue("hr.log")
+    val second = FakeClient()
+    second.store("hr.log", accepted, encoding = "gzip")
+    second.onAppend = { seen += cacheFiles(cache) }
+    engine(second, compress = true, cacheDir = cache).run()
+
+    assertEquals(setOf("index.json"), seen.flatten().toSet())
+    assertArrayEquals(data, gunzip(second.stored.getValue("hr.log")))
+    assertTrue(second.complete)
+    assertTrue(!cache.exists())
+  }
+
+  @Test
+  fun aCompressedConflictResumesWithoutACompressedCopy() = runBlocking {
+    val data = ByteArray(3 * 1024 * 1024 + 5) { ((it * 19) % 253).toByte() }
+    File(dir, "hr.log").writeBytes(data)
+    val cache = Files.createTempDirectory("taiga-cache").toFile()
+    val seen = mutableListOf<Set<String>>()
+    val client = FakeClient()
+    client.otherAttemptWinsTheFirstAppend = true
+    client.onAppend = { seen += cacheFiles(cache) }
+
+    engine(client, compress = true, cacheDir = cache).run()
+
+    assertTrue(seen.isNotEmpty())
+    assertEquals(setOf("index.json"), seen.flatten().toSet())
+    assertArrayEquals(data, gunzip(client.stored.getValue("hr.log")))
+    assertTrue(client.complete)
+  }
+
+  /** The files under a compressed upload cache, by name. */
+  private fun cacheFiles(cache: File): Set<String> =
+      cache
+          .walkTopDown()
+          .filter { it.isFile }
+          .map { it.name }
+          .toSet()
+
+  @Test
   fun aCompressedCacheThatCannotExplainTheServerFailsClearly() = runBlocking {
     File(dir, "hr.log").writeBytes(ByteArray(5000))
     val cache = Files.createTempDirectory("taiga-cache").toFile()
@@ -541,6 +596,7 @@ class UploadEngineTest {
     var ignoreAppends = false
     var otherAttemptWinsTheFirstAppend = false
     var maxChunk = Int.MAX_VALUE
+    var onAppend: (() -> Unit)? = null
 
     fun store(file: String, bytes: ByteArray, encoding: String = "") {
       stored[file] = bytes
@@ -573,6 +629,7 @@ class UploadEngineTest {
         encoding: String?,
     ): Long {
       appendAttempts += offset
+      onAppend?.invoke()
       appendError?.let { throw it }
       if (bytes.size > maxChunk) {
         throw TaigaHttpException(413, "a chunk is too large", ApiCode.CHUNK_TOO_LARGE)
