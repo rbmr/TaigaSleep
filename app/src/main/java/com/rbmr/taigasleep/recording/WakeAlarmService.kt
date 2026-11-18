@@ -27,7 +27,6 @@ import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.diagnostics.Diagnostics
-import com.rbmr.taigasleep.diagnostics.RecordingCost
 import com.rbmr.taigasleep.notifications.Channels
 import com.rbmr.taigasleep.notifications.Notifier
 
@@ -205,9 +204,6 @@ class AndroidAlarmWakeLock(context: Context) : AlarmWakeLock {
     }
     val now = SystemClock.elapsedRealtime()
     heldAtMs = now
-    // Count the acquisition with the recording's cost. Its release is not fed back there: the
-    // recording may hold its own lock across the whole night and this one would end that window.
-    RecordingCost.wakeLockAcquired(now)
   }
 
   override fun release(): Long {
