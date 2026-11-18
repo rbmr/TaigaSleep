@@ -175,6 +175,12 @@ interface Tracker {
   /** Best effort; must not block. */
   fun stopStreams()
 
+  /**
+   * Releases what the tracker owns outside a connection — threads, executors and subscriptions —
+   * when the app drops it for another one. The tracker is not used afterwards.
+   */
+  fun release() {}
+
   /** Reads the tracker's clock, in Unix epoch milliseconds; null when it cannot be read. */
   fun readClock(): Long? = null
 

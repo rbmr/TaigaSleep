@@ -104,7 +104,7 @@ abstract class PolarGenericTracker(
         .onFailure { _connection.value = ConnectionState.DISCONNECTED }
   }
 
-  override fun onConnected() {
+  override fun onConnected(address: String?) {
     _connection.value = ConnectionState.CONNECTED
     if (selected.isNotEmpty()) startLive()
   }
@@ -142,8 +142,9 @@ abstract class PolarGenericTracker(
     disposeStreams()
   }
 
-  /** Stops the trackers' own threads when the app forgets it. */
-  fun release() {
+  /** Stops the tracker's threads and its registration when the app forgets it. */
+  override fun release() {
+    seam.unregister(id)
     control.shutdownNow()
     streamScope.cancel()
   }
@@ -549,9 +550,7 @@ class PolarVerityDriver : TrackerDriver {
   override val kind = SensorKind.POLAR_VERITY
 
   override fun matches(device: FoundSensor): Boolean =
-      device.kind == SensorKind.POLAR_VERITY ||
-          device.name.contains("Verity", ignoreCase = true) ||
-          device.name.contains("Polar Sense", ignoreCase = true)
+      device.kind == kind || polarKindOf(device.name) == kind
 
   override fun create(context: Context, device: FoundSensor): Tracker =
       PolarVerityTracker(context, device.id, device.name)
@@ -561,7 +560,7 @@ class PolarLoopDriver : TrackerDriver {
   override val kind = SensorKind.POLAR_LOOP
 
   override fun matches(device: FoundSensor): Boolean =
-      device.kind == SensorKind.POLAR_LOOP || device.name.contains("Loop", ignoreCase = true)
+      device.kind == kind || polarKindOf(device.name) == kind
 
   override fun create(context: Context, device: FoundSensor): Tracker =
       PolarLoopTracker(context, device.id, device.name)

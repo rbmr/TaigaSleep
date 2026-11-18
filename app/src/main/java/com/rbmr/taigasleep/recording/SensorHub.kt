@@ -9,8 +9,7 @@ import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.tracker.TrackerRegistry
 import com.rbmr.taigasleep.tracker.hrs.scanHeartRateService
-import com.rbmr.taigasleep.tracker.polar.PolarGenericTracker
-import com.rbmr.taigasleep.tracker.polar.PolarH10Sensor
+import com.rbmr.taigasleep.tracker.polar.scanPolar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,7 +19,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.merge
-import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -30,9 +28,7 @@ import kotlinx.coroutines.launch
  * tracker up again from the recording's meta.json. Every device comes from a driver in
  * [TrackerRegistry]; nothing here names a strap.
  */
-class SensorHub {
-  private val registry = TrackerRegistry.default()
-
+class SensorHub(private val registry: TrackerRegistry = TrackerRegistry.default()) {
   private val _sensor = MutableStateFlow<Tracker?>(null)
   val sensor: StateFlow<Tracker?> = _sensor.asStateFlow()
 
@@ -47,6 +43,10 @@ class SensorHub {
   private val main = Handler(Looper.getMainLooper())
   private val stopScanRunnable = Runnable { stopScan() }
 
+  // The main thread and the recording control thread both obtain and drop trackers; one of them at
+  // a time keeps two trackers for one id, and the loser's threads, from being created.
+  private val lock = Any()
+
   /** Scans for every tracker a driver knows for [SCAN_MS]. Needs the Bluetooth permissions. */
   fun startScan(context: Context) {
     stopScan()
@@ -57,14 +57,7 @@ class SensorHub {
     scan =
         scanScope.launch {
           try {
-            merge(
-                    PolarH10Sensor.scan(context).mapNotNull { info ->
-                      kindOf(info.name)?.let {
-                        FoundSensor(it, info.deviceId, info.name, info.rssi)
-                      }
-                    },
-                    scanHeartRateService(context),
-                )
+            merge(scanPolar(context), scanHeartRateService(context))
                 .catch { _scanning.value = false }
                 .collect { s ->
                   if (_found.value.none { it.id == s.id }) {
@@ -77,16 +70,6 @@ class SensorHub {
         }
     main.postDelayed(stopScanRunnable, SCAN_MS)
   }
-
-  /** The kind a Polar device name names; a device no driver knows is not listed. */
-  private fun kindOf(name: String): SensorKind? =
-      when {
-        name.contains("H10", ignoreCase = true) -> SensorKind.POLAR_H10
-        name.contains("Verity", ignoreCase = true) ||
-            name.contains("Polar Sense", ignoreCase = true) -> SensorKind.POLAR_VERITY
-        name.contains("Loop", ignoreCase = true) -> SensorKind.POLAR_LOOP
-        else -> null
-      }
 
   fun stopScan() {
     main.removeCallbacks(stopScanRunnable)
@@ -117,32 +100,36 @@ class SensorHub {
   }
 
   /** Returns the current tracker if it is this one, otherwise creates it and starts connecting. */
-  fun obtain(context: Context, kind: SensorKind, id: String, name: String): Tracker {
-    _sensor.value?.let { if (it.kind == kind && it.id == id) return it }
-    clear()
-    val sensor =
-        if (kind == SensorKind.SIMULATED) {
-          checkNotNull(DebugTools.createFakeTracker()) {
-            "the fake tracker is a debug-build feature"
-          }
-        } else {
-          registry.create(context, FoundSensor(kind, id, name, 0))
-        }
-    _sensor.value = sensor
-    sensor.connect()
-    return sensor
+  fun obtain(context: Context, kind: SensorKind, id: String, name: String): Tracker =
+      synchronized(lock) {
+        val current = _sensor.value
+        if (current != null && current.kind == kind && current.id == id) return current
+        dropCurrent()
+        val sensor =
+            if (kind == SensorKind.SIMULATED) {
+              checkNotNull(DebugTools.createFakeTracker()) {
+                "the fake tracker is a debug-build feature"
+              }
+            } else {
+              registry.create(context, FoundSensor(kind, id, name, 0))
+            }
+        _sensor.value = sensor
+        sensor.connect()
+        sensor
+      }
+
+  /** Disconnects, releases and forgets the current tracker. */
+  fun clear() {
+    synchronized(lock) { dropCurrent() }
   }
 
-  /** Disconnects and forgets the current tracker. */
-  fun clear() {
-    val old = _sensor.getAndSet(null) ?: return
+  private fun dropCurrent() {
+    val old = _sensor.value ?: return
+    _sensor.value = null
     old.stopStreams()
     old.disconnect()
-    (old as? PolarH10Sensor)?.release()
-    (old as? PolarGenericTracker)?.release()
+    old.release()
   }
-
-  private fun <T> MutableStateFlow<T>.getAndSet(v: T): T = value.also { value = v }
 
   private companion object {
     const val SCAN_MS = 15_000L

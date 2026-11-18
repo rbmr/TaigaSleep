@@ -4,18 +4,10 @@ package com.rbmr.taigasleep.tracker.polar
 
 import android.content.Context
 import android.util.Log
-import com.polar.androidcommunications.api.ble.model.DisInfo
-import com.polar.androidcommunications.api.ble.model.gatt.client.BleDisClient
-import com.polar.sdk.api.PolarBleApi
 import com.polar.sdk.api.PolarBleApi.PolarBleSdkFeature
 import com.polar.sdk.api.PolarBleApi.PolarDeviceDataType
-import com.polar.sdk.api.PolarBleApiCallback
-import com.polar.sdk.api.PolarBleApiDefaultImpl
 import com.polar.sdk.api.PolarH10OfflineExerciseApi
 import com.polar.sdk.api.model.EcgSample
-import com.polar.sdk.api.model.PolarDeviceInfo
-import com.polar.sdk.api.model.PolarHealthThermometerData
-import com.polar.sdk.api.model.PolarHrData
 import com.polar.sdk.api.model.PolarExerciseEntry
 import com.polar.sdk.api.model.PolarSensorSetting
 import com.polar.sdk.api.model.PolarSensorSetting.SettingType
@@ -40,7 +32,6 @@ import com.rbmr.taigasleep.tracker.FoundSensor
 import java.io.IOException
 import java.time.LocalDateTime
 import java.time.ZoneOffset
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
@@ -52,7 +43,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,84 +51,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-
-/**
- * One process-wide Polar SDK instance. Its single callback is fanned out to the sensor objects by
- * device id, so a sensor can be replaced without re-creating the SDK, and the SDK can be re-created
- * without replacing the sensors: they keep their registration and their state flows.
- */
-private object PolarSdk {
-  private var api: PolarBleApi? = null
-  val sensors = ConcurrentHashMap<String, PolarH10Sensor>()
-
-  @Synchronized
-  fun get(context: Context): PolarBleApi =
-      api
-          ?: PolarBleApiDefaultImpl.defaultImplementation(
-                  context.applicationContext,
-                  setOf(
-                      PolarBleSdkFeature.FEATURE_HR,
-                      PolarBleSdkFeature.FEATURE_DEVICE_INFO,
-                      PolarBleSdkFeature.FEATURE_BATTERY_INFO,
-                      PolarBleSdkFeature.FEATURE_POLAR_ONLINE_STREAMING,
-                      PolarBleSdkFeature.FEATURE_POLAR_H10_EXERCISE_RECORDING,
-                      PolarBleSdkFeature.FEATURE_POLAR_DEVICE_TIME_SETUP,
-                  ),
-              )
-              .also {
-                // The SDK reconnects dropped links itself (it decides how to call connectGatt).
-                it.setAutomaticReconnection(true)
-                it.setApiCallback(callback)
-                api = it
-              }
-
-  /**
-   * Shuts the instance down and makes a fresh one. A dropped session can be parked until a scan
-   * hears the strap advertise, and a strap still held by the stale link never advertises; a new
-   * instance is what clears that. The callbacks reach the same sensor objects by device id.
-   */
-  @Synchronized
-  fun recreate(context: Context): PolarBleApi {
-    api?.let { runCatching { it.shutDown() } }
-    api = null
-    return get(context)
-  }
-
-  private val callback =
-      object : PolarBleApiCallback() {
-        override fun deviceConnecting(polarDeviceInfo: PolarDeviceInfo) {
-          sensors[polarDeviceInfo.deviceId]?.onConnecting(polarDeviceInfo.address)
-        }
-
-        override fun deviceConnected(polarDeviceInfo: PolarDeviceInfo) {
-          sensors[polarDeviceInfo.deviceId]?.onConnected(polarDeviceInfo.address)
-        }
-
-        override fun deviceDisconnected(polarDeviceInfo: PolarDeviceInfo) {
-          sensors[polarDeviceInfo.deviceId]?.onDisconnected()
-        }
-
-        override fun bleSdkFeatureReady(identifier: String, feature: PolarBleSdkFeature) {
-          sensors[identifier]?.onFeatureReady(feature)
-        }
-
-        override fun batteryLevelReceived(identifier: String, level: Int) {
-          sensors[identifier]?.onBattery(level)
-        }
-
-        override fun disInformationReceived(identifier: String, uuid: UUID, value: String) {
-          if (uuid == BleDisClient.SOFTWARE_REVISION_STRING) sensors[identifier]?.onFirmware(value)
-        }
-
-        // The SDK's callback interface requires these two; we do not use them.
-        override fun disInformationReceived(identifier: String, disInfo: DisInfo) {}
-
-        override fun htsNotificationReceived(
-            identifier: String,
-            data: PolarHealthThermometerData,
-        ) {}
-      }
-}
 
 /**
  * The H10 can store HR and RR on the device, but not ECG or ACC. An HR-only selection may
@@ -169,8 +81,9 @@ class PolarH10Sensor(
     context: Context,
     override val id: String,
     override val name: String,
+    private val seam: PolarSeam = PolarSdkSeam.install(context),
     private val clock: Clock = SystemClockSource,
-) : Tracker, OnDeviceTracker {
+) : Tracker, OnDeviceTracker, PolarSeam.ConnectionListener {
   override val kind = SensorKind.POLAR_H10
   override val streams =
       listOf(
@@ -194,10 +107,6 @@ class PolarH10Sensor(
   @Volatile private var linkAddress: String? = null
   override val address: String?
     get() = linkAddress
-
-  private val appContext = context.applicationContext
-  private val api: PolarBleApi
-    get() = PolarSdk.get(appContext)
 
   private val _connection = MutableStateFlow(ConnectionState.DISCONNECTED)
   override val connection: StateFlow<ConnectionState> = _connection.asStateFlow()
@@ -244,14 +153,14 @@ class PolarH10Sensor(
   @Volatile private var streamGeneration = 0
 
   init {
-    PolarSdk.sensors[id] = this
+    seam.register(id, this)
   }
 
   override fun connect() {
     userDisconnect = false
     _connection.value = ConnectionState.CONNECTING
     try {
-      api.connectToDevice(id)
+      seam.connect(id)
     } catch (e: Exception) {
       // Missing Bluetooth permission or an invalid id.
       Log.e(TAG, "connect failed", e)
@@ -263,7 +172,7 @@ class PolarH10Sensor(
     userDisconnect = true
     control.execute { disposeStreams() }
     try {
-      api.disconnectFromDevice(id)
+      seam.disconnect(id)
     } catch (e: Exception) {
       Log.w(TAG, "disconnect failed", e)
     }
@@ -284,7 +193,7 @@ class PolarH10Sensor(
       clockSynced = false
       clockSyncing = false
       clockWaiting = false
-      PolarSdk.recreate(appContext)
+      seam.recreate()
     }
     _connection.value = ConnectionState.DISCONNECTED
     userDisconnect = false
@@ -317,7 +226,7 @@ class PolarH10Sensor(
         awaitConnected()
         val entries = exerciseEntries()
         entries.map { entry ->
-          val data = blockingCall(OFFLINE_TIMEOUT_S) { api.fetchExercise(id, entry) }
+          val data = blockingCall(OFFLINE_TIMEOUT_S) { seam.fetchExercise(id, entry) }
           fetchedFromDevice[entry.identifier] = entry
           TrackerEntry(
               id = entry.identifier,
@@ -386,7 +295,7 @@ class PolarH10Sensor(
       val exercise = fetchedFromDevice[entryId] ?: stored[entryId] ?: continue
       try {
         withTimeout(TimeUnit.SECONDS.toMillis(OFFLINE_TIMEOUT_S)) {
-          api.removeExercise(id, exercise)
+          seam.removeExercise(id, exercise)
         }
         fetchedFromDevice.remove(entryId)
       } catch (e: CancellationException) {
@@ -426,7 +335,7 @@ class PolarH10Sensor(
       stopTrackerRecording()
       runCatching {
         for (entry in exerciseEntries()) {
-          blockingCall(OFFLINE_TIMEOUT_S) { api.removeExercise(id, entry) }
+          blockingCall(OFFLINE_TIMEOUT_S) { seam.removeExercise(id, entry) }
         }
       }
       onDeviceWanted = null
@@ -455,7 +364,7 @@ class PolarH10Sensor(
   override fun readClock(): Long? =
       runCatching {
             awaitControl {
-              val time = blockingCall(CLOCK_SYNC_S) { api.getLocalTime(id) }
+              val time = blockingCall(CLOCK_SYNC_S) { seam.getLocalTime(id) }
               time.toInstant(ZoneOffset.UTC).toEpochMilli()
             }
           }
@@ -465,7 +374,7 @@ class PolarH10Sensor(
       runCatching {
             awaitControl {
               blockingCall(CLOCK_SYNC_S) {
-                api.setLocalTime(
+                seam.setLocalTime(
                     id,
                     LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(utcMs), ZoneOffset.UTC),
                 )
@@ -475,8 +384,8 @@ class PolarH10Sensor(
           }
           .getOrDefault(false)
 
-  fun release() {
-    PolarSdk.sensors.remove(id, this)
+  override fun release() {
+    seam.unregister(id)
     streamScope.cancel()
     calls.cancel()
     control.shutdown()
@@ -485,13 +394,13 @@ class PolarH10Sensor(
 
   // Callbacks from the SDK.
 
-  internal fun onConnecting(deviceAddress: String?) {
-    noteAddress(deviceAddress)
+  override fun onConnecting(address: String?) {
+    noteAddress(address)
     _connection.value = ConnectionState.CONNECTING
   }
 
-  internal fun onConnected(deviceAddress: String?) {
-    noteAddress(deviceAddress)
+  override fun onConnected(address: String?) {
+    noteAddress(address)
     _connection.value = ConnectionState.CONNECTED
     control.execute {
       maybeBeginOnDevice()
@@ -506,7 +415,7 @@ class PolarH10Sensor(
     if (!deviceAddress.isNullOrBlank()) linkAddress = deviceAddress
   }
 
-  internal fun onDisconnected() {
+  override fun onDisconnected() {
     control.execute {
       ready.clear()
       disposeStreams()
@@ -521,7 +430,7 @@ class PolarH10Sensor(
         if (userDisconnect) ConnectionState.DISCONNECTED else ConnectionState.CONNECTING
   }
 
-  internal fun onFeatureReady(feature: PolarBleSdkFeature) {
+  override fun onFeatureReady(feature: PolarBleSdkFeature) {
     control.execute {
       ready += feature
       maybeBeginOnDevice()
@@ -529,13 +438,13 @@ class PolarH10Sensor(
     }
   }
 
-  internal fun onBattery(level: Int) {
+  override fun onBattery(level: Int?) {
     _battery.value = level
   }
 
-  internal fun onFirmware(value: String) {
+  override fun onFirmware(value: String?) {
     // The strap pads the revision string with a NUL.
-    _firmware.value = value.trimEnd('\u0000').trim()
+    _firmware.value = value?.trimEnd('\u0000')?.trim()
   }
 
   // On-device recording. Everything below runs on the control thread.
@@ -550,8 +459,8 @@ class PolarH10Sensor(
     try {
       // A service restart can find the strap already recording from the previous instance. Do not
       // start a second file; the fetch at the end drains whatever is there.
-      val status = blockingCall(OFFLINE_TIMEOUT_S) { api.requestRecordingStatus(id) }
-      if (status.ongoing) {
+      val ongoing = blockingCall(OFFLINE_TIMEOUT_S) { seam.exerciseOngoing(id) }
+      if (ongoing) {
         onDeviceActive = true
         l.onNote("on_device_resume", "the tracker was already storing HR and RR")
         finishOnDeviceStart(null)
@@ -562,12 +471,7 @@ class PolarH10Sensor(
       setOnDeviceClock(l)
       // The H10 keeps one kind of sample per recording; beat intervals carry both HR and RR.
       blockingCall(OFFLINE_TIMEOUT_S) {
-        api.startRecording(
-            id,
-            EXERCISE_ID,
-            PolarH10OfflineExerciseApi.RecordingInterval.INTERVAL_1S,
-            sampleType = PolarH10OfflineExerciseApi.SampleType.RR,
-        )
+        seam.startExercise(id, EXERCISE_ID, PolarH10OfflineExerciseApi.SampleType.RR)
       }
       onDeviceActive = true
       l.onNote("on_device_start", "the tracker is storing HR and RR on the device")
@@ -590,7 +494,7 @@ class PolarH10Sensor(
   /** Sets the strap's clock before an on-device recording starts, so its exercise start is real. */
   private fun setOnDeviceClock(l: TrackerListener) {
     try {
-      blockingCall(CLOCK_SYNC_S) { api.setLocalTime(id, LocalDateTime.now(ZoneOffset.UTC)) }
+      blockingCall(CLOCK_SYNC_S) { seam.setLocalTime(id, LocalDateTime.now(ZoneOffset.UTC)) }
       l.onNote("clock_sync", "strap clock set to the phone time (UTC)")
     } catch (e: Exception) {
       l.onError("could not set the strap clock: ${e.message ?: e.javaClass.simpleName}")
@@ -598,7 +502,7 @@ class PolarH10Sensor(
   }
 
   private fun exerciseEntries(): List<PolarExerciseEntry> =
-      blockingCall(OFFLINE_TIMEOUT_S) { api.listExercises(id).toList() }
+      blockingCall(OFFLINE_TIMEOUT_S) { seam.listExercises(id).toList() }
 
   /** The phone may have been off all night: the link comes back by itself, so wait for it. */
   private fun awaitConnected() {
@@ -611,7 +515,7 @@ class PolarH10Sensor(
   /** Always asks the strap: after an app restart this instance does not know it was recording. */
   private fun stopTrackerRecording() {
     onDeviceActive = false
-    runCatching { blockingCall(OFFLINE_TIMEOUT_S) { api.stopRecording(id) } }
+    runCatching { blockingCall(OFFLINE_TIMEOUT_S) { seam.stopExercise(id) } }
     onDeviceWanted = null
     onDeviceListener = null
     onDeviceResult = null
@@ -662,7 +566,7 @@ class PolarH10Sensor(
       try {
         // UTC, so the strap's timestamps are UTC like the rest of the recording.
         withTimeout(TimeUnit.SECONDS.toMillis(CLOCK_SYNC_S)) {
-          api.setLocalTime(id, LocalDateTime.now(ZoneOffset.UTC))
+          seam.setLocalTime(id, LocalDateTime.now(ZoneOffset.UTC))
         }
         l.onNote("clock_sync", "strap clock set to the phone time (UTC)")
       } catch (e: CancellationException) {
@@ -722,7 +626,7 @@ class PolarH10Sensor(
   private fun startHr(l: TrackerListener) {
     l.onNegotiated("hr", 1.0, emptyMap())
     stream("hr", l) {
-      api.startHrStreaming(id).collect { data ->
+      seam.startHr(id).collect { data ->
         val stamp = Stamp.now(clock)
         gotSample("hr", l)
         delivery.execute {
@@ -750,7 +654,7 @@ class PolarH10Sensor(
   private fun startEcg(l: TrackerListener) {
     val wantedSettings = mapOf(SettingType.SAMPLE_RATE to 130, SettingType.RESOLUTION to 14)
     stream("ecg", l) {
-      api.startEcgStreaming(id, settingsFor(PolarDeviceDataType.ECG, wantedSettings, l))
+      seam.startEcg(id, settingsFor(PolarDeviceDataType.ECG, wantedSettings, l))
           .collect { data ->
             val stamp = Stamp.now(clock)
             gotSample("ecg", l)
@@ -781,7 +685,7 @@ class PolarH10Sensor(
     val wantedSettings =
         mapOf(SettingType.SAMPLE_RATE to 50, SettingType.RESOLUTION to 16, SettingType.RANGE to 8)
     stream("acc", l) {
-      api.startAccStreaming(id, settingsFor(PolarDeviceDataType.ACC, wantedSettings, l))
+      seam.startAcc(id, settingsFor(PolarDeviceDataType.ACC, wantedSettings, l))
           .collect { data ->
             val stamp = Stamp.now(clock)
             gotSample("acc", l)
@@ -824,7 +728,7 @@ class PolarH10Sensor(
       wanted: Map<SettingType, Int>,
       l: TrackerListener,
   ): PolarSensorSetting {
-    val available = api.requestStreamSettings(id, type)
+    val available = seam.streamSettings(id, type)
     val chosen =
         available.settings.mapValues { (t, values) ->
           wanted[t]?.takeIf { it in values } ?: values.max()
@@ -905,9 +809,6 @@ class PolarH10Sensor(
     private const val REMOVE_TIMEOUT_S = 20L
     private const val CONNECT_WAIT_S = 60L
     private const val EXERCISE_ID = "TAIGA"
-
-    /** Devices in range, as the SDK finds them. */
-    fun scan(context: Context): Flow<PolarDeviceInfo> = PolarSdk.get(context).searchForDevice()
   }
 }
 
@@ -917,7 +818,7 @@ class PolarH10Driver : TrackerDriver {
   override val kind = SensorKind.POLAR_H10
 
   override fun matches(device: FoundSensor): Boolean =
-      device.kind == SensorKind.POLAR_H10 || device.name.contains("H10", ignoreCase = true)
+      device.kind == kind || polarKindOf(device.name) == kind
 
   override fun create(context: Context, device: FoundSensor): Tracker =
       PolarH10Sensor(context, device.id, device.name)
