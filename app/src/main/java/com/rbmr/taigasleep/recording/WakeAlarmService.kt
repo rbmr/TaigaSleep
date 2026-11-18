@@ -42,8 +42,8 @@ import com.rbmr.taigasleep.notifications.Notifier
 class WakeAlarmService : Service() {
   private lateinit var device: AndroidAlarmDevice
   private lateinit var ring: WakeAlarmRing
+  private lateinit var session: WakeAlarmSession
   private val handler = Handler(Looper.getMainLooper())
-  private var finished = false
 
   override fun onCreate() {
     super.onCreate()
@@ -56,22 +56,23 @@ class WakeAlarmService : Service() {
             notifications = device,
             wakeLock = AndroidAlarmWakeLock(this),
         )
+    session = WakeAlarmSession(ring, onStopped = { teardown() })
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     when (intent?.action) {
-      ACTION_STOP -> finish(intent.getStringExtra(EXTRA_HOW) ?: HOW_USER)
+      ACTION_STOP -> if (!session.stop(intent.getStringExtra(EXTRA_HOW) ?: HOW_USER)) teardown()
       ACTION_RING -> started(intent)
-      else -> finish(HOW_SERVICE)
+      else -> if (!session.stop(HOW_SERVICE)) teardown()
     }
     return START_NOT_STICKY
   }
 
   override fun onDestroy() {
     // A destroyed service must not leave the stream raised or the vibration running.
-    if (!finished) finish(HOW_SERVICE)
+    session.stop(HOW_SERVICE)
     super.onDestroy()
   }
 
@@ -106,14 +107,13 @@ class WakeAlarmService : Service() {
           Notifier.WAKE_ALARM_ID,
           Notifier.wakeAlarm(this, text, WakeAlarm.stop(this), Notifier.APP_ACTIVITY),
       )
-      finished = true
       stopSelf()
       return
     }
-    val result = ring.start(reason, source)
+    val result = session.start(reason, source)
     if (testMs > 0) {
       WakeAlarm.testResult.value = result.testResult()
-      handler.postDelayed({ finish(HOW_TEST) }, testMs.toLong())
+      handler.postDelayed({ session.stop(HOW_TEST) }, testMs.toLong())
       return
     }
     report(result, source)
@@ -129,11 +129,9 @@ class WakeAlarmService : Service() {
     }
   }
 
-  private fun finish(how: String) {
-    if (finished) return
-    finished = true
+  /** Drops the service's own foreground and notification work after the session ended a ring. */
+  private fun teardown() {
     handler.removeCallbacksAndMessages(null)
-    ring.stop(how)
     WakeAlarm.dismiss(this)
     stopForeground(STOP_FOREGROUND_REMOVE)
     stopSelf()
