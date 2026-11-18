@@ -149,6 +149,15 @@ class WakeAlarmRing(
     private set
 
   fun start(reason: WakeReason, source: String): AlarmRing {
+    // A second request while this ring is active must not read the raised volume as the original
+    // and lose what to restore on stop. It is reported and changes nothing.
+    current?.let {
+      log(
+          "wake_alarm_already_ringing",
+          mapOf("source" to source, "reason" to reason.wire, "volume" to phone.alarmVolume),
+      )
+      return it
+    }
     // The sound and the vibration are the only things keeping the phone awake when the recording
     // process is gone, so the ring holds the CPU for as long as it may take.
     wakeLock?.acquire(WAKE_LOCK_TIMEOUT_MS)

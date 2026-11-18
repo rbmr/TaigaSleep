@@ -144,6 +144,26 @@ class WakeAlarmRingTest {
   }
 
   @Test
+  fun `a second start while ringing keeps the original volume for the stop`() {
+    phone.volume = 0
+    phone.max = 10
+
+    ring.start(WakeReason.SIGNAL, "signal")
+    assertEquals(7, phone.volume)
+
+    ring.start(WakeReason.WINDOW_END, "window_end")
+
+    assertEquals("a second request does not raise again", 7, phone.volume)
+    assertEquals("the sound is not started twice", 1, player.plays)
+    assertEquals("the notification is not posted twice", 1, notifications.posts)
+    assertTrue(logs.any { it.first == "wake_alarm_already_ringing" })
+
+    ring.stop("user")
+
+    assertEquals("the first ring's original volume is put back", 0, phone.volume)
+  }
+
+  @Test
   fun `the ring and its stop write the new diagnostics fields`() {
     phone.volume = 0
     phone.max = 10
@@ -290,9 +310,11 @@ class WakeAlarmRingTest {
     var refuse: Set<AlarmSound> = emptySet()
     val tried = mutableListOf<AlarmSound>()
     var stopped = false
+    var plays = 0
 
     override fun play(sound: AlarmSound): Boolean {
       tried += sound
+      plays++
       return sound !in refuse
     }
 
@@ -331,11 +353,13 @@ class WakeAlarmRingTest {
   private class FakeNotifications : AlarmNotifications {
     var fallback = false
     var cancelled = false
+    var posts = 0
 
     override fun allowed(): Boolean = true
 
     override fun post(reason: WakeReason, fallback: Boolean): Boolean {
       this.fallback = fallback
+      posts++
       return true
     }
 

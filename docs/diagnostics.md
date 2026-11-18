@@ -117,6 +117,7 @@ Not enforced; keep them lower_snake_case and keep `diag_heartbeat` for the diagn
 | `boot_resume`, `resume_refused`, `service_foreground_refused` | `recording`, `error` |
 | `wake_trigger` | `recording`, `at_utc_ms` |
 | `wake_alarm`, `wake_rang`, `wake_alarm_failed`, `wake_alarm_stopped` | see "The wake-up alarm" below |
+| `wake_alarm_already_ringing` | `source`, `reason`, `volume` when a ring request arrives while one is active |
 | `wake_change` | `recording`, `start_utc_ms`, `end_utc_ms` (empty when the alarm was switched off) |
 | `wakelock` | `action` (acquire/release), `timeout_ms` |
 
@@ -148,6 +149,9 @@ posted in its sounding form as a second attempt.
 released on stop, with a 15 minute safety timeout so a bug cannot hold it forever. It is what keeps
 the CPU awake when the alarm came from the end-of-window broadcast with the recording process gone.
 A test ring reports the same `playback_started`, `audible` and volume through the alarm's settings.
+
+`wake_alarm_already_ringing` is written when a start request arrives while a ring is active. It
+changes nothing, so the volume raised for the first ring is still put back when that ring stops.
 
 The start of a recording and the alarm's own settings warn when Do Not Disturb is set to total
 silence, notifications are off or the phone has no audio output. Those are the phone's choices and
