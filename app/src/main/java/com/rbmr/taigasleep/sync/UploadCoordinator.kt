@@ -9,26 +9,9 @@ import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.backend.allAnalyses
 import com.rbmr.taigasleep.backend.label
 import com.rbmr.taigasleep.insights.AnalysisSettings
-import com.rbmr.taigasleep.profile.PersonalData
-import com.rbmr.taigasleep.recording.store.RecordingConfig
-import com.rbmr.taigasleep.recording.store.RecordingMeta
-import com.rbmr.taigasleep.recording.store.RecordingStore
-import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-
-private val HR_ONLY = RecordingConfig(hr = true, ecg = false, acc = false)
-
-/**
- * Configuration of the local recording behind [key]. A remote-only recording has no local
- * metadata, so the safe answer is an HR-only recording, which selects the HR-based stager.
- */
-internal fun localRecordingConfig(context: Context, key: String): RecordingConfig {
-  val localId = key.takeUnless { it.startsWith("remote-") } ?: return HR_ONLY
-  val meta = RecordingMeta.read(context.appContainer.recordingStore.dir(localId))
-  return meta?.config ?: HR_ONLY
-}
 
 /** User-initiated recovery actions that need a live server call. */
 internal object UploadCoordinator {
@@ -41,29 +24,23 @@ internal object UploadCoordinator {
         val container = context.appContainer
         retryAnalysis(
             remote = container.remoteRepository,
-            store = container.uploadStore,
+            requests = container.analysisRequests,
             key = key,
             analysisId = analysisId,
-            config = { localRecordingConfig(context, key) },
             settings = container.analysisSettingsStore.settings.value,
-            personalData = container.personalDataStore.data.value,
-            startDate = startDateOf(context, key),
         )
       }
 
   /**
-   * The retry sequence with the session, the store, the recording's configuration and the analysis
-   * settings handed in, so a test can drive it without the app's wiring.
+   * The retry sequence with the session, the requester and the analysis settings handed in, so a
+   * test can drive it without the app's wiring.
    */
   internal suspend fun retryAnalysis(
       remote: RemoteRepository,
-      store: UploadStore,
+      requests: AnalysisRequester,
       key: String,
       analysisId: String?,
-      config: () -> RecordingConfig,
       settings: AnalysisSettings,
-      personalData: PersonalData = PersonalData(),
-      startDate: LocalDate? = null,
   ): Result<Unit> {
     val verified =
         try {
@@ -91,27 +68,13 @@ internal object UploadCoordinator {
               ?: analyses.maxByOrNull { it.created }
 
       when {
-        target == null -> {
-          AnalysisService.startPreferred(
-              api,
-              recordingId,
-              config(),
-              settings,
-              personalData,
-              startDate,
-          )
-        }
-        target.isFailed ->
-            api.requestAnalysis(
-                recordingId,
-                target.algorithm,
-                target.version,
-                target.params,
-            )
+        target == null -> requests.startPreferred(session, key, settings)
+        target.isFailed -> requests.retry(session, key, target, automatic = false)
+        // Already on its way: nothing to ask for, but the recording is processing either way.
+        else -> requests.markProcessing(session, key)
       }
 
       // The result arrives through the realtime stream while the app is open, or at the next open.
-      store.markProcessing(key, account = session.account)
       return Result.success(Unit)
     } catch (e: TaigaUnauthorizedException) {
       if (remote.accountKey == session.account) remote.logout()

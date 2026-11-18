@@ -14,6 +14,8 @@ import com.rbmr.taigasleep.profile.PersonalDataStore
 import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.SensorHub
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.sync.AnalysisRequester
+import com.rbmr.taigasleep.sync.AppAnalysisRequestEnvironment
 import com.rbmr.taigasleep.sync.AppSyncEnvironment
 import com.rbmr.taigasleep.sync.LiveSync
 import com.rbmr.taigasleep.sync.PendingDeleteStore
@@ -116,6 +118,11 @@ class AppContainer(private val application: Application) {
   val recordingLibrary: RecordingLibrary by offMain { RecordingLibrary(application) }
 
   val syncService: SyncService by offMain { SyncService(AppSyncEnvironment(application), scope) }
+
+  /** The one way an analysis is asked for, on every path that requests one. */
+  internal val analysisRequests: AnalysisRequester by offMain {
+    AnalysisRequester(AppAnalysisRequestEnvironment(application))
+  }
 
   val sensorHub: SensorHub by lazy { SensorHub() }
 

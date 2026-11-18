@@ -19,7 +19,7 @@ import kotlinx.coroutines.CancellationException
 internal class AppAutomationEnvironment(context: Context) : AutomationEnvironment {
   private val app = context.applicationContext
   private val container get() = app.appContainer
-  private val retries = app.getSharedPreferences("auto_analysis_retries", Context.MODE_PRIVATE)
+  private val requests: AnalysisRequester get() = container.analysisRequests
 
   override val account: String?
     get() = container.remoteRepository.accountKey
@@ -84,19 +84,12 @@ internal class AppAutomationEnvironment(context: Context) : AutomationEnvironmen
 
   /** The streams of a night: its own meta.json, or the one the server keeps for a remote night. */
   private fun configOf(entry: LibraryEntry): RecordingConfig? {
-    if (!entry.key.startsWith(REMOTE_KEY_PREFIX)) {
+    if (!isRemoteKey(entry.key)) {
       RecordingMeta.read(container.recordingStore.dir(entry.key))?.let {
         return it.config
       }
     }
-    val meta = entry.recording?.meta ?: return null
-    return try {
-      RecordingMeta.fromJson(meta).config
-    } catch (e: CancellationException) {
-      throw e
-    } catch (_: Exception) {
-      null
-    }
+    return serverRecordingMeta(entry.recording?.meta)?.config
   }
 
   override fun session(): RemoteSession? = container.remoteRepository.session()
@@ -121,20 +114,8 @@ internal class AppAutomationEnvironment(context: Context) : AutomationEnvironmen
       choice: StagerChoice,
       retry: AnalysisDto?,
   ) {
-    val params =
-        retry?.params
-            ?: analysisParams(
-                choice.id,
-                container.personalDataStore.data.value,
-                startDateOf(app, night.key),
-            )
-    session.api.requestAnalysis(night.recordingId, choice.id, choice.version, params)
-    if (retry != null) {
-      val key = retryKey(night.recordingId, retry)
-      retries.edit().putInt(key, retries.getInt(key, 0) + 1).apply()
-    }
-    // A login in between means this request belongs to the session that made it.
-    if (account == session.account) container.uploadStore.markProcessing(night.key, session.account)
+    if (retry == null) requests.startChoice(session, night.key, choice)
+    else requests.retry(session, night.key, retry, automatic = true)
   }
 
   override fun sessionRejected(session: RemoteSession) {
@@ -142,8 +123,5 @@ internal class AppAutomationEnvironment(context: Context) : AutomationEnvironmen
   }
 
   override fun retriesUsed(recordingId: String, analysis: AnalysisDto): Int =
-      retries.getInt(retryKey(recordingId, analysis), 0)
-
-  private fun retryKey(recordingId: String, analysis: AnalysisDto) =
-      "$recordingId|${analysis.algorithm}|${analysis.version}"
+      requests.automaticRetriesUsed(recordingId, analysis)
 }

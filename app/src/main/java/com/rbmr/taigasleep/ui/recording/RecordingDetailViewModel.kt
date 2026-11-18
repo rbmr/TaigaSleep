@@ -152,8 +152,8 @@ class RecordingDetailViewModel(
 
   fun retryAnalysis() {
     val recording = _state.value.recording ?: return
-    val server = recording.remoteId ?: return
-    val key = recording.local?.id ?: "remote-$server"
+    if (recording.remoteId == null) return
+    val key = recording.key
     _state.update { it.copy(actionError = null) }
     scope.launch {
       work

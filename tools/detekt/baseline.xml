@@ -55,7 +55,7 @@
     <ID>CyclomaticComplexMethod:TaigaApp.kt$@Composable fun TaigaApp( themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -&gt; Unit, )</ID>
     <ID>CyclomaticComplexMethod:TrendsCharts.kt$@Composable private fun TrendPlotCanvas( days: List&lt;LocalDate&gt;, kind: TrendChartKind, axis: TrendAxis, references: List&lt;TrendReference&gt;, description: String, topLabel: ((String) -&gt; String)?, valueFormat: (Double) -&gt; String, large: Boolean, modifier: Modifier = Modifier, )</ID>
     <ID>CyclomaticComplexMethod:TrendsCharts.kt$private fun DrawScope.drawTrendLine( plot: TrendPlot, series: TrendSeries, axis: TrendAxis, large: Boolean, dash: PathEffect, )</ID>
-    <ID>CyclomaticComplexMethod:UploadCoordinator.kt$UploadCoordinator$internal suspend fun retryAnalysis( remote: RemoteRepository, store: UploadStore, key: String, analysisId: String?, config: () -&gt; RecordingConfig, settings: AnalysisSettings, personalData: PersonalData = PersonalData(), startDate: LocalDate? = null, ): Result&lt;Unit&gt;</ID>
+    <ID>CyclomaticComplexMethod:UploadCoordinator.kt$UploadCoordinator$internal suspend fun retryAnalysis( remote: RemoteRepository, requests: AnalysisRequester, key: String, analysisId: String?, settings: AnalysisSettings, ): Result&lt;Unit&gt;</ID>
     <ID>CyclomaticComplexMethod:UploadEngine.kt$UploadEngine$private suspend fun uploadCompressed( file: File, initial: RemoteFile?, cache: CompressionCache, uploaded: MutableMap&lt;String, Long&gt;, totalBytes: Long, )</ID>
     <ID>CyclomaticComplexMethod:UploadEngine.kt$UploadEngine$private suspend fun uploadPlain( file: File, initial: RemoteFile?, uploaded: MutableMap&lt;String, Long&gt;, totalBytes: Long, )</ID>
     <ID>CyclomaticComplexMethod:UploadWorker.kt$UploadWorker$override suspend fun doWork(): Result</ID>
@@ -308,7 +308,7 @@
     <ID>ReturnCount:StreamRecovery.kt$StreamRecoveryPolicy$fun onBluetooth(enabled: Boolean, nowMs: Long): List&lt;RecoveryStep&gt;</ID>
     <ID>ReturnCount:TrackerCleanup.kt$TrackerCleanup$fun retry(): TrackerRemoval</ID>
     <ID>ReturnCount:UploadConfirmation.kt$internal suspend fun confirmUploadOnServer( client: TaigaClient, id: String, store: UploadStore, account: String, ): Boolean</ID>
-    <ID>ReturnCount:UploadCoordinator.kt$UploadCoordinator$internal suspend fun retryAnalysis( remote: RemoteRepository, store: UploadStore, key: String, analysisId: String?, config: () -&gt; RecordingConfig, settings: AnalysisSettings, personalData: PersonalData = PersonalData(), startDate: LocalDate? = null, ): Result&lt;Unit&gt;</ID>
+    <ID>ReturnCount:UploadCoordinator.kt$UploadCoordinator$internal suspend fun retryAnalysis( remote: RemoteRepository, requests: AnalysisRequester, key: String, analysisId: String?, settings: AnalysisSettings, ): Result&lt;Unit&gt;</ID>
     <ID>ReturnCount:UploadScheduler.kt$UploadScheduler$suspend fun queueAuto(context: Context, localId: String, replace: Boolean)</ID>
     <ID>ReturnCount:UploadWorker.kt$UploadWorker$override suspend fun doWork(): Result</ID>
     <ID>ReturnCount:WakeDecision.kt$WakeDecision$private fun heartRateTrigger(bounds: WakeBounds, hr: List&lt;WakePoint&gt;): Long?</ID>

@@ -30,8 +30,8 @@ internal object RecordingDeleter {
       File(context.filesDir, "upload-cache/$localId").deleteRecursively()
     }
     if (remoteId != null && account != null) {
-      context.appContainer.resultCache.delete(account, "remote-$remoteId")
-      context.appContainer.uploadStore.clear("remote-$remoteId", account)
+      context.appContainer.resultCache.delete(account, remoteKey(remoteId))
+      context.appContainer.uploadStore.clear(remoteKey(remoteId), account)
       UploadScheduler.enqueueDelete(context, remoteId)
     }
     RecordingRepository.refreshRecordings(context)

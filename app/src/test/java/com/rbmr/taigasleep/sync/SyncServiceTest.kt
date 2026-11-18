@@ -8,10 +8,7 @@ import com.rbmr.taigasleep.backend.TaigaClient
 import com.rbmr.taigasleep.backend.TaigaHttpException
 import com.rbmr.taigasleep.backend.TaigaNetworkException
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
-import com.rbmr.taigasleep.profile.PersonalData
-import com.rbmr.taigasleep.recording.store.RecordingConfig
 import java.io.IOException
-import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -138,7 +135,7 @@ class SyncServiceTest {
 
     assertTrue(result.isSuccess)
     assertEquals(
-        listOf("startManual r1 baseline", "markManualAnalysis r1 a-baseline", "markProcessing r1"),
+        listOf("startManual r1 baseline", "markProcessing r1", "markManualAnalysis r1 a-baseline"),
         environment.calls,
     )
   }
@@ -291,9 +288,6 @@ class SyncServiceTest {
 
     var files = true
     var client: TaigaClient? = null
-    var streams = RecordingConfig(hr = true, ecg = false, acc = false)
-    var profile = PersonalData()
-    var startedOn: LocalDate? = null
     var started = listOf(StartedAnalysis("a1", "queued"))
     var requestFailure: Exception? = null
     var refreshFailure: Exception? = null
@@ -329,12 +323,6 @@ class SyncServiceTest {
     }
 
     override fun hasRecording(id: String): Boolean = files
-
-    override fun config(id: String): RecordingConfig = streams
-
-    override fun personalData(): PersonalData = profile
-
-    override suspend fun startDate(id: String): LocalDate? = startedOn
 
     override suspend fun enqueueManual(id: String) {
       calls += "enqueueManual $id"
@@ -383,27 +371,20 @@ class SyncServiceTest {
     }
 
     override suspend fun startManual(
-        api: TaigaClient,
-        recordingId: String,
-        config: RecordingConfig,
+        session: RemoteSession,
+        id: String,
         algorithm: String,
-        personalData: PersonalData,
-        startDate: LocalDate?,
     ): List<StartedAnalysis> {
-      calls += "startManual $recordingId $algorithm"
+      calls += "startManual ${recordingIdOf(id)} $algorithm"
       requestFailure?.let { throw it }
+      markProcessing(id, session.account)
       return started
     }
 
-    override suspend fun startPreferred(
-        api: TaigaClient,
-        recordingId: String,
-        config: RecordingConfig,
-        personalData: PersonalData,
-        startDate: LocalDate?,
-    ): StartedAnalysis {
-      calls += "startPreferred $recordingId"
+    override suspend fun startPreferred(session: RemoteSession, id: String): StartedAnalysis {
+      calls += "startPreferred ${recordingIdOf(id)}"
       requestFailure?.let { throw it }
+      markProcessing(id, session.account)
       return started.first()
     }
 

@@ -21,8 +21,8 @@ fun selectStager(
       return it
     }
   }
-  // baseline is built into the worker and is the safe fallback when the algorithm list is empty,
-  // the worker has not reported yet, or nothing reported can run on this recording.
+  // baseline is built into the worker and is the safe fallback when the server reported no method
+  // this recording can run. A list the server did not answer fails the request instead.
   return StagerChoice("baseline", "1.2.0")
 }
 

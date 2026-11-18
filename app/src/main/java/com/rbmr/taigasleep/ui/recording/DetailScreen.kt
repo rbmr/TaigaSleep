@@ -17,6 +17,7 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.library.NightHeaderText
 import com.rbmr.taigasleep.library.formatNightHeader
 import com.rbmr.taigasleep.library.formatRecordingDate
+import com.rbmr.taigasleep.library.recordingKey
 import com.rbmr.taigasleep.ui.components.TaigaScreen
 import com.rbmr.taigasleep.ui.theme.LocalFormats
 
@@ -39,8 +40,8 @@ fun RecordingDetailScreen(
         RecordingDetailFactory(context, localId, remoteId, analysisId)
       }
   // One view model per recording, so opening another recording starts from its own state.
-  val recordingKey = localId ?: remoteId?.let { "remote-$it" } ?: analysisId ?: "recording"
-  val viewModel: RecordingDetailViewModel = viewModel(key = recordingKey, factory = factory)
+  val viewModelKey = recordingKey(localId, remoteId) ?: analysisId ?: "recording"
+  val viewModel: RecordingDetailViewModel = viewModel(key = viewModelKey, factory = factory)
   val state by viewModel.state.collectAsStateWithLifecycle()
 
   var showSleepScore by rememberSaveable { mutableStateOf(false) }

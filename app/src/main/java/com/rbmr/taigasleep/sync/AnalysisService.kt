@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.sync
 
 import com.rbmr.taigasleep.backend.AlgorithmDto
+import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.TaigaClient
 import com.rbmr.taigasleep.insights.AnalysisSettings
 import com.rbmr.taigasleep.profile.PersonalData
@@ -22,14 +23,15 @@ fun manualChoices(
 ): List<StagerChoice> = selectStagers(config, algorithms, ids)
 
 /**
- * The one place that asks the server for analyses. Uploading and requesting are separate: a recording
- * can be safely on the server with no analysis, and manual requests can add more later.
+ * How one analysis is selected and sent. [AnalysisRequester] is the one way a path asks for an
+ * analysis; this is the selection and transport behind it. Uploading and requesting are separate: a
+ * recording can be safely on the server with no analysis, and manual requests can add more later.
  *
- * [personalData] and [startDate] only reach SleepECG: its classifiers use age, sex and weight as
- * model features. An empty profile sends no parameters, and the other algorithms never get any.
+ * The personal data and the start date only reach SleepECG: its classifiers use age, sex and weight
+ * as model features. An empty profile sends no parameters, and the other algorithms never get any.
  */
 internal object AnalysisService {
-  /** A manual retry of a recording that has no analysis yet, regardless of the automatic setting. */
+  /** The preferred compatible method; a request is always an explicit decision, not a setting. */
   suspend fun startPreferred(
       client: TaigaClient,
       recordingId: String,
@@ -65,11 +67,12 @@ internal object AnalysisService {
         Result.failure(e)
       }
 
+  /** The list a choice needs: a request fails rather than guess a method the server never named. */
   private suspend fun installed(client: TaigaClient): List<AlgorithmDto> =
-      installedAlgorithms(client).getOrDefault(emptyList())
+      installedAlgorithms(client).getOrThrow()
 
   /** One analysis per call; asking again for the same run returns the one that exists. */
-  private suspend fun request(
+  suspend fun request(
       client: TaigaClient,
       recordingId: String,
       choice: StagerChoice,
@@ -83,6 +86,17 @@ internal object AnalysisService {
             choice.version,
             analysisParams(choice.id, personalData, startDate),
         )
+    return StartedAnalysis(analysisId = analysis.id, status = analysis.status)
+  }
+
+  /** Ask again for a run that failed, with the parameters it was asked for with. */
+  suspend fun retry(
+      client: TaigaClient,
+      recordingId: String,
+      failed: AnalysisDto,
+  ): StartedAnalysis {
+    val analysis =
+        client.requestAnalysis(recordingId, failed.algorithm, failed.version, failed.params)
     return StartedAnalysis(analysisId = analysis.id, status = analysis.status)
   }
 }

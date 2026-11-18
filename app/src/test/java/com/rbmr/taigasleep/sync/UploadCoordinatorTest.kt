@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.sync
 
 import com.rbmr.taigasleep.backend.AuthSession
+import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.HttpClients
 import com.rbmr.taigasleep.backend.RemoteApi
 import com.rbmr.taigasleep.backend.RemoteError
@@ -10,20 +11,12 @@ import com.rbmr.taigasleep.backend.RemoteRepository
 import com.rbmr.taigasleep.backend.RemoteStore
 import com.rbmr.taigasleep.backend.SecretBox
 import com.rbmr.taigasleep.backend.ServerVersion
+import com.rbmr.taigasleep.backend.TaigaClient
 import com.rbmr.taigasleep.insights.AnalysisSettings
-import com.rbmr.taigasleep.recording.store.RecordingConfig
-import com.rbmr.taigasleep.sync.db.TaigaDatabase
-import com.rbmr.taigasleep.sync.db.storeScope
-import com.rbmr.taigasleep.sync.db.testDatabase
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
-import org.junit.After
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -39,20 +32,6 @@ class UploadCoordinatorTest {
   private val prefs = MemoryPrefs()
   private val box = PlainSecretBox()
   private val clients = HttpClients(OkHttpClient())
-  private lateinit var database: TaigaDatabase
-  private lateinit var scope: CoroutineScope
-
-  @Before
-  fun setUp() {
-    database = testDatabase()
-    scope = storeScope()
-  }
-
-  @After
-  fun tearDown() {
-    scope.cancel()
-    database.close()
-  }
 
   private fun repository(api: RemoteApi): RemoteRepository {
     val store = RemoteStore(prefs, box)
@@ -64,15 +43,9 @@ class UploadCoordinatorTest {
       runBlocking {
         UploadCoordinator.retryAnalysis(
             remote = repository(api),
-            store =
-                UploadStore(
-                    database.uploadStates(),
-                    MutableStateFlow<String?>("http://localhost:8090|u1"),
-                    scope,
-                ),
+            requests = AnalysisRequester(UnusedEnvironment),
             key = "r1",
             analysisId = null,
-            config = { RecordingConfig(hr = true, ecg = false, acc = false) },
             settings = AnalysisSettings(),
         )
       }
@@ -94,6 +67,23 @@ class UploadCoordinatorTest {
 
     assertTrue(result.isFailure)
   }
+}
+
+/** The session check decides before any request is sent, so nothing is asked of this environment. */
+private object UnusedEnvironment : AnalysisRequestEnvironment {
+  override fun localMeta(key: String) = error("not used")
+
+  override suspend fun serverMeta(api: TaigaClient, recordingId: String) = error("not used")
+
+  override suspend fun serverStart(recordingId: String) = error("not used")
+
+  override fun personalData() = error("not used")
+
+  override suspend fun markProcessing(key: String, account: String) = error("not used")
+
+  override fun retriesUsed(recordingId: String, analysis: AnalysisDto) = error("not used")
+
+  override fun countRetry(recordingId: String, analysis: AnalysisDto) = error("not used")
 }
 
 /** A [RemoteApi] whose version query does what the test says; the other calls are not reached. */
