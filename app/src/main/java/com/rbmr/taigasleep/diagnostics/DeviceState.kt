@@ -72,10 +72,11 @@ object DeviceState {
 
   /**
    * The fields that decide whether the system may stop us, cheap enough to read on every event
-   * and heartbeat. Diagnostics compares consecutive reads and logs what changed.
+   * and heartbeat. Diagnostics compares consecutive reads and logs what changed. [batteryRead] is
+   * the sticky battery intent the caller already read, so one heartbeat asks the phone only once.
    */
-  fun volatileState(context: Context): Map<String, Any?> {
-    val battery = safe { battery(context) } as? Map<*, *>
+  fun volatileState(context: Context, batteryRead: Map<*, *>? = null): Map<String, Any?> {
+    val battery = batteryRead ?: safe { battery(context) } as? Map<*, *>
     return linkedMapOf(
         "bucket" to safe { bucketName(context) },
         "whitelisted" to safe { power(context).isIgnoringBatteryOptimizations(context.packageName) },
@@ -86,23 +87,28 @@ object DeviceState {
         "interactive" to safe { power(context).isInteractive },
         "locked" to safe { keyguard(context).isKeyguardLocked },
         "plugged" to battery?.get("plugged"),
-        "charging" to battery?.get("status")?.let { it == "charging" || it == "full" },
+        "charging" to charging(battery),
     )
   }
 
-  /** Cheap state sampled every minute. */
+  /**
+   * Cheap state sampled every minute. The battery intent and each memory figure are read once;
+   * every value here comes from that one read.
+   */
   fun heartbeat(context: Context): Map<String, Any?> {
     val nowElapsed = SystemClock.elapsedRealtime()
-    val battery = safe { battery(context) } as? Map<*, *>
+    // An absent intent is passed on as an empty read, so the state below does not ask again.
+    val battery = safe { battery(context) } as? Map<*, *> ?: emptyMap<Any?, Any?>()
+    val memory = safe { memoryInfo(context) } as? ActivityManager.MemoryInfo
     return linkedMapOf<String, Any?>(
         "uptime_s" to (nowElapsed - Process.getStartElapsedRealtime()) / 1000
     ).apply {
-      putAll(volatileState(context))
-      put("battery_pct", battery?.get("level_pct"))
-      put("battery_temp_c", battery?.get("temperature_c"))
+      putAll(volatileState(context, battery))
+      put("battery_pct", battery["level_pct"])
+      put("battery_temp_c", battery["temperature_c"])
       put("thermal", safe { Names.thermal(power(context).currentThermalStatus) })
       put("importance", safe { processState()["importance"] })
-      put("mem_avail_mb", safe { memory(context)["avail_mb"] })
+      put("mem_avail_mb", memory?.let { it.availMem / MB })
       put("java_heap_kb", safe { javaHeapKb() })
       put("native_heap_kb", safe { Debug.getNativeHeapAllocatedSize() / 1024 })
       put("threads", safe { threadCount() })
@@ -159,8 +165,7 @@ object DeviceState {
       )
 
   fun memory(context: Context): Map<String, Any?> {
-    val info = ActivityManager.MemoryInfo()
-    activity(context).getMemoryInfo(info)
+    val info = memoryInfo(context)
     return linkedMapOf(
         "avail_mb" to info.availMem / MB,
         "total_mb" to info.totalMem / MB,
@@ -172,6 +177,9 @@ object DeviceState {
         "threads" to safe { threadCount() },
     )
   }
+
+  private fun memoryInfo(context: Context): ActivityManager.MemoryInfo =
+      ActivityManager.MemoryInfo().also { activity(context).getMemoryInfo(it) }
 
   /** Memory facts for a crash line; must work in a dying process, so it avoids anything fancy. */
   fun crashMemory(context: Context?): Map<String, Any?> {
@@ -269,6 +277,17 @@ object DeviceState {
         "health" to Names.batteryHealth(intent.getIntExtra(BatteryManager.EXTRA_HEALTH, 1)),
     )
   }
+
+  /**
+   * The charge percentage of [battery], the one figure the heartbeat and the cost share; null
+   * where the phone does not report one.
+   */
+  fun batteryPercent(battery: Map<*, *>?): Int? =
+      (battery?.get("level_pct") as? Int)?.takeIf { it in 0..100 }
+
+  /** Whether [battery] says the phone is charging, as the heartbeat's `charging` records it. */
+  fun charging(battery: Map<*, *>?): Boolean? =
+      (battery?.get("status") as? String)?.let { it == "charging" || it == "full" }
 
   fun bluetoothState(context: Context): String {
     val adapter: BluetoothAdapter? =

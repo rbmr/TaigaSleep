@@ -25,6 +25,7 @@ object RecordingCost {
    * so no test depends on a battery, a process or a traffic counter.
    */
   interface Sources {
+    /** Charge percentage from the sticky battery intent, the value the heartbeat records. */
     fun batteryPercent(): Int?
 
     /** Remaining charge in microamp-hours, or null where the phone cannot report it. */
@@ -35,6 +36,7 @@ object RecordingCost {
     /** Remaining energy in nanowatt-hours, or null where the phone cannot report it. */
     fun energyNwh(): Long?
 
+    /** Whether the sticky battery intent says the phone is charging. */
     fun charging(): Boolean?
 
     /** The app process's cumulative CPU time in milliseconds. */
@@ -498,40 +500,35 @@ object RecordingCost {
   /**
    * The phone behind [Sources]. Every read is guarded: a phone that does not report a value says
    * null and the field is left out, instead of losing the line.
+   *
+   * The percentage and the charging flag come from the sticky battery intent through [DeviceState],
+   * the same readings the heartbeat records, so a segment's ends cannot disagree with its beats.
    */
   private class AndroidSources(private val context: Application) : Sources {
-    private val battery: BatteryManager? by lazy {
+    private val batteryManager: BatteryManager? by lazy {
       context.getSystemService(BatteryManager::class.java)
     }
     private val power: PowerManager? by lazy { context.getSystemService(PowerManager::class.java) }
     private val uid = Process.myUid()
 
-    override fun batteryPercent(): Int? {
-      val value = battery?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-      return value?.takeIf { it in 0..100 }
-    }
+    override fun batteryPercent(): Int? = DeviceState.batteryPercent(DeviceState.battery(context))
 
     override fun chargeCounterUah(): Long? =
-        battery?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)?.takeIf {
+        batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)?.takeIf {
           it != Long.MIN_VALUE
         }
 
     override fun currentNowUa(): Long? =
-        battery?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)?.takeIf {
+        batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)?.takeIf {
           it != Int.MIN_VALUE
         }?.toLong()
 
     override fun energyNwh(): Long? =
-        battery?.getLongProperty(BatteryManager.BATTERY_PROPERTY_ENERGY_COUNTER)?.takeIf {
+        batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_ENERGY_COUNTER)?.takeIf {
           it != Long.MIN_VALUE
         }
 
-    override fun charging(): Boolean? =
-        try {
-          battery?.isCharging
-        } catch (_: Exception) {
-          null
-        }
+    override fun charging(): Boolean? = DeviceState.charging(DeviceState.battery(context))
 
     override fun processCpuMs(): Long = Process.getElapsedCpuTime()
 
