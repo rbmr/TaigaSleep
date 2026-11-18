@@ -1,10 +1,9 @@
 package com.rbmr.taigasleep.backend
 
-/** The three checks a connection test runs, in order. */
+/** The two checks a connection test runs, in order. */
 enum class RemoteStep {
   REACHABLE,
   LOGIN,
-  AUTHENTICATED,
 }
 
 /**
@@ -157,8 +156,11 @@ enum class RemoteState {
   CONNECTED,
 }
 
-/** A logged-in session as returned by the backend. */
-data class AuthSession(val token: String, val email: String)
+/**
+ * A logged-in session as returned by the backend: its token, the account's email and the server's
+ * record id for it, which is what identifies the account.
+ */
+data class AuthSession(val token: String, val email: String, val userId: String)
 
 /**
  * One account and a client that speaks for it, captured together. Everything a call stores from the
@@ -169,8 +171,6 @@ data class RemoteSession(val account: String, val api: TaigaClient)
 
 /** What a Taiga server reports about itself on the public version route. */
 data class ServerVersion(val version: String, val api: Int)
-
-data class AuthUser(val id: String, val email: String, val role: String)
 
 /**
  * A time the server sends. PocketBase writes `2026-10-24 05:50:01.000Z` (a space, not `T`); custom

@@ -20,11 +20,8 @@ interface RemoteApi {
   /** Exchanges the email and password for a token. */
   fun login(baseUrl: String, email: String, password: String): AuthSession
 
-  /** Extends the life of an existing token. */
+  /** Extends the life of an existing token; a token the server refuses means the session is over. */
   fun refresh(baseUrl: String, token: String): AuthSession
-
-  /** An authenticated query that proves the token is accepted. */
-  fun authCheck(baseUrl: String, token: String): AuthUser
 }
 
 class RemoteFailure(val error: RemoteError) : Exception(error.label)
@@ -97,30 +94,6 @@ class OkHttpRemoteApi(
     return readSession(body, fallbackEmail = "")
   }
 
-  override fun authCheck(baseUrl: String, token: String): AuthUser {
-    val body =
-        try {
-          execute(post(url(baseUrl, USERS_REFRESH), payload = "{}", token = token))
-        } catch (e: RemoteHttpException) {
-          throw when (e.status) {
-            400,
-            401,
-            403 -> RemoteFailure(RemoteError.SessionExpired)
-            404 -> RemoteFailure(RemoteError.NotTaiga)
-            else -> RemoteFailure(RemoteError.Http(e.status))
-          }
-        }
-    val response =
-        try {
-          json.decodeFromString<PbkAuthResponse>(body)
-        } catch (_: Exception) {
-          throw RemoteFailure(RemoteError.MalformedResponse)
-        }
-    val record = response.record
-    if (record.id.isBlank()) throw RemoteFailure(RemoteError.MalformedResponse)
-    return AuthUser(id = record.id, email = record.email, role = ROLE_USER)
-  }
-
   /** Reads PocketBase's auth answer: the token and the account's record. */
   private fun readSession(body: String, fallbackEmail: String): AuthSession {
     val response =
@@ -131,8 +104,11 @@ class OkHttpRemoteApi(
         }
     if (response.token.isBlank()) throw RemoteFailure(RemoteError.MalformedResponse)
     val email = response.record.email.takeIf { it.isNotBlank() } ?: fallbackEmail
-    if (email.isBlank()) throw RemoteFailure(RemoteError.MalformedResponse)
-    return AuthSession(token = response.token, email = email)
+    // The record id is the account's identity; an answer without one cannot be used.
+    if (email.isBlank() || response.record.id.isBlank()) {
+      throw RemoteFailure(RemoteError.MalformedResponse)
+    }
+    return AuthSession(token = response.token, email = email, userId = response.record.id)
   }
 
   private fun url(baseUrl: String, path: String): String = baseUrl.trimEnd('/') + path
@@ -178,7 +154,6 @@ class OkHttpRemoteApi(
     // worker, so a worker account simply has no account here.
     const val USERS_AUTH = "/api/collections/users/auth-with-password"
     const val USERS_REFRESH = "/api/collections/users/auth-refresh"
-    const val ROLE_USER = "user"
     const val JSON = "application/json"
     val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
   }

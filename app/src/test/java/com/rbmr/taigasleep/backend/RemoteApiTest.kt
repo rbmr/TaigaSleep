@@ -51,21 +51,19 @@ class RemoteApiTest {
       )
 
   @Test
-  fun `version, login and the token check use the documented routes`() {
+  fun `version and login use the documented routes`() {
     server.enqueue(json("""{"service":"taiga-sleep","version":"0.3.0","api":2}"""))
-    server.enqueue(token())
     server.enqueue(token())
 
     val serverVersion = api.version(baseUrl)
     val session = api.login(baseUrl, "me@example.com", "secret")
-    val user = api.authCheck(baseUrl, session.token)
 
     assertEquals("0.3.0", serverVersion.version)
     assertEquals(2, serverVersion.api)
     assertEquals("tok-1", session.token)
     assertEquals("me@example.com", session.email)
-    assertEquals("u1", user.id)
-    assertEquals("user", user.role)
+    // The account's identity comes with the login answer.
+    assertEquals("u1", session.userId)
 
     val version = server.takeRequest()
     assertEquals("GET", version.method)
@@ -79,11 +77,6 @@ class RemoteApiTest {
     val loginBody = login.body.readUtf8()
     assertTrue(loginBody.contains("\"identity\":\"me@example.com\""))
     assertTrue(loginBody.contains("\"password\":\"secret\""))
-
-    val check = server.takeRequest()
-    assertEquals("/api/collections/users/auth-refresh", check.path)
-    assertEquals("POST", check.method)
-    assertEquals("Bearer tok-1", check.getHeader("Authorization"))
   }
 
   @Test
@@ -94,6 +87,7 @@ class RemoteApiTest {
 
     assertEquals("tok-1", session.token)
     assertEquals("me@example.com", session.email)
+    assertEquals("u1", session.userId)
     val request = server.takeRequest()
     assertEquals("POST", request.method)
     assertEquals("/api/collections/users/auth-refresh", request.path)
@@ -176,16 +170,10 @@ class RemoteApiTest {
   }
 
   @Test
-  fun `an expired token on the token check is a session expiry`() {
-    server.enqueue(json("""{"code":401,"message":"The request requires valid record authorization token.","data":{}}""", 401))
-    assertEquals(RemoteError.SessionExpired, failure { api.authCheck(baseUrl, "stale") })
-  }
-
-  @Test
-  fun `a worker token on the token check is a session expiry`() {
+  fun `a worker token cannot be refreshed`() {
     // The users auth-refresh route refuses a token from another collection.
     server.enqueue(json("""{"code":403,"message":"The authorized record is not allowed to perform this action.","data":{}}""", 403))
-    assertEquals(RemoteError.SessionExpired, failure { api.authCheck(baseUrl, "worker-token") })
+    assertEquals(RemoteError.SessionExpired, failure { api.refresh(baseUrl, "worker-token") })
   }
 
   @Test
@@ -209,6 +197,15 @@ class RemoteApiTest {
   @Test
   fun `a login answer without a token is malformed`() {
     server.enqueue(json("""{"record":{"id":"u1","email":"me@example.com"}}"""))
+    assertEquals(
+        RemoteError.MalformedResponse,
+        failure { api.login(baseUrl, "me@example.com", "secret") },
+    )
+  }
+
+  @Test
+  fun `an auth answer without the account's record id is malformed`() {
+    server.enqueue(json("""{"token":"tok-1","record":{"email":"me@example.com"}}"""))
     assertEquals(
         RemoteError.MalformedResponse,
         failure { api.login(baseUrl, "me@example.com", "secret") },

@@ -21,9 +21,9 @@ import kotlinx.coroutines.withContext
  *
  * Connecting and logging in are two separate steps: [checkAddress] pings the server from the URL
  * field, and [login] exchanges credentials for a token. [verify] re-checks the saved session and
- * [check] does both checks for the Remote screen. All of them report failures through the same pair
- * of shared paths: a transport failure means the server is unreachable and keeps the token, while a
- * rejected token means a login is needed and drops it.
+ * [checkStatus] does both checks for the Remote screen. All of them report failures through the same
+ * pair of shared paths: a transport failure means the server is unreachable and keeps the token,
+ * while a rejected token means a login is needed and drops it.
  *
  * [phase] is the step the setup flow has to show. It is derived here, never in the UI, so a screen
  * that reopens or resumes always lands on the step the saved state requires.
@@ -61,6 +61,12 @@ class RemoteRepository internal constructor(
 
   private val _checking = MutableStateFlow(false)
   val checking: StateFlow<Boolean> = _checking.asStateFlow()
+
+  /**
+   * The last session check that succeeded. It is in memory only: after a restart nothing is known
+   * about the session until it has been checked.
+   */
+  private var lastVerified: CheckResult.Success? = null
 
   val savedUrl: String
     get() = store.url.orEmpty()
@@ -187,8 +193,8 @@ class RemoteRepository internal constructor(
       }
 
   /**
-   * Step two: logs in with the password and proves the new token with the authenticated query.
-   * Saves the address and the token only when both succeed.
+   * Step two: logs in with the password. The answer carries the account's record, so the token needs
+   * no second call to be trusted. Saves the address and the token only when the login succeeds.
    */
   suspend fun login(rawUrl: String, email: String, password: String): CheckResult =
       withContext(Dispatchers.IO) {
@@ -216,19 +222,14 @@ class RemoteRepository internal constructor(
                   return@withLock failedCall(RemoteStep.LOGIN, e.error, "login")
                 }
 
-            val user =
-                try {
-                  api.authCheck(address.baseUrl, session.token)
-                } catch (e: RemoteFailure) {
-                  return@withLock failedCall(RemoteStep.AUTHENTICATED, e.error, "login")
-                }
-
             val now = clock()
-            endAccount(accountKeyOf(address.baseUrl, user.id))
-            store.saveSession(address.baseUrl, session, user.id, now)
+            endAccount(accountKeyOf(address.baseUrl, session.userId))
+            store.saveSession(address.baseUrl, session, now)
+            val checked = CheckResult.Success(session.email, now)
+            lastVerified = checked
             publish()
             log("login", true)
-            CheckResult.Success(session.email, now)
+            checked
           } finally {
             _checking.value = false
           }
@@ -241,34 +242,37 @@ class RemoteRepository internal constructor(
    * token turns the state into [RemoteStatus.LoginNeeded].
    */
   suspend fun verify(): CheckResult? =
-      withContext(Dispatchers.IO) {
-        mutex.withLock {
-          _checking.value = true
-          try {
-            val rawUrl = store.url?.takeIf { it.isNotBlank() } ?: return@withLock null
-            val address =
-                RemoteUrl.parse(rawUrl).getOrElse { e ->
-                  val error = parseError(e)
-                  onUnreachable(error)
-                  log("resume", false, RemoteStep.REACHABLE, error)
-                  return@withLock CheckResult.Failure(RemoteStep.REACHABLE, error)
-                }
-            val token = store.token
-            addressInPlay = address.baseUrl
-            val error = checkVersion(address.baseUrl, "resume")
-            if (error != null) return@withLock CheckResult.Failure(RemoteStep.REACHABLE, error)
-            if (token == null) {
-              // Configured but never logged in: the password is what is missing, not a session.
-              log("resume", false, RemoteStep.LOGIN, RemoteError.MissingCredentials)
-              return@withLock CheckResult.Failure(RemoteStep.LOGIN, RemoteError.MissingCredentials)
-            }
+      withContext(Dispatchers.IO) { mutex.withLock { verifyLocked() } }
 
-            tokenCheck(address.baseUrl, token, "resume")
-          } finally {
-            _checking.value = false
-          }
+  /** [verify] without the lock, so a caller that holds it can reuse the same steps. */
+  private fun verifyLocked(): CheckResult? {
+    _checking.value = true
+    try {
+      return run {
+        val rawUrl = store.url?.takeIf { it.isNotBlank() } ?: return@run null
+        val address =
+            RemoteUrl.parse(rawUrl).getOrElse { e ->
+              val error = parseError(e)
+              onUnreachable(error)
+              log("resume", false, RemoteStep.REACHABLE, error)
+              return@run CheckResult.Failure(RemoteStep.REACHABLE, error)
+            }
+        val token = store.token
+        addressInPlay = address.baseUrl
+        val error = checkVersion(address.baseUrl, "resume")
+        if (error != null) return@run CheckResult.Failure(RemoteStep.REACHABLE, error)
+        if (token == null) {
+          // Configured but never logged in: the password is what is missing, not a session.
+          log("resume", false, RemoteStep.LOGIN, RemoteError.MissingCredentials)
+          return@run CheckResult.Failure(RemoteStep.LOGIN, RemoteError.MissingCredentials)
         }
+
+        tokenCheck(address.baseUrl, token, "resume")
       }
+    } finally {
+      _checking.value = false
+    }
+  }
 
   private fun streamTarget(): StreamTarget? {
     if (!_status.value.canStream()) return null
@@ -287,11 +291,16 @@ class RemoteRepository internal constructor(
     endAccount(null)
     store.clearToken()
     store.markLoginNeeded(null)
+    lastVerified = null
     publish()
     Diagnostics.log("remote_logout")
   }
 
-  /** Refreshes the token and proves it. Only a rejected token needs a new login. */
+  /**
+   * Refreshes the token, which is also the proof that the server still accepts it, and stores the
+   * session when the token or the user it belongs to changed. A routine check that answers with the
+   * same token leaves the stored session alone, so it costs no Keystore write.
+   */
   private fun tokenCheck(baseUrl: String, token: String, source: String): CheckResult {
     val session =
         try {
@@ -300,19 +309,18 @@ class RemoteRepository internal constructor(
           return failedCall(RemoteStep.LOGIN, e.error, source)
         }
 
-    val user =
-        try {
-          api.authCheck(baseUrl, session.token)
-        } catch (e: RemoteFailure) {
-          return failedCall(RemoteStep.AUTHENTICATED, e.error, source)
-        }
-
     val now = clock()
-    endAccount(accountKeyOf(baseUrl, user.id))
-    store.saveSession(baseUrl, session, user.id, now)
+    val checked = CheckResult.Success(session.email, now)
+    if (session.token == token && session.userId == store.userId) {
+      store.markReachable(now)
+    } else {
+      endAccount(accountKeyOf(baseUrl, session.userId))
+      store.saveSession(baseUrl, session, now)
+    }
+    lastVerified = checked
     publish()
     log(source, true)
-    return CheckResult.Success(session.email, now)
+    return checked
   }
 
   /**
@@ -375,6 +383,7 @@ class RemoteRepository internal constructor(
   private fun onAuthFailure(error: RemoteError) {
     endAccount(null)
     store.clearToken()
+    lastVerified = null
     onLoginNeeded(error)
   }
 

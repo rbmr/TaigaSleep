@@ -1,7 +1,6 @@
 package com.rbmr.taigasleep.sync
 
 import com.rbmr.taigasleep.backend.AuthSession
-import com.rbmr.taigasleep.backend.AuthUser
 import com.rbmr.taigasleep.backend.HttpClients
 import com.rbmr.taigasleep.backend.RemoteApi
 import com.rbmr.taigasleep.backend.RemoteError
@@ -57,7 +56,7 @@ class UploadCoordinatorTest {
 
   private fun repository(api: RemoteApi): RemoteRepository {
     val store = RemoteStore(prefs, box)
-    store.saveSession("http://localhost:8090", AuthSession("token", "me@example.com"), "u1", 0)
+    store.saveSession("http://localhost:8090", AuthSession("token", "me@example.com", "u1"), 0)
     return RemoteRepository(store, api, clients)
   }
 
@@ -105,9 +104,6 @@ private class ScriptedRemoteApi(private val version: () -> ServerVersion) : Remo
       throw UnsupportedOperationException("not used")
 
   override fun refresh(baseUrl: String, token: String): AuthSession =
-      throw UnsupportedOperationException("not used")
-
-  override fun authCheck(baseUrl: String, token: String): AuthUser =
       throw UnsupportedOperationException("not used")
 }
 

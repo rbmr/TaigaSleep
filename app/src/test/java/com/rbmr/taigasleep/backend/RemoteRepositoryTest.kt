@@ -129,8 +129,8 @@ class RemoteRepositoryTest {
 
     // The preferences hold ciphertext, never the token itself.
     assertTrue(prefs.strings.getValue("token") != "token-1")
-    // Login does not repeat the address ping.
-    assertEquals(listOf("login:me@example.com", "auth-check:token-1"), api.calls)
+    // The login answer is the whole session: nothing else is asked for.
+    assertEquals(listOf("login:me@example.com"), api.calls)
   }
 
   @Test
@@ -160,19 +160,6 @@ class RemoteRepositoryTest {
         repo.status.value,
     )
     assertEquals(listOf("login:me@example.com"), api.calls)
-  }
-
-  @Test
-  fun `a rejected token is reported at the authenticated step`() {
-    api.authError = RemoteError.SessionExpired
-
-    val repo = repository()
-    val result = login(repo)
-
-    assertEquals(CheckResult.Failure(RemoteStep.AUTHENTICATED, RemoteError.SessionExpired), result)
-    assertNull(store().token)
-    val status = repo.status.value as RemoteStatus.LoginNeeded
-    assertEquals(RemoteError.SessionExpired, status.reason)
   }
 
   @Test
@@ -210,9 +197,10 @@ class RemoteRepositoryTest {
   }
 
   @Test
-  fun `a resume check refreshes the token and updates the check time`() {
+  fun `a resume check makes one refresh and one version request`() {
     val repo = repository()
     login(repo)
+    api.calls.clear()
     now += 60_000
 
     val result = runBlocking { repo.verify() }
@@ -220,7 +208,43 @@ class RemoteRepositoryTest {
     assertEquals(CheckResult.Success("me@example.com", now), result)
     assertEquals("token-2", store().token)
     assertEquals(RemoteStatus.Connected("me@example.com", now), repo.status.value)
-    assertEquals("auth-check:token-2", api.calls.last())
+    // The refresh answer is the proof: it carries the token and the account it belongs to.
+    assertEquals(listOf("version", "refresh:token-1"), api.calls)
+  }
+
+  @Test
+  fun `a check that answers with the same session writes nothing`() {
+    val repo = repository()
+    login(repo)
+    api.refreshToken = "token-1"
+    val seals = box.seals
+
+    runBlocking { repo.verify() }
+
+    // The Keystore is not opened to seal a token that did not change.
+    assertEquals(seals, box.seals)
+    assertEquals("token-1", store().token)
+    assertEquals(RemoteStatus.Connected("me@example.com", now), repo.status.value)
+  }
+
+  @Test
+  fun `a check that answers with another user ends the old account`() {
+    val ended = mutableListOf<String>()
+    val repo =
+        RemoteRepository(
+            store(),
+            api,
+            clients,
+            clock = { now },
+            onAccountEnded = { ended += it },
+        )
+    login(repo)
+    api.refreshUser = "u2"
+
+    runBlocking { repo.verify() }
+
+    assertEquals(listOf(account), ended)
+    assertEquals("http://localhost:8090|u2", repo.accountKey)
   }
 
   @Test
@@ -288,7 +312,7 @@ class RemoteRepositoryTest {
     assertEquals(RemoteStatus.Connected("me@example.com", now), repo.status.value)
     assertEquals(RemoteState.CONNECTED, repo.state.value)
     assertEquals("token-2", store().token)
-    assertEquals("auth-check:token-2", api.calls.last())
+    assertEquals("refresh:token-1", api.calls.last())
   }
 
   @Test
@@ -301,18 +325,6 @@ class RemoteRepositoryTest {
 
     // The saved token belongs to the saved address, so it is not sent anywhere else.
     assertEquals(listOf("version"), api.calls)
-  }
-
-  @Test
-  fun `an unreachable server during the token proof saves no session`() {
-    api.authError = RemoteError.Unreachable
-
-    val repo = repository()
-    val result = login(repo)
-
-    assertEquals(CheckResult.Failure(RemoteStep.AUTHENTICATED, RemoteError.Unreachable), result)
-    assertNull(store().token)
-    assertTrue(repo.status.value is RemoteStatus.Unreachable)
   }
 
   @Test
@@ -667,8 +679,8 @@ class RemoteRepositoryTest {
         val events = repo.events().take(1).toList()
 
         assertEquals(listOf<RemoteEvent>(RemoteEvent.Connected), events)
-        // The refresh machinery ran: version, refresh with the old token, proof with the new one.
-        assertEquals(listOf("version", "refresh:token-1", "auth-check:token-2"), api.calls)
+        // The refresh machinery ran: version, then the refresh with the old token.
+        assertEquals(listOf("version", "refresh:token-1"), api.calls)
         assertEquals(listOf("http://localhost:8090|token-1", "http://localhost:8090|token-2"), transport.tokens)
         assertEquals("token-2", store().token)
       }
@@ -747,8 +759,12 @@ private class FakePrefs : RemotePrefs {
 
 /** Reversible stand-in for the Keystore; the point is that the prefs never see plain text. */
 private class FakeSecretBox : SecretBox {
-  override fun seal(plain: ByteArray): ByteArray =
-      ByteArray(plain.size) { (plain[it].toInt() xor 0x5A).toByte() }
+  var seals = 0
+
+  override fun seal(plain: ByteArray): ByteArray {
+    seals++
+    return ByteArray(plain.size) { (plain[it].toInt() xor 0x5A).toByte() }
+  }
 
   override fun open(blob: ByteArray): ByteArray =
       ByteArray(blob.size) { (blob[it].toInt() xor 0x5A).toByte() }
@@ -760,9 +776,10 @@ private class FakeRemoteApi : RemoteApi {
   var serverVersion = "0.1.0"
   var loginError: RemoteError? = null
   var refreshError: RemoteError? = null
-  var authError: RemoteError? = null
   var loginEmail = "me@example.com"
   var userId = "u1"
+  var refreshToken = "token-2"
+  var refreshUser = "u1"
   val calls = mutableListOf<String>()
 
   override fun version(baseUrl: String): ServerVersion {
@@ -774,18 +791,12 @@ private class FakeRemoteApi : RemoteApi {
   override fun login(baseUrl: String, email: String, password: String): AuthSession {
     calls += "login:$email"
     loginError?.let { throw RemoteFailure(it) }
-    return AuthSession(token = "token-1", email = loginEmail)
+    return AuthSession(token = "token-1", email = loginEmail, userId = userId)
   }
 
   override fun refresh(baseUrl: String, token: String): AuthSession {
     calls += "refresh:$token"
     refreshError?.let { throw RemoteFailure(it) }
-    return AuthSession(token = "token-2", email = loginEmail)
-  }
-
-  override fun authCheck(baseUrl: String, token: String): AuthUser {
-    calls += "auth-check:$token"
-    authError?.let { throw RemoteFailure(it) }
-    return AuthUser(id = userId, email = loginEmail, role = "user")
+    return AuthSession(token = refreshToken, email = loginEmail, userId = refreshUser)
   }
 }
