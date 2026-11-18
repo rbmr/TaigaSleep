@@ -24,6 +24,7 @@ import com.rbmr.taigasleep.recording.Phase
 import com.rbmr.taigasleep.recording.RecordingState
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.RecordingMode
+import com.rbmr.taigasleep.tracker.StreamType
 import com.rbmr.taigasleep.ui.history.HistoryScreen
 import com.rbmr.taigasleep.ui.history.HistoryUiState
 import com.rbmr.taigasleep.ui.history.TrendsContent
@@ -33,6 +34,7 @@ import com.rbmr.taigasleep.ui.home.HomeUiState
 import com.rbmr.taigasleep.ui.home.IdleHome
 import com.rbmr.taigasleep.ui.home.InactiveView
 import com.rbmr.taigasleep.ui.home.StartConfig
+import com.rbmr.taigasleep.ui.home.StreamOption
 import com.rbmr.taigasleep.ui.home.Streams
 import com.rbmr.taigasleep.ui.home.TrackerView
 import com.rbmr.taigasleep.ui.home.WakeChoice
@@ -286,12 +288,18 @@ class ReduceMotionTest {
             TrackerView(name = "Polar H10", connection = ConnectionState.CONNECTED, battery = 82),
         config =
             StartConfig(
-                streams = Streams(hr = true, ecg = true, acc = true),
+                streams = Streams(setOf("hr", "ecg", "acc")),
                 modes = setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE),
                 mode = RecordingMode.STREAM,
-                canRecordEcg = true,
                 canRecordAcc = true,
                 wake = WakeChoice(startMinute = 6 * 60 + 30, lengthMinutes = 30),
+                options =
+                    listOf(
+                        StreamOption("hr", StreamType.HEART_RATE),
+                        StreamOption("rr", StreamType.RR_INTERVAL),
+                        StreamOption("ecg", StreamType.ECG),
+                        StreamOption("acc", StreamType.ACCELEROMETER),
+                    ),
             ),
         guard = HomeState.READY,
         denied = false,

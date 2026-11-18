@@ -9,6 +9,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisResultDto
+import com.rbmr.taigasleep.insights.heartRateSeries
+import com.rbmr.taigasleep.insights.numberItems
 import com.rbmr.taigasleep.ui.components.ChartExpandButton
 import com.rbmr.taigasleep.ui.components.HeartRateChart
 import com.rbmr.taigasleep.ui.components.InfoContent
@@ -24,7 +26,7 @@ internal fun HeartRateStatsSection(
 ) {
   val space = MaterialTheme.taiga.space
   val title = stringResource(R.string.night_heart_rate_stats)
-  val series = analysis.items.firstOrNull { it.kind == "series" && it.id == "hr" }?.series
+  val series = analysis.items.heartRateSeries()
   // Whether the series has a sample at all is all the header needs, and a night of thousands of
   // points is only kept for the series it belongs to.
   val hasSamples = remember(series) { hrSeriesPoints(series).any { it != null } }
@@ -51,7 +53,7 @@ internal fun HeartRateStatsSection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
       }
-      val items = numberItems(analysis.items, "heart", "heart_support")
+      val items = analysis.items.numberItems("heart", "heart_support")
       if (items.isNotEmpty()) MetricGrid(items = items)
     }
   }

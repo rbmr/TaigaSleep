@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.ui.recording
 
 import com.rbmr.taigasleep.backend.ResultItemDto
+import com.rbmr.taigasleep.insights.numberItems
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -22,7 +23,7 @@ class RecordingItemsTest {
 
   @Test
   fun theSupportingHeartFiguresSitInTheHeartSection() {
-    val heart = numberItems(items, "heart", "heart_support")
+    val heart = items.numberItems("heart", "heart_support")
 
     assertEquals(
         listOf("hr_mean_bpm", "hrv_rmssd_ms", "hrv_rr_count"),
@@ -34,10 +35,10 @@ class RecordingItemsTest {
   fun everyNumberItemBelongsToOneSection() {
     val sections =
         listOf(
-            numberItems(items, "sleep"),
-            numberItems(items, "heart", "heart_support"),
-            numberItems(items, "movement"),
-            numberItems(items, "quality"),
+            items.numberItems("sleep"),
+            items.numberItems("heart", "heart_support"),
+            items.numberItems("movement"),
+            items.numberItems("quality"),
         )
 
     val ids = sections.flatten().map { it.id }
@@ -47,9 +48,9 @@ class RecordingItemsTest {
 
   @Test
   fun aSectionTakesOnlyItsOwnGroups() {
-    assertEquals(listOf("movement_index"), numberItems(items, "movement").map { it.id })
-    assertEquals(listOf("scored_duration_s"), numberItems(items, "quality").map { it.id })
-    assertEquals(emptyList<String>(), numberItems(items, "score").map { it.id })
+    assertEquals(listOf("movement_index"), items.numberItems("movement").map { it.id })
+    assertEquals(listOf("scored_duration_s"), items.numberItems("quality").map { it.id })
+    assertEquals(emptyList<String>(), items.numberItems("score").map { it.id })
   }
 
   private fun number(id: String, group: String) =

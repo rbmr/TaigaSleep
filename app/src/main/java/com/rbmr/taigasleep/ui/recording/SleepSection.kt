@@ -8,6 +8,7 @@ import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
+import com.rbmr.taigasleep.insights.numberItems
 import com.rbmr.taigasleep.ui.components.ChartExpandButton
 import com.rbmr.taigasleep.ui.components.InfoContent
 import com.rbmr.taigasleep.ui.components.Section
@@ -45,7 +46,7 @@ internal fun SleepStatsSection(
           epochSeconds = epochSeconds,
           capabilities = analysis.capabilities,
       )
-      val items = numberItems(analysis.items, "sleep")
+      val items = analysis.items.numberItems("sleep")
       if (items.isNotEmpty()) MetricGrid(items = items)
     }
   }

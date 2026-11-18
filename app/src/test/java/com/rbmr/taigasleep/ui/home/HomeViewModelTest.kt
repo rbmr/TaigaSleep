@@ -75,11 +75,10 @@ private class FakeWork : HomeWork {
   override val scanning = MutableStateFlow(false)
   val calls = mutableListOf<String>()
   var bluetooth = true
-  var streams = Streams(ecg = true)
+  var streams = Streams(setOf("hr", "ecg"))
   var modes = setOf(RecordingMode.STREAM)
   var mode = RecordingMode.STREAM
   var guard = HomeState.READY
-  var canEcg = true
   var canAcc = false
   var wake: WakeChoice? = null
 
@@ -94,7 +93,14 @@ private class FakeWork : HomeWork {
   }
 
   override fun savedConfig(sensor: Tracker) =
-      StartConfig(streams, modes, mode, canEcg, canAcc, wake)
+      StartConfig(
+          streams = streams,
+          modes = modes,
+          mode = mode,
+          canRecordAcc = canAcc,
+          wake = wake,
+          options = sensor.streams.sortedBy { it.order }.map { StreamOption(it.id, it.type) },
+      )
 
   override fun setStream(sensorId: String, streamId: String, on: Boolean) {
     calls += "$streamId:$on"
@@ -135,7 +141,9 @@ private class FakeWork : HomeWork {
   }
 
   override fun start(config: StartConfig) {
-    calls += "start:${config.mode}:${config.streams.ecg}:${config.streams.acc}"
+    calls +=
+        "start:${config.mode}:${config.records(StreamType.ECG)}:" +
+            "${config.records(StreamType.ACCELEROMETER)}"
   }
 
   override fun stop() {
@@ -179,7 +187,20 @@ private fun config(
     mode: RecordingMode = RecordingMode.STREAM,
     ecg: Boolean = true,
     modes: Set<RecordingMode> = setOf(RecordingMode.STREAM),
-) = StartConfig(Streams(ecg = ecg, acc = false), modes, mode, canRecordEcg = true, canRecordAcc = false)
+) =
+    StartConfig(
+        streams = Streams(if (ecg) setOf("hr", "ecg") else setOf("hr")),
+        modes = modes,
+        mode = mode,
+        canRecordAcc = false,
+        options =
+            buildList {
+              add(StreamOption("hr", StreamType.HEART_RATE))
+              add(StreamOption("rr", StreamType.RR_INTERVAL))
+              if (ecg) add(StreamOption("ecg", StreamType.ECG))
+              add(StreamOption("acc", StreamType.ACCELEROMETER))
+            },
+    )
 
 private val tracker = TrackerView("Polar H10", ConnectionState.CONNECTED, 80)
 private val disconnected = TrackerView("Polar H10", ConnectionState.CONNECTING, 80)
@@ -561,7 +582,7 @@ class HomeViewModelTest {
 
     assertTrue("hr:false" in work.calls)
     assertEquals(
-        Streams(ecg = true, acc = false, hr = false),
+        Streams(setOf("ecg")),
         (model.state.value as HomeUiState.ReadyToStart).config.streams,
     )
   }
@@ -705,7 +726,7 @@ class HomeViewModelTest {
 
     assertTrue("ecg:false" in work.calls)
     assertEquals(
-        Streams(ecg = false, acc = false),
+        Streams(setOf("hr")),
         (model.state.value as HomeUiState.ReadyToStart).config.streams,
     )
   }

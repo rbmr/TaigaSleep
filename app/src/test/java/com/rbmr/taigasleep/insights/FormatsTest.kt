@@ -2,6 +2,9 @@ package com.rbmr.taigasleep.insights
 
 import com.rbmr.taigasleep.testFormats
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
 import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -16,6 +19,10 @@ import org.junit.Test
 class FormatsTest {
   private val night = Instant.parse("2026-11-09T23:12:00Z").toEpochMilli()
   private val morning = Instant.parse("2026-11-10T07:05:00Z").toEpochMilli()
+
+  /** A wall-clock time in [zone], as a recording's start is stored. */
+  private fun at(zone: ZoneId, month: Int, day: Int, hour: Int, minute: Int): Long =
+      LocalDateTime.of(2026, month, day, hour, minute).atZone(zone).toInstant().toEpochMilli()
 
   @Test
   fun `twelve hour writes an am or pm time`() {
@@ -86,6 +93,26 @@ class FormatsTest {
     assertEquals("Sat 7 Nov, 23:12", formats.dateAndTime(Instant.parse("2026-11-07T23:12:00Z").toEpochMilli()))
     assertEquals("-", formats.clockTime(0))
     assertEquals("-", formats.dateAndTime(0))
+  }
+
+  @Test
+  fun `a recording is dated by the night it belongs to`() {
+    val zone = ZoneId.of("Europe/Amsterdam")
+    val formats = testFormats(locale = Locale.US, zone = zone)
+
+    assertEquals("Sat 7 Nov", formats.recordingDate(at(zone, 11, 7, 23, 50)))
+    assertEquals("Fri 13 Nov", formats.recordingDate(at(zone, 11, 14, 0, 33)))
+    assertEquals("Fri 6 Nov", formats.recordingDate(at(zone, 11, 7, 2, 5)))
+    assertEquals("-", formats.recordingDate(0))
+  }
+
+  @Test
+  fun `a day of a trend has a long form and one for an axis`() {
+    val day = LocalDate.of(2026, 11, 7)
+
+    assertEquals("Sat 7 Nov", testFormats(locale = Locale.US).dayDate(day))
+    assertEquals("7 Nov", testFormats(locale = Locale.US).shortDate(day))
+    assertEquals("Sa. 7 Nov.", testFormats(locale = Locale.GERMANY).dayDate(day))
   }
 
   @Test

@@ -17,6 +17,7 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.recording.AlarmTestResult
 import com.rbmr.taigasleep.recording.WakeAlarmWarning
 import com.rbmr.taigasleep.tracker.RecordingMode
+import com.rbmr.taigasleep.tracker.StreamType
 import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.ListRowTrailing
 import com.rbmr.taigasleep.ui.components.SegmentedControl
@@ -100,25 +101,27 @@ private fun DataSection(
       ListRow(
           title = stringResource(labelOf(option.type)),
           trailing = ListRowTrailing.Switch(chosen),
-          enabled = streaming || option.type == "heart_rate" || option.type == "rr_interval",
+          enabled =
+              streaming ||
+                  option.type == StreamType.HEART_RATE ||
+                  option.type == StreamType.RR_INTERVAL,
           onClick = { onStream(option.id, !chosen) },
       )
     }
   }
 }
 
-/** The name the sheet uses for a stream type. */
-private fun labelOf(type: String): Int =
+/** The name the sheet uses for a stream type, with the detail that tells its options apart. */
+private fun labelOf(type: StreamType): Int =
     when (type) {
-      "heart_rate" -> R.string.rec_config_hr
-      "rr_interval" -> R.string.rec_config_rr
-      "ecg" -> R.string.rec_config_ecg
-      "accelerometer" -> R.string.rec_config_acc
-      "ppg" -> R.string.rec_config_ppg
-      "pulse_interval" -> R.string.rec_config_ppi
-      "gyroscope" -> R.string.rec_config_gyro
-      "magnetometer" -> R.string.rec_config_mag
-      else -> R.string.rec_config_hr
+      StreamType.HEART_RATE -> R.string.rec_config_hr
+      StreamType.RR_INTERVAL -> R.string.rec_config_rr
+      StreamType.ECG -> R.string.rec_config_ecg
+      StreamType.ACCELEROMETER -> R.string.rec_config_acc
+      StreamType.PPG -> R.string.rec_config_ppg
+      StreamType.PULSE_INTERVAL -> R.string.rec_config_ppi
+      StreamType.GYROSCOPE -> R.string.rec_config_gyro
+      StreamType.MAGNETOMETER -> R.string.rec_config_mag
     }
 
 @Composable
@@ -184,19 +187,21 @@ private fun WakeSection(
       onWake(shown.copy(startMinute = picked))
     }
     LengthRow(shown.lengthMinutes, on) { onWake(shown.copy(lengthMinutes = it)) }
-    val heartRateOn = on && shown.heartRate && config.streams.hr
+    val heartRateRecorded = config.records(StreamType.HEART_RATE)
+    val heartRateOn = on && shown.heartRate && heartRateRecorded
     ListRow(
         title = stringResource(R.string.wake_trigger_hr),
         trailing = ListRowTrailing.Switch(heartRateOn),
-        enabled = on && config.streams.hr,
+        enabled = on && heartRateRecorded,
         onClick = { onWake(shown.copy(heartRate = !heartRateOn)) },
     )
     if (config.canRecordAcc) {
-      val movementOn = on && shown.movement && config.streams.acc
+      val movementRecorded = config.records(StreamType.ACCELEROMETER)
+      val movementOn = on && shown.movement && movementRecorded
       ListRow(
           title = stringResource(R.string.wake_trigger_movement),
           trailing = ListRowTrailing.Switch(movementOn),
-          enabled = on && config.streams.acc,
+          enabled = on && movementRecorded,
           onClick = { onWake(shown.copy(movement = !movementOn)) },
       )
     }

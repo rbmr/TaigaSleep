@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.ui.home
 
 import com.rbmr.taigasleep.tracker.RecordingMode
+import com.rbmr.taigasleep.tracker.StreamType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -24,10 +25,10 @@ private fun saved(
 
 private fun offered(ecg: Boolean = true, acc: Boolean = true): List<StreamOption> =
     buildList {
-      add(StreamOption("hr", "heart_rate"))
-      add(StreamOption("rr", "rr_interval"))
-      if (ecg) add(StreamOption("ecg", "ecg"))
-      if (acc) add(StreamOption("acc", "accelerometer"))
+      add(StreamOption("hr", StreamType.HEART_RATE))
+      add(StreamOption("rr", StreamType.RR_INTERVAL))
+      if (ecg) add(StreamOption("ecg", StreamType.ECG))
+      if (acc) add(StreamOption("acc", StreamType.ACCELEROMETER))
     }
 
 private fun resolve(
@@ -43,7 +44,7 @@ class StartConfigTest {
   fun `streaming uses the stored stream choices`() {
     val config = resolve(saved())
 
-    assertEquals(Streams(hr = true, ecg = true, acc = true), config.streams)
+    assertEquals(Streams(setOf("hr", "ecg", "acc")), config.streams)
     assertEquals(ALARM, config.wake)
     assertFalse(config.onTracker)
   }
@@ -52,7 +53,7 @@ class StartConfigTest {
   fun `the tracker records heart rate only and has no smart alarm`() {
     val config = resolve(saved(mode = RecordingMode.ON_DEVICE))
 
-    assertEquals(Streams(hr = true, ecg = false, acc = false), config.streams)
+    assertEquals(Streams(setOf("hr")), config.streams)
     assertNull(config.wake)
   }
 
@@ -63,16 +64,16 @@ class StartConfigTest {
     val onTracker = resolve(stored.copy(mode = RecordingMode.ON_DEVICE))
     val back = resolve(stored.copy(mode = RecordingMode.STREAM))
 
-    assertFalse(onTracker.streams.ecg)
-    assertEquals(Streams(hr = true, ecg = true, acc = false), back.streams)
+    assertFalse("ecg" in onTracker.streams.chosen)
+    assertEquals(Streams(setOf("hr", "ecg")), back.streams)
     assertEquals(ALARM, back.wake)
   }
 
   @Test
   fun `heart rate is shared by both modes`() {
     for (mode in BOTH) {
-      assertTrue(resolve(saved(mode = mode, hr = true)).streams.hr)
-      assertFalse(resolve(saved(mode = mode, hr = false)).streams.hr)
+      assertTrue("hr" in resolve(saved(mode = mode, hr = true)).streams.chosen)
+      assertFalse("hr" in resolve(saved(mode = mode, hr = false)).streams.chosen)
     }
   }
 
@@ -94,7 +95,7 @@ class StartConfigTest {
   fun `data the tracker cannot record stays off`() {
     val config = resolve(saved(), BOTH, ecg = false, acc = false)
 
-    assertEquals(Streams(hr = true, ecg = false, acc = false), config.streams)
+    assertEquals(Streams(setOf("hr")), config.streams)
   }
 
   @Test
@@ -102,8 +103,7 @@ class StartConfigTest {
     val config = StartConfig.resolve(saved(), offered(ecg = false, acc = false), BOTH)
 
     assertEquals(listOf("hr", "rr"), config.options.map { it.id })
-    assertEquals(Streams(hr = true, ecg = false, acc = false), config.streams)
-    assertFalse(config.canRecordEcg)
+    assertEquals(Streams(setOf("hr")), config.streams)
     assertFalse(config.canRecordAcc)
   }
 
@@ -113,5 +113,14 @@ class StartConfigTest {
 
     assertEquals(RecordingMode.STREAM, config.mode)
     assertEquals(ALARM, config.wake)
+  }
+
+  @Test
+  fun `a stream is found by its type`() {
+    val config = resolve(saved(hr = false, ecg = false, acc = true))
+
+    assertEquals(listOf("acc"), config.chosenStreams.map { it.id })
+    assertTrue(config.records(StreamType.ACCELEROMETER))
+    assertFalse(config.records(StreamType.HEART_RATE))
   }
 }

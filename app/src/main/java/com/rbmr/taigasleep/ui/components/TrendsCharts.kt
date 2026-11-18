@@ -46,7 +46,6 @@ import com.rbmr.taigasleep.insights.clockMinuteOfNightMinute
 import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -431,10 +430,10 @@ private class TrendContent(
     val axis: TrendAxis,
     val references: List<TrendReference>,
     val description: String,
-    val topLabel: ((String) -> String)?,
+    val formats: Formats,
 ) {
   /** The first, middle and last date of the range, the only x labels a chart needs. */
-  val labels: Map<Int, String> = dayLabels(days)
+  val labels: Map<Int, String> = dayLabels(days, formats)
 }
 
 /**
@@ -456,15 +455,16 @@ private fun TrendPlotCanvas(
 ) {
   val density = LocalDensity.current
   val space = remember(large, density.fontScale) { chartLabelSpace(large, density.fontScale) }
+  val formats = LocalFormats.current
   val content =
-      remember(days, kind, axis, references, description, topLabel) {
+      remember(days, kind, axis, references, description, formats) {
         TrendContent(
             days = days,
             kind = kind,
             axis = axis,
             references = references,
             description = description,
-            topLabel = topLabel,
+            formats = formats,
         )
       }
 
@@ -504,7 +504,7 @@ private fun BoxScope.TrendTooltip(
   if (index !in content.days.indices) return
   val lines = content.kind.valueLines(index, valueFormat)
   ChartTooltip(
-      time = content.days[index].format(tooltipDate()),
+      time = content.formats.dayDate(content.days[index]),
       value = lines.joinToString("\n").ifEmpty { stringResource(R.string.trends_no_value) },
       fraction = (index + 0.5f) / content.days.size,
       labelWidth = labelWidth,
@@ -605,9 +605,6 @@ private fun DrawScope.drawTrendReferences(
     )
   }
 }
-
-private fun tooltipDate(): DateTimeFormatter =
-    DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())
 
 /**
  * One line with a point per recording. The line is two paths, one for the segments drawn at full
@@ -721,11 +718,10 @@ private fun DrawScope.drawTrendSpans(
 }
 
 /** The first, middle and last date of the range, which are the only x labels a chart needs. */
-private fun dayLabels(days: List<LocalDate>): Map<Int, String> {
+private fun dayLabels(days: List<LocalDate>, formats: Formats): Map<Int, String> {
   if (days.isEmpty()) return emptyMap()
-  val formatter = DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())
   val indexes = linkedSetOf(0, days.size / 2, days.lastIndex)
-  return indexes.associateWith { days[it].format(formatter) }.toSortedMap()
+  return indexes.associateWith { formats.shortDate(days[it]) }.toSortedMap()
 }
 
 /** The compact integer a score or a percent tick shows. */

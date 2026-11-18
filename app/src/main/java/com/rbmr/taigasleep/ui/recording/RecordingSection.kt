@@ -27,6 +27,7 @@ import com.rbmr.taigasleep.ui.components.Section
 import com.rbmr.taigasleep.ui.components.SettingsDivider
 import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.components.streamLabel
 import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 
@@ -208,19 +209,5 @@ private fun streamsText(streams: List<Int>): String =
     if (streams.isEmpty()) {
       stringResource(R.string.night_value_none)
     } else {
-      joinParts(streams.map { streamLabel(it) }).orEmpty()
+      joinParts(streams.mapNotNull(StreamId::typeOf).map { streamLabel(it) }).orEmpty()
     }
-
-@Composable
-private fun streamLabel(stream: Int): String =
-    stringResource(
-        when (stream) {
-          StreamId.ECG -> R.string.rec_active_ecg
-          StreamId.ACC -> R.string.rec_active_acc
-          StreamId.PPG -> R.string.rec_config_ppg
-          StreamId.PPI -> R.string.rec_config_ppi
-          StreamId.GYRO -> R.string.rec_config_gyro
-          StreamId.MAG -> R.string.rec_config_mag
-          else -> R.string.rec_active_hr
-        }
-    )

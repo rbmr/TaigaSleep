@@ -16,7 +16,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.library.NightHeaderText
 import com.rbmr.taigasleep.library.formatNightHeader
-import com.rbmr.taigasleep.library.formatRecordingDate
 import com.rbmr.taigasleep.library.recordingKey
 import com.rbmr.taigasleep.ui.components.TaigaScreen
 import com.rbmr.taigasleep.ui.theme.LocalFormats
@@ -62,6 +61,7 @@ fun RecordingDetailScreen(
     }
   }
 
+  val formats = LocalFormats.current
   val headerLine =
       formatNightHeader(
           tracker = state.recordingTracker.ifBlank { stringResource(R.string.night_device_unknown) },
@@ -72,11 +72,11 @@ fun RecordingDetailScreen(
                   withEnd = stringResource(R.string.night_recording_meta),
                   startOnly = stringResource(R.string.night_recording_meta_start_only),
               ),
-          formats = LocalFormats.current,
+          formats = formats,
       )
 
   TaigaScreen(
-      title = formatRecordingDate(state.start),
+      title = formats.recordingDate(state.start),
       subtitle = headerLine,
       onBack = onBack,
       scrollable = false,

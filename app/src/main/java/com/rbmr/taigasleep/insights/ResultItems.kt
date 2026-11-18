@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.insights
 
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.backend.HrSeriesDto
 import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import kotlinx.serialization.json.JsonArray
@@ -30,6 +31,22 @@ data class MetricSpec(
     val source: String?,
     val itemValue: Double?,
 )
+
+/** The kind and id the result carries its heart rate series under. */
+private const val SERIES = "series"
+private const val HEART_RATE_SERIES = "hr"
+
+/** The heart rate series of a result, or null when the result has none. */
+fun List<ResultItemDto>.heartRateSeries(): HrSeriesDto? =
+    firstOrNull { it.kind == SERIES && it.id == HEART_RATE_SERIES }?.series
+
+/**
+ * The number items of the given groups, in the order the result carries them. A section draws its
+ * own groups: the heart section takes `heart` and `heart_support` together, because the supporting
+ * figures explain the heart-rate numbers beside them.
+ */
+fun List<ResultItemDto>.numberItems(vararg groups: String): List<ResultItemDto> =
+    filter { it.kind == "number" && it.group in groups }
 
 /** A number item as a display spec. Series and scores have their own components. */
 fun ResultItemDto.metricSpec(): MetricSpec? {

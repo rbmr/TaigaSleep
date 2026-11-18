@@ -21,6 +21,7 @@ import com.rbmr.taigasleep.ui.components.StatusKind
 import com.rbmr.taigasleep.ui.components.StatusPill
 import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
+import com.rbmr.taigasleep.ui.components.streamLabel
 import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 
@@ -193,7 +194,7 @@ internal fun OverallBanner(status: CaptureStatus) {
       title =
           stringResource(
               R.string.rec_active_stream_stalled_title,
-              streamLabel(stale?.kind ?: RecordingState.StreamKind.HR),
+              streamLabel((stale?.kind ?: RecordingState.StreamKind.HR).type),
           )
       body =
           stringResource(
@@ -212,17 +213,3 @@ internal fun OverallBanner(status: CaptureStatus) {
   }
   StatusBanner(kind = kind, title = title, body = body)
 }
-
-@Composable
-private fun streamLabel(kind: RecordingState.StreamKind): String =
-    stringResource(
-        when (kind) {
-          RecordingState.StreamKind.HR -> R.string.rec_active_hr
-          RecordingState.StreamKind.ECG -> R.string.rec_active_ecg
-          RecordingState.StreamKind.ACC -> R.string.rec_active_acc
-          RecordingState.StreamKind.PPG -> R.string.rec_config_ppg
-          RecordingState.StreamKind.PPI -> R.string.rec_config_ppi
-          RecordingState.StreamKind.GYRO -> R.string.rec_config_gyro
-          RecordingState.StreamKind.MAG -> R.string.rec_config_mag
-        }
-    )

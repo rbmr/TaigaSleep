@@ -21,14 +21,6 @@ import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
- * The number items of the given groups, in the order the result carries them. A section draws its
- * own groups: the heart section takes `heart` and `heart_support` together, because the supporting
- * figures explain the heart-rate numbers beside them.
- */
-internal fun numberItems(items: List<ResultItemDto>, vararg groups: String): List<ResultItemDto> =
-    items.filter { it.kind == "number" && it.group in groups }
-
-/**
  * The typed numbers of one group, two to a row. Every tile takes exactly half of the row and the
  * tiles of one row share its height, so the grid reads as one table however long the values are.
  * The label, the unit and the explanation all come from the item, and every tile opens its own

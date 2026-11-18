@@ -14,7 +14,7 @@ import com.rbmr.taigasleep.library.AnalysisStatus
 import com.rbmr.taigasleep.library.BackupState
 import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.library.RecordingView
-import com.rbmr.taigasleep.library.formatRecordingDate
+import com.rbmr.taigasleep.testFormats
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 import java.time.LocalDate
 import java.time.ZoneId
@@ -35,6 +35,9 @@ class HistoryLazyTest {
   @get:Rule val rule = createComposeRule()
 
   private val zone: ZoneId = ZoneId.systemDefault()
+
+  /** The formatter History draws its dates with. */
+  private val formats = testFormats(zone = zone)
 
   private val stages =
       listOf(
@@ -104,13 +107,13 @@ class HistoryLazyTest {
     assertTrue("History composed $composed of ${year.size} rows", composed in 1..20)
     assertTrue(
         "the first row on screen is the newest night",
-        rule.onAllNodesWithText(formatRecordingDate(year.first().startUtcMs, zone))
+        rule.onAllNodesWithText(formats.recordingDate(year.first().startUtcMs))
             .fetchSemanticsNodes()
             .isNotEmpty(),
     )
     assertTrue(
         "a night far below the screen is not composed",
-        rule.onAllNodesWithText(formatRecordingDate(year.last().startUtcMs, zone))
+        rule.onAllNodesWithText(formats.recordingDate(year.last().startUtcMs))
             .fetchSemanticsNodes()
             .isEmpty(),
     )
@@ -123,7 +126,7 @@ class HistoryLazyTest {
     rule.onNode(hasScrollAction()).performScrollToIndex(year.lastIndex)
     rule.waitForIdle()
 
-    rule.onNodeWithText(formatRecordingDate(year.last().startUtcMs, zone)).assertExists()
+    rule.onNodeWithText(formats.recordingDate(year.last().startUtcMs)).assertExists()
     val composed = composedRows()
     assertTrue("History composed $composed rows after scrolling", composed in 1..20)
   }

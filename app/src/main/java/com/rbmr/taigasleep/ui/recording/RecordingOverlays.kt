@@ -3,6 +3,8 @@ package com.rbmr.taigasleep.ui.recording
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.insights.TrendItems
+import com.rbmr.taigasleep.insights.heartRateSeries
 import com.rbmr.taigasleep.insights.sleepScoreCardState
 import com.rbmr.taigasleep.ui.components.ChartFullscreenDialog
 import com.rbmr.taigasleep.ui.components.ConfirmDialog
@@ -56,7 +58,7 @@ internal fun RecordingOverlays(
 
   if (showSleepScore) {
     SleepScoreSheet(
-        item = result?.items?.firstOrNull { it.id == "sleep_quality" },
+        item = result?.items?.firstOrNull { it.id == TrendItems.SCORE },
         state = result?.let(::sleepScoreCardState),
         onDismiss = onDismissSleepScore,
     )
@@ -78,12 +80,9 @@ internal fun RecordingOverlays(
                 fullscreen = true,
             )
         else ->
-            result?.items
-                ?.firstOrNull { it.kind == "series" && it.id == "hr" }
-                ?.series
-                ?.let { series ->
-                  HeartRateChart(series = series, modifier = chartModifier, fullscreen = true)
-                }
+            result?.items?.heartRateSeries()?.let { series ->
+              HeartRateChart(series = series, modifier = chartModifier, fullscreen = true)
+            }
       }
     }
   }

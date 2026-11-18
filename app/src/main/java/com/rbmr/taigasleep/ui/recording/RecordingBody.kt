@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisResultDto
 import com.rbmr.taigasleep.insights.SleepScoreCardState
+import com.rbmr.taigasleep.insights.heartRateSeries
+import com.rbmr.taigasleep.insights.numberItems
 import com.rbmr.taigasleep.insights.sleepScoreCardState
 import com.rbmr.taigasleep.library.RecordingStatus
 import com.rbmr.taigasleep.ui.components.SecondaryButton
@@ -155,10 +157,10 @@ private fun LazyListScope.analysedRecording(
     state: RecordingDetailUiState,
     onExpand: (String) -> Unit,
 ) {
-  val heartItems = numberItems(analysis.items, "heart", "heart_support")
-  val series = analysis.items.firstOrNull { it.kind == "series" && it.id == "hr" }?.series
-  val movementItems = numberItems(analysis.items, "movement")
-  val qualityItems = numberItems(analysis.items, "quality")
+  val heartItems = analysis.items.numberItems("heart", "heart_support")
+  val series = analysis.items.heartRateSeries()
+  val movementItems = analysis.items.numberItems("movement")
+  val qualityItems = analysis.items.numberItems("quality")
   item(key = "sleep") {
     SleepStatsSection(
         segments = state.segments,

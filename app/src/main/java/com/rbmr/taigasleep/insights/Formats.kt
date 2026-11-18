@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.insights
 
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.chrono.IsoChronology
@@ -97,6 +98,8 @@ class Formats(
 
   private val dateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM", locale)
 
+  private val shortDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM", locale)
+
   /**
    * The clock time of an instant, such as `23:12` or `11:12 PM`. A missing time (zero or less)
    * is a dash, as it has always been.
@@ -118,6 +121,20 @@ class Formats(
   fun dateAndTime(ms: Long): String =
       if (ms <= 0) "-"
       else "${Instant.ofEpochMilli(ms).atZone(zone).format(dateFormatter)}, ${clockTime(ms)}"
+
+  /**
+   * The date a recording is filed under, such as `Sat 7 Nov`: the night it belongs to (see
+   * [nightDate]), so a recording started just after midnight is dated by the evening before, the
+   * same as in Trends.
+   */
+  fun recordingDate(ms: Long): String =
+      if (ms <= 0) "-" else nightDate(ms, zone).format(dateFormatter)
+
+  /** A day of a trend, such as `Sat 7 Nov`, for the day a chart's tooltip names. */
+  fun dayDate(date: LocalDate): String = date.format(dateFormatter)
+
+  /** A day of a trend in the room an axis label has, such as `7 Nov`. */
+  fun shortDate(date: LocalDate): String = date.format(shortDateFormatter)
 
   /**
    * A length of time, such as `7h 26m`, `2h`, `45m` or `46s`. Under a minute it counts seconds, so
