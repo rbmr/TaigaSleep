@@ -67,7 +67,7 @@ internal object UploadCoordinator {
   ): Result<Unit> {
     val verified =
         try {
-          remote.verify()
+          remote.verifyIfStale()
         } catch (e: CancellationException) {
           throw e
         } catch (e: Exception) {

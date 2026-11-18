@@ -53,7 +53,7 @@ class UploadWorker(
 
     val verified =
         try {
-          remote.verify()
+          remote.verifyIfStale()
         } catch (e: CancellationException) {
           throw e
         } catch (_: Exception) {

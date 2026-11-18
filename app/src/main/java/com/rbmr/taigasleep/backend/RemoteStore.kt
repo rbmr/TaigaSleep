@@ -195,9 +195,9 @@ class RemoteStore(
     this.email = email
   }
 
-  fun saveSession(url: String, session: AuthSession, userId: String, checkedAtMs: Long) {
+  fun saveSession(url: String, session: AuthSession, checkedAtMs: Long) {
     saveAddress(url, session.email)
-    this.userId = userId
+    this.userId = session.userId
     token = session.token
     this.checkedAtMs = checkedAtMs
     storedReason = null
