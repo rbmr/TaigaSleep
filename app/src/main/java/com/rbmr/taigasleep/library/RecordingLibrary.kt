@@ -4,15 +4,12 @@ import android.content.Context
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AlgorithmDto
 import com.rbmr.taigasleep.backend.AnalysisDto
-import com.rbmr.taigasleep.backend.RecordingSummaryDto
 import com.rbmr.taigasleep.backend.RecordingSummaryListDto
 import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.sync.LiveSyncTarget
-import com.rbmr.taigasleep.sync.RecordingNotOnServerException
-import com.rbmr.taigasleep.sync.RecordingSnapshot
 import com.rbmr.taigasleep.sync.compatible
 import com.rbmr.taigasleep.sync.remoteKey
 import kotlinx.coroutines.CancellationException
@@ -26,7 +23,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -44,12 +40,7 @@ import kotlinx.coroutines.withContext
 class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, RecordingSource {
   private val context = context.applicationContext
   private val remote = context.appContainer.remoteRepository
-  private val history = context.appContainer.remoteHistoryCache
-  private val results = context.appContainer.resultCache
-  private val rows = context.appContainer.recordingRows
   private val sync = context.appContainer.syncService
-  private val deletes = context.appContainer.pendingDeleteStore
-  private val uploads = context.appContainer.uploadStore
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
   /** The one connection state, shared with the screens so they do not touch the remote store. */
@@ -69,8 +60,8 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
             local to account.orEmpty()
           }
           .flatMapLatest { (local, account) ->
-            rows
-                .observe(account, local.map { it.id })
+            sync
+                .observeRows(account, local.map { it.id })
                 .map { entries -> buildRecordings(local, entries) }
           }
           .stateIn(scope, SharingStarted.Eagerly, emptyList())
@@ -79,11 +70,11 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
 
   /** The full cached payload for one analysis, if the active account's copy is on this phone. */
   override suspend fun cachedResult(key: String, analysisId: String?): AnalysisDto? =
-      results.load(account(), key, analysisId)
+      sync.cachedResult(key, analysisId)
 
   /** Whether another account already has a server copy of this recording. */
   override suspend fun uploadedElsewhere(localId: String): Boolean =
-      uploads.otherAccount(localId) != null
+      sync.uploadedElsewhere(localId)
 
   /**
    * Reads the list, saves it for [session]'s account and returns what was saved, or null when the
@@ -99,8 +90,8 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
               fetchRemoteList(
                   session = session,
                   activeAccount = { remote.accountKey },
-                  hidden = { hiddenForFetch() },
-                  save = { account, list -> history.save(account, list) },
+                  hidden = { sync.hiddenRecordings() },
+                  save = { account, list -> sync.saveList(account, list) },
               )
           )
         } catch (e: TaigaUnauthorizedException) {
@@ -122,20 +113,8 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   /** Installed algorithms the server reports that this recording can actually feed. */
   override suspend fun compatibleAlgorithms(recording: RecordingView): Result<List<AlgorithmDto>> =
       withContext(Dispatchers.IO) {
-        val session =
-            remote.session()
-                ?: return@withContext Result.failure(IllegalStateException("login required"))
-        try {
-          val config = configFor(recording)
-          Result.success(session.api.getAlgorithms().items.filter { compatible(it, config) })
-        } catch (e: TaigaUnauthorizedException) {
-          if (remote.accountKey == session.account) remote.logout()
-          Result.failure(e)
-        } catch (e: CancellationException) {
-          throw e
-        } catch (e: Exception) {
-          Result.failure(e)
-        }
+        val config = configFor(recording)
+        sync.installedAlgorithms().map { installed -> installed.filter { compatible(it, config) } }
       }
 
   /**
@@ -159,7 +138,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
 
   /** Remember which finished run the user wants to see. */
   override fun selectAnalysis(recording: RecordingView, analysisId: String) {
-    rememberSelected(recording.key, analysisId)
+    sync.selectAnalysis(recording.key, analysisId)
   }
 
   /**
@@ -175,32 +154,8 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   ): Result<AnalysisDto?> =
       withContext(Dispatchers.IO) {
         val server = remoteId ?: return@withContext Result.success(null)
-        // The account is taken with the read: a login in between means this night is not the new
-        // account's, so nothing of it is stored for it.
-        val account = remote.accountKey
-            ?: return@withContext Result.failure(IllegalStateException("login required"))
-        val snapshot =
-            sync.refresh(
-                    id = key,
-                    preferred =
-                        listOf(
-                            analysisId,
-                            recordings.value.firstOrNull { it.key == key }?.analysisId,
-                            history.selected(account, key),
-                        ),
-                )
-                .getOrElse { e ->
-                  if (e is RecordingNotOnServerException) {
-                    if (remote.accountKey == account) dropRemote(server)
-                  }
-                  return@withContext Result.failure(e)
-                }
-        if (remote.accountKey != account) return@withContext Result.success(snapshot.shown)
-        rememberSummary(snapshot)
-        // The run the server says this recording shows is the remembered one until the user picks
-        // another. A recording with no run at all forgets it, as the record used to.
-        rememberSelected(key, snapshot.shown?.id)
-        Result.success(snapshot.shown)
+        val shown = recordings.value.firstOrNull { it.key == key }?.analysisId
+        sync.refresh(key, listOf(analysisId, shown)).map { it.shown }
       }
 
   /**
@@ -215,7 +170,7 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
       // The recordings as the screens see them now, with the list that was just fetched. They
       // come from disk: the screens may not have loaded them yet when the app has just opened.
       val local = context.appContainer.recordingStore.list()
-      val entries = rows.load(account(), local.map { it.id })
+      val entries = sync.loadRows(account(), local.map { it.id })
       val current = buildRecordings(local, entries)
       val records = sync.records.value
       val hiddenKeys = entries.filter { it.hidden }.map { it.key }.toSet()
@@ -229,10 +184,8 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
   /** One recording changed on the server: read it and its analyses. */
   override suspend fun refreshRecording(recordingId: String) {
     withContext(Dispatchers.IO) {
-      val account = account()
       // A recording the user deleted is only waiting for the server to say so.
-      if (history.isHidden(account, recordingId)) return@withContext
-      if (recordingId in deletes.remoteIds(account)) return@withContext
+      if (sync.isGone(recordingId)) return@withContext
       refreshRecording(keyFor(recordingId), recordingId, null)
     }
   }
@@ -243,50 +196,13 @@ class RecordingLibrary internal constructor(context: Context) : LiveSyncTarget, 
    * copy stays, as the local recording it is.
    */
   override suspend fun recordingDeleted(recordingId: String) {
-    withContext(Dispatchers.IO) { dropRemote(recordingId) }
+    withContext(Dispatchers.IO) { sync.forget(recordingId) }
   }
 
   /** The key of a recording: the phone's own id when it has the recording, else the remote key. */
   private fun keyFor(recordingId: String): String =
       if (context.appContainer.recordingStore.dir(recordingId).isDirectory) recordingId
       else remoteKey(recordingId)
-
-  /**
-   * The saved list follows a recording that was just read: its row keeps its place, one the list
-   * does not have yet is added, and the runs become the ones the server lists now.
-   */
-  private suspend fun rememberSummary(snapshot: RecordingSnapshot) {
-    val account = remote.accountKey ?: return
-    history.saveSummary(account, RecordingSummaryDto(snapshot.recording, snapshot.analyses))
-  }
-
-  /**
-   * The run a recording shows is remembered with the cached History, not with the recording's sync
-   * state: which run to show is a property of the row, and the run itself belongs to the server.
-   */
-  private fun rememberSelected(key: String, analysisId: String?) {
-    val account = remote.accountKey ?: return
-    scope.launch { history.select(account, key, analysisId) }
-  }
-
-  /**
-   * One recording is gone from the server: out of the list shown now and out of the saved one. A
-   * recording with no copy on the phone stays out of lists fetched later, so an older fetch cannot
-   * add it back; one that is still on the phone can be uploaded again, so it is only dropped now.
-   */
-  private suspend fun dropRemote(recordingId: String) {
-    val onPhone = context.appContainer.recordingStore.dir(recordingId).isDirectory
-    remote.accountKey?.let { history.remove(it, recordingId, keepOut = !onPhone) }
-  }
-
-  /**
-   * The recordings the server copy of which is being deleted, or is already gone. The queue and the
-   * markers are rows of the active account, so both are read for the account that is fetching.
-   */
-  private suspend fun hiddenForFetch(): Set<String> {
-    val account = account()
-    return deletes.remoteIds(account) + history.removed(account)
-  }
 
   companion object {
     private val HR_ONLY = RecordingConfig(hr = true, ecg = false, acc = false)

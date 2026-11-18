@@ -3,13 +3,19 @@ package com.rbmr.taigasleep.sync
 import android.content.Context
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.backend.AlgorithmDto
+import com.rbmr.taigasleep.backend.AnalysisDto
+import com.rbmr.taigasleep.backend.RecordingSummaryDto
+import com.rbmr.taigasleep.backend.RecordingSummaryListDto
 import com.rbmr.taigasleep.backend.RemoteSession
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.backend.TaigaClient
 import com.rbmr.taigasleep.notifications.ResultNotifications
 import com.rbmr.taigasleep.recording.PhoneStorageWatch
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
 /**
@@ -92,6 +98,52 @@ internal interface SyncEnvironment {
       recordingId: String,
       preferred: List<String?>,
   ): RecordingSnapshot
+
+  // The stored view the library reads through the service, and the writes the service makes to the
+  // same rows. An environment without a database answers with nothing and writes nothing, so the
+  // sequences above can be exercised without one.
+
+  /** The library rows of [account], with [localIds] the recordings on this phone. */
+  fun observeRows(account: String, localIds: List<String>): Flow<List<LibraryEntry>> =
+      flowOf(emptyList())
+
+  /** The same read, once, for a step that is not drawing a screen. */
+  suspend fun loadRows(account: String, localIds: List<String>): List<LibraryEntry> = emptyList()
+
+  /** The full payload of one run the phone holds, or null when it is not here. */
+  suspend fun cachedResult(key: String, analysisId: String?, account: String? = null): AnalysisDto? =
+      null
+
+  /** The queued server deletes of the account that is active now. */
+  val pendingDeletes: StateFlow<Map<String, PendingDelete>>
+    get() = MutableStateFlow(emptyMap())
+
+  /** Whether another account already has a server copy of [localId]. */
+  suspend fun uploadedElsewhere(localId: String): Boolean = false
+
+  /** The run of [key] the user picked, for [account]; it is a preference of the next read. */
+  suspend fun selectedAnalysis(key: String, account: String? = null): String? = null
+
+  /** Remember the run a recording shows. Null forgets it. */
+  suspend fun selectAnalysis(key: String, analysisId: String?, account: String? = null) {}
+
+  /** Replace the server's list for [account] with [list]. */
+  suspend fun saveList(account: String, list: RecordingSummaryListDto) {}
+
+  /** One recording as a read of it just found it: its row keeps its place, its runs are replaced. */
+  suspend fun saveSummary(account: String, snapshot: RecordingSnapshot) {}
+
+  /** The recordings a fetched list must leave out: queued for deletion, or already gone. */
+  suspend fun hiddenRecordings(): Set<String> = emptySet()
+
+  /** Whether the server copy of [recordingId] is being deleted, or is already gone. */
+  suspend fun isGone(recordingId: String): Boolean = false
+
+  /**
+   * The server no longer has [recordingId]: it leaves the list, and stays out of later fetches while
+   * no copy of it remains on this phone.
+   */
+  suspend fun forget(recordingId: String) {}
 }
 
 /** The app's [SyncEnvironment]: each member is the call the screens and the workers used to make. */
@@ -100,6 +152,10 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
   private val state = app.appContainer.uploadStore
   private val settings = UploadSettings.get(app)
   private val remote = app.appContainer.remoteRepository
+  private val history = app.appContainer.remoteHistoryCache
+  private val results = app.appContainer.resultCache
+  private val rows = app.appContainer.recordingRows
+  private val deletes = app.appContainer.pendingDeleteStore
 
   override val records: StateFlow<Map<String, UploadRecord>> = state.records
 
@@ -197,4 +253,50 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
             }
           }
           .refresh(id, recordingId, preferred)
+
+  override fun observeRows(account: String, localIds: List<String>): Flow<List<LibraryEntry>> =
+      rows.observe(account, localIds)
+
+  override suspend fun loadRows(account: String, localIds: List<String>): List<LibraryEntry> =
+      rows.load(account, localIds)
+
+  override suspend fun cachedResult(
+      key: String,
+      analysisId: String?,
+      account: String?,
+  ): AnalysisDto? = results.load(account ?: remote.accountKey.orEmpty(), key, analysisId)
+
+  override val pendingDeletes: StateFlow<Map<String, PendingDelete>> = deletes.pending
+
+  override suspend fun uploadedElsewhere(localId: String): Boolean = state.otherAccount(localId) != null
+
+  override suspend fun selectedAnalysis(key: String, account: String?): String? =
+      history.selected(account ?: remote.accountKey.orEmpty(), key)
+
+  override suspend fun selectAnalysis(key: String, analysisId: String?, account: String?) {
+    history.select(account ?: remote.accountKey.orEmpty(), key, analysisId)
+  }
+
+  override suspend fun saveList(account: String, list: RecordingSummaryListDto) =
+      history.save(account, list)
+
+  override suspend fun saveSummary(account: String, snapshot: RecordingSnapshot) {
+    history.saveSummary(account, RecordingSummaryDto(snapshot.recording, snapshot.analyses))
+  }
+
+  override suspend fun hiddenRecordings(): Set<String> {
+    val account = remote.accountKey.orEmpty()
+    return deletes.remoteIds(account) + history.removed(account)
+  }
+
+  override suspend fun isGone(recordingId: String): Boolean {
+    val account = remote.accountKey.orEmpty()
+    return history.isHidden(account, recordingId) || recordingId in deletes.remoteIds(account)
+  }
+
+  override suspend fun forget(recordingId: String) {
+    val account = remote.accountKey ?: return
+    // A recording that is still on the phone can be uploaded again, so its row is only dropped now.
+    history.remove(account, recordingId, keepOut = !hasRecording(recordingId))
+  }
 }

@@ -434,6 +434,72 @@ class ArchitectureTest {
     )
   }
 
+  /**
+   * The stores of `sync` sit on the container so the package shares one of each, not so another
+   * package can read them: outside `sync` and the wiring, [SyncService] is the only way in.
+   */
+  @Test
+  fun `files outside sync do not read its stores through the container`() {
+    val violations = ContainerStores.violations(appSources().toMap())
+
+    assertTrue(
+        "A file outside `sync` reads a sync store (${violations.size}):\n" +
+            violations.joinToString("\n") { "  $it" },
+        violations.isEmpty(),
+    )
+  }
+
+  @Test
+  fun `the container store checker reports the library reading the server history`() {
+    val violations =
+        ContainerStores.violations(
+            mapOf(
+                "library/RecordingLibrary.kt" to
+                    """
+                    package com.rbmr.taigasleep.library
+
+                    class RecordingLibrary(context: android.content.Context) {
+                      private val history = context.appContainer.remoteHistoryCache
+                    }
+                    """
+                        .trimIndent(),
+                "ui/history/HistoryViewModel.kt" to
+                    """
+                    package com.rbmr.taigasleep.ui.history
+
+                    fun queued(context: android.content.Context) =
+                        context.appContainer.pendingDeleteStore
+                    """
+                        .trimIndent(),
+                "sync/Inside.kt" to
+                    """
+                    package com.rbmr.taigasleep.sync
+
+                    fun inside(context: android.content.Context) =
+                        context.appContainer.remoteHistoryCache
+                    """
+                        .trimIndent(),
+                "TaigaApplication.kt" to
+                    """
+                    package com.rbmr.taigasleep
+
+                    fun wiring(context: android.content.Context) = context.appContainer.uploadStore
+                    """
+                        .trimIndent(),
+            )
+        )
+
+    assertEquals(
+        listOf(
+            "library/RecordingLibrary.kt -> appContainer.remoteHistoryCache: read it through " +
+                "SyncService",
+            "ui/history/HistoryViewModel.kt -> appContainer.pendingDeleteStore: read it through " +
+                "SyncService",
+        ),
+        violations,
+    )
+  }
+
   private fun uiBaseline(): File = File(moduleDir(), "src/test/resources/ui-import-baseline.txt")
 
   /** Every Kotlin file under `ui/` in the main source set, keyed by its path in `ui/`. */
@@ -761,15 +827,13 @@ private object SyncSurface {
           "UploadSettings",
           "RawRetentionMode",
           // The data a screen or the library carries: one night's sync state, what an explicit raw
-          // action did, one queued server delete, one read of a night and its analyses, and the
-          // failure that says the server does not have a night.
+          // action did, one queued server delete and the failure that says the server does not have
+          // a night.
           "UploadRecord",
           "RawActionResult",
           "PendingDelete",
-          "RecordingSnapshot",
           "RecordingNotOnServerException",
-          // Where the result payload is kept, and the live stream the library drives.
-          "ResultCache",
+          // The live stream the library drives.
           "LiveSyncTarget",
           // One recording as the library query reads it: its rows, its runs and its payloads.
           "LibraryEntry",
@@ -818,4 +882,50 @@ private object SyncSurface {
   private fun why(name: String): String =
       if (name == "*") "nothing outside `sync` may import the package as a whole"
       else "nothing outside `sync` may use it; add it to SyncSurface.ALLOWED on purpose"
+}
+
+/**
+ * The stores of `sync` that [com.rbmr.taigasleep.AppContainer] holds. They are on the container so
+ * the package shares one of each, not so the rest of the app can read them: outside `sync` and the
+ * wiring, `SyncService` is the only way in, and a file that reaches one directly is reported.
+ */
+private object ContainerStores {
+  private const val ROOT = "com.rbmr.taigasleep"
+  private const val PACKAGE_NAME = "com.rbmr.taigasleep.sync"
+
+  /** The stores no file outside `sync` may read through the container. */
+  val STORES =
+      setOf(
+          "uploadStore",
+          "pendingDeleteStore",
+          "resultCache",
+          "recordingRows",
+          "remoteHistoryCache",
+      )
+
+  private val PACKAGE = Regex("""^\s*package\s+([\w.]+)""", RegexOption.MULTILINE)
+  private val ACCESS = Regex("""\bappContainer\.(\w+)""")
+
+  /** One line per store a file outside `sync` and the wiring reads through the container. */
+  fun violations(sources: Map<String, String>): List<String> =
+      sources
+          .flatMap { (path, source) ->
+            if (inside(source)) {
+              emptyList()
+            } else {
+              ACCESS.findAll(source)
+                  .map { it.groupValues[1] }
+                  .filter { it in STORES }
+                  .map { "$path -> appContainer.$it: read it through SyncService" }
+                  .toList()
+            }
+          }
+          .distinct()
+
+  private fun inside(source: String): Boolean {
+    val declared = PACKAGE.find(source)?.groupValues?.get(1) ?: return false
+    return declared == ROOT ||
+        declared == PACKAGE_NAME ||
+        declared.startsWith("$PACKAGE_NAME.")
+  }
 }
