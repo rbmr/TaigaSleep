@@ -105,7 +105,8 @@ class FinishingWithSimulatedSensorTest {
         RecordingPhase.STOPPED,
         RecordingMeta.read(store.dir(finishing.recordingId))!!.state,
     )
-    assertTrue(finishing.recordingId in host.finishedRecordings)
+    // The done step is published before the recording is handed on, both on the control thread.
+    awaitCondition("the recording to be handed on") { finishing.recordingId in host.finishedRecordings }
     awaitCondition("the service to publish the last step") { seen.lastOrNull()?.done == true }
   }
 
