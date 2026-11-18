@@ -28,9 +28,11 @@ import com.rbmr.taigasleep.tracker.TrackerDriver
 import com.rbmr.taigasleep.tracker.TrackerEntry
 import com.rbmr.taigasleep.tracker.TrackerFrame
 import com.rbmr.taigasleep.tracker.TrackerListener
+import java.io.IOException
 import java.time.ZoneOffset
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -361,11 +363,23 @@ abstract class PolarGenericTracker(
     }
   }
 
+  /**
+   * Throws when the tracker keeps an entry, so the caller knows the removal is still to do instead
+   * of clearing it and leaving data that keeps filling the tracker's storage.
+   */
   override fun removeFromDevice(ids: List<String>) {
     val entries = runBlocking { withTimeout(FETCH_S) { seam.listOffline(id).collectToList() } }
+    val failed = mutableListOf<String>()
     for (entry in entries.filter { it.path in ids }) {
-      runCatching { runBlocking { seam.removeOffline(id, entry) } }
+      try {
+        runBlocking { withTimeout(FETCH_S) { seam.removeOffline(id, entry) } }
+      } catch (e: CancellationException) {
+        throw e
+      } catch (_: Exception) {
+        failed += entry.path
+      }
     }
+    if (failed.isNotEmpty()) throw IOException("the tracker still holds ${failed.joinToString()}")
   }
 
   override fun discardOnDevice() {
