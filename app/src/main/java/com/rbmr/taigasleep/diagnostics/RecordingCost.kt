@@ -67,9 +67,12 @@ object RecordingCost {
 
   @Volatile private var window: Window? = null
   @Volatile private var sources: Sources? = null
-  @Volatile private var sink: (String, Map<String, Any?>) -> Unit = { type, fields ->
+
+  private val logSink: (String, Map<String, Any?>) -> Unit = { type, fields ->
     Diagnostics.log(type, fields)
   }
+
+  @Volatile private var sink: (String, Map<String, Any?>) -> Unit = logSink
 
   /** One recording's counters; a new recording replaces the whole object instead of resetting. */
   private class Counters {
@@ -132,10 +135,13 @@ object RecordingCost {
     var wakeAcquires = 0L
   }
 
-  /** Installed once with the application and replaced by a test with its fakes. */
+  /**
+   * Installed once with the application and replaced by a test with its fakes. Uninstalling puts the
+   * log back, so a test's sink never outlives it.
+   */
   internal fun install(sources: Sources?, sink: ((String, Map<String, Any?>) -> Unit)? = null) {
     this.sources = sources
-    if (sink != null) this.sink = sink
+    this.sink = sink ?: logSink
     synchronized(lock) { window = null }
   }
 
