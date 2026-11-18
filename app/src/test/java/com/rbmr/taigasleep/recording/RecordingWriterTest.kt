@@ -196,6 +196,55 @@ class RecordingWriterTest {
     }
   }
 
+  /** Waits until the event log holds an event of [type]; the log is fsynced per line. */
+  private fun awaitEvent(dir: File, type: String) {
+    val deadline = System.currentTimeMillis() + 5_000
+    while (System.currentTimeMillis() < deadline) {
+      if (events(dir).any { it.string("type") == type }) return
+      Thread.sleep(10)
+    }
+    assertTrue("timed out waiting for the $type event", false)
+  }
+
+  @Test
+  fun aStopIsHandledWhileTheSyncThreadIsFlushing() {
+    val syncEntered = CountDownLatch(1)
+    val releaseSync = CountDownLatch(1)
+    val w =
+        RecordingWriter.create(tmp.newFolder("rec"), meta(), clock) { file, stream ->
+          FrameLogWriter(
+              file,
+              stream,
+              flush = { raf ->
+                if (file.name == RecordingWriter.HR_LOG) {
+                  syncEntered.countDown()
+                  awaitQuietly(releaseSync)
+                }
+                raf.fd.sync()
+              },
+          )
+        }
+    // The cadence does not run the fsync on the caller: this returns while the log is stuck.
+    w.syncIfDue(RecordingWriter.SYNC_INTERVAL_MS)
+    assertTrue(syncEntered.await(5, TimeUnit.SECONDS))
+
+    // A stop reaches the recording while that flush is still running, and is noted before it ends.
+    val stopped = AtomicBoolean(false)
+    val stop =
+        Thread {
+              w.finish(RecordingPhase.STOPPED, "stopped by user")
+              stopped.set(true)
+            }
+            .apply { start() }
+    awaitEvent(w.dir, "stop")
+    assertFalse("the stop waits only for the flush in progress", stopped.get())
+
+    releaseSync.countDown()
+    stop.join(5_000)
+    assertTrue(stopped.get())
+    assertEquals(RecordingPhase.STOPPED, RecordingMeta.read(w.dir)!!.state)
+  }
+
   @Test
   fun i16OverflowIsClampedAndLoggedAsError() {
     val root = tmp.newFolder("rec")

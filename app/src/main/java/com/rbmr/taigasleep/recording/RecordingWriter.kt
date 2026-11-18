@@ -19,6 +19,9 @@ import com.rbmr.taigasleep.tracker.Stamp
 import com.rbmr.taigasleep.tracker.TrackerFrame
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Raw storage health, owned by the writer and read by the monitor. Times are elapsed-realtime ns. */
@@ -60,6 +63,13 @@ private constructor(
   @Volatile private var lastSyncMs = 0L
   @Volatile private var lastSyncNs = 0L
   private val errorEvents = AtomicInteger()
+
+  /** fsyncs run here, so neither the control thread nor a frame append ever waits for the disk. */
+  private val syncing = Executors.newSingleThreadExecutor {
+    Thread(it, "recording-sync").apply { isDaemon = true }
+  }
+  /** One flush at a time: a slow disk must not pile tasks up behind itself. */
+  private val syncQueued = AtomicBoolean(false)
 
   /** Serialises events: their lines never interleave and each gets its own fsync. */
   private val eventsLock = Any()
@@ -225,11 +235,25 @@ private constructor(
     }
   }
 
-  /** fsyncs all logs if [SYNC_INTERVAL_MS] passed since the last time. */
+  /**
+   * Starts an fsync of every log on the sync thread when [SYNC_INTERVAL_MS] passed since the last
+   * one. The caller does not wait: the tick loop keeps its cadence while the disk is busy.
+   */
   fun syncIfDue(nowMs: Long) {
     if (closed || nowMs - lastSyncMs < SYNC_INTERVAL_MS) return
+    if (!syncQueued.compareAndSet(false, true)) return
     lastSyncMs = nowMs
-    sync()
+    try {
+      syncing.execute {
+        try {
+          sync()
+        } finally {
+          syncQueued.set(false)
+        }
+      }
+    } catch (_: RejectedExecutionException) {
+      syncQueued.set(false)
+    }
   }
 
   /**
@@ -382,6 +406,8 @@ private constructor(
   fun close() {
     if (closed) return
     closed = true
+    // A flush that is still running holds its log's lock; closing that log waits for it.
+    syncing.shutdown()
     logs.values.forEach {
       try {
         it.close()
