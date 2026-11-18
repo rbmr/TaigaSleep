@@ -47,6 +47,15 @@ class RecordingMonitorTest {
   private fun monitor() =
       RecordingMonitor(meta(), clock, { type, message -> events += type to message }) { health }
 
+  private fun metaWithPpi(): RecordingMeta {
+    val base = meta()
+    return base.copy(
+        streams =
+            base.streams +
+                RecordingStream("ppi", StreamType.PULSE_INTERVAL, Codec.POLAR_PPI, "ppi.log")
+    )
+  }
+
   private fun RecordingMonitor.hr(contact: Boolean = true, supported: Boolean = true) =
       onHr(Stamp.now(clock), HrSample(60, supported, contact, true, IntArray(0)))
 
@@ -202,19 +211,9 @@ class RecordingMonitorTest {
 
   @Test
   fun pulseIntervalsCountUnderThePpiStreamAndNotHeartRate() {
-    val base = meta()
     val m =
         RecordingMonitor(
-            base.copy(
-                streams =
-                    base.streams +
-                        RecordingStream(
-                            "ppi",
-                            StreamType.PULSE_INTERVAL,
-                            Codec.POLAR_PPI,
-                            "ppi.log",
-                        )
-            ),
+            metaWithPpi(),
             clock,
             { type, message -> events += type to message },
         ) { health }
@@ -230,6 +229,26 @@ class RecordingMonitorTest {
     assertEquals(RecordingState.StreamStatus.OK, streams.getValue(RecordingState.StreamKind.PPI).status)
     assertEquals(3L, streams.getValue(RecordingState.StreamKind.PPI).samples)
     assertEquals(heartRateSamples, streams.getValue(RecordingState.StreamKind.HR).samples)
+  }
+
+  @Test
+  fun pulseIntervalsKeepStallRecoveryQuietWithoutHeartRateSamples() {
+    val m =
+        RecordingMonitor(
+            metaWithPpi(),
+            clock,
+            { type, message -> events += type to message },
+        ) { health }
+    m.onPhase(RecordingState.Phase.RECORDING)
+    m.onLink(ConnectionState.CONNECTED)
+
+    // A minute of pulse intervals and no heart-rate frames is a delivering strap, not a stall.
+    repeat(60) { second ->
+      clock.advanceMs(1_000)
+      m.onOther(StreamType.PULSE_INTERVAL, Stamp.now(clock), 1)
+      val steps = m.tick()
+      assertTrue("step after ${second + 1} s: $steps", steps.isEmpty())
+    }
   }
 
   @Test
