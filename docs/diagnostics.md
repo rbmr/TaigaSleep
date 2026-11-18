@@ -21,7 +21,8 @@ Directory: `getExternalFilesDir(null)/diagnostics/`, i.e.
   `elapsed_ms` is `SystemClock.elapsedRealtime()` (monotonic, counts deep sleep, resets on reboot).
   Fields named like a header key are renamed `f_<name>`. Strings are cut at 8192 characters.
 - Each line is one unbuffered write, so a kill loses at most the line in flight. The file is
-  fsynced every 30 s and immediately after crash lines and `logSync`.
+  fsynced every 30 s when something was appended since the last sync, and immediately after crash
+  lines and `logSync`.
 - Writes happen on one daemon thread (`diagnostics`). Callers never block on disk.
 - **Size cap**: at most 20 MB in total and 14 days of files. Trimming (oldest files first, never
   the file being written) runs at startup, every hour and whenever a file rolls over, on the
@@ -75,9 +76,9 @@ snapshot, first heartbeat).
 | `exit_info` | once per `ApplicationExitInfo` entry not logged before (dedupe by timestamp+pid, persisted) | `event_ms` (when the process died), `exit_pid`, `reason`, `reason_code`, `status`, `importance`, `description` (e.g. `o-kill(6)`), `pss_kb`, `rss_kb`, `trace` (ANR/crash only, first 4 KB) |
 | `crash` | uncaught exception (then chains to the previous handler) | `thread`, `exception`, `message`, `stack` (with causes), `memory` |
 | `diag_heartbeat` | every 60 s, and `Diagnostics.heartbeat()` | `uptime_s`, the volatile fields (`bucket`, `whitelisted`, `background_restricted`, `exact_alarms`, `power_save`, `doze`, `interactive`, `locked`, `plugged`, `charging`), `battery_pct`, `battery_temp_c`, `thermal`, `importance`, `mem_avail_mb`, `java_heap_kb`, `native_heap_kb`, `threads`, `since_last_ms`, and while a recording runs `cost` (see "The cost of a recording") |
-| `settings_snapshot` | at start, every 15 min, and on the events below | `reason` (joined with `+`), `sdk_int`, `power{}`, `app{}`, `battery{}`, `bluetooth{}`, `system{}`, `memory{}`, `permissions{granted{},declared[]}`, `vendor{family,settings{}}` |
+| `settings_snapshot` | at start, every 15 min, and when an event changes one of its fields: `power_save_changed`, `doze_changed`, `bluetooth_state`, `thermal`, `power_connected`, `power_disconnected`, `battery_low`, `battery_okay`, `timezone_changed` | `reason` (joined with `+`), `sdk_int`, `power{}`, `app{}`, `battery{}`, `bluetooth{}`, `system{}`, `memory{}`, `permissions{granted{},declared[]}`, `vendor{family,settings{}}` |
 | `setting_changed` | any volatile field differs from the previous check | `source` (what triggered the check: `heartbeat`, `alarm`, `app_foreground`, `app_background`, `screen_on`, `screen_off`, `power_*`, `doze_changed`, ...), `observed_late_ms` (time since the previous check: how long the change may have gone unseen), `changes{field: [old, new]}`. A change to `bucket`, `whitelisted`, `background_restricted`, `exact_alarms` or `power_save` also takes a full snapshot. |
-| `alarm_heartbeat` | slow inexact alarm, about every 15 min | `scheduled_elapsed_ms`, `late_by_ms` (a large value is Doze or standby deferral), `uptime_s`, `process_started_for_alarm` (true: the alarm itself started the process after a kill) |
+| `alarm_heartbeat` | slow inexact alarm, about every 15 min while the run is marked running | `scheduled_elapsed_ms`, `late_by_ms` (a large value is Doze or standby deferral), `uptime_s`, `process_started_for_alarm` (true: the alarm itself started the process after a kill) |
 | `activity` | activity lifecycle | `name`, `state` (`created`, `resumed`, `paused`, `destroyed`), `finishing`, `changing_config` |
 | `screen_on`, `screen_off` | broadcasts | |
 | `power_connected`, `power_disconnected`, `battery_low`, `battery_okay` | broadcasts | `battery_pct` |
@@ -174,6 +175,10 @@ from the heartbeats it left. The fields:
 | `ticks`, `timers`, `heartbeats` | the tick loop, the diagnostics timers and the heartbeat lines of the segment |
 | `net` | traffic since the recording began |
 
+The battery percentages and the charging flag come from the same sticky battery intent as the
+heartbeat's `battery_pct` and `charging`, so a segment's ends and its heartbeats never disagree
+about the phone's charge.
+
 The `recovered` line marks where a new segment starts: it carries the time the recording had
 already run and the readings at recovery. It deliberately has no wake-lock or CPU figures, because
 the process that measured them is gone.
@@ -183,10 +188,14 @@ the process that measured them is gone.
 Diagnostics adds no wake locks, no foreground service and no network, sensor or location use. While
 the process is alive it does one cheap read of system flags and one appended line a minute (JVM
 timer, which pauses by itself while the CPU sleeps). The only wakeup of its own is the slow alarm:
-`setAndAllowWhileIdle` about every 15 minutes, which the system batches and, in Doze, defers to a
-maintenance window. That is at most four wakeups an hour, each a few milliseconds of work and one
-~300-byte line. A night of events (screen, power, doze, activity, heartbeats, alarms) is about
-60-150 KB, so the 20 MB / 14 day cap is never close.
+`setAndAllowWhileIdle` about every 15 minutes while the run is marked running, which the system
+batches and, in Doze, defers to a maintenance window. `markRunning` schedules it and
+`markCleanShutdown` cancels it; a recording picked up by a new process marks the run running again,
+so the alarm comes back only when something is there to keep alive. A process start alone arms
+nothing: no alarm cold-starts the app after a clean finish, where the start would mark the run
+running and turn a later freeze into an unclean exit. At most four wakeups an hour, each a few
+milliseconds of work and one ~300-byte line. A night of events (screen, power, doze, activity,
+heartbeats, alarms) is about 60-150 KB, so the 20 MB / 14 day cap is never close.
 
 The cost of a recording is measured by the diagnostics themselves, so it is bounded and visible.
 While a recording runs, the heartbeat's `cost` block adds 268 bytes on a phone that reports no
@@ -214,6 +223,9 @@ an activity is created or something calls `markRunning`. **The recording service
 `Diagnostics.markRunning()` when it starts**, otherwise a kill of a recording that continued after
 the user closed the UI would be reported as clean. Android may also remove a cached process long
 after a clean finish; that shows up as an `exit_info` line, not as an unclean verdict.
+
+`markRunning` also schedules the slow alarm and `markCleanShutdown` cancels it, so a process start
+alone leaves no wakeup behind.
 
 ## Reading kills
 
@@ -261,6 +273,7 @@ thread, to exercise the crash path.
 
 `./gradlew :app:testDebugUnitTest` covers the JSON encoder, rotation/trimming, exit-info dedupe,
 previous-run/heartbeat-gap scan, crash-handler chaining, the cost block and its size and time
-budgets, the `recording_cost` event for a stop, a charging night and a recovery after a kill, and
-runs the Python reader on a generated directory (skipped if `python3` is missing), including its
-cost table for a killed recording.
+budgets, the `recording_cost` event for a stop, a charging night and a recovery after a kill, the
+alarm following the run marker, a heartbeat's single battery read, one fsync per appended batch,
+and which broadcasts take a snapshot, and runs the Python reader on a generated directory (skipped
+if `python3` is missing), including its cost table for a killed recording.
