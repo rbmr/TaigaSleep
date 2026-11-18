@@ -19,6 +19,7 @@ import com.rbmr.taigasleep.tracker.Stamp
 import com.rbmr.taigasleep.tracker.TrackerFrame
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Raw storage health, owned by the writer and read by the monitor. Times are elapsed-realtime ns. */
 data class StorageHealth(
@@ -35,31 +36,40 @@ data class StorageHealth(
  * frames in the v1 format, fsyncs on a cadence and exposes [storageHealth]. It derives nothing:
  * contact, rates, staleness and quality belong to [RecordingMonitor].
  *
- * All methods are safe to call from any thread.
+ * All methods are safe to call from any thread. A frame append takes only the lock of the log it
+ * writes, and an event only the lock of the event file, so no delivery thread waits for another
+ * stream's write or for an fsync.
  */
 class RecordingWriter
 private constructor(
     val dir: File,
     meta: RecordingMeta,
     private val clock: Clock,
+    /** Opens one stream log; a test supplies logs whose fsync or write it can stall. */
+    private val openLog: (File, Int) -> FrameLogWriter = { file, stream -> FrameLogWriter(file, stream) },
 ) {
+  @Volatile
   var meta: RecordingMeta = meta
     private set
 
+  // Filled once, before the writer is shared; only the logs themselves are touched afterwards.
   private val logs = HashMap<Int, FrameLogWriter>()
   /** Which log a stream id's frames go to. A file shared by two streams keeps one log. */
   private val streamLogs = HashMap<String, Int>()
-  private var closed = false
-  private var lastSyncMs = 0L
-  private var lastSyncNs = 0L
-  private var errorEvents = 0
+  @Volatile private var closed = false
+  @Volatile private var lastSyncMs = 0L
+  @Volatile private var lastSyncNs = 0L
+  private val errorEvents = AtomicInteger()
 
-  private var failure: String? = null
-  private var failing = false
+  /** Serialises events: their lines never interleave and each gets its own fsync. */
+  private val eventsLock = Any()
+
+  @Volatile private var failure: String? = null
+  @Volatile private var failing = false
 
   private fun open(stream: Int, name: String) {
     if (logs.containsKey(stream)) return
-    logs[stream] = FrameLogWriter(File(dir, name), stream)
+    logs[stream] = openLog(File(dir, name), stream)
   }
 
   private fun openLogs() {
@@ -98,7 +108,6 @@ private constructor(
   }
 
   /** Appends one raw frame the tracker encoded. Returns false when it could not be written. */
-  @Synchronized
   fun writeFrame(frame: TrackerFrame): Boolean {
     if (closed) return false
     if (frame.clamped > 0) {
@@ -113,7 +122,6 @@ private constructor(
     return append(log, frame.payload)
   }
 
-  @Synchronized
   fun storageHealth() =
       StorageHealth(
           bytesWritten = logs.values.sumOf { it.bytes },
@@ -125,26 +133,26 @@ private constructor(
   /** Frames a failed write cost across all streams, so the loss is visible and not swallowed. */
   private fun droppedFrames(): Long = logs.values.sumOf { it.droppedFrames }
 
-  @Synchronized
   fun event(type: String, message: String) {
-    try {
-      EventLog.append(dir, clock.phoneNs(), clock.elapsedNs(), type, message)
-    } catch (e: IOException) {
-      Log.w(TAG, "event write failed", e)
+    synchronized(eventsLock) {
+      try {
+        EventLog.append(dir, clock.phoneNs(), clock.elapsedNs(), type, message)
+      } catch (e: IOException) {
+        Log.w(TAG, "event write failed", e)
+      }
     }
   }
 
   private fun errorEvent(message: String) {
     // A saturated sensor would otherwise fill the event log with one line per batch.
-    if (errorEvents < MAX_ERROR_EVENTS) {
-      errorEvents++
+    val count = errorEvents.incrementAndGet()
+    if (count <= MAX_ERROR_EVENTS) {
       event("error", message)
-      if (errorEvents == MAX_ERROR_EVENTS) event("error", "further errors suppressed")
+      if (count == MAX_ERROR_EVENTS) event("error", "further errors suppressed")
     }
   }
 
   /** Returns false when the frame could not be written, so an importer can refuse to delete it. */
-  @Synchronized
   fun writeHr(stamp: Stamp, s: HrSample): Boolean {
     if (closed) return false
     val flags = PolarCodec.hrFlags(s.contactSupported, s.contact, s.rrAvailable)
@@ -153,7 +161,6 @@ private constructor(
     return append(StreamId.HR, enc.bytes)
   }
 
-  @Synchronized
   fun writeEcg(stamp: Stamp, b: EcgBatch): Boolean {
     if (closed) return false
     if (b.timestampsNs.isEmpty()) return true
@@ -172,7 +179,6 @@ private constructor(
     return ok
   }
 
-  @Synchronized
   fun writeAcc(stamp: Stamp, b: AccBatch): Boolean {
     if (closed) return false
     if (b.timestampsNs.isEmpty()) return true
@@ -220,15 +226,16 @@ private constructor(
   }
 
   /** fsyncs all logs if [SYNC_INTERVAL_MS] passed since the last time. */
-  @Synchronized
   fun syncIfDue(nowMs: Long) {
     if (closed || nowMs - lastSyncMs < SYNC_INTERVAL_MS) return
     lastSyncMs = nowMs
     sync()
   }
 
-  /** Flushes every log and returns false when the data is not safely on disk. */
-  @Synchronized
+  /**
+   * Flushes every log and returns false when the data is not safely on disk. It takes each log's own
+   * lock, so an append to another log goes on while the flush runs.
+   */
   fun sync(): Boolean {
     if (closed) return false
     return try {
@@ -427,11 +434,16 @@ private constructor(
     private const val MAX_ERROR_EVENTS = 50
 
     /** Starts a new recording directory under [root]; meta.json is written with state recording. */
-    fun create(root: File, meta: RecordingMeta, clock: Clock): RecordingWriter {
+    fun create(
+        root: File,
+        meta: RecordingMeta,
+        clock: Clock,
+        openLog: (File, Int) -> FrameLogWriter = { file, stream -> FrameLogWriter(file, stream) },
+    ): RecordingWriter {
       val dir = File(root, meta.recordingId)
       check(dir.mkdirs()) { "recording dir exists: ${meta.recordingId}" }
       if (!meta.write(dir)) throw IOException("could not write ${RecordingMeta.FILE_NAME}")
-      return RecordingWriter(dir, meta, clock).also {
+      return RecordingWriter(dir, meta, clock, openLog).also {
         it.openLogs()
         it.event("start", "recording started")
       }

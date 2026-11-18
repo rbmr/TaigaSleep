@@ -259,13 +259,15 @@ class RecordingMonitor(
   fun tick(nowNs: Long): List<RecoveryStep> {
     val nowMs = nowNs / NS_PER_MS
     val events = ArrayList<Pair<String, String>>(2)
+    // Read before taking the lock: the writer may be in an fsync, and samples must not wait for it.
+    val health = storageHealth()
     val steps: List<RecoveryStep>
     var logLinkView = false
     synchronized(lock) {
       evaluateContact(nowMs)
       evaluateStreams(nowNs, events)
       evaluateQuality(events)
-      evaluateStorage(nowNs, events)
+      evaluateStorage(nowNs, health, events)
       evaluateSpace(nowMs, events)
       logLinkView = linkViewDueLocked(nowMs)
       steps = evaluateRecovery(nowMs)
@@ -397,8 +399,11 @@ class RecordingMonitor(
     ecg = next
   }
 
-  private fun evaluateStorage(nowNs: Long, events: MutableList<Pair<String, String>>) {
-    val health = storageHealth()
+  private fun evaluateStorage(
+      nowNs: Long,
+      health: StorageHealth,
+      events: MutableList<Pair<String, String>>,
+  ) {
     storageBytes = health.bytesWritten
     storageDropped = health.droppedFrames
     sinceSyncMs = if (health.lastSyncNs > 0) (nowNs - health.lastSyncNs).coerceAtLeast(0) / NS_PER_MS else null

@@ -180,23 +180,27 @@ object FrameLog {
  * Append-only writer for one frame log. Opening an existing file truncates it to the last valid
  * frame first, so a recording interrupted mid-write can be resumed.
  *
- * [writeFrame] is the raw write and exists so a test can make one fail part-way through; production
- * code uses it as it is.
+ * [writeFrame] is the raw write and [flush] the fsync; both exist so a test can make one fail or
+ * stall, and production code uses them as they are.
  */
 class FrameLogWriter
 internal constructor(
     private val file: File,
     private val stream: Int,
+    private val flush: (RandomAccessFile) -> Unit = { it.fd.sync() },
     private val writeFrame: (RandomAccessFile, ByteArray) -> Unit = { raf, frame -> raf.write(frame) },
 ) : AutoCloseable {
   private val raf: RandomAccessFile
+  @Volatile
   var frames = 0L
     private set
 
+  @Volatile
   var bytes = 0L
     private set
 
   /** Frames a failed write cost, so the recording can account for the gap. */
+  @Volatile
   var droppedFrames = 0L
     private set
 
@@ -249,7 +253,7 @@ internal constructor(
 
   @Synchronized
   fun sync() {
-    raf.fd.sync()
+    flush(raf)
     RecordingCost.fsync()
   }
 
@@ -265,7 +269,7 @@ internal constructor(
   @Synchronized
   override fun close() {
     try {
-      raf.fd.sync()
+      flush(raf)
       RecordingCost.fsync()
     } finally {
       raf.close()

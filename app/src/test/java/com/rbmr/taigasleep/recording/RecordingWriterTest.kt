@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.TestClock
 import com.rbmr.taigasleep.recording.store.FrameLog
+import com.rbmr.taigasleep.recording.store.FrameLogWriter
 import com.rbmr.taigasleep.recording.store.LogPosition
 import com.rbmr.taigasleep.recording.store.Payloads
 import com.rbmr.taigasleep.recording.store.RecordingConfig
@@ -19,6 +20,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import com.rbmr.taigasleep.tracker.RecordingMode
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -149,6 +153,47 @@ class RecordingWriterTest {
     clock.advanceMs(30_000)
     w.sync()
     assertEquals(clock.elapsedNs(), w.storageHealth().lastSyncNs)
+  }
+
+  @Test
+  fun aSlowSyncDoesNotHoldUpOtherLogsOrEvents() {
+    val syncEntered = CountDownLatch(1)
+    val releaseSync = CountDownLatch(1)
+    val w =
+        RecordingWriter.create(tmp.newFolder("rec"), meta(), clock) { file, stream ->
+          FrameLogWriter(
+              file,
+              stream,
+              flush = { raf ->
+                if (file.name == RecordingWriter.ECG_LOG) {
+                  syncEntered.countDown()
+                  awaitQuietly(releaseSync)
+                }
+                raf.fd.sync()
+              },
+          )
+        }
+    val synced = AtomicBoolean(false)
+    val sync = Thread { synced.set(w.sync()) }.apply { start() }
+    assertTrue(syncEntered.await(5, TimeUnit.SECONDS))
+
+    // The ECG log is stuck in its fsync: another log's frame and an event still reach the disk.
+    assertTrue(w.writeHr(stamp(), HrSample(60, true, true, false, IntArray(0))))
+    w.event("note", "written while the ecg log is flushing")
+    assertEquals(listOf("start", "note"), events(w.dir).map { it.string("type") })
+
+    releaseSync.countDown()
+    sync.join(5_000)
+    assertTrue(synced.get())
+    w.finish(RecordingPhase.STOPPED, "done")
+  }
+
+  private fun awaitQuietly(latch: CountDownLatch) {
+    try {
+      latch.await()
+    } catch (_: InterruptedException) {
+      Thread.currentThread().interrupt()
+    }
   }
 
   @Test
