@@ -373,15 +373,6 @@ private val BandEasing = CubicBezierEasing(0.3f, 0.6f, 0.3f, 1f)
 // The floating z's: position and size in logo units, one 3.2 s loop, the second 1.2 s behind.
 // They start and drift a little closer to the head than the prototype so they stay inside the arch.
 private const val Z_LOOP_MS = 3_200
-internal const val Z_FADE_IN = 0.2f
-internal const val Z_FADE_OUT = 0.5f
-internal const val Z_PEAK_ALPHA = 0.9f
-private val ZStart = Offset(135f, 70f)
-private const val Z_RISE_X = 4f
-private const val Z_RISE_Y = 18f
-private const val Z_START_SIZE = 7f
-private const val Z_END_SIZE = 13f
-internal const val Z_STATIC_ALPHA = 0.6f
 
 // The two eyes of the logo's awake bear.
 private const val EYE_LEFT_X = 94.16f
@@ -548,34 +539,6 @@ private fun DrawScope.drawRing(pulse: DenPulse, at: Offset, start: Color, end: C
 private val ZTypeface: Typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
 
 /** The two z's drifting up and to the right of the sleeping bear's head, or still when static. */
-/** Where one z is drawn, how large and how visible, in the den's own units. */
-internal data class SleepZ(val x: Float, val y: Float, val size: Float, val alpha: Float)
-
-/**
- * The two z's for a point of the loop. One z rises from beside the bear's ear at a steady pace,
- * growing as it fades in and then out; the second runs half a loop behind, so one starts as the
- * other ends. Still, the two stand a quarter and three quarters into their rise.
- */
-internal fun sleepZs(clock: Float, animated: Boolean): List<SleepZ> {
-  val base = if (animated) clock else 0.25f
-  return listOf(base, base + 0.5f).map { phase ->
-    val p = ((phase % 1f) + 1f) % 1f
-    val alpha =
-        when {
-          !animated -> Z_STATIC_ALPHA
-          p < Z_FADE_IN -> lerp(0f, Z_PEAK_ALPHA, p / Z_FADE_IN)
-          p > Z_FADE_OUT -> lerp(Z_PEAK_ALPHA, 0f, (p - Z_FADE_OUT) / (1f - Z_FADE_OUT))
-          else -> Z_PEAK_ALPHA
-        }
-    SleepZ(
-        x = ZStart.x + Z_RISE_X * p,
-        y = ZStart.y - Z_RISE_Y * p,
-        size = lerp(Z_START_SIZE, Z_END_SIZE, p),
-        alpha = alpha,
-    )
-  }
-}
-
 private fun DrawScope.drawSleepZ(clock: Float, animated: Boolean, color: Color, paint: Paint) {
   for (z in sleepZs(clock, animated)) {
     if (z.alpha <= 0f) continue
@@ -584,9 +547,6 @@ private fun DrawScope.drawSleepZ(clock: Float, animated: Boolean, color: Color, 
     drawContext.canvas.nativeCanvas.drawText("z", z.x, z.y, paint)
   }
 }
-
-private fun lerp(start: Float, end: Float, fraction: Float): Float =
-    start + (end - start) * fraction
 
 @Preview(name = "Light", widthDp = 360, heightDp = 560)
 @Preview(name = "Dark", widthDp = 360, heightDp = 560, uiMode = Configuration.UI_MODE_NIGHT_YES)
