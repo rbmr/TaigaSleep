@@ -373,12 +373,6 @@ private val BandEasing = CubicBezierEasing(0.3f, 0.6f, 0.3f, 1f)
 // The floating z's: position and size in logo units, one 3.2 s loop, the second 1.2 s behind.
 // They start and drift a little closer to the head than the prototype so they stay inside the arch.
 private const val Z_LOOP_MS = 3_200
-private const val Z_SECOND_DELAY = 1_200f / Z_LOOP_MS
-private const val Z_STATIC_ALPHA = 0.6f
-private val FirstZ = Offset(136f, 62f)
-private const val FIRST_Z_SIZE = 11f
-private val SecondZ = Offset(143f, 52f)
-private const val SECOND_Z_SIZE = 8f
 
 // The two eyes of the logo's awake bear.
 private const val EYE_LEFT_X = 94.16f
@@ -546,30 +540,13 @@ private val ZTypeface: Typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOL
 
 /** The two z's drifting up and to the right of the sleeping bear's head, or still when static. */
 private fun DrawScope.drawSleepZ(clock: Float, animated: Boolean, color: Color, paint: Paint) {
-  fun z(origin: Offset, size: Float, phase: Float) {
-    val alpha: Float
-    var dx = 0f
-    var dy = 0f
-    if (!animated) {
-      alpha = Z_STATIC_ALPHA
-    } else {
-      val p = ((phase % 1f) + 1f) % 1f
-      alpha = if (p < 0.3f) lerp(0f, 0.9f, p / 0.3f) else lerp(0.9f, 0f, (p - 0.3f) / 0.7f)
-      val e = EaseOut.transform(p)
-      dx = 5f * e
-      dy = lerp(4f, -11f, e)
-    }
-    if (alpha <= 0f) return
-    paint.textSize = size
-    paint.color = color.copy(alpha = alpha).toArgb()
-    drawContext.canvas.nativeCanvas.drawText("z", origin.x + dx, origin.y + dy, paint)
+  for (z in sleepZs(clock, animated)) {
+    if (z.alpha <= 0f) continue
+    paint.textSize = z.size
+    paint.color = color.copy(alpha = z.alpha).toArgb()
+    drawContext.canvas.nativeCanvas.drawText("z", z.x, z.y, paint)
   }
-  z(FirstZ, FIRST_Z_SIZE, clock)
-  z(SecondZ, SECOND_Z_SIZE, clock - Z_SECOND_DELAY)
 }
-
-private fun lerp(start: Float, end: Float, fraction: Float): Float =
-    start + (end - start) * fraction
 
 @Preview(name = "Light", widthDp = 360, heightDp = 560)
 @Preview(name = "Dark", widthDp = 360, heightDp = 560, uiMode = Configuration.UI_MODE_NIGHT_YES)
