@@ -63,6 +63,5 @@ object DiagnosticsAlarm {
 class AlarmReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     Diagnostics.alarmFired(intent.getLongExtra(DiagnosticsAlarm.EXTRA_AT, 0L))
-    DiagnosticsAlarm.schedule(context)
   }
 }

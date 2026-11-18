@@ -191,11 +191,12 @@ timer, which pauses by itself while the CPU sleeps). The only wakeup of its own 
 `setAndAllowWhileIdle` about every 15 minutes while the run is marked running, which the system
 batches and, in Doze, defers to a maintenance window. `markRunning` schedules it and
 `markCleanShutdown` cancels it; a recording picked up by a new process marks the run running again,
-so the alarm comes back only when something is there to keep alive. A process start alone arms
-nothing: no alarm cold-starts the app after a clean finish, where the start would mark the run
-running and turn a later freeze into an unclean exit. At most four wakeups an hour, each a few
-milliseconds of work and one ~300-byte line. A night of events (screen, power, doze, activity,
-heartbeats, alarms) is about 60-150 KB, so the 20 MB / 14 day cap is never close.
+so the alarm comes back only when something is there to keep alive. An alarm that fires where
+nothing is marked running is not scheduled again, so one left behind stops after that wakeup. A
+process start alone arms nothing: no alarm cold-starts the app after a clean finish, where the start
+would mark the run running and turn a later freeze into an unclean exit. At most four wakeups an
+hour, each a few milliseconds of work and one ~300-byte line. A night of events (screen, power,
+doze, activity, heartbeats, alarms) is about 60-150 KB, so the 20 MB / 14 day cap is never close.
 
 The cost of a recording is measured by the diagnostics themselves, so it is bounded and visible.
 While a recording runs, the heartbeat's `cost` block adds 268 bytes on a phone that reports no

@@ -39,6 +39,7 @@ object Diagnostics {
   private var dedupe: ExitInfoDedupe? = null
   private var executor: ScheduledThreadPoolExecutor? = null
   @Volatile private var runId = ""
+  @Volatile private var markedRunning = false
 
   // Touched only on the diagnostics thread.
   private var lastState: Map<String, Any?>? = null
@@ -121,6 +122,9 @@ object Diagnostics {
         ),
     )
     checkState("alarm")
+    // An alarm that outlived its run stops after this wakeup instead of cold-starting us for good;
+    // a recording picked up by this process marks the run running and arms the next one.
+    if (markedRunning) app?.let { DiagnosticsAlarm.schedule(it) }
   }
 
   /** Writes a `diag_heartbeat` now. The scheduled one keeps running regardless. */
@@ -129,12 +133,14 @@ object Diagnostics {
   /** Marks the run as alive again (after a clean mark); call when a service starts recording. */
   fun markRunning() {
     // Only a run that is alive keeps the alarm; one left behind would cold-start the app for good.
+    markedRunning = true
     app?.let { DiagnosticsAlarm.schedule(it) }
     submit { marker?.write("running", Process.myPid(), nowMs()) }
   }
 
   /** Marks the run as finished normally, so the next start does not report an unclean exit. */
   fun markCleanShutdown(reason: String) {
+    markedRunning = false
     log("clean_shutdown", mapOf("reason" to reason))
     app?.let { DiagnosticsAlarm.cancel(it) }
     submit { marker?.write("clean", Process.myPid(), nowMs()) }
