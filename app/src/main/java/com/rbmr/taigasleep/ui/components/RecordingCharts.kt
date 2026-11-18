@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.res.Configuration
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -56,7 +55,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -373,15 +371,12 @@ fun ChartFullscreenDialog(
 ) {
   val context = LocalContext.current
   val activity = remember(context) { context.findActivity() }
-  val restoreOrientation =
-      if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-      } else {
-        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-      }
   DisposableEffect(activity) {
-    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-    onDispose { activity?.requestedOrientation = restoreOrientation }
+    val target = activity ?: return@DisposableEffect onDispose {}
+    // Whatever the activity asked for before, including unspecified, is what it asks for again.
+    val previous = target.requestedOrientation
+    target.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+    onDispose { target.requestedOrientation = previous }
   }
   Dialog(
       onDismissRequest = onDismiss,
