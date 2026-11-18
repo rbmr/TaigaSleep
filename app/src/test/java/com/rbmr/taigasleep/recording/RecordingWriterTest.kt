@@ -13,7 +13,9 @@ import com.rbmr.taigasleep.recording.store.StreamId
 import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.EcgBatch
 import com.rbmr.taigasleep.tracker.HrSample
+import com.rbmr.taigasleep.tracker.PolarCodec
 import com.rbmr.taigasleep.tracker.Stamp
+import com.rbmr.taigasleep.tracker.TrackerFrame
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -58,6 +60,18 @@ class RecordingWriterTest {
       )
 
   private fun stamp() = Stamp.now(clock)
+
+  private fun hrFrame(stamp: Stamp): TrackerFrame {
+    val enc =
+        PolarCodec.encodeHr(
+            stamp.phoneNs,
+            stamp.elapsedNs,
+            60,
+            PolarCodec.hrFlags(true, true, true),
+            intArrayOf(1_000),
+        )
+    return TrackerFrame("hr", stamp, enc.bytes, enc.clamped)
+  }
 
   private fun events(dir: File): List<JsonObject> =
       File(dir, "events.jsonl").readLines().map { Json.parseToJsonElement(it).jsonObject }
@@ -204,6 +218,37 @@ class RecordingWriterTest {
       Thread.sleep(10)
     }
     assertTrue("timed out waiting for the $type event", false)
+  }
+
+  @Test
+  fun aFullHandOffQueueIsCountedAsDroppedFrames() {
+    val writeEntered = CountDownLatch(1)
+    val releaseWrite = CountDownLatch(1)
+    val w =
+        RecordingWriter.create(tmp.newFolder("rec"), meta(), clock) { file, stream ->
+          FrameLogWriter(
+              file,
+              stream,
+              writeFrame = { raf, frame ->
+                writeEntered.countDown()
+                awaitQuietly(releaseWrite)
+                raf.write(frame)
+              },
+          )
+        }
+    val stamp = stamp()
+    w.handOff(hrFrame(stamp))
+    assertTrue(writeEntered.await(5, TimeUnit.SECONDS))
+
+    // The log is stuck: the queue fills and later frames are counted instead of growing it.
+    repeat(RecordingWriter.HAND_OFF_FRAMES + 5) { w.handOff(hrFrame(stamp)) }
+    assertEquals(5L, w.storageHealth().droppedFrames)
+
+    releaseWrite.countDown()
+    w.finish(RecordingPhase.STOPPED, "done")
+    var written = 0
+    FrameLog.scan(File(w.dir, RecordingWriter.HR_LOG)) { written++ }
+    assertEquals(1 + RecordingWriter.HAND_OFF_FRAMES, written)
   }
 
   @Test

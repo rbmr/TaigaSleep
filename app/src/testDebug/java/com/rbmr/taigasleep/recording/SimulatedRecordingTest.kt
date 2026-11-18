@@ -11,6 +11,7 @@ import com.rbmr.taigasleep.tracker.SimulatedSensor
 import com.rbmr.taigasleep.tracker.StreamConfig
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -79,8 +80,10 @@ class SimulatedRecordingTest {
       if (step % 10 == 9) monitor.tick(clock.elapsedNs())
     }
     sensor.stopStreams()
-    val live = monitor.state.value
     writer.finish(RecordingPhase.STOPPED, "test stop")
+    // Frames are stored on the writer's own thread, so the final bytes are read on a later tick.
+    monitor.tick(clock.elapsedNs())
+    val live = monitor.state.value
 
     // The raw side: the same frames as before this refactor.
     val hrFrames = frames(File(writer.dir, "hr.log"))
@@ -198,7 +201,11 @@ class SimulatedRecordingTest {
 
     // Ten seconds reach the phone, then the strap stays connected and goes silent.
     run(10_000)
-    val before = samples(File(writer.dir, "hr.log"), 1)
+    // The writer stores handed-off frames on its own thread: wait for the last ones to land.
+    val delivered =
+        monitor.state.value.streams.getValue(RecordingState.StreamKind.HR).samples
+    awaitSamples(File(writer.dir, "hr.log"), delivered)
+    val before = delivered
     assertTrue("the recording should write while the streams run", before > 0)
     sensor.stopEmittingUntilRestarted()
     run(29_000)
@@ -256,6 +263,13 @@ class SimulatedRecordingTest {
     sensor.removeFromDevice((fetched as OnDeviceFetch.Imported).entries.map { it.id })
     writer.finish(RecordingPhase.STOPPED, "test stop")
     assertTrue(samples(File(writer.dir, "hr.log"), 1) > 0)
+  }
+
+  /** Waits for the writer's thread to store the HR samples the monitor has already counted. */
+  private suspend fun awaitSamples(file: File, expected: Long) {
+    val deadline = System.currentTimeMillis() + 5_000
+    while (System.currentTimeMillis() < deadline && samples(file, 1) < expected) delay(5)
+    assertEquals(expected, samples(file, 1))
   }
 
   private fun frames(file: File): Long {
