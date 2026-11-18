@@ -28,7 +28,8 @@ private class FakeRecordingSource(
     nights: List<RecordingView>,
     results: Map<String, AnalysisDto> = emptyMap(),
 ) : RecordingSource {
-  private val cached = results.toMutableMap()
+  private val cached =
+      results.entries.associate { (key, result) -> "${key}/${result.id}" to result }.toMutableMap()
   override val recordings: MutableStateFlow<List<RecordingView>> = MutableStateFlow(nights)
   override val remoteStatus: MutableStateFlow<RemoteStatus> =
       MutableStateFlow<RemoteStatus>(RemoteStatus.NotConfigured)
@@ -39,17 +40,21 @@ private class FakeRecordingSource(
 
   override suspend fun cachedResult(key: String, analysisId: String?): AnalysisDto? {
     cachedKeys += key
-    return cached[key]
+    return cached["$key/${analysisId.orEmpty()}"]
   }
 
   /** A payload that lands on the phone, as the result cache stores it. */
   fun cache(key: String, result: AnalysisDto) {
-    cached[key] = result
+    cached["$key/${result.id}"] = result
   }
 
   /** The results a server read stores: reading a recording makes its result cached. */
   val onServer = mutableMapOf<String, AnalysisDto>()
+
+  /** Results the server has for one analysis, which is what a changed selection asks for. */
+  val onServerByAnalysis = mutableMapOf<String, AnalysisDto>()
   val refreshed = mutableListOf<String>()
+  val refreshedAnalyses = mutableListOf<String?>()
 
   override suspend fun refreshRecording(
       key: String,
@@ -57,8 +62,12 @@ private class FakeRecordingSource(
       analysisId: String?,
   ): Result<AnalysisDto?> {
     refreshed += key
-    val result = onServer[key] ?: return Result.failure(IllegalStateException("offline"))
-    cached[key] = result
+    refreshedAnalyses += analysisId
+    val result =
+        analysisId?.let { onServerByAnalysis[it] }
+            ?: onServer[key]
+            ?: return Result.failure(IllegalStateException("offline"))
+    cached["$key/${result.id}"] = result
     return Result.success(result)
   }
 
@@ -332,5 +341,48 @@ class TrendsViewModelTest {
 
     assertEquals(reads + 1, source.cachedKeys.size)
     assertEquals(7.0 * 3600, model.state.value.data.totalSleep.value ?: 0.0, 0.001)
+  }
+
+  @Test
+  fun `a newly selected analysis of a fetched night is fetched as well`() {
+    val wake = LocalDate.now(zone).minusDays(1)
+    val start = at(wake.minusDays(1), "23:00")
+    val end = at(wake, "07:00")
+    val oneRun =
+        night(
+            key = "night",
+            localId = "night",
+            remoteId = "r1",
+            startUtcMs = start,
+            endUtcMs = end,
+            durationMs = end - start,
+            analysisId = "a1",
+        )
+    val source = FakeRecordingSource(listOf(oneRun))
+    source.onServerByAnalysis["a1"] = analysis("a1", mapOf(TrendItems.TOTAL_SLEEP to 6.0 * 3600))
+    source.onServerByAnalysis["a2"] = analysis("a2", mapOf(TrendItems.TOTAL_SLEEP to 7.0 * 3600))
+
+    val model = viewModel(source)
+    assertEquals(listOf<String?>("a1"), source.refreshedAnalyses)
+
+    // The same recording now shows another run, whose result this phone has never read.
+    source.recordings.value =
+        listOf(
+            oneRun.copy(
+                analyses =
+                    listOf(
+                        Analysis("a1", "stager", "1", AnalysisStatus.DONE),
+                        Analysis("a2", "stager", "1", AnalysisStatus.DONE),
+                    ),
+                selectedAnalysisId = "a2",
+            )
+        )
+
+    assertEquals(listOf<String?>("a1", "a2"), source.refreshedAnalyses)
+    assertEquals(
+        7.0 * 3600,
+        model.state.value.data.nights.filterNotNull().single().totalSleepSeconds ?: 0.0,
+        0.001,
+    )
   }
 }

@@ -92,7 +92,7 @@ class TrendsViewModel(
   /** Counts the results that were read from the server, so the trends are computed again. */
   private val fetched = MutableStateFlow(0)
 
-  /** Recordings whose result is being read from the server or was read already. */
+  /** Results being read from the server, by the recording and the analysis they belong to. */
   private val fetching = ConcurrentHashMap.newKeySet<String>()
 
   /** The items of every result that was read, by the analysis they belong to. */
@@ -165,7 +165,8 @@ class TrendsViewModel(
 
   /**
    * A night that is analysed on the server but whose result was never opened on this phone has no
-   * values to draw. Its result is read once in the background and the trends are computed again.
+   * values to draw. Its result is read once in the background and the trends are computed again. The
+   * recording alone is not the key: another run of it is another result to read.
    */
   private fun fetchMissingResults(nights: List<Pair<TrendSource, Map<String, Double>?>>) {
     val missing =
@@ -174,23 +175,24 @@ class TrendsViewModel(
               values == null &&
                   source.remoteId != null &&
                   source.status == RecordingStatus.READY &&
-                  fetching.add(source.key)
+                  fetching.add(analysisKey(source))
             }
             .map { it.first }
     if (missing.isEmpty()) return
     scope.launch {
       for (source in missing) {
+        val key = analysisKey(source)
         val read =
             withContext(io) {
               library.refreshRecording(source.key, source.remoteId, source.analysisId)
             }
-        // A failed read is tried again the next time the trends are computed.
-        if (read.isSuccess) {
-          read.getOrNull()?.let { analysis -> items[analysisKey(source)] = itemsOf(analysis) }
+        // A read without a payload is tried again the next time the trends are computed.
+        val analysis = read.getOrNull()
+        if (analysis != null) {
+          items[key] = itemsOf(analysis)
           fetched.update { it + 1 }
-        } else {
-          fetching.remove(source.key)
         }
+        fetching.remove(key)
       }
     }
   }
