@@ -1,5 +1,3 @@
-@file:Suppress("TooGenericExceptionCaught", "TooManyFunctions")
-
 package com.rbmr.taigasleep.recording
 
 import android.app.AlarmManager
@@ -31,6 +29,7 @@ enum class WakeReason(val wire: String, @StringRes val text: Int) {
  *
  * [WakeDecision] decides when; this only starts the ring.
  */
+@Suppress("TooManyFunctions")
 object WakeAlarm {
   private const val TAG = "WakeAlarm"
   private const val REQUEST_END = 56
@@ -113,11 +112,17 @@ object WakeAlarm {
   fun stopNow(context: Context) {
     try {
       context.startService(stopIntent(context))
-    } catch (e: Exception) {
-      // Nothing is ringing: a plain dismiss is all that is left.
-      Log.w(TAG, "the alarm service could not be stopped", e)
-      dismiss(context)
+    } catch (e: IllegalStateException) {
+      stopped(context, e)
+    } catch (e: SecurityException) {
+      stopped(context, e)
     }
+  }
+
+  /** Nothing is ringing, or the phone refused the start: a plain dismiss is all that is left. */
+  private fun stopped(context: Context, error: Exception) {
+    Log.w(TAG, "the alarm service could not be stopped", error)
+    dismiss(context)
   }
 
   /** The user stopped the alarm; the recording is untouched and the window is spent. */
@@ -130,16 +135,26 @@ object WakeAlarm {
   private fun start(context: Context, intent: Intent) {
     try {
       context.startForegroundService(intent)
-    } catch (e: Exception) {
-      Log.e(TAG, "the alarm service could not be started", e)
-      Diagnostics.log(
-          "wake_alarm_failed",
-          mapOf("source" to intent.getStringExtra(WakeAlarmService.EXTRA_SOURCE), "reason" to "service"),
-      )
-      testResult.value =
-          AlarmTestResult(started = false, audible = false, volume = 0, maxVolume = 0)
-      fallback(context, intent)
+    } catch (e: IllegalStateException) {
+      serviceFailed(context, intent, e)
+    } catch (e: SecurityException) {
+      serviceFailed(context, intent, e)
     }
+  }
+
+  /** The ringing service could not start: record it and fall back to the notification path. */
+  private fun serviceFailed(context: Context, intent: Intent, error: Exception) {
+    Log.e(TAG, "the alarm service could not be started", error)
+    Diagnostics.log(
+        "wake_alarm_failed",
+        mapOf(
+            "source" to intent.getStringExtra(WakeAlarmService.EXTRA_SOURCE),
+            "reason" to "service",
+        ),
+    )
+    testResult.value =
+        AlarmTestResult(started = false, audible = false, volume = 0, maxVolume = 0)
+    fallback(context, intent)
   }
 
   /** The notification path, for a phone that will not let the ringing service start. */
