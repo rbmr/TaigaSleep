@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -149,6 +150,9 @@ class PolarH10Sensor(
   private var listener: TrackerListener? = null
   // Written by the caller's connect and disconnect and read by the SDK's callbacks.
   @Volatile private var userDisconnect = false
+  // Counts the SDK's disconnected callbacks: disconnect() reports the state at once, but the link
+  // is only gone when the SDK says so and a connect issued before that is lost.
+  private val disconnectCallbacks = MutableStateFlow(0L)
 
   // On-device recording: the strap stores HR/RR itself and the phone fetches it in the morning.
   private var onDeviceWanted: PolarSelection? = null
@@ -194,6 +198,13 @@ class PolarH10Sensor(
       Log.w(TAG, "disconnect failed", e)
     }
     _connection.value = ConnectionState.DISCONNECTED
+  }
+
+  /** Waits for the SDK's own disconnected callback, not the state [disconnect] sets at once. */
+  override suspend fun disconnectAndWait(timeoutMs: Long): Boolean {
+    val seen = disconnectCallbacks.value
+    disconnect()
+    return withTimeoutOrNull(timeoutMs) { disconnectCallbacks.first { it != seen } } != null
   }
 
   /**
@@ -408,6 +419,7 @@ class PolarH10Sensor(
   }
 
   override fun onDisconnected() {
+    disconnectCallbacks.update { it + 1 }
     control.execute {
       ready.clear()
       disposeStreams()

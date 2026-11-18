@@ -113,6 +113,7 @@ Not enforced; keep them lower_snake_case and keep `diag_heartbeat` for the diagn
 | `service_start`, `service_stop` | `reason`, `null_intent`, `foreground_type`, `foreground` |
 | `recording_state` | `from`, `to`, `session_id` |
 | `ble_connect`, `ble_disconnect`, `ble_reconnect` | `sensor_id`, `status`, `attempt`, `auto_connect` |
+| `reconnect_step` | a recovery reconnect finished: `disconnect_ms`, `disconnect_timed_out`, `connect_ms` (null when it failed), `second_connect`, `connected` |
 | `watchdog_fire`, `watchdog_restart` | `action`, `service_running`, `last_heartbeat_age_s` |
 | `boot_resume`, `resume_refused`, `service_foreground_refused` | `recording`, `error` |
 | `wake_trigger` | `recording`, `at_utc_ms` |

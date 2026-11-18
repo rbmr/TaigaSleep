@@ -167,6 +167,16 @@ interface Tracker {
   fun disconnect()
 
   /**
+   * Disconnects and waits for the link to be gone, up to [timeoutMs]; true when it is gone. A driver
+   * whose stack drops the link asynchronously waits for its own callback, because a connect issued
+   * before it is lost. The default cannot watch for one and returns true once [disconnect] was asked.
+   */
+  suspend fun disconnectAndWait(timeoutMs: Long): Boolean {
+    disconnect()
+    return true
+  }
+
+  /**
    * Starts the tracker's transport over, so the next [connect] cannot be answered from a stale
    * session. Only a tracker whose Bluetooth stack can park a dropped link needs this.
    */

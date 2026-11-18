@@ -304,13 +304,16 @@ or fsync failed), `storage_low` (free space fell below an hour of the selected s
 `storage_ok` (a failed write was followed by a good one, or free space came back above the
 threshold), `fetch` (an on-device fetch was retried), `readiness` (a snapshot of the battery/standby
 settings at start and on every state change), `wake` (the smart alarm was armed, moved or
-switched off, with its window), `wake_rang` (the smart alarm rang, with why). Keep messages short
+switched off, with its window), `wake_rang` (the smart alarm rang, with why), `reconnect_step` (a
+recovery reconnect finished: how long the disconnect took, whether it timed out, how long the link
+took to come back and whether a second connect was needed, all in the message). Keep messages short
 and free of personal data.
 
 The service owns the lifecycle lines (`start`, `stop`, `force_stop`, `readiness`,
 `service_restart`); the live monitor owns `connect`, `disconnect`, `reconnect`, `contact`,
 `ecg_signal`, `stream_stalled`, `stream_recovered`, `recovery`, `battery` and `storage_error`. Contact,
-ECG quality, rates and staleness are derived only by the live monitor, never by the writer.
+ECG quality, rates and staleness are derived only by the live monitor, never by the writer. The live
+loop that performs the recovery steps writes `reconnect_step`.
 
 ## Durability
 

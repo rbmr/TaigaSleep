@@ -7,6 +7,11 @@ import com.rbmr.taigasleep.tracker.Stamp
 import com.rbmr.taigasleep.tracker.TrackerFrame
 import com.rbmr.taigasleep.tracker.TrackerListener
 import java.util.UUID
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -140,6 +145,23 @@ class BleHrsTrackerTest {
     assertTrue(errors.any { it.contains("could not enable") })
     assertTrue(handle.closed)
     assertTrue(scheduler.pending)
+  }
+
+  @OptIn(ExperimentalCoroutinesApi::class)
+  @Test
+  fun `a disconnect wait ends only when the radio reports the drop`() = runTest {
+    val seam = FakeSeam()
+    val tracker = BleHrsTracker(context, "AA:BB", "Strap", seam, FakeScheduler())
+    tracker.startStreams(setOf("hr"), notesListener(mutableListOf()))
+    val handle = seam.handles.single()
+
+    val wait = async { tracker.disconnectAndWait(5_000) }
+    runCurrent()
+    assertFalse("the wait ended before the callback", wait.isCompleted)
+
+    handle.drop(status = 0)
+    advanceUntilIdle()
+    assertTrue(wait.await())
   }
 
   @Test

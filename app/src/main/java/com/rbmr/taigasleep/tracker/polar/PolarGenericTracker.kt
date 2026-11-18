@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -82,6 +83,9 @@ abstract class PolarGenericTracker(
   // Touched only on the control thread, which runs the whole on-device start.
   private var onDeviceResult: ((String?) -> Unit)? = null
   private var userDisconnect = false
+  // Counts the SDK's disconnected callbacks: disconnect() reports the state at once, but the link
+  // is only gone when the SDK says so and a connect issued before that is lost.
+  private val disconnectCallbacks = MutableStateFlow(0L)
 
   protected abstract fun liveStreams(): List<OfferedStream>
 
@@ -122,6 +126,7 @@ abstract class PolarGenericTracker(
   }
 
   override fun onDisconnected() {
+    disconnectCallbacks.update { it + 1 }
     val retrying =
         synchronized(lock) {
           disposeStreams()
@@ -146,6 +151,13 @@ abstract class PolarGenericTracker(
     }
     runCatching { seam.disconnect(id) }
     _connection.value = ConnectionState.DISCONNECTED
+  }
+
+  /** Waits for the SDK's own disconnected callback, not the state [disconnect] sets at once. */
+  override suspend fun disconnectAndWait(timeoutMs: Long): Boolean {
+    val seen = disconnectCallbacks.value
+    disconnect()
+    return withTimeoutOrNull(timeoutMs) { disconnectCallbacks.first { it != seen } } != null
   }
 
   override fun startStreams(selected: Set<String>, listener: TrackerListener) {

@@ -37,6 +37,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** The generic Bluetooth Heart Rate Service: service 0x180D, measurement 0x2A37, battery 0x180F. */
 object Hrs {
@@ -110,6 +113,9 @@ class BleHrsTracker(
   @Volatile private var retryAttempt = 0
   @Volatile private var retryPending = false
   @Volatile private var everConnected = false
+  // Counts the GATT disconnected callbacks: disconnect() closes the link at once, but the stack
+  // reports the drop later and a connect issued before that can be lost.
+  private val disconnectCallbacks = MutableStateFlow(0L)
 
   // Android allows one GATT operation at a time. The setup steps wait in this queue and each
   // one starts when the previous operation's callback arrives.
@@ -171,6 +177,13 @@ class BleHrsTracker(
     _connection.value = ConnectionState.DISCONNECTED
   }
 
+  /** Waits for the GATT's own disconnected callback, not the state [disconnect] sets at once. */
+  override suspend fun disconnectAndWait(timeoutMs: Long): Boolean {
+    val seen = disconnectCallbacks.value
+    disconnect()
+    return withTimeoutOrNull(timeoutMs) { disconnectCallbacks.first { it != seen } } != null
+  }
+
   override fun startStreams(selected: Set<String>, listener: TrackerListener) {
     this.selected = selected
     this.listener = listener
@@ -193,7 +206,13 @@ class BleHrsTracker(
   override fun readClock(): Long? = null
 
   private fun onEvent(event: GattEvent) {
-    if (event.handle !== gatt) return
+    // Counted before the handle check: disconnect() has already dropped the handle, and the drop it
+    // asked for is still the callback a reconnect has to wait for.
+    if (event is GattEvent.Disconnected) disconnectCallbacks.update { it + 1 }
+    if (event.handle === gatt) handleEvent(event)
+  }
+
+  private fun handleEvent(event: GattEvent) {
     when (event) {
       is GattEvent.Connected -> {
         _connection.value = ConnectionState.CONNECTED

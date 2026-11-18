@@ -153,8 +153,9 @@ internal class LiveLoop(
   private suspend fun applyRecovery(session: LiveSession, step: RecoveryStep) {
     if (!isLive(session)) return
     val selected = session.writer.meta.streams.map { it.id }.toSet()
+    val target = RecoveryTarget(session.sensor, selected, session.fanout)
     try {
-      executeRecovery(step, session.sensor, selected, session.fanout)
+      executeRecovery(step, target, clock, session.writer::event)
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
