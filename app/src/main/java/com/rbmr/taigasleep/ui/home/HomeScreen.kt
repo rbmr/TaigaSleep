@@ -21,6 +21,7 @@ import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.debug.DebugTools
 import com.rbmr.taigasleep.debug.GuidancePreviewPicker
 import com.rbmr.taigasleep.guard.HomeState
+import com.rbmr.taigasleep.recording.WakeAlarmWarning
 import com.rbmr.taigasleep.tracker.ConnectionState
 
 /** What the inactive stage draws, whichever step of the start flow it is on. */
@@ -30,6 +31,7 @@ internal data class InactiveView(
     val guard: HomeState,
     val denied: Boolean,
     val error: String?,
+    val wakeWarnings: Set<WakeAlarmWarning> = emptySet(),
 )
 
 private fun HomeUiState.inactive(): InactiveView? =
@@ -41,7 +43,8 @@ private fun HomeUiState.inactive(): InactiveView? =
       is HomeUiState.Connecting -> InactiveView(tracker, null, guard, picker.denied, error)
       is HomeUiState.Configure -> InactiveView(tracker, config, guard, picker.denied, error)
       is HomeUiState.NeedsGuard -> InactiveView(tracker, config, guard, picker.denied, error)
-      is HomeUiState.ReadyToStart -> InactiveView(tracker, config, guard, picker.denied, error)
+      is HomeUiState.ReadyToStart ->
+          InactiveView(tracker, config, guard, picker.denied, error, wakeWarnings)
     }
 
 /** The connected tracker whose picker sheet can offer Disconnect, or null while there is none. */
@@ -167,11 +170,23 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
         onStream = viewModel::setStream,
         onMode = viewModel::setMode,
         onWake = viewModel::setWake,
+        wakeWarnings = configured.wakeWarnings,
+        alarmTest = configured.alarmTest,
+        onTestAlarm = viewModel::testAlarm,
         onDismiss = viewModel::closeConfiguration,
     )
   }
-  (state as? HomeUiState.Recording)?.takeIf { it.editingWake }?.wake?.let { wake ->
-    LiveWakeSheet(wake = wake, onWake = viewModel::setLiveWake, onDismiss = viewModel::closeLiveWake)
+  (state as? HomeUiState.Recording)?.takeIf { it.editingWake }?.let { recording ->
+    recording.wake?.let { wake ->
+      LiveWakeSheet(
+          wake = wake,
+          wakeWarnings = recording.wakeWarnings,
+          alarmTest = recording.alarmTest,
+          onWake = viewModel::setLiveWake,
+          onTestAlarm = viewModel::testAlarm,
+          onDismiss = viewModel::closeLiveWake,
+      )
+    }
   }
   if (showPreviewPicker) {
     GuidancePreviewPicker(

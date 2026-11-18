@@ -8,6 +8,7 @@ import android.media.RingtoneManager
 import android.provider.Settings
 import com.rbmr.taigasleep.R
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -39,11 +40,19 @@ class ChannelsTest {
     val channels = manager.notificationChannels.associateBy { it.id }
 
     assertEquals(
-        setOf("recording", "wake_alarm", "uploads", "tracker_battery", "phone_storage"),
+        setOf(
+            "recording",
+            "wake_alarm",
+            "wake_alarm_control",
+            "uploads",
+            "tracker_battery",
+            "phone_storage",
+        ),
         channels.keys,
     )
     assertEquals(Channels.GROUP_RECORDING, channels.getValue("recording").group)
     assertEquals(Channels.GROUP_ALARM, channels.getValue("wake_alarm").group)
+    assertEquals(Channels.GROUP_ALARM, channels.getValue("wake_alarm_control").group)
     assertEquals(Channels.GROUP_UPLOAD_AND_ANALYSIS, channels.getValue("uploads").group)
     assertEquals(Channels.GROUP_DEVICE_HEALTH, channels.getValue("tracker_battery").group)
     assertEquals(Channels.GROUP_DEVICE_HEALTH, channels.getValue("phone_storage").group)
@@ -60,6 +69,10 @@ class ChannelsTest {
     assertEquals(
         NotificationManager.IMPORTANCE_HIGH,
         channels.getValue("wake_alarm").importance,
+    )
+    assertEquals(
+        NotificationManager.IMPORTANCE_HIGH,
+        channels.getValue("wake_alarm_control").importance,
     )
     assertEquals(NotificationManager.IMPORTANCE_LOW, channels.getValue("uploads").importance)
     assertEquals(
@@ -134,6 +147,18 @@ class ChannelsTest {
         context.getString(R.string.wake_channel_alarm),
         alarm.name,
     )
+  }
+
+  @Test
+  fun `the alarm control channel is visible but silent`() {
+    val control = manager.getNotificationChannel(Channels.WAKE_ALARM_CONTROL)
+
+    assertEquals(
+        context.getString(R.string.wake_channel_alarm_control),
+        control.name,
+    )
+    assertNull("the ringing service owns the sound", control.sound)
+    assertTrue("the ringing service owns the vibration", control.shouldVibrate().not())
   }
 
   @Test

@@ -1,9 +1,11 @@
 package com.rbmr.taigasleep.ui.home
 
 import com.rbmr.taigasleep.guard.HomeState
+import com.rbmr.taigasleep.recording.AlarmTestResult
 import com.rbmr.taigasleep.recording.CaptureStatus
 import com.rbmr.taigasleep.recording.FinishingState
 import com.rbmr.taigasleep.recording.Phase
+import com.rbmr.taigasleep.recording.WakeAlarmWarning
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
@@ -190,6 +192,14 @@ sealed interface HomeUiState {
   /** Why the last start was refused or the last recording ended abnormally. */
   val error: String?
 
+  /** What could keep the smart alarm from being heard on this phone; empty when it can ring. */
+  val wakeWarnings: Set<WakeAlarmWarning>
+    get() = emptySet()
+
+  /** The last test ring's result, until the next one. */
+  val alarmTest: AlarmTestResult?
+    get() = null
+
   /** No tracker has been selected yet. */
   data class NoTracker(
       override val guard: HomeState,
@@ -212,6 +222,8 @@ sealed interface HomeUiState {
       override val guard: HomeState,
       override val picker: SensorPicker = SensorPicker(),
       override val error: String? = null,
+      override val wakeWarnings: Set<WakeAlarmWarning> = emptySet(),
+      override val alarmTest: AlarmTestResult? = null,
   ) : HomeUiState
 
   /** Connected, recording mode Stream, and the phone is not ready for a recording yet. */
@@ -232,6 +244,7 @@ sealed interface HomeUiState {
       override val guard: HomeState,
       override val picker: SensorPicker = SensorPicker(),
       override val error: String? = null,
+      override val wakeWarnings: Set<WakeAlarmWarning> = emptySet(),
   ) : HomeUiState
 
   /**
@@ -277,6 +290,8 @@ sealed interface HomeUiState {
       val editingWake: Boolean = false,
       /** The tracker can record movement, so the sheet offers waking on it. */
       val movementSupported: Boolean = false,
+      override val wakeWarnings: Set<WakeAlarmWarning> = emptySet(),
+      override val alarmTest: AlarmTestResult? = null,
   ) : HomeUiState {
     override val guard: HomeState?
       get() = null
@@ -320,6 +335,7 @@ sealed interface HomeUiState {
  * answer and the recording state are the only inputs, so every step and both recording modes can be
  * tested without a phone.
  */
+@Suppress("LongParameterList", "ReturnCount")
 internal fun homeState(
     status: CaptureStatus,
     tracker: TrackerView?,
@@ -329,6 +345,8 @@ internal fun homeState(
     picker: SensorPicker,
     editingWake: Boolean = false,
     lastLiveWake: WakeChoice? = null,
+    wakeWarnings: Set<WakeAlarmWarning> = emptySet(),
+    alarmTest: AlarmTestResult? = null,
 ): HomeUiState {
   status.finishing?.let { return HomeUiState.Finishing(it, picker) }
   if (status.phase != Phase.IDLE) {
@@ -338,6 +356,8 @@ internal fun homeState(
         lastLiveWake ?: config?.wake,
         editingWake,
         movementSupported = config?.canRecordAcc ?: false,
+        wakeWarnings = wakeWarnings,
+        alarmTest = alarmTest,
     )
   }
   status.fetchPending?.let {
@@ -348,11 +368,21 @@ internal fun homeState(
   if (config == null || tracker.connection != ConnectionState.CONNECTED) {
     return HomeUiState.Connecting(tracker, guard, picker, status.error)
   }
-  if (configuring) return HomeUiState.Configure(tracker, config, guard, picker, status.error)
+  if (configuring) {
+    return HomeUiState.Configure(
+        tracker,
+        config,
+        guard,
+        picker,
+        status.error,
+        wakeWarnings,
+        alarmTest,
+    )
+  }
   if (config.mode == RecordingMode.STREAM && guard == HomeState.NEEDS_SETTINGS) {
     return HomeUiState.NeedsGuard(tracker, config, picker, status.error)
   }
-  return HomeUiState.ReadyToStart(tracker, config, guard, picker, status.error)
+  return HomeUiState.ReadyToStart(tracker, config, guard, picker, status.error, wakeWarnings)
 }
 
 /** Turning the alarm on starts from a time most people wake at; the user moves it from there. */

@@ -167,8 +167,20 @@ class RecordingControl(
   /** The user moved the smart alarm while recording: [window] from now on, or none when null. */
   fun changeWake(window: WakeWindow?) = post { changeWakeWindow(window) }
 
-  /** The end of the alarm window rang, outside the live decision: the recording notes it. */
-  fun wakeWindowEnded() = post { onWakeRang("the alarm window ended") }
+  /** The end of the alarm window or a signal rang, and the sound started: the recording notes it. */
+  fun wakeRang(source: String) = post {
+    onWakeRang(
+        if (source == WakeAlarmService.SOURCE_WINDOW_END) "the alarm window ended"
+        else "a signal showed waking up"
+    )
+  }
+
+  /** The alarm could not sound; the recording notes it instead of a ring. */
+  fun wakeFailed(reason: String) = post {
+    val s = live ?: return@post
+    if (s.mode != RecordingMode.STREAM) return@post
+    s.writer.event(EVENT_WAKE_FAILED, "the smart alarm did not sound: $reason")
+  }
 
   /**
    * The watchdog found the service alive but its heartbeat stopped. Its control thread is the one
@@ -541,8 +553,9 @@ class RecordingControl(
     if (s.writer.meta.recordingId != recordingId) return
     Diagnostics.log("wake_trigger", mapOf("recording" to recordingId, "at_utc_ms" to atUtcMs))
     host.disarmWake()
+    // The ringing service reports back whether the sound actually started, so wake_rang is
+    // written only then.
     host.fireWakeAlarm(WakeReason.SIGNAL)
-    onWakeRang("a signal showed waking up")
   }
 
   /** The alarm rang: the recording notes when and why, and the screen says so. */
@@ -1146,6 +1159,9 @@ class RecordingControl(
 
     /** The smart alarm rang; the message says why. A resumed recording reads it back. */
     private const val EVENT_WAKE_RANG = "wake_rang"
+
+    /** The smart alarm tried to ring but no sound started; the message says why. */
+    private const val EVENT_WAKE_FAILED = "wake_alarm_failed"
     private const val STOP_STREAMS_TIMEOUT_MS = 3_000L
     private const val HEARTBEAT_MS = 15_000L
     private const val READINESS_MS = 10_000L

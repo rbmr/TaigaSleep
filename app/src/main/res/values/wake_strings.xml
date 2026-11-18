@@ -8,6 +8,13 @@
   <string name="wake_trigger_hr">Wake on a rise in heart rate</string>
   <string name="wake_trigger_movement">Wake on movement</string>
   <string name="wake_trigger_none">Choose at least one signal. Without one, the alarm rings only at the end of the window.</string>
+  <string name="wake_test">Test alarm</string>
+  <string name="wake_test_started">Sound started at volume %1$d of %2$d.</string>
+  <string name="wake_test_failed">Sound did not start.</string>
+  <string name="wake_warning_title">The alarm may not be heard</string>
+  <string name="wake_warning_silence">Do Not Disturb is set to total silence, so the alarm will not sound.</string>
+  <string name="wake_warning_notifications">Notifications are off, so the alarm cannot show its Stop button.</string>
+  <string name="wake_warning_output">This phone has no audio output for the alarm.</string>
 
   <!-- The smart alarm while recording: off, its window, or when it rang. -->
   <string name="wake_live_off">Off</string>
@@ -16,6 +23,7 @@
 
   <!-- The alarm itself. -->
   <string name="wake_channel_alarm">Smart alarm</string>
+  <string name="wake_channel_alarm_control">Smart alarm controls</string>
   <string name="wake_notification_title">Good morning.</string>
   <string name="wake_notification_text">Your smart alarm is ringing because %1$s</string>
   <string name="wake_reason_signal">you showed signs of waking up.</string>

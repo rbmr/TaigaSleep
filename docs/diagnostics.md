@@ -115,9 +115,37 @@ Not enforced; keep them lower_snake_case and keep `diag_heartbeat` for the diagn
 | `ble_connect`, `ble_disconnect`, `ble_reconnect` | `sensor_id`, `status`, `attempt`, `auto_connect` |
 | `watchdog_fire`, `watchdog_restart` | `action`, `service_running`, `last_heartbeat_age_s` |
 | `boot_resume`, `resume_refused`, `service_foreground_refused` | `recording`, `error` |
-| `wake_trigger`, `wake_alarm` | `recording`, `at_utc_ms`, `source` (`window_end`), `reason` (`signal`/`window_end`), `notifications` |
+| `wake_trigger` | `recording`, `at_utc_ms` |
+| `wake_alarm`, `wake_rang`, `wake_alarm_failed`, `wake_alarm_stopped` | see "The wake-up alarm" below |
 | `wake_change` | `recording`, `start_utc_ms`, `end_utc_ms` (empty when the alarm was switched off) |
 | `wakelock` | `action` (acquire/release), `timeout_ms` |
+
+## The wake-up alarm
+
+The ringing service starts the alarm on the alarm audio stream, independent of the ringer's silent
+mode. Whether it was heard is what these events answer.
+
+`wake_alarm` is written when the ring starts: `source` (`signal`, `window_end` or `test`), `reason`
+(`signal` or `window_end`, the same words the notification uses), `ringer_mode` (`silent`, `vibrate`,
+`normal` or `unknown`), `dnd_filter` (`all`, `priority`, `none`, `alarms` or `unknown`), the alarm
+stream's `alarm_volume_before`, `alarm_volume_after` and `alarm_volume_max`, `playback_started`,
+`sound` (`user_ringtone`, `default_alarm` or `bundled_tone`), `audio_focus`, `notification_posted` and
+`vibration_started`. The stream is raised to 70 % of its maximum when it was below that, and the
+raise is only ever upward.
+
+`wake_rang` is written only when the sound actually started, with the same `source` and `reason` and
+the `volume` and `volume_max` it played at. A ring that produced no sound writes
+`wake_alarm_failed` instead, with the `reason` (`no sound could be played`, the foreground service
+was refused, or the service could not be started), the ringer mode, the Do Not Disturb filter and
+whether notifications are allowed.
+
+`wake_alarm_stopped` is written when Stop ends the alarm: `how` (`user`, `service` or `test`),
+`rang_ms` (how long it rang) and `volume_restored` (whether the stream was put back). A test ring
+reports the same `playback_started` and volume through the alarm's settings.
+
+The start of a recording and the alarm's own settings warn when Do Not Disturb is set to total
+silence, notifications are off or the phone has no audio output. Those are the phone's choices and
+are reported, not overridden.
 
 ## The cost of a recording
 

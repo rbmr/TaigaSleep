@@ -2,8 +2,10 @@ package com.rbmr.taigasleep.ui.home
 
 import androidx.lifecycle.ViewModel
 import com.rbmr.taigasleep.guard.HomeState
+import com.rbmr.taigasleep.recording.AlarmTestResult
 import com.rbmr.taigasleep.recording.CaptureStatus
 import com.rbmr.taigasleep.recording.Phase
+import com.rbmr.taigasleep.recording.WakeAlarmWarning
 import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.RecordingMode
@@ -56,6 +58,15 @@ interface HomeWork {
   /** The shared answer of the preventing-shutdown flow for a recording mode. */
   fun guard(mode: RecordingMode): HomeState
 
+  /** What could keep the smart alarm from being heard on this phone. */
+  fun wakeWarnings(): Set<WakeAlarmWarning>
+
+  /** The last test ring's result, updated by the ringing service. */
+  val alarmTest: StateFlow<AlarmTestResult?>
+
+  /** Rings the alarm for a few seconds through the same path the real alarm uses. */
+  fun testAlarm()
+
   fun start(config: StartConfig)
 
   fun stop()
@@ -104,11 +115,20 @@ class HomeViewModel(
   private var picker = SensorPicker()
   private var capture = CaptureStatus()
   private var watching: Job? = null
+  private var wakeWarnings: Set<WakeAlarmWarning> = emptySet()
+  private var alarmTest: AlarmTestResult? = null
 
   private val _state = MutableStateFlow<HomeUiState>(HomeUiState.NoTracker(guard))
   val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
   init {
+    wakeWarnings = work.wakeWarnings()
+    scope.launch {
+      work.alarmTest.collect {
+        alarmTest = it
+        emit()
+      }
+    }
     scope.launch {
       status.collect {
         capture = it
@@ -135,18 +155,21 @@ class HomeViewModel(
 
   /** The screen was shown: the recorder is reconciled and the remembered tracker reconnects. */
   fun onFirstShow() {
+    refreshWarnings()
     work.onFirstShow()
   }
 
   /** Something outside the app may have changed the answer: read the readiness again. */
   fun refreshGuard() {
     guard = work.guard(config?.mode ?: RecordingMode.STREAM)
+    refreshWarnings()
     emit()
   }
 
   /** The gear on the sensor card: the sheet where the streams and the mode are chosen. */
   fun openConfiguration() {
     if (current == null) return
+    refreshWarnings()
     configuring = true
     emit()
   }
@@ -165,6 +188,7 @@ class HomeViewModel(
 
   /** The smart alarm row of a running recording: the sheet that moves or switches the alarm. */
   fun openLiveWake() {
+    refreshWarnings()
     editingWake = true
     emit()
   }
@@ -180,6 +204,14 @@ class HomeViewModel(
     if (wake != null) lastLiveWake = wake
     work.changeLiveWake(sensor?.id, wake)
     if (sensor != null) config = work.savedConfig(sensor)
+    refreshWarnings()
+    emit()
+  }
+
+  /** The settings' test action: ring for a few seconds through the real alarm path. */
+  fun testAlarm() {
+    alarmTest = null
+    work.testAlarm()
     emit()
   }
 
@@ -276,7 +308,12 @@ class HomeViewModel(
     change(sensor)
     config = work.savedConfig(sensor)
     guard = work.guard(config?.mode ?: RecordingMode.STREAM)
+    refreshWarnings()
     emit()
+  }
+
+  private fun refreshWarnings() {
+    wakeWarnings = work.wakeWarnings()
   }
 
   /** One tracker at a time: the old connection is no longer watched once the sensor changes. */
@@ -305,6 +342,17 @@ class HomeViewModel(
 
   private fun emit() {
     _state.value =
-        homeState(capture, tracker, config, guard, configuring, picker, editingWake, lastLiveWake)
+        homeState(
+            capture,
+            tracker,
+            config,
+            guard,
+            configuring,
+            picker,
+            editingWake,
+            lastLiveWake,
+            wakeWarnings,
+            alarmTest,
+        )
   }
 }

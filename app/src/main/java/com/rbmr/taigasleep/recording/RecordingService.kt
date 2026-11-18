@@ -76,7 +76,8 @@ class RecordingService : Service(), RecordingHost {
       ACTION_FETCH -> control.fetchPending(intent.getStringExtra(EXTRA_RECORDING_ID))
       ACTION_CLEANUP -> control.retryTrackerRemovals()
       ACTION_WAKE -> control.changeWake(wakeOf(intent))
-      ACTION_WAKE_ENDED -> control.wakeWindowEnded()
+      ACTION_WAKE_RANG -> control.wakeRang(intent.getStringExtra(EXTRA_WAKE_SOURCE).orEmpty())
+      ACTION_WAKE_FAILED -> control.wakeFailed(intent.getStringExtra(EXTRA_WAKE_REASON).orEmpty())
       // The watchdog found the service alive but its control thread stalled: the restart runs on a
       // thread of its own, so it does not queue behind the thread it is recovering.
       ACTION_RESTART -> control.restart()
@@ -189,7 +190,8 @@ class RecordingService : Service(), RecordingHost {
 
   override fun disarmWake() = WakeAlarm.disarm(this)
 
-  override fun fireWakeAlarm(reason: WakeReason) = WakeAlarm.fire(this, reason)
+  override fun fireWakeAlarm(reason: WakeReason) =
+      WakeAlarm.fire(this, reason, WakeAlarmService.SOURCE_SIGNAL)
 
   override var activeSessionId: String?
     get() = prefs.activeSessionId
@@ -337,7 +339,8 @@ class RecordingService : Service(), RecordingHost {
     const val ACTION_FETCH = "com.rbmr.taigasleep.recording.FETCH"
     const val ACTION_CLEANUP = "com.rbmr.taigasleep.recording.CLEANUP"
     const val ACTION_WAKE = "com.rbmr.taigasleep.recording.WAKE"
-    const val ACTION_WAKE_ENDED = "com.rbmr.taigasleep.recording.WAKE_ENDED"
+    const val ACTION_WAKE_RANG = "com.rbmr.taigasleep.recording.WAKE_RANG"
+    const val ACTION_WAKE_FAILED = "com.rbmr.taigasleep.recording.WAKE_FAILED"
 
     private const val EXTRA_SENSOR_KIND = "sensor_kind"
     private const val EXTRA_SENSOR_ID = "sensor_id"
@@ -350,6 +353,8 @@ class RecordingService : Service(), RecordingHost {
     private const val EXTRA_WAKE_LENGTH = "wake_length"
     private const val EXTRA_WAKE_HR = "wake_hr"
     private const val EXTRA_WAKE_MOVEMENT = "wake_movement"
+    private const val EXTRA_WAKE_SOURCE = "wake_source"
+    private const val EXTRA_WAKE_REASON = "wake_failure"
 
     /** True while this process has a live recording. */
     @Volatile
@@ -396,6 +401,20 @@ class RecordingService : Service(), RecordingHost {
             .putExtra(EXTRA_WAKE_MOVEMENT, window.movement)
       }
       context.startForegroundService(i)
+    }
+
+    /** The ringing service says the sound started; the recording notes it. */
+    fun wakeRang(context: Context, source: String) {
+      context.startForegroundService(
+          intent(context, ACTION_WAKE_RANG).putExtra(EXTRA_WAKE_SOURCE, source)
+      )
+    }
+
+    /** The ringing service could not sound the alarm; the recording notes why. */
+    fun wakeFailed(context: Context, reason: String) {
+      context.startForegroundService(
+          intent(context, ACTION_WAKE_FAILED).putExtra(EXTRA_WAKE_REASON, reason)
+      )
     }
 
     /** Retries the tracker copies that earlier removals left behind. */

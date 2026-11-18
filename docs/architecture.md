@@ -250,9 +250,14 @@ function of the window and the samples; neither is a claim about a sleep stage. 
 armed separately with `AlarmManager.setAlarmClock`, so it rings even when the service and the process
 are gone, and a trigger that rings first drops it, so one night rings once.
 
-The alarm is a high-priority notification on the alarm sound and volume. It vibrates, repeats its
-sound until it is stopped, says why it rang (a signal showed the user waking up, or the window
-ended) and has one Stop button. Stopping ends the alarm, never the recording.
+The alarm rings from a foreground service on the alarm audio stream, with the alarm attributes and
+a vibration of its own, so the ringer's silent mode does not mute it. It raises the stream to 70 % of
+its maximum when it is below that and puts the volume back when it is stopped. If the stream cannot
+be played it falls back to the notification's alarm sound, and the failure is recorded. The
+notification stays as the visible control, silent, with one Stop button. Stopping ends the alarm,
+never the recording. When the phone would block the alarm outright (Do Not Disturb total silence,
+notifications off, no audio output) the start of the recording and the alarm's settings say so, and
+the alarm's settings ring a test through the same path.
 
 While a streamed recording runs, the recording screen shows the alarm's window (or Off, or when it
 rang) and lets the user switch it on or off and move its start and length. A change goes to the

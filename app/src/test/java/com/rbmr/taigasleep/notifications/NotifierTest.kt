@@ -96,6 +96,23 @@ class NotifierTest {
   }
 
   @Test
+  fun `the alarm control is silent but keeps the stop`() {
+    val stop = openAction()
+    val notification =
+        Notifier.wakeAlarmControl(context, "Your smart alarm is ringing", stop, Notifier.APP_ACTIVITY)
+
+    assertEquals(Channels.WAKE_ALARM_CONTROL, notification.channelId)
+    assertEquals(Notification.CATEGORY_ALARM, notification.category)
+    assertTrue(notification.flags and Notification.FLAG_ONGOING_EVENT != 0)
+    assertTrue("the ringing service owns the sound", notification.flags and Notification.FLAG_INSISTENT == 0)
+    assertEquals(1, notification.actions.size)
+    assertEquals(
+        context.getString(R.string.wake_notification_stop),
+        notification.actions.single().title,
+    )
+  }
+
+  @Test
   fun `the upload notification is progress that stays until the upload ends`() {
     val notification = Notifier.upload(context, Notifier.APP_ACTIVITY)
 

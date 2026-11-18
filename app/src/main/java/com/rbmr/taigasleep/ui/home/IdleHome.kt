@@ -100,6 +100,7 @@ internal fun IdleHome(
           onGuard = onGuard,
           onGuardLongClick = onGuardLongClick,
       )
+      if (view.config?.wake != null) WakeWarningNotes(view.wakeWarnings)
       problem?.let {
         Text(
             text = it,

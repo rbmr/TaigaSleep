@@ -14,6 +14,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.recording.AlarmTestResult
+import com.rbmr.taigasleep.recording.WakeAlarmWarning
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.ListRowTrailing
@@ -33,12 +35,16 @@ import com.rbmr.taigasleep.ui.theme.taiga
  * Rows fill the sheet width and carry their own 16 dp inset, so headings and notes use the same
  * inset and every text starts on one edge.
  */
+@Suppress("LongParameterList")
 @Composable
 internal fun ConfigureSheet(
     config: StartConfig,
     onStream: (String, Boolean) -> Unit,
     onMode: (RecordingMode) -> Unit,
     onWake: (WakeChoice?) -> Unit,
+    wakeWarnings: Set<WakeAlarmWarning>,
+    alarmTest: AlarmTestResult?,
+    onTestAlarm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
   val space = MaterialTheme.taiga.space
@@ -51,7 +57,9 @@ internal fun ConfigureSheet(
     ) {
       if (config.modes.size > 1) ModeSection(config, onMode)
       DataSection(config, onStream)
-      if (RecordingMode.STREAM in config.modes) WakeSection(config, onWake)
+      if (RecordingMode.STREAM in config.modes) {
+        WakeSection(config, onWake, wakeWarnings, alarmTest, onTestAlarm)
+      }
     }
   }
 }
@@ -154,7 +162,13 @@ private fun ModeRow(label: String, selected: Boolean, onSelect: () -> Unit) {
  * so moving it takes one field.
  */
 @Composable
-private fun WakeSection(config: StartConfig, onWake: (WakeChoice?) -> Unit) {
+private fun WakeSection(
+    config: StartConfig,
+    onWake: (WakeChoice?) -> Unit,
+    wakeWarnings: Set<WakeAlarmWarning>,
+    alarmTest: AlarmTestResult?,
+    onTestAlarm: () -> Unit,
+) {
   val wake = config.wake
   val shown = wake ?: DEFAULT_WAKE
   val on = wake != null
@@ -187,6 +201,14 @@ private fun WakeSection(config: StartConfig, onWake: (WakeChoice?) -> Unit) {
       )
     }
     if (on && !shown.triggers) SectionNote(stringResource(R.string.wake_trigger_none))
+    ListRow(
+        title = stringResource(R.string.wake_test),
+        trailing = ListRowTrailing.None,
+        enabled = !config.onTracker,
+        onClick = onTestAlarm,
+    )
+    WakeTestNote(alarmTest)
+    if (on) WakeWarningNotes(wakeWarnings)
   }
 }
 
@@ -195,8 +217,16 @@ private fun WakeSection(config: StartConfig, onWake: (WakeChoice?) -> Unit) {
  * chosen when the recording captures its data, so the other one stays in place, disabled. A change
  * takes effect at once and is also the tracker's saved window.
  */
+@Suppress("LongParameterList", "CyclomaticComplexMethod")
 @Composable
-internal fun LiveWakeSheet(wake: LiveWake, onWake: (WakeChoice?) -> Unit, onDismiss: () -> Unit) {
+internal fun LiveWakeSheet(
+    wake: LiveWake,
+    wakeWarnings: Set<WakeAlarmWarning>,
+    alarmTest: AlarmTestResult?,
+    onWake: (WakeChoice?) -> Unit,
+    onTestAlarm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
   val on = wake.choice != null
   val shown = wake.choice ?: wake.fallback
   TaigaSheet(onDismiss = onDismiss) {
@@ -230,6 +260,13 @@ internal fun LiveWakeSheet(wake: LiveWake, onWake: (WakeChoice?) -> Unit, onDism
       val triggers =
           (shown.heartRate && wake.heartRateRecorded) || (shown.movement && wake.movementRecorded)
       if (on && !triggers) SectionNote(stringResource(R.string.wake_trigger_none))
+      ListRow(
+          title = stringResource(R.string.wake_test),
+          trailing = ListRowTrailing.None,
+          onClick = onTestAlarm,
+      )
+      WakeTestNote(alarmTest)
+      if (on) WakeWarningNotes(wakeWarnings)
     }
   }
 }

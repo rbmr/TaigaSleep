@@ -2,11 +2,13 @@ package com.rbmr.taigasleep.ui.home
 
 import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.recording.ArmedWake
+import com.rbmr.taigasleep.recording.AlarmTestResult
 import com.rbmr.taigasleep.recording.CaptureStatus
 import com.rbmr.taigasleep.recording.FinishingState
 import com.rbmr.taigasleep.recording.ImportProgress
 import com.rbmr.taigasleep.recording.PendingFetch
 import com.rbmr.taigasleep.recording.Phase
+import com.rbmr.taigasleep.recording.WakeAlarmWarning
 import com.rbmr.taigasleep.recording.WakeWindow
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.tracker.Tracker
@@ -117,6 +119,14 @@ private class FakeWork : HomeWork {
   }
 
   override fun guard(mode: RecordingMode): HomeState = guard
+
+  override fun wakeWarnings(): Set<WakeAlarmWarning> = emptySet()
+
+  override val alarmTest = MutableStateFlow<AlarmTestResult?>(null)
+
+  override fun testAlarm() {
+    calls += "testAlarm"
+  }
 
   override fun start(config: StartConfig) {
     calls += "start:${config.mode}:${config.streams.ecg}:${config.streams.acc}"
