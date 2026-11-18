@@ -7,7 +7,8 @@ import java.io.IOException
 /**
  * Append-only JSONL files, one file per process run (`diag_<runId>.jsonl`, `diag_<runId>_002.jsonl`
  * when a run exceeds [maxFileBytes]). Every line is written with a single unbuffered write so a
- * process kill loses at most the line in flight; [sync] forces it to disk.
+ * process kill loses at most the line in flight; [sync] forces what was appended since the previous
+ * sync to disk, and does nothing when nothing was.
  *
  * Total size and age are capped by [trim], which never deletes the file being written. All methods
  * swallow I/O errors: diagnostics must never take the app down.
@@ -23,6 +24,7 @@ class DiagnosticsStore(
   private var current: File? = null
   private var segment = 1
   private var written = 0L
+  private var appendedSinceSync = false
 
   /** Number of lines dropped because the file could not be written. */
   @get:Synchronized
@@ -35,8 +37,10 @@ class DiagnosticsStore(
       val bytes = (line + "\n").toByteArray(Charsets.UTF_8)
       if (out == null) open(roll = false)
       else if (written > 0 && written + bytes.size > maxFileBytes) open(roll = true)
-      out?.write(bytes)
+      val stream = out ?: return
+      stream.write(bytes)
       written += bytes.size
+      appendedSinceSync = true
       RecordingCost.diagnosticsWrite(bytes.size.toLong())
     } catch (_: IOException) {
       failures++
@@ -47,9 +51,11 @@ class DiagnosticsStore(
   @Synchronized
   fun sync() {
     val stream = out ?: return
+    if (!appendedSinceSync) return
     try {
       stream.fd.sync()
       RecordingCost.fsync()
+      appendedSinceSync = false
     } catch (_: IOException) {}
   }
 
@@ -85,6 +91,7 @@ class DiagnosticsStore(
     out = FileOutputStream(file, true)
     current = file
     written = file.length()
+    appendedSinceSync = false
     // A new segment is the natural moment to enforce the caps; it is on the writer thread anyway.
     if (roll) trim(System.currentTimeMillis())
   }

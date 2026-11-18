@@ -70,7 +70,7 @@ class EventListeners(private val app: Application) {
             fields["locked"] = DeviceState.safe { keyguard().isKeyguardLocked }
           }
           Diagnostics.log(eventType(action), fields)
-          Diagnostics.snapshot(eventType(action))
+          if (changesSnapshot(action)) Diagnostics.snapshot(eventType(action))
           Diagnostics.checkState(eventType(action))
         }
       }
@@ -131,6 +131,24 @@ class EventListeners(private val app: Application) {
     // Protected system broadcast without a public constant.
     const val ACTION_LIGHT_DEVICE_IDLE_MODE_CHANGED =
         "android.os.action.LIGHT_DEVICE_IDLE_MODE_CHANGED"
+
+    /**
+     * True for the broadcasts that can change a field of the settings snapshot: the power, idle,
+     * battery, Bluetooth and time-zone settings. A screen or time change only moves the volatile
+     * state, which [Diagnostics.checkState] logs, so it costs no 2 KB snapshot.
+     */
+    fun changesSnapshot(action: String): Boolean =
+        when (action) {
+          PowerManager.ACTION_POWER_SAVE_MODE_CHANGED,
+          PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED,
+          Intent.ACTION_POWER_CONNECTED,
+          Intent.ACTION_POWER_DISCONNECTED,
+          Intent.ACTION_BATTERY_LOW,
+          Intent.ACTION_BATTERY_OKAY,
+          Intent.ACTION_TIMEZONE_CHANGED,
+          BluetoothAdapter.ACTION_STATE_CHANGED -> true
+          else -> false
+        }
 
     fun eventType(action: String): String =
         when (action) {

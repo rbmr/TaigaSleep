@@ -1,6 +1,7 @@
 package com.rbmr.taigasleep.diagnostics
 
 import java.io.File
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -11,6 +12,11 @@ class DiagnosticsStoreTest {
   @get:Rule val tmp = TemporaryFolder()
 
   private fun dir() = File(tmp.root, "diagnostics")
+
+  @After
+  fun resetCost() {
+    RecordingCost.install(null)
+  }
 
   @Test
   fun linesAreAppendedAndFlushedImmediately() {
@@ -80,5 +86,52 @@ class DiagnosticsStoreTest {
     val store = DiagnosticsStore(File(blocker, "sub"), "r")
     store.append("line")
     assertEquals(1, store.failures)
+  }
+
+  @Test
+  fun `a sync after a sync without appends does not fsync`() {
+    RecordingCost.install(NoPhone) { _, _ -> }
+    RecordingCost.begin(
+        recordingId = "run1",
+        startedUtcMs = 0,
+        nowUtcMs = 0,
+        nowElapsedMs = 0,
+        resumed = false,
+    )
+    val store = DiagnosticsStore(dir(), "run1")
+
+    store.append("""{"n":1}""")
+    store.sync()
+    store.sync()
+
+    val cost = RecordingCost.heartbeatFields(60_000, 80, true, false, false)!!
+    assertEquals("one fsync for one append", 1L, (cost["o"] as List<*>)[6])
+  }
+
+  /** Opens a cost window so the store's own fsyncs can be counted; none of these reads is used. */
+  private object NoPhone : RecordingCost.Sources {
+    override fun batteryPercent(): Int? = 80
+
+    override fun chargeCounterUah(): Long? = null
+
+    override fun currentNowUa(): Long? = null
+
+    override fun energyNwh(): Long? = null
+
+    override fun charging(): Boolean? = null
+
+    override fun processCpuMs(): Long? = null
+
+    override fun ownThreadCpuMs(): Long? = null
+
+    override fun gcCount(): Long? = null
+
+    override fun gcTimeMs(): Long? = null
+
+    override fun txBytes(): Long? = null
+
+    override fun rxBytes(): Long? = null
+
+    override fun thermalHeadroom(): Float? = null
   }
 }
