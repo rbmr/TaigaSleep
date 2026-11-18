@@ -198,10 +198,10 @@
     <ID>LoopWithTooManyJumpStatements:EventStream.kt$OkHttpEventTransport$for</ID>
     <ID>LoopWithTooManyJumpStatements:OnDeviceImport.kt$OnDeviceImport$for</ID>
     <ID>LoopWithTooManyJumpStatements:RecordingCharts.kt$for</ID>
-    <ID>LoopWithTooManyJumpStatements:RecordingControl.kt$RecordingControl$for</ID>
     <ID>LoopWithTooManyJumpStatements:RecordingStore.kt$RecordingStore$for</ID>
     <ID>LoopWithTooManyJumpStatements:RecordingView.kt$for</ID>
     <ID>LoopWithTooManyJumpStatements:ScoreCard.kt$for</ID>
+    <ID>LoopWithTooManyJumpStatements:TrackerFinish.kt$TrackerFinish$for</ID>
     <ID>LoopWithTooManyJumpStatements:TrendsCharts.kt$for</ID>
     <ID>LoopWithTooManyJumpStatements:UploadEngine.kt$UploadEngine$while</ID>
     <ID>LoopWithTooManyJumpStatements:UploadScheduler.kt$UploadScheduler$for</ID>
@@ -267,8 +267,6 @@
     <ID>ReturnCount:PolarH10Sensor.kt$PolarH10Sensor$private fun maybeBeginStreams(force: Boolean = false)</ID>
     <ID>ReturnCount:RawRetention.kt$internal fun rawCleanupApplies( state: RecordingPhase, record: UploadRecord?, mode: RawRetentionMode, nowMs: Long, ): Boolean</ID>
     <ID>ReturnCount:RecordingCharts.kt$private fun hourTicks(startUnixMs: Long, totalSeconds: Long): List&lt;HourTick&gt;</ID>
-    <ID>ReturnCount:RecordingControl.kt$RecordingControl$private suspend fun fetchFromTracker(s: Live, finishing: FinishingState)</ID>
-    <ID>ReturnCount:RecordingControl.kt$RecordingControl$private suspend fun fetchRecording(recordingId: String?)</ID>
     <ID>ReturnCount:RecordingControl.kt$RecordingControl$private suspend fun onDeviceStarted(error: String?)</ID>
     <ID>ReturnCount:RecordingControl.kt$RecordingControl$private suspend fun resumeRecording(contact: Boolean = true)</ID>
     <ID>ReturnCount:RecordingControl.kt$RecordingControl$private suspend fun startRecording(request: StartRequest)</ID>
@@ -304,6 +302,8 @@
     <ID>ReturnCount:StreamRecovery.kt$StreamRecoveryPolicy$fun evaluate(nowMs: Long): List&lt;RecoveryStep&gt;</ID>
     <ID>ReturnCount:StreamRecovery.kt$StreamRecoveryPolicy$fun onBluetooth(enabled: Boolean, nowMs: Long): List&lt;RecoveryStep&gt;</ID>
     <ID>ReturnCount:TrackerCleanup.kt$TrackerCleanup$fun retry(): TrackerRemoval</ID>
+    <ID>ReturnCount:TrackerFinish.kt$TrackerFinish$fun fromTracker(s: LiveSession, finishing: FinishingState): TrackerFetch?</ID>
+    <ID>ReturnCount:TrackerFinish.kt$TrackerFinish$fun retry(recordingId: String?)</ID>
     <ID>ReturnCount:UploadConfirmation.kt$internal suspend fun confirmUploadOnServer( client: TaigaClient, id: String, store: UploadStore, account: String, ): Boolean</ID>
     <ID>ReturnCount:UploadCoordinator.kt$UploadCoordinator$internal suspend fun retryAnalysis( remote: RemoteRepository, requests: AnalysisRequester, key: String, analysisId: String?, settings: AnalysisSettings, ): Result&lt;Unit&gt;</ID>
     <ID>ReturnCount:UploadScheduler.kt$UploadScheduler$suspend fun queueAuto(context: Context, localId: String, replace: Boolean)</ID>
@@ -328,6 +328,7 @@
     <ID>TooGenericExceptionCaught:EventListeners.kt$EventListeners$e: Exception</ID>
     <ID>TooGenericExceptionCaught:EventStream.kt$OkHttpEventTransport.&lt;no name provided&gt;$e: Exception</ID>
     <ID>TooGenericExceptionCaught:HistoryViewModel.kt$HistoryViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:LiveLoop.kt$LiveLoop$e: Exception</ID>
     <ID>TooGenericExceptionCaught:LiveSync.kt$LiveSync$e: Exception</ID>
     <ID>TooGenericExceptionCaught:LiveSync.kt$SyncQueue$e: Exception</ID>
     <ID>TooGenericExceptionCaught:OnDeviceImport.kt$OnDeviceImport$e: Exception</ID>
