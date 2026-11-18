@@ -458,14 +458,20 @@ class RecordingDetailViewModel(
 
   /**
    * What the phone holds of this recording now: the size of its raw files and the streams in them.
-   * A download, a delete and the retention policy all change them.
+   * A download, a delete and the retention policy all change them. The files and the metadata are
+   * read on the background dispatcher: listing a directory and parsing it is disk work.
    */
   private fun readLocalFacts() {
     val id = _state.value.local?.id ?: localId
-    val size = if (id == null) 0L else work.rawSize(id)
-    val streams = if (id == null) emptyList() else work.rawStreams(id)
-    _state.update { it.copy(rawSizeBytes = size, rawStreams = streams.ifEmpty { it.rawStreams }) }
-    if (streams.isEmpty()) readRemoteStreams()
+    scope.launch {
+      val (size, streams) =
+          withContext(resultDispatcher) {
+            if (id == null) 0L to emptyList<Int>()
+            else work.rawSize(id) to work.rawStreams(id)
+          }
+      _state.update { it.copy(rawSizeBytes = size, rawStreams = streams.ifEmpty { it.rawStreams }) }
+      if (streams.isEmpty()) readRemoteStreams()
+    }
   }
 
   /**

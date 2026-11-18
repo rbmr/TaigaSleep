@@ -97,7 +97,8 @@ fun RemoteScreen(onBack: () -> Unit) {
 
   var url by rememberSaveable { mutableStateOf(repository.savedUrl) }
   var email by rememberSaveable { mutableStateOf(repository.savedEmail) }
-  var password by rememberSaveable { mutableStateOf("") }
+  // The password is not saved with the screen's state: a plain-text secret stays in memory only.
+  var password by remember { mutableStateOf("") }
   var passwordVisible by rememberSaveable { mutableStateOf(false) }
   var showLogout by rememberSaveable { mutableStateOf(false) }
   // Opens where the saved state is most useful, then the user pages through by swipe or by button.

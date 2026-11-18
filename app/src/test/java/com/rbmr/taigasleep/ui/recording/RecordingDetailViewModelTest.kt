@@ -115,8 +115,16 @@ private class FakeWork : RecordingWork {
   var lastContents: ExportContents? = null
   var lastResults: List<ExportResult> = emptyList()
 
+  /** When set, the refresh waits for it before the list is re-read. */
+  var refreshGate: CompletableDeferred<Unit>? = null
+
+  /** What re-reading the recording list does to the library, as the store read does. */
+  var onRefresh: () -> Unit = {}
+
   override suspend fun refreshRecordings() {
     calls += "refreshRecordings"
+    refreshGate?.await()
+    onRefresh()
   }
 
   override fun upload(localId: String) {
@@ -266,6 +274,7 @@ class RecordingDetailViewModelTest {
       remoteId: String? = "r1",
       analysisId: String? = "a1",
       dispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
+      resultDispatcher: CoroutineDispatcher = dispatcher,
   ): RecordingDetailViewModel =
       RecordingDetailViewModel(
           key = localId ?: "remote-$remoteId",
@@ -276,7 +285,7 @@ class RecordingDetailViewModelTest {
           work = work,
           texts = TEXTS,
           dispatcher = dispatcher,
-          resultDispatcher = dispatcher,
+          resultDispatcher = resultDispatcher,
       )
 
   /**
@@ -450,6 +459,35 @@ class RecordingDetailViewModelTest {
 
     assertEquals(before + 1, library.calls.count { it.startsWith("refresh:") })
     assertEquals(2, work.calls.count { it == "refreshRecordings" })
+  }
+
+  @Test
+  fun `the list is read only after the refresh finished`() {
+    val gate = CompletableDeferred<Unit>()
+    work.refreshGate = gate
+    work.onRefresh = { library.recordings.value = listOf(recording()) }
+    library.recordings.value = emptyList()
+    val model = viewModel()
+
+    model.refresh()
+
+    assertNull("the list was read before the refresh finished", model.state.value.recording)
+    gate.complete(Unit)
+    assertEquals("local", model.state.value.recording?.localId)
+  }
+
+  @Test
+  fun `the local facts are read on the background dispatcher`() {
+    val background = QueuedDispatcher()
+    val model = viewModel(resultDispatcher = background)
+
+    assertFalse(
+        "the local facts were read on the main thread",
+        work.calls.any { it.startsWith("rawSize:") },
+    )
+    background.runAll()
+    assertTrue("rawSize:local" in work.calls)
+    assertEquals(2048L, model.state.value.rawSizeBytes)
   }
 
   @Test

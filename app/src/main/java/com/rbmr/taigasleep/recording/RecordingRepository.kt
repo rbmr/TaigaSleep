@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class Phase {
@@ -88,10 +87,13 @@ object RecordingRepository {
     if (_status.value.finishing != null) setIdle()
   }
 
-  /** Re-reads the recording list from disk (cheap for the handful of recordings kept on the phone). */
-  fun refreshRecordings(context: Context) {
+  /**
+   * Re-reads the recording list from disk (cheap for the handful of recordings kept on the phone).
+   * It suspends until the list is published, so a caller that reads the library next sees it.
+   */
+  suspend fun refreshRecordings(context: Context) {
     val app = context.applicationContext
-    app.appContainer.scope.launch {
+    withContext(Dispatchers.IO) {
       _sessions.value = app.appContainer.recordingStore.list()
     }
   }
