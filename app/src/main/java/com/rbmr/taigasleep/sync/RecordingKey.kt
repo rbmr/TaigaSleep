@@ -3,6 +3,9 @@ package com.rbmr.taigasleep.sync
 /** The History key of a recording that exists only on the server. */
 fun remoteKey(recordingId: String): String = "$REMOTE_KEY_PREFIX$recordingId"
 
+/** Whether a recording key names a recording that only exists on the server. */
+internal fun isRemoteKey(key: String): Boolean = key.startsWith(REMOTE_KEY_PREFIX)
+
 /** The recording id behind a recording key: the local id, or the id after the remote prefix. */
 fun recordingIdOf(key: String): String = key.removePrefix(REMOTE_KEY_PREFIX)
 

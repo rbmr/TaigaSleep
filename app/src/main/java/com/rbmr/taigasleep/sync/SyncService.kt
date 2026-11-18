@@ -88,8 +88,9 @@ class SyncService internal constructor(
 
   /**
    * Ask the server for analyses of [id]. An explicit [algorithm] asks for that stager alone; without
-   * one the preferred compatible stager is used. The runs are remembered as manual and the recording as
-   * processing before the caller reads it back, so the new run is visible as soon as it is queued.
+   * one the preferred compatible stager is used. The requester marks the recording processing and
+   * the runs are remembered as manual before the caller reads it back, so the new run is visible as
+   * soon as it is queued.
    */
   suspend fun requestAnalysis(
       id: String,
@@ -99,31 +100,12 @@ class SyncService internal constructor(
         val session =
             environment.session()
                 ?: return@withContext Result.failure(IllegalStateException("login required"))
-        val recordingId = recordingIdOf(id)
-        val config = environment.config(id)
-        val personalData = environment.personalData()
-        val startDate = environment.startDate(id)
         try {
           val started =
               if (algorithm == null) {
-                listOf(
-                    environment.startPreferred(
-                        session.api,
-                        recordingId,
-                        config,
-                        personalData,
-                        startDate,
-                    )
-                )
+                listOf(environment.startPreferred(session, id))
               } else {
-                environment.startManual(
-                    session.api,
-                    recordingId,
-                    config,
-                    algorithm,
-                    personalData,
-                    startDate,
-                )
+                environment.startManual(session, id, algorithm)
               }
           if (started.isEmpty()) {
             return@withContext Result.failure(
@@ -136,7 +118,6 @@ class SyncService internal constructor(
           }
           for (run in started) {
             environment.markManualAnalysis(id, run.analysisId, session.account)
-            environment.markProcessing(id, session.account)
           }
           Result.success(started)
         } catch (e: TaigaUnauthorizedException) {

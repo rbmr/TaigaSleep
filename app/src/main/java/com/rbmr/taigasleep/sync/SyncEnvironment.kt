@@ -7,10 +7,7 @@ import com.rbmr.taigasleep.backend.RemoteSession
 import com.rbmr.taigasleep.backend.RemoteStatus
 import com.rbmr.taigasleep.backend.TaigaClient
 import com.rbmr.taigasleep.notifications.ResultNotifications
-import com.rbmr.taigasleep.profile.PersonalData
 import com.rbmr.taigasleep.recording.PhoneStorageWatch
-import com.rbmr.taigasleep.recording.store.RecordingConfig
-import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -49,15 +46,6 @@ internal interface SyncEnvironment {
   /** Whether this id is a recording with a directory on this phone. */
   fun hasRecording(id: String): Boolean
 
-  /** The stream configuration behind a recording; a recording that is only on the server is HR only. */
-  fun config(id: String): RecordingConfig
-
-  /** The personal data the user entered, used only as optional SleepECG model features. */
-  fun personalData(): PersonalData
-
-  /** The date the recording started on, or null when neither the phone nor the server list knows it. */
-  suspend fun startDate(id: String): LocalDate?
-
   suspend fun enqueueManual(id: String)
 
   fun cancelUploads(id: String)
@@ -83,22 +71,15 @@ internal interface SyncEnvironment {
 
   suspend fun restoreRaw(id: String, onProgress: (Float) -> Unit): Result<Unit>
 
+  /** Ask for explicit methods through the one requester; incompatible ids are skipped. */
   suspend fun startManual(
-      api: TaigaClient,
-      recordingId: String,
-      config: RecordingConfig,
+      session: RemoteSession,
+      id: String,
       algorithm: String,
-      personalData: PersonalData,
-      startDate: LocalDate?,
   ): List<StartedAnalysis>
 
-  suspend fun startPreferred(
-      api: TaigaClient,
-      recordingId: String,
-      config: RecordingConfig,
-      personalData: PersonalData,
-      startDate: LocalDate?,
-  ): StartedAnalysis
+  /** Ask for the preferred compatible method through the one requester. */
+  suspend fun startPreferred(session: RemoteSession, id: String): StartedAnalysis
 
   suspend fun installedAlgorithms(api: TaigaClient): Result<List<AlgorithmDto>>
 
@@ -146,11 +127,7 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
 
   override fun hasRecording(id: String): Boolean = app.appContainer.recordingStore.dir(id).isDirectory
 
-  override fun config(id: String): RecordingConfig = localRecordingConfig(app, id)
-
-  override fun personalData(): PersonalData = app.appContainer.personalDataStore.data.value
-
-  override suspend fun startDate(id: String): LocalDate? = startDateOf(app, id)
+  private val requests: AnalysisRequester get() = app.appContainer.analysisRequests
 
   override suspend fun enqueueManual(id: String) = UploadScheduler.enqueueManual(app, id)
 
@@ -192,37 +169,13 @@ internal class AppSyncEnvironment(context: Context) : SyncEnvironment {
       RawRetention.restore(app, id, recordingIdOf(id), onProgress)
 
   override suspend fun startManual(
-      api: TaigaClient,
-      recordingId: String,
-      config: RecordingConfig,
+      session: RemoteSession,
+      id: String,
       algorithm: String,
-      personalData: PersonalData,
-      startDate: LocalDate?,
-  ): List<StartedAnalysis> =
-      AnalysisService.startManual(
-          api,
-          recordingId,
-          config,
-          listOf(algorithm),
-          personalData,
-          startDate,
-      )
+  ): List<StartedAnalysis> = requests.startManual(session, id, listOf(algorithm))
 
-  override suspend fun startPreferred(
-      api: TaigaClient,
-      recordingId: String,
-      config: RecordingConfig,
-      personalData: PersonalData,
-      startDate: LocalDate?,
-  ): StartedAnalysis =
-      AnalysisService.startPreferred(
-          api,
-          recordingId,
-          config,
-          app.appContainer.analysisSettingsStore.settings.value,
-          personalData,
-          startDate,
-      )
+  override suspend fun startPreferred(session: RemoteSession, id: String): StartedAnalysis =
+      requests.startPreferred(session, id, app.appContainer.analysisSettingsStore.settings.value)
 
   override suspend fun installedAlgorithms(api: TaigaClient): Result<List<AlgorithmDto>> =
       AnalysisService.installedAlgorithms(api)
