@@ -90,21 +90,12 @@ class RecordingControlTest {
     return frames
   }
 
-  private fun await(what: String, condition: () -> Boolean) {
-    val deadline = System.currentTimeMillis() + 5_000
-    while (System.currentTimeMillis() < deadline) {
-      if (condition()) return
-      Thread.sleep(10)
-    }
-    assertTrue("timed out waiting for $what", condition())
-  }
-
   @Test
   fun `a blocked control thread is recovered by a watchdog restart that writes again`() {
     val store = store()
     val dir = open(store)
     val sensor = FakeSensor()
-    val host = FakeHost(sensor).apply { activeSessionId = ID }
+    val host = TestRecordingHost(sensor).apply { activeSessionId = ID }
     val control = RecordingControl(store, clock, host).also { this.control = it }
 
     control.resume()
@@ -118,10 +109,10 @@ class RecordingControlTest {
 
     // The restart is not queued behind the blocked thread: it closes the session, drops that thread
     // and opens the same recording on a new one.
-    await("the recording to be attached again") { sensor.starts == 2 }
-    await("the sensor to be closed") { sensor.stopCalls >= 1 }
+    awaitCondition("the recording to be attached again") { sensor.starts == 2 }
+    awaitCondition("the sensor to be closed") { sensor.stopCalls >= 1 }
     sensor.deliverHr(clock)
-    await("the recording to write again") { frames(dir) > 0 }
+    awaitCondition("the recording to write again") { frames(dir) > 0 }
 
     assertEquals(RecordingPhase.RECORDING, RecordingMeta.read(dir)!!.state)
     assertEquals(ID, host.activeSessionId)
@@ -133,14 +124,14 @@ class RecordingControlTest {
   fun `a refused foreground start leaves an on-device night waiting for its fetch`() {
     val store = store()
     val dir = open(store, RecordingMode.ON_DEVICE)
-    val host = FakeHost(FakeSensor()).apply { activeSessionId = ID }
+    val host = TestRecordingHost(FakeSensor()).apply { activeSessionId = ID }
     val control = RecordingControl(store, clock, host).also { this.control = it }
 
     control.foregroundRefused()
 
     // The refused start is closed off the control thread, so wait for the whole step, not just the
     // metadata write: the marker is cleared after it.
-    await("the refused recording to be closed") {
+    awaitCondition("the refused recording to be closed") {
       RecordingMeta.read(dir)!!.state == RecordingPhase.FETCH_PENDING && host.finished
     }
     val meta = RecordingMeta.read(dir)!!
@@ -162,7 +153,7 @@ class RecordingControlTest {
     val nowMs = clock.phoneNs / 1_000_000
     val window = WakeWindow(6 * 60 + 30, 30)
     val host =
-        FakeHost(FakeSensor()).apply {
+        TestRecordingHost(FakeSensor()).apply {
           activeSessionId = ID
           armed = ArmedWake(ID, window, nowMs, nowMs + 60 * 60_000L)
         }
@@ -170,7 +161,7 @@ class RecordingControlTest {
 
     control.foregroundRefused()
 
-    await("the refused recording to be closed") {
+    awaitCondition("the refused recording to be closed") {
       RecordingMeta.read(dir)!!.state == RecordingPhase.INTERRUPTED && host.finished
     }
     assertNull("a refused recording does not ring", host.armed)
@@ -181,14 +172,14 @@ class RecordingControlTest {
     val store = store()
     val dir = open(store)
     val sensor = FakeSensor(stallsStart = false, stallsStop = true)
-    val host = FakeHost(sensor).apply { activeSessionId = ID }
+    val host = TestRecordingHost(sensor).apply { activeSessionId = ID }
     val control = RecordingControl(store, clock, host).also { this.control = it }
     release = sensor::releaseStop
 
     control.resume()
-    await("the recording to be attached") { host.running && sensor.starts == 1 }
+    awaitCondition("the recording to be attached") { host.running && sensor.starts == 1 }
     sensor.deliverHr(clock)
-    await("the data written so far") { frames(dir) > 0 }
+    awaitCondition("the data written so far") { frames(dir) > 0 }
     val written = frames(dir)
 
     control.stop()
@@ -198,14 +189,14 @@ class RecordingControlTest {
 
     control.forceStop()
 
-    await("the recording to be forced") {
+    awaitCondition("the recording to be forced") {
       RecordingMeta.read(dir)!!.state == RecordingPhase.FORCED_STOP && host.finished
     }
     val meta = RecordingMeta.read(dir)!!
     assertEquals(RecordingPhase.FORCED_STOP, meta.state)
     assertEquals("the end of the forced recording is written", clock.phoneNs / 1_000_000L, meta.endUtcMs)
     assertEquals("what was written before the force stop stays", written, frames(dir))
-    await("the tracker to be let go") { sensor.stopCalls >= 2 }
+    awaitCondition("the tracker to be let go") { sensor.stopCalls >= 2 }
     assertNull("the marker is cleared so nothing resumes it", host.activeSessionId)
     assertFalse("the service is gone", host.running)
     assertEquals(Phase.IDLE, RecordingRepository.status.value.phase)
@@ -298,88 +289,4 @@ class RecordingControlTest {
     }
 
   }
-
-  private class FakeLock : RecordingWakeLock {
-    override var isHeld = false
-      private set
-
-    override fun acquire(timeoutMs: Long) {
-      isHeld = true
-    }
-
-    override fun release() {
-      isHeld = false
-    }
-  }
-
-  private class FakeHost(private val sensor: Tracker) : RecordingHost {
-    override var activeSessionId: String? = null
-    override var heartbeatMs = 0L
-    var running = false
-    var finished = false
-    var state: RecordingState? = null
-    val finishedRecordings = mutableListOf<String>()
-
-    override fun obtain(kind: SensorKind, id: String, name: String): Tracker = sensor
-
-    override fun mayStart(mode: RecordingMode) = true
-
-    override fun readinessSummary() = "test readiness"
-
-    override fun newWakeLock(): RecordingWakeLock = FakeLock()
-
-    override fun scheduleWatchdog() = Unit
-
-    override fun cancelWatchdog() = Unit
-
-    override fun wakeWindow(): ArmedWake? = armed
-
-    override fun armWake(armed: ArmedWake) {
-      this.armed = armed
-    }
-
-    override fun disarmWake() {
-      armed = null
-    }
-
-    override fun fireWakeAlarm(reason: WakeReason) {
-      firedAlarms++
-    }
-
-    var armed: ArmedWake? = null
-    var firedAlarms = 0
-
-    override fun markRunning(running: Boolean) {
-      this.running = running
-    }
-
-    override val device =
-        RecordingDevice(
-            manufacturer = "JVM",
-            model = "test",
-            android = "0",
-            sdk = 0,
-            appVersion = "test",
-            appVersionCode = 1,
-        )
-
-    override fun message(message: RecordingMessage) = message.name
-
-    override fun refreshRecordings() = Unit
-
-    override fun onState(state: RecordingState) {
-      this.state = state
-    }
-
-    override fun onRecordingFinished(recordingId: String) {
-      finishedRecordings += recordingId
-    }
-
-    override fun onFetchCompleted(recordingId: String) = Unit
-
-    override fun finishService() {
-      finished = true
-    }
-  }
-
 }
