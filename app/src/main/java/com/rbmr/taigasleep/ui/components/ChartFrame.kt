@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions")
+
 package com.rbmr.taigasleep.ui.components
 
 import android.graphics.Paint
@@ -7,6 +9,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -27,8 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * The room a chart keeps clear of its plot for the axis labels, in dp. It follows the system font
- * scale, so a large font gets the labels the space they need instead of being clipped.
+ * The room a chart keeps clear of its plot for the axis labels, in dp. A chart decides how much of
+ * it follows the font scale.
  */
 internal data class ChartLabelSpace(val left: Dp, val top: Dp, val bottom: Dp)
 
@@ -67,8 +70,8 @@ internal fun Density.dotEffect(): PathEffect =
     )
 
 /**
- * The room a chart keeps clear of its plot, in pixels, and the label width it hands to a tooltip.
- * Both layers of the chart measure the plot from here, so they always agree.
+ * The room a chart keeps clear of its plot, in pixels. Both layers of the chart measure the plot
+ * from here, so they always agree.
  */
 private class ChartGeometry(
     val leftPx: Float,
@@ -218,8 +221,18 @@ internal fun ChartFrame(
       )
       drawMark(plot, index)
     }
-    selection.value?.let { index -> tooltip(index) }
+    ChartTooltipLayer(selection, tooltip)
   }
+}
+
+/** The tooltip of the selected mark, the only part a drag recomposes. */
+@Composable
+private fun BoxScope.ChartTooltipLayer(
+    selection: State<Int?>,
+    tooltip: @Composable BoxScope.(Int) -> Unit,
+) {
+  val index = selection.value ?: return
+  tooltip(index)
 }
 
 /** The two axes of the plot. */
