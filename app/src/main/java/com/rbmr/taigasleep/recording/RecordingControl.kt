@@ -5,18 +5,18 @@ import com.rbmr.taigasleep.diagnostics.BluetoothPower
 import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.diagnostics.RecordingCost
 import com.rbmr.taigasleep.recording.store.EventLog
-import com.rbmr.taigasleep.recording.store.RecordingConfig
-import com.rbmr.taigasleep.recording.store.RecordingStream
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.RecordingStore
+import com.rbmr.taigasleep.recording.store.RecordingStream
+import com.rbmr.taigasleep.recording.store.legacyConfig
+import com.rbmr.taigasleep.recording.store.toRecordingStream
 import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.Clock
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.OnDeviceTracker
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
-import com.rbmr.taigasleep.tracker.OfferedStream
 import com.rbmr.taigasleep.tracker.StreamType
 import java.io.File
 import java.io.IOException
@@ -37,28 +37,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-
-
-/** What one offered stream becomes in a recording. */
-private fun OfferedStream.toRecordingStream(): RecordingStream =
-    RecordingStream(
-        id = id,
-        type = type,
-        codec = codec,
-        file = file,
-        rateHz = ratesHz.firstOrNull(),
-        settings = emptyMap(),
-    )
-
-/** The old `config` object, kept in meta.json so an older reader still sees the three main streams. */
-internal fun legacyConfig(streams: List<RecordingStream>): RecordingConfig {
-  val types = streams.map { it.type }.toSet()
-  return RecordingConfig(
-      hr = StreamType.HEART_RATE in types,
-      ecg = StreamType.ECG in types,
-      acc = StreamType.ACCELEROMETER in types,
-  )
-}
 
 /** Everything one start action carries, taken from the intent the service received. */
 data class StartRequest(
