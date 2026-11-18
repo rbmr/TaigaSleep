@@ -55,13 +55,13 @@ class SampleFanout(
       }
       StreamType.PULSE_INTERVAL -> {
         val sample = decodePpi(stream, frame) ?: return
-        guard { monitor.onHr(frame.stamp, sample) }
+        guard { monitor.onOther(StreamType.PULSE_INTERVAL, frame.stamp, sample.rrMs.size) }
         wake?.let { guard { it.onHr(frame.stamp, sample) } }
       }
       StreamType.PPG,
       StreamType.GYROSCOPE,
       StreamType.MAGNETOMETER ->
-          monitor.onOther(stream.type, frame.stamp, samplesIn(frame.payload))
+          guard { monitor.onOther(stream.type, frame.stamp, samplesIn(frame.payload)) }
     }
   }
 
@@ -105,7 +105,7 @@ class SampleFanout(
             if (it.t.isEmpty()) null else AccBatch(it.t, it.values)
           }
 
-  /** Pulse intervals serve as beat-to-beat data for the live monitor, like the R-R of a strap. */
+  /** Pulse intervals serve as beat-to-beat data for the wake window, like the R-R of a strap. */
   private fun decodePpi(stream: RecordingStream, frame: TrackerFrame): HrSample? {
     if (stream.codec != Codec.POLAR_PPI) return null
     val b = java.nio.ByteBuffer.wrap(frame.payload).order(java.nio.ByteOrder.LITTLE_ENDIAN)
