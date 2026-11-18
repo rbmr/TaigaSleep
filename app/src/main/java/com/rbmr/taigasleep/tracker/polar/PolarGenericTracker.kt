@@ -37,10 +37,12 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * A Polar tracker that streams what the SDK offers and can record on itself. The Verity Sense and
@@ -63,13 +65,18 @@ abstract class PolarGenericTracker(
   override val capabilities = TrackerCapabilities(clock = true, battery = true, firmware = true)
 
   private val control = Executors.newSingleThreadScheduledExecutor { Thread(it, "polar-generic-$id") }
+  // The SDK callbacks and the caller's start, stop and disconnect run on different threads. One
+  // lock keeps the running streams consistent: a start cannot outlive the stop that raced it.
+  private val lock = Any()
   private val jobs = HashMap<String, Job>()
   private var streamScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-  @Volatile private var listener: TrackerListener? = null
-  @Volatile private var selected: Set<String> = emptySet()
-  @Volatile private var onDeviceSelected: Set<String> = emptySet()
-  @Volatile private var onDeviceResult: ((String?) -> Unit)? = null
-  @Volatile private var userDisconnect = false
+  private var listener: TrackerListener? = null
+  private var selected: Set<String> = emptySet()
+  // Written when on-device recording starts and read by the caller that stops it.
+  private var onDeviceSelected: Set<String> = emptySet()
+  // Touched only on the control thread, which runs the whole on-device start.
+  private var onDeviceResult: ((String?) -> Unit)? = null
+  private var userDisconnect = false
 
   protected abstract fun liveStreams(): List<OfferedStream>
 
@@ -96,7 +103,7 @@ abstract class PolarGenericTracker(
   }
 
   override fun connect() {
-    userDisconnect = false
+    synchronized(lock) { userDisconnect = false }
     _connection.value = ConnectionState.CONNECTING
     runCatching { seam.connect(id) }
         .onFailure { _connection.value = ConnectionState.DISCONNECTED }
@@ -104,13 +111,17 @@ abstract class PolarGenericTracker(
 
   override fun onConnected(address: String?) {
     _connection.value = ConnectionState.CONNECTED
-    if (selected.isNotEmpty()) startLive()
+    synchronized(lock) { if (selected.isNotEmpty()) startLive() }
   }
 
   override fun onDisconnected() {
-    disposeStreams()
-    _connection.value =
-        if (userDisconnect) ConnectionState.DISCONNECTED else ConnectionState.CONNECTING
+    val retrying =
+        synchronized(lock) {
+          disposeStreams()
+          !userDisconnect
+        }
+    // Unless we asked for it the SDK keeps trying to reconnect.
+    _connection.value = if (retrying) ConnectionState.CONNECTING else ConnectionState.DISCONNECTED
   }
 
   override fun onBattery(level: Int?) {
@@ -122,35 +133,51 @@ abstract class PolarGenericTracker(
   }
 
   override fun disconnect() {
-    userDisconnect = true
-    disposeStreams()
+    synchronized(lock) {
+      userDisconnect = true
+      disposeStreams()
+    }
     runCatching { seam.disconnect(id) }
     _connection.value = ConnectionState.DISCONNECTED
   }
 
   override fun startStreams(selected: Set<String>, listener: TrackerListener) {
-    this.selected = selected
-    this.listener = listener
-    if (_connection.value == ConnectionState.CONNECTED) startLive() else connect()
+    val connected =
+        synchronized(lock) {
+          this.selected = selected
+          this.listener = listener
+          if (_connection.value == ConnectionState.CONNECTED) {
+            startLive()
+            true
+          } else false
+        }
+    if (!connected) connect()
   }
 
   override fun stopStreams() {
-    selected = emptySet()
-    listener = null
-    disposeStreams()
+    synchronized(lock) {
+      selected = emptySet()
+      listener = null
+      disposeStreams()
+    }
   }
 
   /** Stops the tracker's threads and its registration when the app forgets it. */
   override fun release() {
     seam.unregister(id)
-    control.shutdownNow()
-    streamScope.cancel()
+    synchronized(lock) {
+      streamScope.cancel()
+      jobs.clear()
+      control.shutdownNow()
+    }
   }
 
   override fun readClock(): Long? =
       runCatching {
             runBlocking {
-              withTimeout(CLOCK_S) { seam.getLocalTime(id).toInstant(ZoneOffset.UTC).toEpochMilli() }
+              withTimeout(CLOCK_MS) {
+                seam.getLocalTime(id).toInstant(ZoneOffset.UTC).toEpochMilli()
+              }
             }
           }
           .getOrNull()
@@ -158,7 +185,7 @@ abstract class PolarGenericTracker(
   override fun setClock(utcMs: Long): Boolean =
       runCatching {
             runBlocking {
-              withTimeout(CLOCK_S) {
+              withTimeout(CLOCK_MS) {
                 seam.setLocalTime(
                     id,
                     java.time.LocalDateTime.ofInstant(
@@ -172,6 +199,7 @@ abstract class PolarGenericTracker(
           }
           .getOrDefault(false)
 
+  /** Starts the selected streams; the caller holds [lock]. */
   private fun startLive() {
     val l = listener ?: return
     val wanted = selected
@@ -235,6 +263,7 @@ abstract class PolarGenericTracker(
     }
   }
 
+  /** Cancels the streams and starts a fresh scope; the caller holds [lock]. */
   private fun disposeStreams() {
     streamScope.cancel()
     streamScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -248,13 +277,13 @@ abstract class PolarGenericTracker(
       listener: TrackerListener,
       onResult: (String?) -> Unit,
   ) {
-    onDeviceSelected = selected
-    onDeviceResult = onResult
     control.execute {
+      synchronized(lock) { onDeviceSelected = selected }
+      onDeviceResult = onResult
       try {
         ensureConnected()
         runBlocking {
-          withTimeout(FETCH_S) {
+          withTimeout(FETCH_MS) {
             for (type in offlineTypes(selected)) {
               seam.startOffline(id, type, PolarSettings.best(seam, id, type))
             }
@@ -272,14 +301,15 @@ abstract class PolarGenericTracker(
   }
 
   override fun stopOnDevice() {
-    val types = offlineTypes(onDeviceSelected.ifEmpty { selected })
+    val chosen = synchronized(lock) { onDeviceSelected.ifEmpty { selected } }
+    val types = offlineTypes(chosen)
     for (type in types) runCatching { runBlocking { seam.stopOffline(id, type) } }
   }
 
   override fun fetchOnDevice(): List<TrackerEntry> {
-    val entries = runBlocking { withTimeout(FETCH_S) { seam.listOffline(id).collectToList() } }
+    val entries = runBlocking { withTimeout(FETCH_MS) { seam.listOffline(id).collectToList() } }
     return entries.map { entry ->
-      val data = runBlocking { withTimeout(FETCH_S) { seam.readOffline(id, entry) } }
+      val data = runBlocking { withTimeout(FETCH_MS) { seam.readOffline(id, entry) } }
       TrackerEntry(
           id = entry.path,
           startUtcMs = entry.date.toInstant(ZoneOffset.UTC).toEpochMilli(),
@@ -293,11 +323,11 @@ abstract class PolarGenericTracker(
    * of clearing it and leaving data that keeps filling the tracker's storage.
    */
   override fun removeFromDevice(ids: List<String>) {
-    val entries = runBlocking { withTimeout(FETCH_S) { seam.listOffline(id).collectToList() } }
+    val entries = runBlocking { withTimeout(FETCH_MS) { seam.listOffline(id).collectToList() } }
     val failed = mutableListOf<String>()
     for (entry in entries.filter { it.path in ids }) {
       try {
-        runBlocking { withTimeout(FETCH_S) { seam.removeOffline(id, entry) } }
+        runBlocking { withTimeout(FETCH_MS) { seam.removeOffline(id, entry) } }
       } catch (e: CancellationException) {
         throw e
       } catch (_: Exception) {
@@ -310,17 +340,22 @@ abstract class PolarGenericTracker(
   override fun discardOnDevice() {
     stopOnDevice()
     val entries = runCatching {
-          runBlocking { withTimeout(FETCH_S) { seam.listOffline(id).collectToList() } }
+          runBlocking { withTimeout(FETCH_MS) { seam.listOffline(id).collectToList() } }
         }
         .getOrDefault(emptyList())
     for (entry in entries) runCatching { runBlocking { seam.removeOffline(id, entry) } }
   }
 
+  /**
+   * Waits for the connection the callbacks report, up to [CONNECT_WAIT_MS]; a link that does not
+   * come up in time leaves the caller to report the failure of the call it wanted.
+   */
   private fun ensureConnected() {
-    val deadline = System.currentTimeMillis() + CONNECT_WAIT_S * 1000
     if (_connection.value == ConnectionState.DISCONNECTED) connect()
-    while (_connection.value != ConnectionState.CONNECTED && System.currentTimeMillis() < deadline) {
-      Thread.sleep(100)
+    runBlocking {
+      withTimeoutOrNull(CONNECT_WAIT_MS) {
+        connection.first { it == ConnectionState.CONNECTED }
+      }
     }
   }
 
@@ -356,9 +391,9 @@ abstract class PolarGenericTracker(
   }
 
   private companion object {
-    const val CLOCK_S = 5_000L
-    const val CONNECT_WAIT_S = 60L
-    const val FETCH_S = 120_000L
+    const val CLOCK_MS = 5_000L
+    const val CONNECT_WAIT_MS = 60_000L
+    const val FETCH_MS = 120_000L
   }
 }
 

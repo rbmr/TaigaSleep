@@ -43,11 +43,13 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The H10 can store HR and RR on the device, but not ECG or ACC. An HR-only selection may
@@ -130,7 +132,8 @@ class PolarH10Sensor(
   private val watchdogs = HashMap<String, ScheduledFuture<*>>()
   private var wanted: PolarSelection? = null
   private var listener: TrackerListener? = null
-  private var userDisconnect = false
+  // Written by the caller's connect and disconnect and read by the SDK's callbacks.
+  @Volatile private var userDisconnect = false
 
   // On-device recording: the strap stores HR/RR itself and the phone fetches it in the morning.
   private var onDeviceWanted: PolarSelection? = null
@@ -478,9 +481,10 @@ class PolarH10Sensor(
 
   /** The phone may have been off all night: the link comes back by itself, so wait for it. */
   private fun awaitConnected() {
-    val deadline = System.currentTimeMillis() + CONNECT_WAIT_S * 1_000
-    while (_connection.value != ConnectionState.CONNECTED && System.currentTimeMillis() < deadline) {
-      Thread.sleep(250)
+    runBlocking {
+      withTimeoutOrNull(TimeUnit.SECONDS.toMillis(CONNECT_WAIT_S)) {
+        connection.first { it == ConnectionState.CONNECTED }
+      }
     }
   }
 

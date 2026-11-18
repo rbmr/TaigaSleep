@@ -17,6 +17,7 @@ import com.polar.sdk.api.model.PolarSensorSetting
 import java.io.IOException
 import java.time.LocalDateTime
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -24,17 +25,19 @@ import kotlinx.coroutines.flow.emptyFlow
 /**
  * A Polar seam a test drives by hand: it records the calls and answers with what the test puts in,
  * so a driver can be exercised without a strap or the SDK.
+ *
+ * The recorded calls are copied-on-write, so a test may drive the seam from several threads.
  */
 class FakePolarSeam : PolarSeam {
   private val listeners = ConcurrentHashMap<String, PolarSeam.ConnectionListener>()
 
-  val registered = mutableListOf<String>()
-  val connected = mutableListOf<String>()
-  val disconnected = mutableListOf<String>()
-  val startedOffline = mutableListOf<PolarDeviceDataType>()
-  val stoppedOffline = mutableListOf<PolarDeviceDataType>()
-  val removedOffline = mutableListOf<String>()
-  val removedExercises = mutableListOf<String>()
+  val registered = CopyOnWriteArrayList<String>()
+  val connected = CopyOnWriteArrayList<String>()
+  val disconnected = CopyOnWriteArrayList<String>()
+  val startedOffline = CopyOnWriteArrayList<PolarDeviceDataType>()
+  val stoppedOffline = CopyOnWriteArrayList<PolarDeviceDataType>()
+  val removedOffline = CopyOnWriteArrayList<String>()
+  val removedExercises = CopyOnWriteArrayList<String>()
 
   var hrData: Flow<PolarHrData> = emptyFlow()
   var ecgData: Flow<PolarEcgData> = emptyFlow()
