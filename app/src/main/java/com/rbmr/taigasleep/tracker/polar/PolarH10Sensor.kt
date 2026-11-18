@@ -7,16 +7,13 @@ import android.util.Log
 import com.polar.sdk.api.PolarBleApi.PolarBleSdkFeature
 import com.polar.sdk.api.PolarBleApi.PolarDeviceDataType
 import com.polar.sdk.api.PolarH10OfflineExerciseApi
-import com.polar.sdk.api.model.EcgSample
 import com.polar.sdk.api.model.PolarExerciseEntry
-import com.polar.sdk.api.model.PolarSensorSetting
 import com.polar.sdk.api.model.PolarSensorSetting.SettingType
 import com.rbmr.taigasleep.tracker.Clock
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.Codec
 import com.rbmr.taigasleep.tracker.OfferedStream
 import com.rbmr.taigasleep.tracker.OnDeviceTracker
-import com.rbmr.taigasleep.tracker.PolarCodec
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.tracker.Stamp
@@ -227,39 +224,15 @@ class PolarH10Sensor(
         val entries = exerciseEntries()
         entries.map { entry ->
           val data = blockingCall(OFFLINE_TIMEOUT_S) { seam.fetchExercise(id, entry) }
+          val startUtcMs = entry.date.toInstant(ZoneOffset.UTC).toEpochMilli()
           fetchedFromDevice[entry.identifier] = entry
           TrackerEntry(
               id = entry.identifier,
-              startUtcMs = entry.date.toInstant(ZoneOffset.UTC).toEpochMilli(),
-              frames = rrFrames(entry.date.toInstant(ZoneOffset.UTC).toEpochMilli(), data.hrSamples),
+              startUtcMs = startUtcMs,
+              frames = PolarFrames.heartRateFromIntervals(startUtcMs, data.hrSamples, clock),
           )
         }
       }
-
-  /**
-   * The strap stores beat intervals; each becomes one HR frame with the heart rate derived from it,
-   * timed forward from the exercise's own start time. An interval of 0 or less produces no frame, so
-   * the gap stays a gap.
-   */
-  private fun rrFrames(startUtcMs: Long, rrMs: List<Int>): List<TrackerFrame> {
-    val frames = ArrayList<TrackerFrame>(rrMs.size)
-    var timeMs = startUtcMs
-    for (rr in rrMs) {
-      if (rr <= 0) continue
-      timeMs += rr
-      val stamp = Stamp(timeMs * 1_000_000L, clock.elapsedNs())
-      val payload =
-          PolarCodec.encodeHr(
-              stamp.phoneNs,
-              stamp.elapsedNs,
-              60_000 / rr,
-              PolarCodec.hrFlags(contactSupported = false, contact = false, rrAvailable = true),
-              intArrayOf(rr),
-          )
-      frames += TrackerFrame("hr", stamp, payload.bytes, payload.clamped)
-    }
-    return frames
-  }
 
   override fun removeFromDevice(ids: List<String>) {
     if (ids.isEmpty()) return
@@ -629,21 +602,7 @@ class PolarH10Sensor(
         val stamp = Stamp.now(clock)
         gotSample("hr", l)
         delivery.execute {
-          for (s in data.samples) {
-            val enc =
-                PolarCodec.encodeHr(
-                    stamp.phoneNs,
-                    stamp.elapsedNs,
-                    s.hr,
-                    PolarCodec.hrFlags(
-                        s.contactStatusSupported,
-                        s.contactStatus,
-                        s.rrAvailable,
-                    ),
-                    s.rrsMs.toIntArray(),
-                )
-            l.onFrame(TrackerFrame("hr", stamp, enc.bytes, enc.clamped))
-          }
+          for (frame in PolarFrames.heartRate(stamp, data.samples)) l.onFrame(frame)
         }
       }
     }
@@ -651,107 +610,35 @@ class PolarH10Sensor(
   }
 
   private fun startEcg(l: TrackerListener) {
-    val wantedSettings = mapOf(SettingType.SAMPLE_RATE to 130, SettingType.RESOLUTION to 14)
+    val wanted = mapOf(SettingType.SAMPLE_RATE to 130, SettingType.RESOLUTION to 14)
     stream("ecg", l) {
-      seam.startEcg(id, settingsFor(PolarDeviceDataType.ECG, wantedSettings, l))
-          .collect { data ->
-            val stamp = Stamp.now(clock)
-            gotSample("ecg", l)
-            delivery.execute {
-              val samples = data.samples.filterIsInstance<EcgSample>()
-              if (samples.isNotEmpty()) {
-                val t = LongArray(samples.size) { samples[it].timeStamp }
-                val v = IntArray(samples.size) { samples[it].voltage }
-                for (from in t.indices step PolarCodec.MAX_BATCH) {
-                  val to = minOf(from + PolarCodec.MAX_BATCH, t.size)
-                  val enc =
-                      PolarCodec.encodeEcg(
-                          stamp.phoneNs,
-                          stamp.elapsedNs,
-                          t.copyOfRange(from, to),
-                          v.copyOfRange(from, to),
-                      )
-                  l.onFrame(TrackerFrame("ecg", stamp, enc.bytes, enc.clamped))
-                }
-              }
-            }
-          }
+      val settings = PolarSettings.negotiate(seam, id, PolarDeviceDataType.ECG, wanted, l)
+      seam.startEcg(id, settings).collect { data ->
+        val stamp = Stamp.now(clock)
+        gotSample("ecg", l)
+        delivery.execute {
+          for (frame in PolarFrames.ecg(stamp, data.samples)) l.onFrame(frame)
+        }
+      }
     }
     watch("ecg", l) { startEcg(l) }
   }
 
   private fun startAcc(l: TrackerListener) {
-    val wantedSettings =
+    val wanted =
         mapOf(SettingType.SAMPLE_RATE to 50, SettingType.RESOLUTION to 16, SettingType.RANGE to 8)
     stream("acc", l) {
-      seam.startAcc(id, settingsFor(PolarDeviceDataType.ACC, wantedSettings, l))
-          .collect { data ->
-            val stamp = Stamp.now(clock)
-            gotSample("acc", l)
-            delivery.execute {
-              val s = data.samples
-              if (s.isNotEmpty()) {
-                val t = LongArray(s.size) { s[it].timeStamp }
-                val xyz =
-                    IntArray(s.size * 3) {
-                      when (it % 3) {
-                        0 -> s[it / 3].x
-                        1 -> s[it / 3].y
-                        else -> s[it / 3].z
-                      }
-                    }
-                for (from in t.indices step PolarCodec.MAX_BATCH) {
-                  val to = minOf(from + PolarCodec.MAX_BATCH, t.size)
-                  val enc =
-                      PolarCodec.encodeAcc(
-                          stamp.phoneNs,
-                          stamp.elapsedNs,
-                          t.copyOfRange(from, to),
-                          xyz.copyOfRange(from * 3, to * 3),
-                      )
-                  l.onFrame(TrackerFrame("acc", stamp, enc.bytes, enc.clamped))
-                }
-              }
-            }
-          }
+      val settings = PolarSettings.negotiate(seam, id, PolarDeviceDataType.ACC, wanted, l)
+      seam.startAcc(id, settings).collect { data ->
+        val stamp = Stamp.now(clock)
+        gotSample("acc", l)
+        delivery.execute {
+          for (frame in PolarFrames.accelerometer(stamp, data.samples)) l.onFrame(frame)
+        }
+      }
     }
     watch("acc", l) { startAcc(l) }
   }
-
-  /**
-   * Picks the wanted setting value where the sensor offers it, else the highest it offers, and
-   * reports a mismatch, because the format doc promises ECG 130 Hz and ACC 50 Hz ±8 G.
-   */
-  private suspend fun settingsFor(
-      type: PolarDeviceDataType,
-      wanted: Map<SettingType, Int>,
-      l: TrackerListener,
-  ): PolarSensorSetting {
-    val available = seam.streamSettings(id, type)
-    val chosen =
-        available.settings.mapValues { (t, values) ->
-          wanted[t]?.takeIf { it in values } ?: values.max()
-        }
-    if (chosen.any { (t, v) -> wanted[t] != null && wanted[t] != v }) {
-      l.onError("$type settings differ from the wanted ones: $chosen")
-    }
-    val stream = if (type == PolarDeviceDataType.ECG) "ecg" else "acc"
-    val rate = chosen[SettingType.SAMPLE_RATE]?.toDouble()
-    l.onNegotiated(
-        stream,
-        rate,
-        chosen.mapKeys { (t, _) -> settingName(t) }.mapValues { (_, value) -> value.toString() },
-    )
-    return PolarSensorSetting(chosen)
-  }
-
-  private fun settingName(type: SettingType): String =
-      when (type) {
-        SettingType.SAMPLE_RATE -> "rate_hz"
-        SettingType.RESOLUTION -> "resolution_bits"
-        SettingType.RANGE -> "range_g"
-        else -> type.name.lowercase()
-      }
 
   /**
    * Collects one stream on a coroutine of the stream scope: the teardown that ends the streams ends

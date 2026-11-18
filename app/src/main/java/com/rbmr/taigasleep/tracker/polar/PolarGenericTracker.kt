@@ -4,18 +4,14 @@ package com.rbmr.taigasleep.tracker.polar
 
 import android.content.Context
 import com.polar.sdk.api.PolarBleApi.PolarDeviceDataType
-import com.polar.sdk.api.model.PolarAccelerometerData
 import com.polar.sdk.api.model.PolarOfflineRecordingData
 import com.polar.sdk.api.model.PolarOfflineRecordingEntry
-import com.polar.sdk.api.model.PolarPpgData
-import com.polar.sdk.api.model.PolarSensorSetting
 import com.rbmr.taigasleep.tracker.Clock
 import com.rbmr.taigasleep.tracker.Codec
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.FoundSensor
 import com.rbmr.taigasleep.tracker.OfferedStream
 import com.rbmr.taigasleep.tracker.OnDeviceTracker
-import com.rbmr.taigasleep.tracker.PolarCodec
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
 import com.rbmr.taigasleep.tracker.Stamp
@@ -185,21 +181,8 @@ abstract class PolarGenericTracker(
             try {
               l.onNegotiated("hr", 1.0, emptyMap())
               seam.startHr(id).collect { data ->
-                val stamp = Stamp.now(clock)
-                for (s in data.samples) {
-                  val enc =
-                      PolarCodec.encodeHr(
-                          stamp.phoneNs,
-                          stamp.elapsedNs,
-                          s.hr,
-                          PolarCodec.hrFlags(
-                              s.contactStatusSupported,
-                              s.contactStatus,
-                              s.rrAvailable,
-                          ),
-                          s.rrsMs.toIntArray(),
-                      )
-                  l.onFrame(TrackerFrame("hr", stamp, enc.bytes, enc.clamped))
+                for (frame in PolarFrames.heartRate(Stamp.now(clock), data.samples)) {
+                  l.onFrame(frame)
                 }
               }
             } catch (e: Exception) {
@@ -213,25 +196,7 @@ abstract class PolarGenericTracker(
             try {
               l.onNegotiated("ppi", null, emptyMap())
               seam.startPpi(id).collect { data ->
-                if (data.samples.isEmpty()) return@collect
-                val stamp = Stamp.now(clock)
-                val n = data.samples.size
-                val enc =
-                    PolarCodec.encodePpi(
-                        stamp.phoneNs,
-                        stamp.elapsedNs,
-                        LongArray(n) { data.samples[it].timeStamp.toLong() },
-                        IntArray(n) { data.samples[it].ppi },
-                        IntArray(n) { data.samples[it].errorEstimate },
-                        IntArray(n) { data.samples[it].hr },
-                        IntArray(n) {
-                          val s = data.samples[it]
-                          (if (s.skinContactSupported) 1 else 0) or
-                              (if (s.skinContactStatus) 2 else 0) or
-                              (if (s.blockerBit) 4 else 0)
-                        },
-                    )
-                l.onFrame(TrackerFrame("ppi", stamp, enc.bytes, enc.clamped))
+                for (frame in PolarFrames.ppi(Stamp.now(clock), data.samples)) l.onFrame(frame)
               }
             } catch (e: Exception) {
               if (isActive) l.onError("ppi stream error: ${e.message ?: e.javaClass.simpleName}")
@@ -242,13 +207,11 @@ abstract class PolarGenericTracker(
       jobs["ppg"] =
           streamScope.launch {
             try {
-              val settings = settingsFor(PolarDeviceDataType.PPG)
-              l.onNegotiated(
-                  "ppg",
-                  settings.settings[PolarSensorSetting.SettingType.SAMPLE_RATE]?.max()?.toDouble(),
-                  settings.settings.entries.associate { it.key.name.lowercase() to it.value.max().toString() },
-              )
-              seam.startPpg(id, settings).collect { data: PolarPpgData -> emitPpg(l, data) }
+              val settings =
+                  PolarSettings.negotiate(seam, id, PolarDeviceDataType.PPG, emptyMap(), l)
+              seam.startPpg(id, settings).collect { data ->
+                for (frame in PolarFrames.ppg(Stamp.now(clock), data.samples)) l.onFrame(frame)
+              }
             } catch (e: Exception) {
               if (isActive) l.onError("ppg stream error: ${e.message ?: e.javaClass.simpleName}")
             }
@@ -258,56 +221,18 @@ abstract class PolarGenericTracker(
       jobs["acc"] =
           streamScope.launch {
             try {
-              val settings = settingsFor(PolarDeviceDataType.ACC)
-              l.onNegotiated(
-                  "acc",
-                  settings.settings[PolarSensorSetting.SettingType.SAMPLE_RATE]?.max()?.toDouble(),
-                  settings.settings.entries.associate { it.key.name.lowercase() to it.value.max().toString() },
-              )
-              seam.startAcc(id, settings).collect { data: PolarAccelerometerData -> emitAcc(l, data) }
+              val settings =
+                  PolarSettings.negotiate(seam, id, PolarDeviceDataType.ACC, emptyMap(), l)
+              seam.startAcc(id, settings).collect { data ->
+                for (frame in PolarFrames.accelerometer(Stamp.now(clock), data.samples)) {
+                  l.onFrame(frame)
+                }
+              }
             } catch (e: Exception) {
               if (isActive) l.onError("acc stream error: ${e.message ?: e.javaClass.simpleName}")
             }
           }
     }
-  }
-
-  private suspend fun settingsFor(type: PolarDeviceDataType): PolarSensorSetting =
-      seam.streamSettings(id, type).maxSettings()
-
-  private fun emitPpg(l: TrackerListener, data: PolarPpgData) {
-    val samples = data.samples
-    if (samples.isEmpty()) return
-    val stamp = Stamp.now(clock)
-    val enc =
-        PolarCodec.encodePpg(
-            stamp.phoneNs,
-            stamp.elapsedNs,
-            LongArray(samples.size) { samples[it].timeStamp },
-            Array(samples.size) { samples[it].channelSamples.toIntArray() },
-            IntArray(samples.size) { samples[it].statusBits.fold(0) { acc, bit -> acc or bit } },
-        )
-    l.onFrame(TrackerFrame("ppg", stamp, enc.bytes, enc.clamped))
-  }
-
-  private fun emitAcc(l: TrackerListener, data: PolarAccelerometerData) {
-    val samples = data.samples
-    if (samples.isEmpty()) return
-    val stamp = Stamp.now(clock)
-    val xyz = IntArray(samples.size * 3)
-    for (i in samples.indices) {
-      xyz[i * 3] = samples[i].x
-      xyz[i * 3 + 1] = samples[i].y
-      xyz[i * 3 + 2] = samples[i].z
-    }
-    val enc =
-        PolarCodec.encodeAcc(
-            stamp.phoneNs,
-            stamp.elapsedNs,
-            LongArray(samples.size) { samples[it].timeStamp },
-            xyz,
-        )
-    l.onFrame(TrackerFrame("acc", stamp, enc.bytes, enc.clamped))
   }
 
   private fun disposeStreams() {
@@ -331,7 +256,7 @@ abstract class PolarGenericTracker(
         runBlocking {
           withTimeout(FETCH_S) {
             for (type in offlineTypes(selected)) {
-              seam.startOffline(id, type, settingsFor(type))
+              seam.startOffline(id, type, PolarSettings.best(seam, id, type))
             }
           }
         }
@@ -416,69 +341,16 @@ abstract class PolarGenericTracker(
     val startMs = data.startTime.toInstant(ZoneOffset.UTC).toEpochMilli()
     return when (data) {
       is PolarOfflineRecordingData.HrOfflineRecording ->
-          data.data.samples.mapIndexed { index, s ->
-            val stamp = Stamp((startMs + index * 1000L) * 1_000_000L, clock.elapsedNs())
-            val enc =
-                PolarCodec.encodeHr(
-                    stamp.phoneNs,
-                    stamp.elapsedNs,
-                    s.hr,
-                    PolarCodec.hrFlags(s.contactStatusSupported, s.contactStatus, s.rrAvailable),
-                    s.rrsMs.toIntArray(),
-                )
-            TrackerFrame("hr", stamp, enc.bytes, enc.clamped)
-          }
-      is PolarOfflineRecordingData.PpiOfflineRecording -> {
-        val samples = data.data.samples
-        val stamp = Stamp(startMs * 1_000_000L, clock.elapsedNs())
-        val enc =
-            PolarCodec.encodePpi(
-                stamp.phoneNs,
-                stamp.elapsedNs,
-                ppiTimestampsNs(startMs, IntArray(samples.size) { samples[it].ppi }),
-                IntArray(samples.size) { samples[it].ppi },
-                IntArray(samples.size) { samples[it].errorEstimate },
-                IntArray(samples.size) { samples[it].hr },
-                IntArray(samples.size) {
-                  val s = samples[it]
-                  (if (s.skinContactSupported) 1 else 0) or
-                      (if (s.skinContactStatus) 2 else 0) or
-                      (if (s.blockerBit) 4 else 0)
-                },
-            )
-        listOf(TrackerFrame("ppi", stamp, enc.bytes, enc.clamped))
-      }
-      is PolarOfflineRecordingData.PpgOfflineRecording -> {
-        val samples = data.data.samples
-        val stamp = Stamp(startMs * 1_000_000L, clock.elapsedNs())
-        val enc =
-            PolarCodec.encodePpg(
-                stamp.phoneNs,
-                stamp.elapsedNs,
-                LongArray(samples.size) { samples[it].timeStamp },
-                Array(samples.size) { samples[it].channelSamples.toIntArray() },
-                IntArray(samples.size) { samples[it].statusBits.fold(0) { acc, b -> acc or b } },
-            )
-        listOf(TrackerFrame("ppg", stamp, enc.bytes, enc.clamped))
-      }
-      is PolarOfflineRecordingData.AccOfflineRecording -> {
-        val samples = data.data.samples
-        val stamp = Stamp(startMs * 1_000_000L, clock.elapsedNs())
-        val xyz = IntArray(samples.size * 3)
-        for (i in samples.indices) {
-          xyz[i * 3] = samples[i].x
-          xyz[i * 3 + 1] = samples[i].y
-          xyz[i * 3 + 2] = samples[i].z
-        }
-        val enc =
-            PolarCodec.encodeAcc(
-                stamp.phoneNs,
-                stamp.elapsedNs,
-                LongArray(samples.size) { samples[it].timeStamp },
-                xyz,
-            )
-        listOf(TrackerFrame("acc", stamp, enc.bytes, enc.clamped))
-      }
+          PolarFrames.heartRateFromRecording(startMs, data.data.samples, clock)
+      is PolarOfflineRecordingData.PpiOfflineRecording ->
+          PolarFrames.ppiFromRecording(startMs, data.data.samples, clock.elapsedNs())
+      is PolarOfflineRecordingData.PpgOfflineRecording ->
+          PolarFrames.ppg(Stamp(startMs * 1_000_000L, clock.elapsedNs()), data.data.samples)
+      is PolarOfflineRecordingData.AccOfflineRecording ->
+          PolarFrames.accelerometer(
+              Stamp(startMs * 1_000_000L, clock.elapsedNs()),
+              data.data.samples,
+          )
       else -> emptyList()
     }
   }
@@ -487,18 +359,6 @@ abstract class PolarGenericTracker(
     const val CLOCK_S = 5_000L
     const val CONNECT_WAIT_S = 60L
     const val FETCH_S = 120_000L
-  }
-}
-
-/**
- * The timestamps of offline pulse intervals, in the Polar-epoch nanoseconds the PPI codec uses:
- * each sample sits one interval after the previous one, starting from the entry's start time.
- */
-internal fun ppiTimestampsNs(startUtcMs: Long, intervalsMs: IntArray): LongArray {
-  var timeMs = startUtcMs
-  return LongArray(intervalsMs.size) {
-    timeMs += intervalsMs[it]
-    timeMs * 1_000_000L
   }
 }
 
