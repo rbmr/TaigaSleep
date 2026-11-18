@@ -1,7 +1,9 @@
 package com.rbmr.taigasleep.sync
 
 import com.rbmr.taigasleep.backend.AlgorithmDto
+import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingDto
+import com.rbmr.taigasleep.backend.RecordingSummaryListDto
 import com.rbmr.taigasleep.backend.RemoteSession
 import com.rbmr.taigasleep.backend.StubTaigaClient
 import com.rbmr.taigasleep.backend.TaigaClient
@@ -11,8 +13,10 @@ import com.rbmr.taigasleep.backend.TaigaUnauthorizedException
 import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -409,5 +413,35 @@ class SyncServiceTest {
       refreshFailure?.let { throw it }
       return RecordingSnapshot(RecordingDto(id = recordingId), emptyList(), null)
     }
+
+    override fun observeRows(account: String, localIds: List<String>): Flow<List<LibraryEntry>> =
+        flowOf(emptyList())
+
+    override suspend fun loadRows(account: String, localIds: List<String>): List<LibraryEntry> =
+        emptyList()
+
+    override suspend fun cachedResult(
+        key: String,
+        analysisId: String?,
+        account: String?,
+    ): AnalysisDto? = null
+
+    override val pendingDeletes: StateFlow<Map<String, PendingDelete>> = MutableStateFlow(emptyMap())
+
+    override suspend fun uploadedElsewhere(localId: String): Boolean = false
+
+    override suspend fun selectedAnalysis(key: String, account: String?): String? = null
+
+    override suspend fun selectAnalysis(key: String, analysisId: String?, account: String?) {}
+
+    override suspend fun saveList(account: String, list: RecordingSummaryListDto) {}
+
+    override suspend fun saveSummary(account: String, snapshot: RecordingSnapshot) {}
+
+    override suspend fun hiddenRecordings(): Set<String> = emptySet()
+
+    override suspend fun isGone(recordingId: String): Boolean = false
+
+    override suspend fun forget(recordingId: String) {}
   }
 }
