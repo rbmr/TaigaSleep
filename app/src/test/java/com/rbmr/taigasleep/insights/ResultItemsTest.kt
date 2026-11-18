@@ -1,9 +1,8 @@
 package com.rbmr.taigasleep.insights
 
+import com.rbmr.taigasleep.backend.HrSeriesDto
 import com.rbmr.taigasleep.backend.ResultItemDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
-import com.rbmr.taigasleep.ui.components.QualityBand
-import com.rbmr.taigasleep.ui.components.qualityBand
 import com.rbmr.taigasleep.testFormats
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
@@ -55,6 +54,27 @@ class ResultItemsTest {
     assertNull(ResultItemDto(kind = "series", id = "hr", unit = "bpm").metricSpec())
     assertNull(ResultItemDto(kind = "score", id = "s", unit = "%").metricSpec())
     assertNull(ResultItemDto(kind = "number", id = "x", unit = "parsec").metricSpec())
+  }
+
+  @Test
+  fun theHeartRateSeriesIsTheOneTheResultCarries() {
+    val series =
+        HrSeriesDto(
+            epoch_seconds = 30,
+            start_unix_ms = 1_792_000_000_000,
+            count = 2,
+            mean_bpm = listOf(60.0, 61.0),
+        )
+    val items =
+        listOf(
+            ResultItemDto(kind = "number", id = "hr_mean_bpm", value = 60.5),
+            ResultItemDto(kind = "series", id = "hr", series = series),
+            ResultItemDto(kind = "series", id = "movement", series = series),
+        )
+
+    assertEquals(series, items.heartRateSeries())
+    assertNull(items.filter { it.id != "hr" }.heartRateSeries())
+    assertNull(emptyList<ResultItemDto>().heartRateSeries())
   }
 
   @Test

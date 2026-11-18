@@ -70,7 +70,9 @@ import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.HrSeriesDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.insights.Formats
+import com.rbmr.taigasleep.insights.QualityBand
 import com.rbmr.taigasleep.insights.applicableStages
+import com.rbmr.taigasleep.insights.qualityBand
 import com.rbmr.taigasleep.insights.stageLabelRes
 import com.rbmr.taigasleep.insights.stageSeconds
 import com.rbmr.taigasleep.ui.theme.LocalFormats
@@ -78,23 +80,6 @@ import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.serialization.json.JsonObject
 import kotlin.math.max
 import kotlin.math.roundToInt
-
-enum class QualityBand {
-  EXCELLENT,
-  GOOD,
-  FAIR,
-  POOR,
-  NONE,
-}
-
-fun qualityBand(score: Double?): QualityBand =
-    when {
-      score == null -> QualityBand.NONE
-      score >= 80 -> QualityBand.EXCELLENT
-      score >= 60 -> QualityBand.GOOD
-      score >= 40 -> QualityBand.FAIR
-      else -> QualityBand.POOR
-    }
 
 @Composable
 fun qualityColor(band: QualityBand): Color =

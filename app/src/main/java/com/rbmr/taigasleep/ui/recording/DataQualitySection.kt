@@ -17,6 +17,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.backend.AnalysisResultDto
+import com.rbmr.taigasleep.insights.numberItems
 import com.rbmr.taigasleep.ui.components.BulletList
 import com.rbmr.taigasleep.ui.components.InfoContent
 import com.rbmr.taigasleep.ui.components.Section
@@ -85,7 +86,7 @@ internal fun DataQualityStatsSection(analysis: AnalysisResultDto) {
             caption = stringResource(R.string.night_quality_weight, component.weight.roundToInt()),
         )
       }
-      val items = numberItems(analysis.items, "quality")
+      val items = analysis.items.numberItems("quality")
       if (items.isNotEmpty()) MetricGrid(items = items)
       if (analysis.warnings.isNotEmpty()) {
         NotesRow(count = analysis.warnings.size, onClick = { showNotes = true })

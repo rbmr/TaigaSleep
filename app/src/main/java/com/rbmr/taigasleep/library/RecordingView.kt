@@ -5,6 +5,7 @@ import com.rbmr.taigasleep.backend.AnalysisDto
 import com.rbmr.taigasleep.backend.RecordingDto
 import com.rbmr.taigasleep.backend.StageSegmentDto
 import com.rbmr.taigasleep.insights.StagerPreference
+import com.rbmr.taigasleep.insights.TrendItems
 import com.rbmr.taigasleep.recording.store.Recording
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.sync.LibraryEntry
@@ -371,8 +372,8 @@ fun AnalysisDto.toRun(downloaded: Boolean = false): Analysis {
       epochSeconds = stages?.epoch_seconds ?: summarized?.epoch_seconds ?: 30,
       segments = stages?.segments ?: summarized?.segments.orEmpty(),
       sleepScore =
-          result?.items?.firstOrNull { it.id == "sleep_quality" }?.value
-              ?: summary?.scores?.firstOrNull { it.id == "sleep_quality" }?.value,
+          result?.items?.firstOrNull { it.id == TrendItems.SCORE }?.value
+              ?: summary?.scores?.firstOrNull { it.id == TrendItems.SCORE }?.value,
       createdAtMs = parseApiDate(created),
       updatedAtMs = parseApiDate(updated),
       resultDownloaded = downloaded,

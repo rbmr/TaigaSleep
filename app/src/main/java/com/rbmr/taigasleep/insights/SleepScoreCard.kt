@@ -18,6 +18,25 @@ enum class SleepScoreUnavailableReason {
   OLDER_RESULT,
 }
 
+/** How good a score reads: the band a screen picks the colour of the number from. */
+enum class QualityBand {
+  EXCELLENT,
+  GOOD,
+  FAIR,
+  POOR,
+  NONE,
+}
+
+/** The band a score falls in: 80 and above is excellent, 60 good, 40 fair, below that poor. */
+fun qualityBand(score: Double?): QualityBand =
+    when {
+      score == null -> QualityBand.NONE
+      score >= 80 -> QualityBand.EXCELLENT
+      score >= 60 -> QualityBand.GOOD
+      score >= 40 -> QualityBand.FAIR
+      else -> QualityBand.POOR
+    }
+
 /** What the sleep-score card shows: the number, or why the result has none. */
 sealed interface SleepScoreCardState {
   data class Scored(val score: Double) : SleepScoreCardState
@@ -30,7 +49,7 @@ sealed interface SleepScoreCardState {
  * business: a screen without the payload shows that it has no result rather than a reason.
  */
 fun sleepScoreCardState(result: AnalysisResultDto): SleepScoreCardState {
-  val score = result.items.firstOrNull { it.id == "sleep_quality" }?.value
+  val score = result.items.firstOrNull { it.id == TrendItems.SCORE }?.value
   if (score != null) return SleepScoreCardState.Scored(score)
   return SleepScoreCardState.Unavailable(
       if (result.contract_version >= SLEEP_SCORE_GATE_CONTRACT_VERSION) {
