@@ -70,13 +70,13 @@ internal fun RecordingBody(
       verticalArrangement = Arrangement.spacedBy(space.l),
   ) {
     if (reading) {
-      item { ResultPlaceholder() }
+      item(key = "placeholder") { ResultPlaceholder() }
     } else {
       banners(state = state, onRefresh = onRefresh)
       // A recording with no result and nothing queued or running has no result coming; the status
       // cards below say what it is, and a summary would contradict them.
       if (showsScoreCard(status = state.status, hasResult = processed)) {
-        item {
+        item(key = "summary") {
           RecordingSummary(
               items = analysis?.items.orEmpty(),
               score =
@@ -88,7 +88,9 @@ internal fun RecordingBody(
       // The choice is for a recording that has an analysis or is getting one. An upload in
       // progress, a failed upload and a recording without an analysis have a status card instead.
       if (showsAnalysisChoice(state)) {
-        item { AnalysisChoiceButton(run = run.takeIf { processed }, onOpenAnalysis = onOpenAnalysis) }
+        item(key = "analysis-choice") {
+          AnalysisChoiceButton(run = run.takeIf { processed }, onOpenAnalysis = onOpenAnalysis)
+        }
       }
       when {
         processed && analysis != null ->
@@ -104,7 +106,7 @@ internal fun RecordingBody(
             )
       }
     }
-    item {
+    item(key = "recording") {
       RecordingSection(
           state = state,
           onExport = onExport,
@@ -119,7 +121,7 @@ internal fun RecordingBody(
 /** What the screen has to report about loading the recording and its result. */
 private fun LazyListScope.banners(state: RecordingDetailUiState, onRefresh: () -> Unit) {
   state.error?.takeIf { !state.offlineSaved }?.let { message ->
-    item {
+    item(key = "load-error") {
       StatusBanner(
           kind = StatusKind.Warn,
           title = stringResource(R.string.night_load_failed),
@@ -135,7 +137,7 @@ private fun LazyListScope.banners(state: RecordingDetailUiState, onRefresh: () -
     }
   }
   if (state.offlineSaved) {
-    item {
+    item(key = "offline-saved") {
       StatusBanner(
           kind = StatusKind.Warn,
           body = stringResource(R.string.night_offline_saved),
@@ -143,7 +145,7 @@ private fun LazyListScope.banners(state: RecordingDetailUiState, onRefresh: () -
     }
   }
   state.actionError?.let { message ->
-    item { StatusBanner(kind = StatusKind.Bad, body = message) }
+    item(key = "action-error") { StatusBanner(kind = StatusKind.Bad, body = message) }
   }
 }
 
@@ -157,9 +159,17 @@ private fun LazyListScope.analysedRecording(
   val series = analysis.items.firstOrNull { it.kind == "series" && it.id == "hr" }?.series
   val movementItems = numberItems(analysis.items, "movement")
   val qualityItems = numberItems(analysis.items, "quality")
-  item { SleepStatsSection(state = state, analysis = analysis, onExpand = { onExpand("sleep") }) }
+  item(key = "sleep") {
+    SleepStatsSection(
+        segments = state.segments,
+        epochSeconds = state.epochSeconds,
+        startUnixMs = state.start,
+        analysis = analysis,
+        onExpand = { onExpand("sleep") },
+    )
+  }
   if (series != null || heartItems.isNotEmpty()) {
-    item {
+    item(key = "heart") {
       HeartRateStatsSection(
           analysis = analysis,
           onExpand = { onExpand("heart") },
@@ -167,10 +177,10 @@ private fun LazyListScope.analysedRecording(
     }
   }
   if (movementItems.isNotEmpty()) {
-    item { MovementStatsSection(items = movementItems) }
+    item(key = "movement") { MovementStatsSection(items = movementItems) }
   }
   if (analysis.items.any { it.id == "data_quality" } || qualityItems.isNotEmpty()) {
-    item { DataQualityStatsSection(analysis = analysis) }
+    item(key = "quality") { DataQualityStatsSection(analysis = analysis) }
   }
 }
 
