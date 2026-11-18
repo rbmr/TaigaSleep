@@ -38,7 +38,6 @@
     <ID>CyclomaticComplexMethod:Names.kt$Names$fun exitReason(code: Int): String</ID>
     <ID>CyclomaticComplexMethod:PolarH10Sensor.kt$PolarH10Sensor$private fun maybeBeginStreams(force: Boolean = false)</ID>
     <ID>CyclomaticComplexMethod:RecordingCharts.kt$@Composable fun HeartRateChart( series: HrSeriesDto, modifier: Modifier = Modifier, chartHeight: Int = 176, fullscreen: Boolean = false, )</ID>
-    <ID>CyclomaticComplexMethod:RecordingCharts.kt$@Composable private fun TimeChart( startUnixMs: Long, totalSeconds: Long, pointCount: Int, yLabels: List&lt;Pair&lt;Float, String&gt;&gt;, horizontalLines: List&lt;Float&gt;, leftLabelWidth: Dp, description: String, valueAt: (Int) -&gt; String, large: Boolean, modifier: Modifier = Modifier, drawPlot: DrawScope.(PlotBounds, Int?) -&gt; Unit, )</ID>
     <ID>CyclomaticComplexMethod:RecordingControl.kt$RecordingControl$private fun attach( writer: RecordingWriter, sensor: SleepSensor, mode: RecordingMode, parked: Boolean = false, contact: Boolean = true, wake: ArmedWake? = null, )</ID>
     <ID>CyclomaticComplexMethod:RecordingControl.kt$RecordingControl$private suspend fun startRecording(request: StartRequest)</ID>
     <ID>CyclomaticComplexMethod:RecordingDetailViewModel.kt$RecordingDetailViewModel$private fun load()</ID>
@@ -54,8 +53,8 @@
     <ID>CyclomaticComplexMethod:StatusPill.kt$@Composable fun StatusPill( state: StatusPillState, label: String, modifier: Modifier = Modifier, onClick: (() -&gt; Unit)? = null, )</ID>
     <ID>CyclomaticComplexMethod:TaigaApp.kt$@Composable fun TaigaApp( themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -&gt; Unit, )</ID>
     <ID>CyclomaticComplexMethod:TrendsCharts.kt$@Composable private fun TrendPlotCanvas( days: List&lt;LocalDate&gt;, kind: TrendChartKind, axis: TrendAxis, references: List&lt;TrendReference&gt;, description: String, topLabel: ((String) -&gt; String)?, valueFormat: (Double) -&gt; String, large: Boolean, modifier: Modifier = Modifier, )</ID>
-    <ID>CyclomaticComplexMethod:TrendsCharts.kt$private fun DrawScope.drawTrendLine( plot: TrendPlot, series: TrendSeries, axis: TrendAxis, large: Boolean, dash: PathEffect, )</ID>
     <ID>CyclomaticComplexMethod:UploadCoordinator.kt$UploadCoordinator$internal suspend fun retryAnalysis( remote: RemoteRepository, requests: AnalysisRequester, key: String, analysisId: String?, settings: AnalysisSettings, ): Result&lt;Unit&gt;</ID>
+    <ID>CyclomaticComplexMethod:TrendsCharts.kt$private fun DrawScope.drawTrendLine( plot: ChartPlot, series: TrendSeries, axis: TrendAxis, large: Boolean, dash: PathEffect, )</ID>
     <ID>CyclomaticComplexMethod:UploadEngine.kt$UploadEngine$private suspend fun uploadCompressed( file: File, initial: RemoteFile?, cache: CompressionCache, uploaded: MutableMap&lt;String, Long&gt;, totalBytes: Long, )</ID>
     <ID>CyclomaticComplexMethod:UploadEngine.kt$UploadEngine$private suspend fun uploadPlain( file: File, initial: RemoteFile?, uploaded: MutableMap&lt;String, Long&gt;, totalBytes: Long, )</ID>
     <ID>CyclomaticComplexMethod:UploadWorker.kt$UploadWorker$override suspend fun doWork(): Result</ID>
@@ -114,7 +113,6 @@
     <ID>LongMethod:PersonalData.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable private fun DateOfBirthDialog( current: LocalDate?, onSave: (LocalDate?) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
     <ID>LongMethod:RawRetention.kt$RawRetention$suspend fun restore( context: Context, localId: String, recordingId: String, onProgress: (Float) -&gt; Unit = {}, ): Result&lt;Unit&gt;</ID>
     <ID>LongMethod:RecordingCharts.kt$@Composable fun HeartRateChart( series: HrSeriesDto, modifier: Modifier = Modifier, chartHeight: Int = 176, fullscreen: Boolean = false, )</ID>
-    <ID>LongMethod:RecordingCharts.kt$@Composable private fun TimeChart( startUnixMs: Long, totalSeconds: Long, pointCount: Int, yLabels: List&lt;Pair&lt;Float, String&gt;&gt;, horizontalLines: List&lt;Float&gt;, leftLabelWidth: Dp, description: String, valueAt: (Int) -&gt; String, large: Boolean, modifier: Modifier = Modifier, drawPlot: DrawScope.(PlotBounds, Int?) -&gt; Unit, )</ID>
     <ID>LongMethod:RecordingControl.kt$RecordingControl$private fun attach( writer: RecordingWriter, sensor: SleepSensor, mode: RecordingMode, parked: Boolean = false, contact: Boolean = true, wake: ArmedWake? = null, )</ID>
     <ID>LongMethod:RecordingControl.kt$RecordingControl$private suspend fun fetchRecording(recordingId: String?)</ID>
     <ID>LongMethod:RecordingControl.kt$RecordingControl$private suspend fun startRecording(request: StartRequest)</ID>
@@ -130,7 +128,6 @@
     <ID>LongMethod:StreamRecovery.kt$StreamRecoveryPolicy$fun evaluate(nowMs: Long): List&lt;RecoveryStep&gt;</ID>
     <ID>LongMethod:TaigaApp.kt$@Composable fun TaigaApp( themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -&gt; Unit, )</ID>
     <ID>LongMethod:TokensScreen.kt$@Composable fun AccessTokensScreen(onBack: () -&gt; Unit)</ID>
-    <ID>LongMethod:TrendsCharts.kt$@Composable private fun TrendPlotCanvas( days: List&lt;LocalDate&gt;, kind: TrendChartKind, axis: TrendAxis, references: List&lt;TrendReference&gt;, description: String, topLabel: ((String) -&gt; String)?, valueFormat: (Double) -&gt; String, large: Boolean, modifier: Modifier = Modifier, )</ID>
     <ID>LongMethod:TrendsCharts.kt$@Preview(name = "Light", widthDp = 360) @Preview(name = "Dark", widthDp = 360, uiMode = Configuration.UI_MODE_NIGHT_YES) @Composable private fun TrendChartPreview()</ID>
     <ID>LongMethod:TrendsScreen.kt$@Composable private fun ScheduleChart(data: Trends)</ID>
     <ID>LongMethod:UploadWorker.kt$UploadWorker$override suspend fun doWork(): Result</ID>

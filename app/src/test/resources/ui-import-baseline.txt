@@ -7,6 +7,7 @@ TaigaApp.kt 3
 components/BearDen.kt 0
 components/BulletList.kt 0
 components/Buttons.kt 0
+components/ChartFrame.kt 0
 components/ChartScrub.kt 0
 components/ChartTooltip.kt 0
 components/Components.kt 0
