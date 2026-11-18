@@ -198,6 +198,10 @@ object PolarSdkSeam : PolarSeam {
   /** What the SDK said recently; the connect watch reads it while a connect stays pending. */
   private val log = SdkLog()
 
+  // Only a link that is not up needs explaining: while one is, the SDK's lines are not kept, so a
+  // night of streaming costs the ring nothing.
+  @Volatile private var linkUp = false
+
   // The set the driver that last asked for the instance needs. A scan makes a minimal instance
   // before any driver does, and the driver's first call replaces it.
   @Volatile private var required: Set<PolarBleSdkFeature> = SCAN_FEATURES
@@ -229,7 +233,9 @@ object PolarSdkSeam : PolarSeam {
             it.setApiCallback(callback)
             it.setApiLogger(
                 object : PolarBleApi.PolarBleApiLogger {
-                  override fun message(str: String) = log.add(str)
+                  override fun message(str: String) {
+                    if (!linkUp) log.add(str)
+                  }
                 }
             )
           }
@@ -244,10 +250,12 @@ object PolarSdkSeam : PolarSeam {
         }
 
         override fun deviceConnected(polarDeviceInfo: PolarDeviceInfo) {
+          linkUp = true
           listeners[polarDeviceInfo.deviceId]?.onConnected(polarDeviceInfo.address)
         }
 
         override fun deviceDisconnected(polarDeviceInfo: PolarDeviceInfo) {
+          linkUp = false
           listeners[polarDeviceInfo.deviceId]?.onDisconnected()
         }
 
@@ -283,6 +291,7 @@ object PolarSdkSeam : PolarSeam {
   }
 
   override fun recreate() {
+    linkUp = false
     sdk.recreate()
   }
 
