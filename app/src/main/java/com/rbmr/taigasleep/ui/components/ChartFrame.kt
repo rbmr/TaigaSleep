@@ -112,13 +112,13 @@ private fun chartPlot(width: Float, height: Float, geometry: ChartGeometry): Cha
   )
 }
 
+/** The colours of a chart: its grid, its axes, its reference lines and its marks. */
+internal class ChartColors(val grid: Color, val axis: Color, val reference: Color, val mark: Color)
+
 /** The colours, the label paint and the line effects of a chart, read once from the theme. */
 internal class ChartStyle(
     val paint: Paint,
-    val grid: Color,
-    val axis: Color,
-    val reference: Color,
-    val mark: Color,
+    val colors: ChartColors,
     val dash: PathEffect,
     val dot: PathEffect,
 )
@@ -136,10 +136,13 @@ private fun chartStyle(density: Density, large: Boolean): ChartStyle {
       }
   return ChartStyle(
       paint = paint,
-      grid = labelColor.copy(alpha = 0.30f),
-      axis = labelColor.copy(alpha = 0.65f),
-      reference = labelColor.copy(alpha = 0.75f),
-      mark = MaterialTheme.colorScheme.primary,
+      colors =
+          ChartColors(
+              grid = labelColor.copy(alpha = 0.30f),
+              axis = labelColor.copy(alpha = 0.65f),
+              reference = labelColor.copy(alpha = 0.75f),
+              mark = MaterialTheme.colorScheme.primary,
+          ),
       dash = remember(density.density) { with(density) { dashEffect() } },
       dot = remember(density.density) { with(density) { dotEffect() } },
   )
@@ -157,6 +160,7 @@ private fun chartStyle(density: Density, large: Boolean): ChartStyle {
  * The caller draws the grid, the x labels and the data in [drawPlot], which is what the two chart
  * families do not share. This frame owns the geometry, the plot, the two axes and the y values.
  */
+@Suppress("LongParameterList")
 @Composable
 internal fun ChartFrame(
     space: ChartLabelSpace,
@@ -207,7 +211,7 @@ internal fun ChartFrame(
       val plot = chartPlot(size.width, size.height, geometry) ?: return@Canvas
       val x = plot.x(fractionAt(index))
       drawLine(
-          style.mark,
+          style.colors.mark,
           Offset(x, plot.top),
           Offset(x, plot.top + plot.height),
           1.5.dp.toPx(),
@@ -221,13 +225,13 @@ internal fun ChartFrame(
 /** The two axes of the plot. */
 private fun DrawScope.drawChartAxes(plot: ChartPlot, style: ChartStyle) {
   drawLine(
-      style.axis,
+      style.colors.axis,
       Offset(plot.left, plot.top),
       Offset(plot.left, plot.top + plot.height),
       1.dp.toPx(),
   )
   drawLine(
-      style.axis,
+      style.colors.axis,
       Offset(plot.left, plot.top + plot.height),
       Offset(plot.right, plot.top + plot.height),
       1.dp.toPx(),

@@ -416,7 +416,7 @@ private fun DrawScope.drawTimeGrid(plot: ChartPlot, lines: List<Float>, style: C
   for (line in lines) {
     val y = plot.y(line)
     drawLine(
-        color = style.grid,
+        color = style.colors.grid,
         start = Offset(plot.left, y),
         end = Offset(plot.right, y),
         strokeWidth = 1.dp.toPx(),
@@ -454,7 +454,7 @@ private fun DrawScope.drawTimeLabels(
   var lastRight = Float.NEGATIVE_INFINITY
   for (tick in ticks) {
     val x = plot.x(tick.fraction)
-    drawLine(style.grid, Offset(x, plot.top), Offset(x, plot.top + plot.height), 1.dp.toPx())
+    drawLine(style.colors.grid, Offset(x, plot.top), Offset(x, plot.top + plot.height), 1.dp.toPx())
     val text = timeLabel(tick.timeMs)
     val textWidth = paint.measureText(text)
     val align =
@@ -530,15 +530,7 @@ fun SleepStagesChart(
         TimeChartSpan(startUnixMs, totalSeconds, total)
       }
   val ticks = remember(startUnixMs, totalSeconds) { hourTicks(startUnixMs, totalSeconds) }
-  val density = LocalDensity.current
-  val space =
-      remember(fullscreen, density.fontScale) {
-        recordingChartLabelSpace(
-            large = fullscreen,
-            left = if (fullscreen) 96.dp else 68.dp,
-            fontScale = density.fontScale,
-        )
-      }
+  val space = recordingChartSpace(fullscreen, if (fullscreen) 96.dp else 68.dp)
   ChartFrame(
       space = space,
       large = fullscreen,
@@ -597,6 +589,13 @@ private fun DrawScope.drawStageLanes(
     }
     cursor += segment.count
   }
+}
+
+/** The label space of a recording chart at the current font scale. */
+@Composable
+private fun recordingChartSpace(large: Boolean, left: Dp): ChartLabelSpace {
+  val fontScale = LocalDensity.current.fontScale
+  return remember(large, left, fontScale) { recordingChartLabelSpace(large, left, fontScale) }
 }
 
 /** The epoch-aligned HR points; null entries stay gaps instead of being bridged. */
@@ -670,15 +669,7 @@ fun HeartRateChart(
       remember(series.start_unix_ms, totalSeconds) {
         hourTicks(series.start_unix_ms, totalSeconds)
       }
-  val density = LocalDensity.current
-  val space =
-      remember(fullscreen, density.fontScale) {
-        recordingChartLabelSpace(
-            large = fullscreen,
-            left = if (fullscreen) 84.dp else 60.dp,
-            fontScale = density.fontScale,
-        )
-      }
+  val space = recordingChartSpace(fullscreen, if (fullscreen) 84.dp else 60.dp)
   ChartFrame(
       space = space,
       large = fullscreen,

@@ -516,7 +516,7 @@ private fun DrawScope.drawTrendGrid(plot: ChartPlot, style: ChartStyle) {
   for (fraction in floatArrayOf(0f, 0.5f)) {
     val y = plot.y(fraction)
     drawLine(
-        color = style.grid,
+        color = style.colors.grid,
         start = Offset(plot.left, y),
         end = Offset(plot.right, y),
         strokeWidth = 1.dp.toPx(),
@@ -560,11 +560,11 @@ private fun DrawScope.drawTrendMarks(
           drawTrendLine(plot, series, content.axis, large, style.dash)
         }
     is TrendChartKind.Bars -> {
-      drawTrendBars(plot, kind.points, content.axis, large, style.mark)
+      drawTrendBars(plot, kind.points, content.axis, large, style.colors.mark)
       kind.average?.let { average ->
         val y = plot.y(content.axis.fraction(average))
         drawLine(
-            color = style.reference,
+            color = style.colors.reference,
             start = Offset(plot.left, y),
             end = Offset(plot.right, y),
             strokeWidth = 1.5.dp.toPx(),
@@ -573,7 +573,7 @@ private fun DrawScope.drawTrendMarks(
       }
     }
     is TrendChartKind.FloatingBars ->
-        drawTrendSpans(plot, kind.spans, content.axis, large, style.mark)
+        drawTrendSpans(plot, kind.spans, content.axis, large, style.colors.mark)
   }
   drawTrendReferences(plot, content, style)
 }
@@ -589,7 +589,7 @@ private fun DrawScope.drawTrendReferences(
   for (reference in content.references) {
     val y = plot.y(content.axis.fraction(reference.value))
     drawLine(
-        color = style.reference,
+        color = style.colors.reference,
         start = Offset(plot.left, y),
         end = Offset(plot.right, y),
         strokeWidth = 1.dp.toPx(),
