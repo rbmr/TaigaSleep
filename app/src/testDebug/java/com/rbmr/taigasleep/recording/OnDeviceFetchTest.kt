@@ -96,14 +96,15 @@ class OnDeviceFetchTest {
     assertTrue(entries > 0)
 
     sensor.fetchDelayMs = 5_000
-    val result = OnDeviceImport(writer, sensor, clock, timeoutMs = 100).fetch()
+    val fetch = EndingFetchTracker(sensor)
+    val result = OnDeviceImport(writer, fetch, clock, timeoutMs = 100).fetch()
 
     assertTrue(result is OnDeviceFetch.Failed)
     assertEquals(entries, sensor.storedEntryCount())
     assertEquals(emptyList<Long>(), hrTimes(writer))
     // The writer closes when the recording ends; a late task must not add a frame after that.
     writer.finish(RecordingPhase.FETCH_PENDING, "timed out")
-    Thread.sleep(300)
+    fetch.awaitFetchEnded()
     assertEquals(emptyList<Long>(), hrTimes(writer))
   }
 

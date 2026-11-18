@@ -5,7 +5,6 @@ import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingPhase
 import com.rbmr.taigasleep.recording.store.RecordingStore
-import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.TrackerEntry
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.SensorKind
@@ -72,9 +71,9 @@ class FinishingWithSimulatedSensorTest {
   fun `stopping a streamed night shows the steps and ends on the done card`() {
     val store = RecordingStore(tmp.newFolder())
     val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
-    val host = FakeHost(sensor)
+    val host = TestRecordingHost(sensor)
     control = RecordingControl(store, clock, host).also { it.start(request(sensor, RecordingMode.STREAM)) }
-    await("the streamed recording to run") { host.activeSessionId != null }
+    awaitCondition("the streamed recording to run") { host.activeSessionId != null }
 
     sensor.connect()
     repeat(100) {
@@ -83,7 +82,7 @@ class FinishingWithSimulatedSensorTest {
     }
 
     control!!.stop()
-    await("the done card") { RecordingRepository.status.value.finishing?.done == true }
+    awaitCondition("the done card") { RecordingRepository.status.value.finishing?.done == true }
 
     val finishing = RecordingRepository.status.value.finishing!!
     val steps =
@@ -107,16 +106,16 @@ class FinishingWithSimulatedSensorTest {
         RecordingMeta.read(store.dir(finishing.recordingId))!!.state,
     )
     assertTrue(finishing.recordingId in host.finishedRecordings)
-    await("the service to publish the last step") { seen.lastOrNull()?.done == true }
+    awaitCondition("the service to publish the last step") { seen.lastOrNull()?.done == true }
   }
 
   @Test
   fun `stopping an on-device night fetches it, shows the entry and then the done card`() {
     val store = RecordingStore(tmp.newFolder())
     val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
-    val host = FakeHost(sensor)
+    val host = TestRecordingHost(sensor)
     control = RecordingControl(store, clock, host).also { it.start(request(sensor, RecordingMode.ON_DEVICE)) }
-    await("the tracker to hold the night") { sensor.storedEntryCount() == 1 }
+    awaitCondition("the tracker to hold the night") { sensor.storedEntryCount() == 1 }
 
     sensor.connect()
     // Enough beats that the import reports the entry both at its start and while it is stored.
@@ -128,7 +127,7 @@ class FinishingWithSimulatedSensorTest {
 
     sensor.fetchDelayMs = 150
     control!!.stop()
-    await("the done card") { RecordingRepository.status.value.finishing?.done == true }
+    awaitCondition("the done card") { RecordingRepository.status.value.finishing?.done == true }
 
     val finishing = RecordingRepository.status.value.finishing!!
     assertEquals(
@@ -164,9 +163,9 @@ class FinishingWithSimulatedSensorTest {
   fun `a failed fetch shows why and the retry finishes the night`() {
     val store = RecordingStore(tmp.newFolder())
     val sensor = SimulatedSensor(clock, autoRun = false, disconnectEveryMs = 0)
-    val host = FakeHost(sensor)
+    val host = TestRecordingHost(sensor)
     control = RecordingControl(store, clock, host).also { it.start(request(sensor, RecordingMode.ON_DEVICE)) }
-    await("the tracker to hold the night") { sensor.storedEntryCount() == 1 }
+    awaitCondition("the tracker to hold the night") { sensor.storedEntryCount() == 1 }
 
     sensor.connect()
     repeat(200) {
@@ -176,7 +175,7 @@ class FinishingWithSimulatedSensorTest {
 
     sensor.failFetchAfterEntries = 0
     control!!.stop()
-    await("the fetch-pending state") { RecordingRepository.status.value.fetchPending != null }
+    awaitCondition("the fetch-pending state") { RecordingRepository.status.value.fetchPending != null }
 
     val pending = RecordingRepository.status.value.fetchPending!!
     assertTrue(pending.error!!.contains("simulated tracker read failure"))
@@ -186,7 +185,7 @@ class FinishingWithSimulatedSensorTest {
 
     sensor.failFetchAfterEntries = null
     control!!.fetchPending(pending.recordingId)
-    await("the retry to finish") { RecordingRepository.status.value.finishing?.done == true }
+    awaitCondition("the retry to finish") { RecordingRepository.status.value.finishing?.done == true }
 
     val finishing = RecordingRepository.status.value.finishing!!
     assertEquals(pending.recordingId, finishing.recordingId)
@@ -208,90 +207,4 @@ class FinishingWithSimulatedSensorTest {
 
   private fun homeFor(status: CaptureStatus) =
       homeState(status, null, null, HomeState.READY, false, SensorPicker())
-
-  private fun await(what: String, condition: () -> Boolean) {
-    val deadline = System.currentTimeMillis() + 10_000
-    while (System.currentTimeMillis() < deadline) {
-      if (condition()) return
-      Thread.sleep(10)
-    }
-    assertTrue("timed out waiting for $what; finishing=${RecordingRepository.status.value}", condition())
-  }
-
-  private class FakeLock : RecordingWakeLock {
-    override var isHeld = false
-      private set
-
-    override fun acquire(timeoutMs: Long) {
-      isHeld = true
-    }
-
-    override fun release() {
-      isHeld = false
-    }
-  }
-
-  private class FakeHost(private val sensor: Tracker) : RecordingHost {
-    override var activeSessionId: String? = null
-    override var heartbeatMs = 0L
-    private var running = false
-    val finishedRecordings = mutableListOf<String>()
-
-    override fun obtain(kind: SensorKind, id: String, name: String): Tracker = sensor
-
-    override fun mayStart(mode: RecordingMode) = true
-
-    override fun readinessSummary() = "test readiness"
-
-    override fun newWakeLock(): RecordingWakeLock = FakeLock()
-
-    override fun scheduleWatchdog() = Unit
-
-    override fun cancelWatchdog() = Unit
-
-    override fun wakeWindow(): ArmedWake? = armed
-
-    override fun armWake(armed: ArmedWake) {
-      this.armed = armed
-    }
-
-    override fun disarmWake() {
-      armed = null
-    }
-
-    override fun fireWakeAlarm(reason: WakeReason) {
-      firedAlarms++
-    }
-
-    var armed: ArmedWake? = null
-    var firedAlarms = 0
-
-    override fun markRunning(running: Boolean) {
-      this.running = running
-    }
-
-    override val device =
-        RecordingDevice(
-            manufacturer = "JVM",
-            model = "test",
-            android = "0",
-            sdk = 0,
-            appVersion = "test",
-            appVersionCode = 1,
-        )
-
-    override fun message(message: RecordingMessage) = message.name
-
-    override fun refreshRecordings() = Unit
-
-    override fun onState(state: RecordingState) = Unit
-
-    override fun onRecordingFinished(recordingId: String) {
-      finishedRecordings += recordingId
-    }
-
-    override fun onFetchCompleted(recordingId: String) = Unit
-
-    override fun finishService() = Unit
-  }
 }
