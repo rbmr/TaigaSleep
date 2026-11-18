@@ -24,6 +24,7 @@ import com.polar.sdk.api.model.PolarPpgData
 import com.polar.sdk.api.model.PolarPpiData
 import com.polar.sdk.api.model.PolarSensorSetting
 import com.rbmr.taigasleep.tracker.FoundSensor
+import com.rbmr.taigasleep.tracker.SdkLog
 import com.rbmr.taigasleep.tracker.SensorKind
 import java.time.LocalDateTime
 import java.util.UUID
@@ -75,6 +76,12 @@ interface PolarSeam {
    * until a scan hears the strap advertise, and a new instance is what clears that.
    */
   fun recreate()
+
+  /**
+   * The SDK's own log lines at or after [sinceElapsedMs], oldest first, from a ring that holds only
+   * the recent ones. Empty when the seam keeps no log.
+   */
+  fun logSince(sinceElapsedMs: Long): List<String> = emptyList()
 
   fun scan(context: Context): Flow<PolarDeviceInfo>
 
@@ -188,6 +195,9 @@ object PolarSdkSeam : PolarSeam {
           shutDown = { runCatching { it.shutDown() } },
       )
 
+  /** What the SDK said recently; the connect watch reads it while a connect stays pending. */
+  private val log = SdkLog()
+
   // The set the driver that last asked for the instance needs. A scan makes a minimal instance
   // before any driver does, and the driver's first call replaces it.
   @Volatile private var required: Set<PolarBleSdkFeature> = SCAN_FEATURES
@@ -217,6 +227,11 @@ object PolarSdkSeam : PolarSeam {
             // The SDK reconnects dropped links itself (it decides how to call connectGatt).
             it.setAutomaticReconnection(true)
             it.setApiCallback(callback)
+            it.setApiLogger(
+                object : PolarBleApi.PolarBleApiLogger {
+                  override fun message(str: String) = log.add(str)
+                }
+            )
           }
 
   /** The instance for the features of the driver that last asked for it. */
@@ -270,6 +285,8 @@ object PolarSdkSeam : PolarSeam {
   override fun recreate() {
     sdk.recreate()
   }
+
+  override fun logSince(sinceElapsedMs: Long): List<String> = log.since(sinceElapsedMs)
 
   override fun scan(context: Context): Flow<PolarDeviceInfo> {
     install(context)

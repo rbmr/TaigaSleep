@@ -141,6 +141,12 @@ interface Tracker {
 
   val connection: StateFlow<ConnectionState>
 
+  /**
+   * The driver's own log lines at or after [sinceElapsedMs], oldest first, for diagnostics. Empty
+   * for a tracker that keeps no log.
+   */
+  fun logLinesSince(sinceElapsedMs: Long): List<String> = emptyList()
+
   /** Battery percent, null until known. */
   val battery: StateFlow<Int?>
 

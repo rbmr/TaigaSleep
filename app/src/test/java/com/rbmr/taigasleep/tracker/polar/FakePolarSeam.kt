@@ -52,6 +52,7 @@ class FakePolarSeam : PolarSeam {
   var exerciseEntries: List<PolarExerciseEntry> = emptyList()
   var exercisesOngoing = false
   var failsRemoval = false
+  var logLines: List<String> = emptyList()
 
   fun listener(id: String): PolarSeam.ConnectionListener? = listeners[id]
 
@@ -83,6 +84,8 @@ class FakePolarSeam : PolarSeam {
   }
 
   override fun recreate() = Unit
+
+  override fun logSince(sinceElapsedMs: Long): List<String> = logLines
 
   override fun scan(context: Context): Flow<PolarDeviceInfo> = emptyFlow()
 

@@ -43,6 +43,17 @@ class PolarH10SensorTest {
   }
 
   @Test
+  fun `the SDK log the seam kept is handed out for the connect watch`() {
+    val seam = FakePolarSeam().apply { logLines = listOf("device connecting", "device connected") }
+    val sensor = PolarH10Sensor(context, "H10-1", "Polar H10", seam)
+    try {
+      assertEquals(seam.logLines, sensor.logLinesSince(1_234))
+    } finally {
+      sensor.release()
+    }
+  }
+
+  @Test
   fun `connecting and starting the heart rate stream uses the seam`() {
     val seam = FakePolarSeam()
     val sensor = PolarH10Sensor(context, "H10-1", "Polar H10", seam)
