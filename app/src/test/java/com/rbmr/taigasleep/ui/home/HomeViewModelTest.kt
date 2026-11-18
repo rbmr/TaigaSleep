@@ -75,7 +75,7 @@ private class FakeWork : HomeWork {
   override val scanning = MutableStateFlow(false)
   val calls = mutableListOf<String>()
   var bluetooth = true
-  var streams = Streams(ecg = true)
+  var streams = Streams(setOf("hr", "ecg"))
   var modes = setOf(RecordingMode.STREAM)
   var mode = RecordingMode.STREAM
   var guard = HomeState.READY
@@ -141,7 +141,9 @@ private class FakeWork : HomeWork {
   }
 
   override fun start(config: StartConfig) {
-    calls += "start:${config.mode}:${config.streams.ecg}:${config.streams.acc}"
+    calls +=
+        "start:${config.mode}:${config.records(StreamType.ECG)}:" +
+            "${config.records(StreamType.ACCELEROMETER)}"
   }
 
   override fun stop() {
@@ -187,7 +189,7 @@ private fun config(
     modes: Set<RecordingMode> = setOf(RecordingMode.STREAM),
 ) =
     StartConfig(
-        streams = Streams(ecg = ecg, acc = false),
+        streams = Streams(if (ecg) setOf("hr", "ecg") else setOf("hr")),
         modes = modes,
         mode = mode,
         canRecordAcc = false,
@@ -580,7 +582,7 @@ class HomeViewModelTest {
 
     assertTrue("hr:false" in work.calls)
     assertEquals(
-        Streams(ecg = true, acc = false, hr = false),
+        Streams(setOf("ecg")),
         (model.state.value as HomeUiState.ReadyToStart).config.streams,
     )
   }
@@ -724,7 +726,7 @@ class HomeViewModelTest {
 
     assertTrue("ecg:false" in work.calls)
     assertEquals(
-        Streams(ecg = false, acc = false),
+        Streams(setOf("hr")),
         (model.state.value as HomeUiState.ReadyToStart).config.streams,
     )
   }

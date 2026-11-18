@@ -16,26 +16,9 @@ data class StreamOption(val id: String, val type: StreamType)
 
 /** The streams the user chose to record, by the tracker's own stream ids. */
 data class Streams(val chosen: Set<String> = emptySet()) {
-  /** The three streams the app started with, for callers that still name them. */
-  constructor(hr: Boolean = true, ecg: Boolean = false, acc: Boolean = false) : this(
-      buildSet {
-        if (hr) add("hr")
-        if (ecg) add("ecg")
-        if (acc) add("acc")
-      }
-  )
   /** True when at least one stream is on; a recording needs one. */
   val any: Boolean
     get() = chosen.isNotEmpty()
-
-  val hr: Boolean
-    get() = "hr" in chosen
-
-  val ecg: Boolean
-    get() = "ecg" in chosen
-
-  val acc: Boolean
-    get() = "acc" in chosen
 }
 
 /**

@@ -292,7 +292,7 @@ class LargeTextScreensTest {
         tracker = TrackerView(name = "Polar H10", connection = ConnectionState.CONNECTED, battery = 82),
         config =
             StartConfig(
-                streams = Streams(hr = true, ecg = true, acc = true),
+                streams = Streams(setOf("hr", "ecg", "acc")),
                 modes = setOf(RecordingMode.STREAM, RecordingMode.ON_DEVICE),
                 mode = RecordingMode.STREAM,
                 canRecordAcc = true,
