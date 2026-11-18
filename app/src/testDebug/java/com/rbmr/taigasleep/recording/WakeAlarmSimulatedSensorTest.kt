@@ -230,9 +230,9 @@ class WakeAlarmSimulatedSensorTest {
       sensor.pump(clock.elapsedNs())
     }
 
-    var accFrames = 0
-    FrameLog.scan(java.io.File(tmp.root.listFiles()!!.single(), "${host.activeSessionId}/acc.log")) { accFrames++ }
-    assertTrue("movement reached the recording", accFrames > 0)
+    val accLog = java.io.File(tmp.root.listFiles()!!.single(), "${host.activeSessionId}/acc.log")
+    // The writer stores handed-off frames on a thread of its own, so the log may still be filling.
+    assertTrue("movement reached the recording", awaitFrames(accLog) > 0)
     assertEquals(0, host.firedAlarms)
     assertNull(RecordingRepository.status.value.wake)
     assertTrue("the recording goes on", host.activeSessionId != null)
@@ -354,6 +354,21 @@ class WakeAlarmSimulatedSensorTest {
 
   private fun eventsOf(id: String): String =
       java.io.File(tmp.root.listFiles()!!.single(), "$id/events.jsonl").readText()
+
+  /**
+   * Frames in [file] once the writer's thread has stored what it was handed. The writer stores in
+   * the background, so a read straight after the sensor pumped may run ahead of the disk.
+   */
+  private fun awaitFrames(file: java.io.File): Int {
+    val deadline = System.currentTimeMillis() + HANG_GUARD_MS
+    while (System.currentTimeMillis() < deadline) {
+      var frames = 0
+      if (file.exists()) FrameLog.scan(file) { frames++ }
+      if (frames > 0) return frames
+      Thread.sleep(10)
+    }
+    return 0
+  }
 
   /** A window that is open now: ten minutes before this moment and twenty after it. */
   private fun windowAroundNow(): WakeWindow {

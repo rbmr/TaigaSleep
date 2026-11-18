@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.TestClock
 import com.rbmr.taigasleep.recording.store.FrameLog
+import com.rbmr.taigasleep.recording.store.FrameLogWriter
 import com.rbmr.taigasleep.recording.store.LogPosition
 import com.rbmr.taigasleep.recording.store.Payloads
 import com.rbmr.taigasleep.recording.store.RecordingConfig
@@ -12,13 +13,18 @@ import com.rbmr.taigasleep.recording.store.StreamId
 import com.rbmr.taigasleep.tracker.AccBatch
 import com.rbmr.taigasleep.tracker.EcgBatch
 import com.rbmr.taigasleep.tracker.HrSample
+import com.rbmr.taigasleep.tracker.PolarCodec
 import com.rbmr.taigasleep.tracker.Stamp
+import com.rbmr.taigasleep.tracker.TrackerFrame
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import com.rbmr.taigasleep.tracker.RecordingMode
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -54,6 +60,18 @@ class RecordingWriterTest {
       )
 
   private fun stamp() = Stamp.now(clock)
+
+  private fun hrFrame(stamp: Stamp): TrackerFrame {
+    val enc =
+        PolarCodec.encodeHr(
+            stamp.phoneNs,
+            stamp.elapsedNs,
+            60,
+            PolarCodec.hrFlags(true, true, true),
+            intArrayOf(1_000),
+        )
+    return TrackerFrame("hr", stamp, enc.bytes, enc.clamped)
+  }
 
   private fun events(dir: File): List<JsonObject> =
       File(dir, "events.jsonl").readLines().map { Json.parseToJsonElement(it).jsonObject }
@@ -149,6 +167,127 @@ class RecordingWriterTest {
     clock.advanceMs(30_000)
     w.sync()
     assertEquals(clock.elapsedNs(), w.storageHealth().lastSyncNs)
+  }
+
+  @Test
+  fun aSlowSyncDoesNotHoldUpOtherLogsOrEvents() {
+    val syncEntered = CountDownLatch(1)
+    val releaseSync = CountDownLatch(1)
+    val w =
+        RecordingWriter.create(tmp.newFolder("rec"), meta(), clock) { file, stream ->
+          FrameLogWriter(
+              file,
+              stream,
+              flush = { raf ->
+                if (file.name == RecordingWriter.ECG_LOG) {
+                  syncEntered.countDown()
+                  awaitQuietly(releaseSync)
+                }
+                raf.fd.sync()
+              },
+          )
+        }
+    val synced = AtomicBoolean(false)
+    val sync = Thread { synced.set(w.sync()) }.apply { start() }
+    assertTrue(syncEntered.await(5, TimeUnit.SECONDS))
+
+    // The ECG log is stuck in its fsync: another log's frame and an event still reach the disk.
+    assertTrue(w.writeHr(stamp(), HrSample(60, true, true, false, IntArray(0))))
+    w.event("note", "written while the ecg log is flushing")
+    assertEquals(listOf("start", "note"), events(w.dir).map { it.string("type") })
+
+    releaseSync.countDown()
+    sync.join(5_000)
+    assertTrue(synced.get())
+    w.finish(RecordingPhase.STOPPED, "done")
+  }
+
+  private fun awaitQuietly(latch: CountDownLatch) {
+    try {
+      latch.await()
+    } catch (_: InterruptedException) {
+      Thread.currentThread().interrupt()
+    }
+  }
+
+  /** Waits until the event log holds an event of [type]; the log is fsynced per line. */
+  private fun awaitEvent(dir: File, type: String) {
+    val deadline = System.currentTimeMillis() + 5_000
+    while (System.currentTimeMillis() < deadline) {
+      if (events(dir).any { it.string("type") == type }) return
+      Thread.sleep(10)
+    }
+    assertTrue("timed out waiting for the $type event", false)
+  }
+
+  @Test
+  fun aFullHandOffQueueIsCountedAsDroppedFrames() {
+    val writeEntered = CountDownLatch(1)
+    val releaseWrite = CountDownLatch(1)
+    val w =
+        RecordingWriter.create(tmp.newFolder("rec"), meta(), clock) { file, stream ->
+          FrameLogWriter(
+              file,
+              stream,
+              writeFrame = { raf, frame ->
+                writeEntered.countDown()
+                awaitQuietly(releaseWrite)
+                raf.write(frame)
+              },
+          )
+        }
+    val stamp = stamp()
+    w.handOff(hrFrame(stamp))
+    assertTrue(writeEntered.await(5, TimeUnit.SECONDS))
+
+    // The log is stuck: the queue fills and later frames are counted instead of growing it.
+    repeat(RecordingWriter.HAND_OFF_FRAMES + 5) { w.handOff(hrFrame(stamp)) }
+    assertEquals(5L, w.storageHealth().droppedFrames)
+
+    releaseWrite.countDown()
+    w.finish(RecordingPhase.STOPPED, "done")
+    var written = 0
+    FrameLog.scan(File(w.dir, RecordingWriter.HR_LOG)) { written++ }
+    assertEquals(1 + RecordingWriter.HAND_OFF_FRAMES, written)
+  }
+
+  @Test
+  fun aStopIsHandledWhileTheSyncThreadIsFlushing() {
+    val syncEntered = CountDownLatch(1)
+    val releaseSync = CountDownLatch(1)
+    val w =
+        RecordingWriter.create(tmp.newFolder("rec"), meta(), clock) { file, stream ->
+          FrameLogWriter(
+              file,
+              stream,
+              flush = { raf ->
+                if (file.name == RecordingWriter.HR_LOG) {
+                  syncEntered.countDown()
+                  awaitQuietly(releaseSync)
+                }
+                raf.fd.sync()
+              },
+          )
+        }
+    // The cadence does not run the fsync on the caller: this returns while the log is stuck.
+    w.syncIfDue(RecordingWriter.SYNC_INTERVAL_MS)
+    assertTrue(syncEntered.await(5, TimeUnit.SECONDS))
+
+    // A stop reaches the recording while that flush is still running, and is noted before it ends.
+    val stopped = AtomicBoolean(false)
+    val stop =
+        Thread {
+              w.finish(RecordingPhase.STOPPED, "stopped by user")
+              stopped.set(true)
+            }
+            .apply { start() }
+    awaitEvent(w.dir, "stop")
+    assertFalse("the stop waits only for the flush in progress", stopped.get())
+
+    releaseSync.countDown()
+    stop.join(5_000)
+    assertTrue(stopped.get())
+    assertEquals(RecordingPhase.STOPPED, RecordingMeta.read(w.dir)!!.state)
   }
 
   @Test

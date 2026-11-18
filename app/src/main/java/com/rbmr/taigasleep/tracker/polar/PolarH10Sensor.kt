@@ -130,9 +130,8 @@ class PolarH10Sensor(
   private val _firmware = MutableStateFlow<String?>(null)
   override val firmware: StateFlow<String?> = _firmware.asStateFlow()
 
-  // Sample delivery and stream (re)starts each get one thread, so the SDK threads never wait on
-  // disk and samples of a stream stay in order.
-  private val delivery = Executors.newSingleThreadExecutor { Thread(it, "polar-delivery-$id") }
+  // Stream (re)starts get a thread of their own. Samples are handed to the listener on the SDK's
+  // callback thread; the writer takes them off that thread itself, so no driver queue grows.
   private val control = Executors.newSingleThreadScheduledExecutor { Thread(it, "polar-control-$id") }
 
   private val ready = HashSet<PolarBleSdkFeature>()
@@ -381,7 +380,6 @@ class PolarH10Sensor(
     streamScope.cancel()
     calls.cancel()
     control.shutdown()
-    delivery.shutdown()
   }
 
   // Callbacks from the SDK.
@@ -621,9 +619,7 @@ class PolarH10Sensor(
       seam.startHr(id).collect { data ->
         val stamp = Stamp.now(clock)
         gotSample("hr", l)
-        delivery.execute {
-          for (frame in PolarFrames.heartRate(stamp, data.samples)) l.onFrame(frame)
-        }
+        for (frame in PolarFrames.heartRate(stamp, data.samples)) l.onFrame(frame)
       }
     }
     watch("hr", l) { startHr(l) }
@@ -636,9 +632,7 @@ class PolarH10Sensor(
       seam.startEcg(id, settings).collect { data ->
         val stamp = Stamp.now(clock)
         gotSample("ecg", l)
-        delivery.execute {
-          for (frame in PolarFrames.ecg(stamp, data.samples)) l.onFrame(frame)
-        }
+        for (frame in PolarFrames.ecg(stamp, data.samples)) l.onFrame(frame)
       }
     }
     watch("ecg", l) { startEcg(l) }
@@ -652,9 +646,7 @@ class PolarH10Sensor(
       seam.startAcc(id, settings).collect { data ->
         val stamp = Stamp.now(clock)
         gotSample("acc", l)
-        delivery.execute {
-          for (frame in PolarFrames.accelerometer(stamp, data.samples)) l.onFrame(frame)
-        }
+        for (frame in PolarFrames.accelerometer(stamp, data.samples)) l.onFrame(frame)
       }
     }
     watch("acc", l) { startAcc(l) }

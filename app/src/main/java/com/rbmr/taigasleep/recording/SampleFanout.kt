@@ -15,9 +15,10 @@ import com.rbmr.taigasleep.tracker.TrackerFrame
 import com.rbmr.taigasleep.tracker.TrackerListener
 
 /**
- * The service's one frame listener: it hands each frame to the writer first, then decodes it for
- * the monitor and the wake-up watch. Raw storage is never sacrificed to monitoring: a failure there
- * is caught and reported once, and the writer keeps its frames.
+ * The service's one frame listener. It hands each frame to the writer at once, so the tracker's
+ * delivery thread never waits for disk, then decodes it for the monitor and the wake-up watch. Raw
+ * storage is never sacrificed to monitoring: a failure there is caught and reported once, and the
+ * writer keeps its frames.
  *
  * The monitor and the watch are only called for streams they understand, so a bug there cannot
  * lose a frame. Events and notes keep going straight to the writer's `events.jsonl`.
@@ -35,7 +36,7 @@ class SampleFanout(
   override fun onFrame(frame: TrackerFrame) {
     // One frame is one notification, and its payload is exactly what the tracker sent.
     RecordingCost.ble(frame.stream, frame.payload.size.toLong())
-    writer.writeFrame(frame)
+    writer.handOff(frame)
     val stream = writer.meta.stream(frame.stream) ?: return
     when (stream.effectiveType()) {
       StreamType.HEART_RATE -> {

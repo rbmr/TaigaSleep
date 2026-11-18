@@ -19,6 +19,13 @@ import com.rbmr.taigasleep.tracker.Stamp
 import com.rbmr.taigasleep.tracker.TrackerFrame
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /** Raw storage health, owned by the writer and read by the monitor. Times are elapsed-realtime ns. */
 data class StorageHealth(
@@ -26,7 +33,7 @@ data class StorageHealth(
     val lastError: String? = null,
     /** When the last fsync succeeded, 0 before the first one. */
     val lastSyncNs: Long = 0,
-    /** Frames a failed write cost so far; each was rolled back and is missing from the log. */
+    /** Frames missing from the log: failed writes and frames the hand-off queue could not take. */
     val droppedFrames: Long = 0,
 )
 
@@ -35,31 +42,57 @@ data class StorageHealth(
  * frames in the v1 format, fsyncs on a cadence and exposes [storageHealth]. It derives nothing:
  * contact, rates, staleness and quality belong to [RecordingMonitor].
  *
- * All methods are safe to call from any thread.
+ * All methods are safe to call from any thread. Frames handed off with [handOff] are stored on a
+ * thread of the writer's own, an append takes only the lock of the log it writes, and an event only
+ * the lock of the event file, so no delivery thread waits for another stream's write or for an fsync.
  */
 class RecordingWriter
 private constructor(
     val dir: File,
     meta: RecordingMeta,
     private val clock: Clock,
+    /** Opens one stream log; a test supplies logs whose fsync or write it can stall. */
+    private val openLog: (File, Int) -> FrameLogWriter = { file, stream -> FrameLogWriter(file, stream) },
 ) {
+  @Volatile
   var meta: RecordingMeta = meta
     private set
 
+  // Filled once, before the writer is shared; only the logs themselves are touched afterwards.
   private val logs = HashMap<Int, FrameLogWriter>()
   /** Which log a stream id's frames go to. A file shared by two streams keeps one log. */
   private val streamLogs = HashMap<String, Int>()
-  private var closed = false
-  private var lastSyncMs = 0L
-  private var lastSyncNs = 0L
-  private var errorEvents = 0
+  @Volatile private var closed = false
+  @Volatile private var lastSyncMs = 0L
+  @Volatile private var lastSyncNs = 0L
+  private val errorEvents = AtomicInteger()
 
-  private var failure: String? = null
-  private var failing = false
+  /** fsyncs run here, so neither the control thread nor a frame append ever waits for the disk. */
+  private val syncing = Executors.newSingleThreadExecutor {
+    Thread(it, "recording-sync").apply { isDaemon = true }
+  }
+  /** One flush at a time: a slow disk must not pile tasks up behind itself. */
+  private val syncQueued = AtomicBoolean(false)
+
+  /**
+   * Frames handed off a tracker's delivery thread wait here for the writer's own thread. The queue
+   * is bounded on purpose: a frame it cannot take costs the frame and is counted in
+   * [storageHealth] instead of growing the queue without limit.
+   */
+  private val handedOff = ArrayBlockingQueue<TrackerFrame>(HAND_OFF_FRAMES)
+  private val handOffDrops = AtomicLong()
+  private val logging = Thread(::logHandedOff, "recording-log").apply { isDaemon = true }
+  private val loggingStarted = AtomicBoolean(false)
+
+  /** Serialises events: their lines never interleave and each gets its own fsync. */
+  private val eventsLock = Any()
+
+  @Volatile private var failure: String? = null
+  @Volatile private var failing = false
 
   private fun open(stream: Int, name: String) {
     if (logs.containsKey(stream)) return
-    logs[stream] = FrameLogWriter(File(dir, name), stream)
+    logs[stream] = openLog(File(dir, name), stream)
   }
 
   private fun openLogs() {
@@ -98,9 +131,25 @@ private constructor(
   }
 
   /** Appends one raw frame the tracker encoded. Returns false when it could not be written. */
-  @Synchronized
   fun writeFrame(frame: TrackerFrame): Boolean {
     if (closed) return false
+    return write(frame)
+  }
+
+  /**
+   * Hands [frame] to the writer's own thread, so the caller never waits for the disk. A full queue
+   * drops the frame and counts it in [storageHealth]; the payload must not be reused afterwards.
+   */
+  fun handOff(frame: TrackerFrame) {
+    if (closed) return
+    if (!handedOff.offer(frame)) {
+      handOffDrops.incrementAndGet()
+      return
+    }
+    if (loggingStarted.compareAndSet(false, true)) logging.start()
+  }
+
+  private fun write(frame: TrackerFrame): Boolean {
     if (frame.clamped > 0) {
       // The wording the writer used when it encoded these streams itself.
       errorEvent(
@@ -113,7 +162,28 @@ private constructor(
     return append(log, frame.payload)
   }
 
-  @Synchronized
+  /** Writes handed-off frames in the order they arrived until the writer is closed. */
+  private fun logHandedOff() {
+    while (true) {
+      val frame =
+          try {
+            handedOff.poll(HAND_OFF_POLL_MS, TimeUnit.MILLISECONDS)
+          } catch (_: InterruptedException) {
+            null
+          }
+      if (frame != null) {
+        write(frame)
+      } else if (closed) {
+        break
+      }
+    }
+    // A close takes what was handed off before it, so no accepted frame is left behind.
+    while (true) {
+      val frame = handedOff.poll() ?: break
+      write(frame)
+    }
+  }
+
   fun storageHealth() =
       StorageHealth(
           bytesWritten = logs.values.sumOf { it.bytes },
@@ -122,29 +192,29 @@ private constructor(
           droppedFrames = droppedFrames(),
       )
 
-  /** Frames a failed write cost across all streams, so the loss is visible and not swallowed. */
-  private fun droppedFrames(): Long = logs.values.sumOf { it.droppedFrames }
+  /** Frames a failed write or a full hand-off queue cost across all streams, so the loss is visible. */
+  private fun droppedFrames(): Long = logs.values.sumOf { it.droppedFrames } + handOffDrops.get()
 
-  @Synchronized
   fun event(type: String, message: String) {
-    try {
-      EventLog.append(dir, clock.phoneNs(), clock.elapsedNs(), type, message)
-    } catch (e: IOException) {
-      Log.w(TAG, "event write failed", e)
+    synchronized(eventsLock) {
+      try {
+        EventLog.append(dir, clock.phoneNs(), clock.elapsedNs(), type, message)
+      } catch (e: IOException) {
+        Log.w(TAG, "event write failed", e)
+      }
     }
   }
 
   private fun errorEvent(message: String) {
     // A saturated sensor would otherwise fill the event log with one line per batch.
-    if (errorEvents < MAX_ERROR_EVENTS) {
-      errorEvents++
+    val count = errorEvents.incrementAndGet()
+    if (count <= MAX_ERROR_EVENTS) {
       event("error", message)
-      if (errorEvents == MAX_ERROR_EVENTS) event("error", "further errors suppressed")
+      if (count == MAX_ERROR_EVENTS) event("error", "further errors suppressed")
     }
   }
 
   /** Returns false when the frame could not be written, so an importer can refuse to delete it. */
-  @Synchronized
   fun writeHr(stamp: Stamp, s: HrSample): Boolean {
     if (closed) return false
     val flags = PolarCodec.hrFlags(s.contactSupported, s.contact, s.rrAvailable)
@@ -153,7 +223,6 @@ private constructor(
     return append(StreamId.HR, enc.bytes)
   }
 
-  @Synchronized
   fun writeEcg(stamp: Stamp, b: EcgBatch): Boolean {
     if (closed) return false
     if (b.timestampsNs.isEmpty()) return true
@@ -172,7 +241,6 @@ private constructor(
     return ok
   }
 
-  @Synchronized
   fun writeAcc(stamp: Stamp, b: AccBatch): Boolean {
     if (closed) return false
     if (b.timestampsNs.isEmpty()) return true
@@ -198,7 +266,6 @@ private constructor(
    * through [storageHealth] and recorded as events.
    */
   private fun append(stream: Int, payload: ByteArray): Boolean {
-    if (closed) return false
     val log = logs[stream] ?: return false
     return try {
       log.append(payload)
@@ -219,16 +286,31 @@ private constructor(
     }
   }
 
-  /** fsyncs all logs if [SYNC_INTERVAL_MS] passed since the last time. */
-  @Synchronized
+  /**
+   * Starts an fsync of every log on the sync thread when [SYNC_INTERVAL_MS] passed since the last
+   * one. The caller does not wait: the tick loop keeps its cadence while the disk is busy.
+   */
   fun syncIfDue(nowMs: Long) {
     if (closed || nowMs - lastSyncMs < SYNC_INTERVAL_MS) return
+    if (!syncQueued.compareAndSet(false, true)) return
     lastSyncMs = nowMs
-    sync()
+    try {
+      syncing.execute {
+        try {
+          sync()
+        } finally {
+          syncQueued.set(false)
+        }
+      }
+    } catch (_: RejectedExecutionException) {
+      syncQueued.set(false)
+    }
   }
 
-  /** Flushes every log and returns false when the data is not safely on disk. */
-  @Synchronized
+  /**
+   * Flushes every log and returns false when the data is not safely on disk. It takes each log's own
+   * lock, so an append to another log goes on while the flush runs.
+   */
   fun sync(): Boolean {
     if (closed) return false
     return try {
@@ -375,6 +457,24 @@ private constructor(
   fun close() {
     if (closed) return
     closed = true
+    // A flush that is still running holds its log's lock; closing that log waits for it.
+    syncing.shutdown()
+    var drained = true
+    if (loggingStarted.get()) {
+      logging.interrupt()
+      try {
+        logging.join()
+      } catch (_: InterruptedException) {
+        Thread.currentThread().interrupt()
+        drained = false
+      }
+    }
+    if (drained) {
+      while (true) {
+        val frame = handedOff.poll() ?: break
+        write(frame)
+      }
+    }
     logs.values.forEach {
       try {
         it.close()
@@ -426,12 +526,21 @@ private constructor(
     const val SYNC_INTERVAL_MS = 30_000L
     private const val MAX_ERROR_EVENTS = 50
 
+    /** Frames that may wait for the writer's own thread before the queue drops and counts one. */
+    internal const val HAND_OFF_FRAMES = 2048
+    private const val HAND_OFF_POLL_MS = 100L
+
     /** Starts a new recording directory under [root]; meta.json is written with state recording. */
-    fun create(root: File, meta: RecordingMeta, clock: Clock): RecordingWriter {
+    fun create(
+        root: File,
+        meta: RecordingMeta,
+        clock: Clock,
+        openLog: (File, Int) -> FrameLogWriter = { file, stream -> FrameLogWriter(file, stream) },
+    ): RecordingWriter {
       val dir = File(root, meta.recordingId)
       check(dir.mkdirs()) { "recording dir exists: ${meta.recordingId}" }
       if (!meta.write(dir)) throw IOException("could not write ${RecordingMeta.FILE_NAME}")
-      return RecordingWriter(dir, meta, clock).also {
+      return RecordingWriter(dir, meta, clock, openLog).also {
         it.openLogs()
         it.event("start", "recording started")
       }
