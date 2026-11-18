@@ -115,10 +115,10 @@ class WakeAlarmService : Service() {
     report(result, source)
   }
 
-  /** Tells a recording that is still alive whether its alarm actually made a sound. */
+  /** Tells a recording that is still alive whether its alarm could actually be heard. */
   private fun report(result: AlarmRing, source: String) {
     if (!RecordingService.running) return
-    if (result.playbackStarted) {
+    if (result.audible) {
       RecordingService.wakeRang(this, source)
     } else {
       RecordingService.wakeFailed(this, result.failure ?: "no sound")

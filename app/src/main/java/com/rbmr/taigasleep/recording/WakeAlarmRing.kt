@@ -81,8 +81,10 @@ interface AlarmNotifications {
 /** What one ring did, as the service reports it and the diagnostics record it. */
 data class AlarmRing(
     val playbackStarted: Boolean,
+    /** True when the alarm stream was above the inaudible threshold after the attempt. */
+    val audible: Boolean,
     val sound: AlarmSound?,
-    /** Why the sound did not start; null when it did. */
+    /** Why the alarm could not be heard; null when it could. */
     val failure: String?,
     val ringerMode: RingerMode,
     val interruptionFilter: Int,
@@ -99,11 +101,16 @@ data class AlarmRing(
 
   /** What the settings' test action reports. */
   fun testResult(): AlarmTestResult =
-      AlarmTestResult(playbackStarted, volumeAfter, maxVolume)
+      AlarmTestResult(playbackStarted, audible, volumeAfter, maxVolume)
 }
 
 /** What the alarm settings report after a test ring. */
-data class AlarmTestResult(val started: Boolean, val volume: Int, val maxVolume: Int)
+data class AlarmTestResult(
+    val started: Boolean,
+    val audible: Boolean,
+    val volume: Int,
+    val maxVolume: Int,
+)
 
 /**
  * Rings the alarm on the alarm audio stream and with the alarm's vibration, independent of the
@@ -133,12 +140,10 @@ class WakeAlarmRing(
   fun start(reason: WakeReason, source: String): AlarmRing {
     val before = phone.alarmVolume
     val max = phone.alarmMaxVolume
-    var after = before
-    if (before < volumeFloor(max) && phone.setAlarmVolume(volumeFloor(max))) {
-      after = phone.alarmVolume
-    }
-    // The alarm may raise the stream, never lower it.
-    if (after < before) after = before
+    if (before < volumeFloor(max)) phone.setAlarmVolume(volumeFloor(max))
+    // Read what the phone actually did: the alarm may raise the stream, never lower it, and a
+    // refused or clamped raise leaves it where it was.
+    val after = phone.alarmVolume
     val focus = phone.requestFocus()
     var sound: AlarmSound? = null
     for (candidate in AlarmSound.entries) {
@@ -149,13 +154,22 @@ class WakeAlarmRing(
     }
     val playback = sound != null
     if (!playback) player.stopSound()
+    val audible = playback && isAudible(after, max)
+    val failure =
+        when {
+          !playback -> "no sound could be played"
+          !audible -> "the alarm stream is silent"
+          else -> null
+        }
     val vibration = vibrator.startVibration()
-    val notification = notifications.post(reason, fallback = !playback)
+    // An inaudible alarm keeps playing, but the notification sounds as a second attempt.
+    val notification = notifications.post(reason, fallback = !audible)
     val ring =
         AlarmRing(
             playbackStarted = playback,
+            audible = audible,
             sound = sound,
-            failure = if (playback) null else "no sound could be played",
+            failure = failure,
             ringerMode = phone.ringerMode,
             interruptionFilter = phone.interruptionFilter,
             volumeBefore = before,
@@ -174,13 +188,13 @@ class WakeAlarmRing(
 
   private fun logStart(ring: AlarmRing, source: String, reason: WakeReason, sound: AlarmSound?) {
     log("wake_alarm", fields(ring, source, reason))
-    if (sound != null) {
+    if (ring.audible) {
       log(
           "wake_rang",
           mapOf(
               "source" to source,
               "reason" to reason.wire,
-              "sound" to sound.wire,
+              "sound" to sound?.wire,
               "volume" to ring.volumeAfter,
               "volume_max" to ring.maxVolume,
           ),
@@ -230,6 +244,7 @@ class WakeAlarmRing(
           "alarm_volume_after" to ring.volumeAfter,
           "alarm_volume_max" to ring.maxVolume,
           "playback_started" to ring.playbackStarted,
+          "audible" to ring.audible,
           "sound" to ring.sound?.wire,
           "audio_focus" to ring.focusGranted,
           "notification_posted" to ring.notificationPosted,
@@ -240,7 +255,14 @@ class WakeAlarmRing(
     /** The alarm stream is never left below this share of its maximum while the alarm rings. */
     const val VOLUME_FLOOR_PERCENT = 70
 
+    /** Below this share of the maximum the stream is treated as inaudible, even with playback. */
+    const val AUDIBLE_MIN_PERCENT = 5
+
     fun volumeFloor(max: Int): Int = ceil(max * VOLUME_FLOOR_PERCENT / 100.0).toInt()
+
+    /** True when [volume] is high enough for the alarm to be heard on a stream of [max]. */
+    fun isAudible(volume: Int, max: Int): Boolean =
+        volume > 0 && (max <= 0 || volume >= ceil(max * AUDIBLE_MIN_PERCENT / 100.0).toInt())
 
     /** A readable name for `NotificationManager.INTERRUPTION_FILTER_*`. */
     fun dndName(filter: Int): String =

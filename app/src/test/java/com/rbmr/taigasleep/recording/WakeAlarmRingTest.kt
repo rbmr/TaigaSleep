@@ -139,11 +139,57 @@ class WakeAlarmRingTest {
     assertEquals(7, alarm["alarm_volume_after"])
     assertEquals(10, alarm["alarm_volume_max"])
     assertEquals(true, alarm["playback_started"])
+    assertEquals(true, alarm["audible"])
     assertEquals("user_ringtone", alarm["sound"])
     assertEquals(true, alarm["audio_focus"])
     assertEquals(true, alarm["notification_posted"])
     assertEquals(true, alarm["vibration_started"])
     assertTrue(logs.any { it.first == "wake_rang" })
+  }
+
+  @Test
+  fun `a stream that stays silent is not audible even with playback`() {
+    phone.volume = 0
+    phone.max = 10
+    phone.refuseRaise = true
+
+    val result = ring.start(WakeReason.WINDOW_END, "signal")
+
+    assertTrue("the sound is playing", result.playbackStarted)
+    assertFalse("but nothing can be heard", result.audible)
+    assertEquals("the alarm stream is silent", result.failure)
+    assertTrue("the notification sounds as a second attempt", notifications.fallback)
+    assertFalse("the sound keeps running", player.stopped)
+    assertTrue("nothing wrote wake_rang", logs.none { it.first == "wake_rang" })
+    val failed = logs.single { it.first == "wake_alarm_failed" }.second
+    assertEquals("the alarm stream is silent", failed["reason"])
+    val alarm = logs.single { it.first == "wake_alarm" }.second
+    assertEquals(false, alarm["audible"])
+  }
+
+  @Test
+  fun `a stream below the audible threshold is not audible`() {
+    phone.volume = 1
+    phone.max = 100
+    phone.refuseRaise = true
+
+    val result = ring.start(WakeReason.SIGNAL, "signal")
+
+    assertTrue(result.playbackStarted)
+    assertFalse(result.audible)
+    assertTrue(notifications.fallback)
+  }
+
+  @Test
+  fun `a test ring that played at zero says it could not be heard`() {
+    phone.volume = 0
+    phone.max = 10
+    phone.refuseRaise = true
+
+    val result = ring.start(WakeReason.WINDOW_END, "test").testResult()
+
+    assertTrue("playback started", result.started)
+    assertFalse("but it could not be heard", result.audible)
   }
 
   @Test
@@ -188,6 +234,7 @@ class WakeAlarmRingTest {
     var max = 10
     var focus = true
     var focusTaken = false
+    var refuseRaise = false
 
     override val ringerMode: RingerMode
       get() = ringer
@@ -201,6 +248,7 @@ class WakeAlarmRingTest {
       get() = true
 
     override fun setAlarmVolume(volume: Int): Boolean {
+      if (refuseRaise) return false
       this.volume = volume
       return true
     }

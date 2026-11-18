@@ -90,7 +90,8 @@ class WakeAlarmTest {
 
   @Test
   fun `the test action starts the same ringing service for a few seconds`() {
-    WakeAlarm.testResult.value = AlarmTestResult(started = true, volume = 5, maxVolume = 10)
+    WakeAlarm.testResult.value =
+        AlarmTestResult(started = true, audible = true, volume = 5, maxVolume = 10)
 
     WakeAlarm.test(context)
 

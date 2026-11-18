@@ -133,7 +133,8 @@ object WakeAlarm {
           "wake_alarm_failed",
           mapOf("source" to intent.getStringExtra(WakeAlarmService.EXTRA_SOURCE), "reason" to "service"),
       )
-      testResult.value = AlarmTestResult(started = false, volume = 0, maxVolume = 0)
+      testResult.value =
+          AlarmTestResult(started = false, audible = false, volume = 0, maxVolume = 0)
       fallback(context, intent)
     }
   }

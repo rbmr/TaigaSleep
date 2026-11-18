@@ -46,7 +46,10 @@ internal fun WakeTestNote(result: AlarmTestResult?) {
   val text =
       when {
         result == null -> return
-        result.started -> stringResource(R.string.wake_test_started, result.volume, result.maxVolume)
+        result.audible ->
+            stringResource(R.string.wake_test_started, result.volume, result.maxVolume)
+        result.started ->
+            stringResource(R.string.wake_test_silent, result.volume, result.maxVolume)
         else -> stringResource(R.string.wake_test_failed)
       }
   Text(

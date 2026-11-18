@@ -129,15 +129,18 @@ mode. Whether it was heard is what these events answer.
 (`signal` or `window_end`, the same words the notification uses), `ringer_mode` (`silent`, `vibrate`,
 `normal` or `unknown`), `dnd_filter` (`all`, `priority`, `none`, `alarms` or `unknown`), the alarm
 stream's `alarm_volume_before`, `alarm_volume_after` and `alarm_volume_max`, `playback_started`,
-`sound` (`user_ringtone`, `default_alarm` or `bundled_tone`), `audio_focus`, `notification_posted` and
-`vibration_started`. The stream is raised to 70 % of its maximum when it was below that, and the
-raise is only ever upward.
+`audible`, `sound` (`user_ringtone`, `default_alarm` or `bundled_tone`), `audio_focus`,
+`notification_posted` and `vibration_started`. The stream is raised to 70 % of its maximum when it
+was below that, and the raise is only ever upward. `audible` is false when playback started but the
+stream stayed at zero or below a few percent of its maximum, which a refused raise or a fixed
+volume policy can do.
 
-`wake_rang` is written only when the sound actually started, with the same `source` and `reason` and
-the `volume` and `volume_max` it played at. A ring that produced no sound writes
-`wake_alarm_failed` instead, with the `reason` (`no sound could be played`, the foreground service
-was refused, or the service could not be started), the ringer mode, the Do Not Disturb filter and
-whether notifications are allowed.
+`wake_rang` is written only when the sound actually started and the stream was above that audible
+threshold, with the same `source` and `reason` and the `volume` and `volume_max` it played at. A ring
+that produced no sound writes `wake_alarm_failed` instead, with the `reason` (`no sound could be
+played` or `the alarm stream is silent`), the ringer mode, the Do Not Disturb filter and whether
+notifications are allowed. An inaudible ring keeps its sound and vibration, and the notification is
+posted in its sounding form as a second attempt.
 
 `wake_alarm_stopped` is written when Stop ends the alarm: `how` (`user`, `service` or `test`),
 `rang_ms` (how long it rang) and `volume_restored` (whether the stream was put back). A test ring
