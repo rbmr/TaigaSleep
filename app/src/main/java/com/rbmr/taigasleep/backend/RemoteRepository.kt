@@ -21,9 +21,10 @@ import kotlinx.coroutines.withContext
  *
  * Connecting and logging in are two separate steps: [checkAddress] pings the server from the URL
  * field, and [login] exchanges credentials for a token. [verify] re-checks the saved session and
- * [checkStatus] does both checks for the Remote screen. All of them report failures through the same
- * pair of shared paths: a transport failure means the server is unreachable and keeps the token,
- * while a rejected token means a login is needed and drops it.
+ * [checkStatus] does both checks for the Remote screen; background work uses [verifyIfStale], which
+ * reuses a check from the last few minutes. All of them report failures through the same pair
+ * of shared paths: a transport failure means the server is unreachable and keeps the token, while a
+ * rejected token means a login is needed and drops it.
  *
  * [phase] is the step the setup flow has to show. It is derived here, never in the UI, so a screen
  * that reopens or resumes always lands on the step the saved state requires.
@@ -244,6 +245,26 @@ class RemoteRepository internal constructor(
   suspend fun verify(): CheckResult? =
       withContext(Dispatchers.IO) { mutex.withLock { verifyLocked() } }
 
+  /**
+   * The session check the background work runs before its request. One that succeeded within the
+   * last few minutes is reused: the work then costs a single request, and the work of other jobs no
+   * longer waits for a check under the lock. A token the server refuses in that window is still
+   * caught by the job's own request, which ends the session like any other refusal.
+   */
+  suspend fun verifyIfStale(): CheckResult? =
+      withContext(Dispatchers.IO) {
+        mutex.withLock {
+          val recent = lastVerified
+          if (recent != null &&
+              hasSession &&
+              clock() - recent.checkedAtMs < SESSION_CHECK_MAX_AGE_MS) {
+            recent
+          } else {
+            verifyLocked()
+          }
+        }
+      }
+
   /** [verify] without the lock, so a caller that holds it can reuse the same steps. */
   private fun verifyLocked(): CheckResult? {
     _checking.value = true
@@ -458,6 +479,9 @@ class RemoteRepository internal constructor(
       }
 
   companion object {
+    /** How long a successful session check is trusted by [verifyIfStale]. */
+    private const val SESSION_CHECK_MAX_AGE_MS = 5 * 60 * 1000L
+
     /** The stable key of one account: its normalised server URL and the server's user id. */
     fun accountKeyOf(baseUrl: String, userId: String): String = "$baseUrl|$userId"
 

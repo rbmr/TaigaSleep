@@ -709,6 +709,58 @@ class RemoteRepositoryTest {
       }
 
   @Test
+  fun `a background check is made once and reused for the next few minutes`() {
+    val repo = repository()
+    login(repo)
+    now += 5 * 60_000
+    api.calls.clear()
+
+    val first = runBlocking { repo.verifyIfStale() }
+    now += 60_000
+    val second = runBlocking { repo.verifyIfStale() }
+
+    assertEquals(CheckResult.Success("me@example.com", now - 60_000), first)
+    assertEquals(first, second)
+    // Two jobs in a row cost one refresh and one version request, not two of each.
+    assertEquals(listOf("version", "refresh:token-1"), api.calls)
+  }
+
+  @Test
+  fun `a background check after the window asks the server again`() {
+    val repo = repository()
+    login(repo)
+    now += 5 * 60_000
+    api.calls.clear()
+
+    runBlocking { repo.verifyIfStale() }
+    now += 5 * 60_000
+    runBlocking { repo.verifyIfStale() }
+
+    assertEquals(
+        listOf("version", "refresh:token-1", "version", "refresh:token-2"),
+        api.calls,
+    )
+  }
+
+  @Test
+  fun `a refused token during a background request still needs a login`() {
+    val repo = repository()
+    login(repo)
+    api.calls.clear()
+
+    // The job's check is reused, so the job's own request is what meets the refusal.
+    assertTrue(runBlocking { repo.verifyIfStale() } is CheckResult.Success)
+    assertTrue(api.calls.isEmpty())
+
+    // A refused request keeps the handling it always had: the session is over.
+    repo.logout()
+
+    assertNull(store().token)
+    assertTrue(repo.status.value is RemoteStatus.LoginNeeded)
+    assertEquals(RemoteState.NOT_LOGGED_IN, repo.state.value)
+  }
+
+  @Test
   fun `the address a login would use follows the last check`() {
     val repo = repository()
     assertNull(repo.address.value)

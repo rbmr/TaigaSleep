@@ -27,7 +27,7 @@ class DeleteWorker(
             recordingId = recordingId,
             queuedFor = queuedFor,
             activeAccount = { remote.accountKey },
-            verify = { remote.verify() is CheckResult.Success },
+            verify = { remote.verifyIfStale() is CheckResult.Success },
             api = { remote.api() },
             onDeleted = { account ->
                 // Out of the cached list first, so a History that reads it while the queue empties
