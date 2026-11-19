@@ -29,6 +29,8 @@ POLAR_PPI_CODEC = "polar-ppi-v1"
 POLAR_GYRO_CODEC = "polar-gyro-v1"
 POLAR_MAG_CODEC = "polar-mag-v1"
 BLE_HRS_CODEC = "ble-hrs-v1"
+SOUND_PCM_CODEC = "pcm-s16le-v1"
+SOUND_OPUS_CODEC = "opus-v1"
 
 MAGIC = b"TSLG"
 VERSION = 1
@@ -51,6 +53,7 @@ STREAM_PPG = 4
 STREAM_PPI = 5
 STREAM_GYRO = 6
 STREAM_MAG = 7
+STREAM_SOUND = 8
 STREAM_IDS = {"hr.log": STREAM_HR, "ecg.log": STREAM_ECG, "acc.log": STREAM_ACC}
 STREAM_NAMES = {
     STREAM_HR: "hr",
@@ -60,6 +63,7 @@ STREAM_NAMES = {
     STREAM_PPI: "ppi",
     STREAM_GYRO: "gyro",
     STREAM_MAG: "mag",
+    STREAM_SOUND: "sound",
 }
 
 # Polar sample timestamps count nanoseconds from 2000-01-01 00:00:00 UTC.
@@ -381,6 +385,60 @@ def acc_payload(
     )
 
 
+def pcm_payload(
+    phone_ns: int,
+    elapsed_ns: int,
+    sample_rate_hz: int,
+    samples: Iterable[int],
+) -> bytes:
+    """One pcm-s16le-v1 payload: mono 16-bit little-endian samples."""
+
+    values = [int(value) for value in samples]
+    if sample_rate_hz <= 0:
+        raise ValueError("the sample rate must be positive")
+    if not values:
+        raise ValueError("a sound frame needs at least one sample")
+    return struct.pack(
+        "<qqII", phone_ns, elapsed_ns, int(sample_rate_hz), len(values)
+    ) + struct.pack(f"<{len(values)}h", *values)
+
+
+def opus_payload(
+    phone_ns: int,
+    elapsed_ns: int,
+    sample_rate_hz: int,
+    packets: Iterable[bytes],
+    sample_count: int,
+) -> bytes:
+    """One opus-v1 payload: mono Opus packets, each with its length.
+
+    ``sample_count`` is how many samples the packets decode to at ``sample_rate_hz``,
+    so a reader places the frame on the timeline without decoding it.
+    """
+
+    values = [bytes(packet) for packet in packets]
+    if sample_rate_hz <= 0:
+        raise ValueError("the sample rate must be positive")
+    if sample_count < 1:
+        raise ValueError("a sound frame needs at least one sample")
+    if not values:
+        raise ValueError("an opus frame needs at least one packet")
+    if any(not packet for packet in values):
+        raise ValueError("an opus packet cannot be empty")
+    return (
+        struct.pack(
+            "<qqIIH",
+            phone_ns,
+            elapsed_ns,
+            int(sample_rate_hz),
+            int(sample_count),
+            len(values),
+        )
+        + struct.pack(f"<{len(values)}H", *(len(packet) for packet in values))
+        + b"".join(values)
+    )
+
+
 def event_line(phone_ns: int, elapsed_ns: int, event_type: str, message: str) -> bytes:
     """One events.jsonl entry, including its newline."""
 
@@ -668,6 +726,88 @@ def read_vector(payload: bytes) -> VectorBatch:
     return VectorBatch(phone_ns, elapsed_ns, tuple(timestamps), tuple(xyz))
 
 
+@dataclass(frozen=True)
+class SoundFrame:
+    """One sound payload: its clocks, rate and length, and its samples or packets.
+
+    The packets of an ``opus-v1`` payload are kept as the encoder wrote them; nothing
+    here decodes them.
+    """
+
+    phone_ns: int
+    elapsed_ns: int
+    sample_rate_hz: int
+    sample_count: int
+    samples: tuple[int, ...] = ()
+    packets: tuple[bytes, ...] = ()
+
+
+def _sound_fields(payload: bytes) -> tuple[int, int, int, int]:
+    """The header every sound payload shares, checked before a codec reads its body."""
+
+    if len(payload) < 24:
+        raise ValueError("sound payload is shorter than its header")
+    phone_ns, elapsed_ns, rate_hz, sample_count = struct.unpack_from("<qqII", payload, 0)
+    if rate_hz < 1:
+        raise ValueError("sound payload has no sample rate")
+    if sample_count < 1:
+        raise ValueError("sound payload has no samples")
+    return phone_ns, elapsed_ns, rate_hz, sample_count
+
+
+def read_pcm(payload: bytes) -> SoundFrame:
+    """The mono 16-bit samples of one pcm-s16le-v1 payload."""
+
+    phone_ns, elapsed_ns, rate_hz, sample_count = _sound_fields(payload)
+    if len(payload) != 24 + 2 * sample_count:
+        raise ValueError("pcm payload length mismatch")
+    samples = struct.unpack_from(f"<{sample_count}h", payload, 24)
+    return SoundFrame(phone_ns, elapsed_ns, rate_hz, sample_count, samples=samples)
+
+
+def read_opus(payload: bytes) -> SoundFrame:
+    """The packets of one opus-v1 payload, each with the length the frame gave it."""
+
+    phone_ns, elapsed_ns, rate_hz, sample_count = _sound_fields(payload)
+    if len(payload) < 26:
+        raise ValueError("opus payload has no packet count")
+    packet_count = struct.unpack_from("<H", payload, 24)[0]
+    if packet_count < 1:
+        raise ValueError("opus payload has no packets")
+    data_offset = 26 + 2 * packet_count
+    if data_offset > len(payload):
+        raise ValueError("opus packet lengths do not fit")
+    lengths = struct.unpack_from(f"<{packet_count}H", payload, 26)
+    packets = []
+    offset = data_offset
+    for length in lengths:
+        end = offset + length
+        if length < 1 or end > len(payload):
+            raise ValueError("opus payload length mismatch")
+        packets.append(bytes(memoryview(payload)[offset:end]))
+        offset = end
+    if offset != len(payload):
+        raise ValueError("opus payload length mismatch")
+    return SoundFrame(phone_ns, elapsed_ns, rate_hz, sample_count, packets=tuple(packets))
+
+
+def read_sound(payload: bytes, codec: str | None = None) -> SoundFrame:
+    """The fields of one sound payload in the layout its codec names.
+
+    Without a codec both layouts are tried, which is what a download check has when
+    it only knows the stream id from the log's header.
+    """
+
+    if codec == SOUND_PCM_CODEC:
+        return read_pcm(payload)
+    if codec == SOUND_OPUS_CODEC:
+        return read_opus(payload)
+    try:
+        return read_pcm(payload)
+    except (ValueError, struct.error):
+        return read_opus(payload)
+
+
 def stream_id_of(data: bytes) -> int | None:
     """The stream id in a log's header, or None when it has no valid header."""
 
@@ -680,7 +820,8 @@ def read_payload(stream: int, payload: bytes, codec: str | None = None):
     """Parse one payload as the layout of ``stream``, raising ValueError if it is not.
 
     ``codec`` names the payload layout when a stream can carry more than one, such
-    as a standard heart-rate measurement next to the Polar one.
+    as a standard heart-rate measurement next to the Polar one, or the two sound
+    codecs. Without it, both layouts of such a stream are tried.
     """
 
     if stream == STREAM_HR:
@@ -702,6 +843,8 @@ def read_payload(stream: int, payload: bytes, codec: str | None = None):
         return read_ppi(payload)
     if stream in (STREAM_GYRO, STREAM_MAG):
         return read_vector(payload)
+    if stream == STREAM_SOUND:
+        return read_sound(payload, codec)
     raise ValueError(f"unknown stream id {stream}")
 
 
@@ -760,6 +903,8 @@ __all__ = [
     "POLAR_PPI_CODEC",
     "PpgBatch",
     "PpiBatch",
+    "SOUND_OPUS_CODEC",
+    "SOUND_PCM_CODEC",
     "STREAM_ACC",
     "STREAM_ECG",
     "STREAM_GYRO",
@@ -769,6 +914,8 @@ __all__ = [
     "STREAM_NAMES",
     "STREAM_PPG",
     "STREAM_PPI",
+    "STREAM_SOUND",
+    "SoundFrame",
     "TS_EXPLICIT",
     "TS_LINEAR",
     "TS_VALUES_I16",
@@ -785,12 +932,17 @@ __all__ = [
     "iter_frames",
     "linear_timestamps",
     "mapped_log",
+    "opus_payload",
+    "pcm_payload",
     "read_acc",
     "read_ble_hrs",
     "read_ecg",
     "read_hr",
+    "read_opus",
+    "read_pcm",
     "read_ppg",
     "read_ppi",
+    "read_sound",
     "read_vector",
     "decode_heart_rate_measurement",
     "stream_id_of",
