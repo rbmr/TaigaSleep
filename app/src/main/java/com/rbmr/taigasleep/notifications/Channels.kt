@@ -26,8 +26,11 @@ object Channels {
   /** The ringing alarm's visible Stop, silent because the ringing service owns the sound. */
   const val WAKE_ALARM_CONTROL = "wake_alarm_control"
 
-  /** Uploads, and the analyses that follow them. */
+  /** Uploads: the transfer in progress and its results. */
   const val UPLOADS = "uploads"
+
+  /** Finished analyses and their results. */
+  const val ANALYSES = "analyses"
 
   /** The tracker's battery running low while it is connected. */
   const val TRACKER_BATTERY = "tracker_battery"
@@ -69,6 +72,14 @@ object Channels {
         NotificationChannel(
                 UPLOADS,
                 context.getString(R.string.upload_notification_channel),
+                NotificationManager.IMPORTANCE_LOW,
+            )
+            .apply { group = GROUP_UPLOAD_AND_ANALYSIS }
+    )
+    manager.createNotificationChannel(
+        NotificationChannel(
+                ANALYSES,
+                context.getString(R.string.notification_channel_analyses),
                 NotificationManager.IMPORTANCE_LOW,
             )
             .apply { group = GROUP_UPLOAD_AND_ANALYSIS }

@@ -45,6 +45,7 @@ class ChannelsTest {
             "wake_alarm",
             "wake_alarm_control",
             "uploads",
+            "analyses",
             "tracker_battery",
             "phone_storage",
         ),
@@ -54,6 +55,7 @@ class ChannelsTest {
     assertEquals(Channels.GROUP_ALARM, channels.getValue("wake_alarm").group)
     assertEquals(Channels.GROUP_ALARM, channels.getValue("wake_alarm_control").group)
     assertEquals(Channels.GROUP_UPLOAD_AND_ANALYSIS, channels.getValue("uploads").group)
+    assertEquals(Channels.GROUP_UPLOAD_AND_ANALYSIS, channels.getValue("analyses").group)
     assertEquals(Channels.GROUP_DEVICE_HEALTH, channels.getValue("tracker_battery").group)
     assertEquals(Channels.GROUP_DEVICE_HEALTH, channels.getValue("phone_storage").group)
   }
@@ -75,6 +77,7 @@ class ChannelsTest {
         channels.getValue("wake_alarm_control").importance,
     )
     assertEquals(NotificationManager.IMPORTANCE_LOW, channels.getValue("uploads").importance)
+    assertEquals(NotificationManager.IMPORTANCE_LOW, channels.getValue("analyses").importance)
     assertEquals(
         NotificationManager.IMPORTANCE_DEFAULT,
         channels.getValue("tracker_battery").importance,
@@ -96,6 +99,20 @@ class ChannelsTest {
     assertEquals(
         context.getString(R.string.notification_channel_phone_storage),
         channels.getValue("phone_storage").name,
+    )
+  }
+
+  @Test
+  fun `the results channels carry a name each`() {
+    val channels = manager.notificationChannels.associateBy { it.id }
+
+    assertEquals(
+        context.getString(R.string.upload_notification_channel),
+        channels.getValue("uploads").name,
+    )
+    assertEquals(
+        context.getString(R.string.notification_channel_analyses),
+        channels.getValue("analyses").name,
     )
   }
 
@@ -162,15 +179,18 @@ class ChannelsTest {
   }
 
   @Test
-  fun `the recording and upload channels keep the default sound and no vibration`() {
+  fun `the recording and results channels keep the default sound and no vibration`() {
     val channels: List<NotificationChannel> = manager.notificationChannels
     val recording = channels.single { it.id == Channels.RECORDING }
     val uploads = channels.single { it.id == Channels.UPLOADS }
+    val analyses = channels.single { it.id == Channels.ANALYSES }
 
     // A channel that names no sound has the phone's notification sound, which is what these had.
     assertEquals(Settings.System.DEFAULT_NOTIFICATION_URI, recording.sound)
     assertEquals(Settings.System.DEFAULT_NOTIFICATION_URI, uploads.sound)
+    assertEquals(Settings.System.DEFAULT_NOTIFICATION_URI, analyses.sound)
     assertTrue("the recording channel does not vibrate", recording.shouldVibrate().not())
     assertTrue("the upload channel does not vibrate", uploads.shouldVibrate().not())
+    assertTrue("the analysis channel does not vibrate", analyses.shouldVibrate().not())
   }
 }
