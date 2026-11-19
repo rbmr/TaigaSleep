@@ -289,7 +289,7 @@ class LargeTextScreensTest {
 
   private val homeView: InactiveView by lazy {
     InactiveView(
-        tracker = TrackerView(name = "Polar H10", connection = ConnectionState.CONNECTED, battery = 82),
+        tracker = TrackerView(id = "H10", name = "Polar H10", connection = ConnectionState.CONNECTED, battery = 82),
         config =
             StartConfig(
                 streams = Streams(setOf("hr", "ecg", "acc")),

@@ -343,7 +343,7 @@ class HomeViewModel(
     watching =
         scope.launch {
           combine(sensor.connection, sensor.battery) { connection, battery ->
-                TrackerView(sensor.name, connection, battery)
+                TrackerView(sensor.id, sensor.name, connection, battery)
               }
               .collect {
                 tracker = it

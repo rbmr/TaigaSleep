@@ -19,7 +19,7 @@ import org.robolectric.annotation.Config
 class IdleHomeStreamsTest {
   @get:Rule val compose = createComposeRule()
 
-  private val tracker = TrackerView("Pulse tracker", ConnectionState.CONNECTED, battery = 74)
+  private val tracker = TrackerView("pulse", "Pulse tracker", ConnectionState.CONNECTED, battery = 74)
 
   @Test
   fun `a tracker that records only pulse names it in the summary`() {
