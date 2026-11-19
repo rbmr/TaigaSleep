@@ -22,10 +22,24 @@ class RecordingStreamsTest {
   }
 
   @Test
-  fun `without a config the stored file names tell the streams`() {
-    val streams = dto(files = """{"hr.log":{},"acc.log.gz":{}}""").streams()
+  fun `the declared streams include sound`() {
+    val meta =
+        """
+        {"streams":[
+          {"id":"hr","type":"heart_rate","codec":"polar-hr-v1","file":"hr.log"},
+          {"id":"sound","type":"sound","codec":"opus-v1","file":"sound.log","rate_hz":16000}
+        ]}
+        """
+    val streams = dto(meta = meta).streams()
 
-    assertEquals(listOf(StreamId.HR, StreamId.ACC), streams)
+    assertEquals(listOf(StreamId.HR, StreamId.SOUND), streams)
+  }
+
+  @Test
+  fun `without a config the stored file names tell the streams`() {
+    val streams = dto(files = """{"hr.log":{},"acc.log.gz":{},"sound.log":{}}""").streams()
+
+    assertEquals(listOf(StreamId.HR, StreamId.ACC, StreamId.SOUND), streams)
   }
 
   @Test
