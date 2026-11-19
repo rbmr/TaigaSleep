@@ -64,6 +64,12 @@ interface RecordingHost {
    */
   fun strapView(sensorId: String, sensorName: String, address: String?): String? = null
 
+  /**
+   * The phone's microphone for a recording that holds sound, or null when there is none or the app
+   * may not use it. Null on a JVM test.
+   */
+  fun openMicrophone(): SoundSource? = null
+
   /** A fresh partial wake lock, or null when the phone refuses to give one. */
   fun newWakeLock(): RecordingWakeLock?
 

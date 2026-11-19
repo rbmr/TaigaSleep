@@ -66,7 +66,7 @@ class RecordingControl(
     private val host: RecordingHost,
     /** Opens the microphone capture of a streamed recording; a test supplies a fake. */
     private val openSound: (RecordingWriter, SoundChoice) -> SoundRecorder = { writer, choice ->
-      SoundCapture(writer, clock, choice)
+      SoundCapture(writer, clock, choice, SoundSourceFactory { host.openMicrophone() })
     },
 ) {
   /** The thread a restart runs on: it must not be the control thread it is recovering. */

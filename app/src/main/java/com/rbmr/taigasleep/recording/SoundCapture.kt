@@ -2,10 +2,14 @@
 
 package com.rbmr.taigasleep.recording
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.recording.store.SoundPayloads
 import com.rbmr.taigasleep.tracker.Clock
@@ -51,7 +55,7 @@ class SoundCapture(
     private val writer: RecordingWriter,
     private val clock: Clock,
     private val choice: SoundChoice,
-    private val openSource: SoundSourceFactory = SoundSourceFactory { AudioRecordSource.open() },
+    private val openSource: SoundSourceFactory,
     private val openEncoder: (Int) -> SoundEncoder? = { OpusEncoder.open(it) },
 ) : SoundRecorder {
   private val thread = Thread(::capture, "sound-capture")
@@ -285,7 +289,15 @@ internal class AudioRecordSource private constructor(private val record: AudioRe
   companion object {
     private const val TAG = "SoundCapture"
 
-    fun open(): SoundSource? {
+    /** The microphone, or null when the app may not record audio or the phone cannot. */
+    fun open(context: Context): SoundSource? {
+      val granted =
+          ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+              PackageManager.PERMISSION_GRANTED
+      if (!granted) {
+        Log.w(TAG, "the app may not record audio")
+        return null
+      }
       val minimum =
           AudioRecord.getMinBufferSize(
               SoundCapture.SAMPLE_RATE_HZ,

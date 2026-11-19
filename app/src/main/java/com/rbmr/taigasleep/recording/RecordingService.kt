@@ -161,6 +161,8 @@ class RecordingService : Service(), RecordingHost {
           knownAddress = address,
       )
 
+  override fun openMicrophone(): SoundSource? = AudioRecordSource.open(this)
+
   override fun newWakeLock(): RecordingWakeLock? =
       getSystemService(PowerManager::class.java)
           .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TaigaSleep::recording")
