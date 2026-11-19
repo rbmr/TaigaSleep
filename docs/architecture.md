@@ -11,6 +11,9 @@ A **recording** is one run of a tracker: its metadata and its raw streams. The a
 backend, the worker and the docs all use this word. Neither "session" nor "night" names a
 recording, because three names for one concept is how structure gets lost.
 
+A recording made by several trackers, the phone being one of them, is designed in
+[`trackers.md`](trackers.md).
+
 ## The three responsibilities of the app
 
 1. **Record.** Connect a tracker, configure it, keep the recording alive, store the raw
