@@ -72,6 +72,26 @@ def acc_payload(
     )
 
 
+def sound_log(*, frames_count: int, rate_hz: int = 16_000) -> bytes:
+    """The phone's microphone as ``opus-v1``: one second of audio per frame."""
+
+    data = bytearray(frame_header(frames.STREAM_SOUND))
+    start_ns = 1_792_798_200_000 * 1_000_000
+    for index in range(frames_count):
+        end_ns = start_ns + (index + 1) * 1_000_000_000
+        # 20 ms packets; their bytes stand in for what the encoder emits.
+        packets = [bytes([0xFC, packet & 0xFF]) for packet in range(50)]
+        payload = frames.opus_payload(
+            end_ns,
+            (index + 1) * 1_000_000_000,
+            rate_hz,
+            packets,
+            rate_hz,
+        )
+        data += frame(payload)
+    return bytes(data)
+
+
 def meta(
     session_id: str,
     *,

@@ -1900,6 +1900,37 @@ def test_plain_and_compressed_uploads_give_the_same_analysis(api: Backend, basel
     assert gz_source["compression_ratio"] > 1
 
 
+def test_the_worker_stores_and_verifies_a_recording_with_sound(
+    api: Backend, baseline: str
+) -> None:
+    api.drain_queue()
+    recording = unique("sound")
+    files = fx.recording(recording, hr_frames=120)
+    files["sound.log"] = fx.sound_log(frames_count=120)
+    meta = files["meta"]
+    meta["streams"] = [
+        {"id": "hr", "type": "heart_rate", "codec": "polar-hr-v1", "file": "hr.log", "rate_hz": 1.0},
+        {"id": "rr", "type": "rr_interval", "codec": "polar-hr-v1", "file": "hr.log"},
+        {"id": "sound", "type": "sound", "codec": "opus-v1", "file": "sound.log", "rate_hz": 16000.0},
+    ]
+    api.make_recording(api.user_a, recording, files=files)
+    created = api.request_analysis(api.user_a, recording, "baseline").json()
+
+    api.run_worker_once()
+
+    analysis = finished(api, created["id"])
+    assert analysis["status"] == "succeeded", analysis["error"]
+    source = analysis["result"]["provenance"]["recording"]["source"]
+    assert source["files"]["sound.log"]["frames"] == 120
+    assert source["files"]["sound.log"]["valid_bytes"] == len(files["sound.log"])
+    assert source["files"]["sound.log"]["truncated_tail"] is False
+    assert not any(warning.startswith("sound.log:") for warning in analysis["result"]["warnings"])
+    reported = analysis["result"]["provenance"]["input_quality"]["streams"]["sound"]
+    assert reported["present"] is True
+    assert reported["samples"] == 120 * 16000
+    assert reported["rate_hz"] == 16000.0
+
+
 @pytest.mark.parametrize("compress", [False, True], ids=["plain", "gzip"])
 def test_the_worker_cuts_a_corrupt_tail_off_whatever_the_encoding(api: Backend, baseline: str, compress: bool) -> None:
     api.drain_queue()
