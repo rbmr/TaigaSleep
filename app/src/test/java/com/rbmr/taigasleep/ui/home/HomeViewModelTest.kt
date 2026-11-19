@@ -8,6 +8,7 @@ import com.rbmr.taigasleep.recording.FinishingState
 import com.rbmr.taigasleep.recording.ImportProgress
 import com.rbmr.taigasleep.recording.PendingFetch
 import com.rbmr.taigasleep.recording.Phase
+import com.rbmr.taigasleep.recording.SoundChoice
 import com.rbmr.taigasleep.recording.WakeAlarmWarning
 import com.rbmr.taigasleep.recording.WakeWindow
 import com.rbmr.taigasleep.recording.store.RecordingConfig
@@ -81,6 +82,8 @@ private class FakeWork : HomeWork {
   var guard = HomeState.READY
   var canAcc = false
   var wake: WakeChoice? = null
+  var microphone = true
+  var sound = SoundChoice.OFF
 
   override fun onFirstShow() {
     calls += "first"
@@ -100,6 +103,7 @@ private class FakeWork : HomeWork {
           canRecordAcc = canAcc,
           wake = wake,
           options = sensor.streams.sortedBy { it.order }.map { StreamOption(it.id, it.type) },
+          sound = sound,
       )
 
   override fun setStream(sensorId: String, streamId: String, on: Boolean) {
@@ -112,6 +116,13 @@ private class FakeWork : HomeWork {
   override fun setMode(sensorId: String, mode: RecordingMode) {
     calls += "mode:$mode"
     this.mode = mode
+  }
+
+  override fun hasMicrophone(): Boolean = microphone
+
+  override fun setSound(sensorId: String, choice: SoundChoice) {
+    calls += "sound:${choice.wire}"
+    sound = choice
   }
 
   override fun setWake(sensorId: String, wake: WakeChoice?) {
@@ -836,5 +847,67 @@ class HomeViewModelTest {
 
     assertEquals(listOf("disconnect"), work.calls)
     assertNull(model.state.value.error)
+  }
+
+  @Test
+  fun `turning sound on without the microphone asks for it before storing anything`() {
+    work.microphone = false
+    val model = viewModel()
+    sensor.value = FakeSensor()
+    model.openConfiguration()
+
+    model.setSound(SoundChoice.COMPRESSED)
+
+    val configure = model.state.value as HomeUiState.Configure
+    assertTrue("the screen launches the request", configure.microphone.requested)
+    assertFalse("nothing is stored before the answer", "sound:compressed" in work.calls)
+    assertEquals(SoundChoice.OFF, configure.config.sound)
+  }
+
+  @Test
+  fun `a granted microphone stores the choice the user asked for`() {
+    work.microphone = false
+    val model = viewModel()
+    sensor.value = FakeSensor()
+    model.openConfiguration()
+    model.setSound(SoundChoice.UNCOMPRESSED)
+
+    model.microphoneAnswered(true)
+
+    val configure = model.state.value as HomeUiState.Configure
+    assertEquals(SoundChoice.UNCOMPRESSED, configure.config.sound)
+    assertFalse(configure.microphone.denied)
+    assertTrue("sound:uncompressed" in work.calls)
+  }
+
+  @Test
+  fun `a refused microphone keeps sound off and says what it is for`() {
+    work.microphone = false
+    val model = viewModel()
+    sensor.value = FakeSensor()
+    model.openConfiguration()
+    model.setSound(SoundChoice.COMPRESSED)
+
+    model.microphoneAnswered(false)
+
+    val configure = model.state.value as HomeUiState.Configure
+    assertEquals(SoundChoice.OFF, configure.config.sound)
+    assertTrue(configure.microphone.denied)
+    assertTrue("the refusal is stored as off", "sound:off" in work.calls)
+  }
+
+  @Test
+  fun `turning sound off never asks for the microphone`() {
+    work.microphone = false
+    work.sound = SoundChoice.COMPRESSED
+    val model = viewModel()
+    sensor.value = FakeSensor()
+    model.openConfiguration()
+
+    model.setSound(SoundChoice.OFF)
+
+    val configure = model.state.value as HomeUiState.Configure
+    assertFalse(configure.microphone.requested)
+    assertEquals(SoundChoice.OFF, configure.config.sound)
   }
 }

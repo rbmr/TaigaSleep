@@ -33,12 +33,12 @@ components/TrendsCharts.kt 0
 history/HistoryScreen.kt 1
 history/TrendsScreen.kt 0
 home/ActiveHome.kt 3
-home/ConfigureSheet.kt 4
+home/ConfigureSheet.kt 5
 home/FinishingHome.kt 1
-home/HomeFactory.kt 14
+home/HomeFactory.kt 15
 home/HomeScreen.kt 3
-home/HomeUiState.kt 10
-home/IdleHome.kt 2
+home/HomeUiState.kt 11
+home/IdleHome.kt 3
 home/RecordingCard.kt 3
 home/SensorPickerSheet.kt 2
 home/WakeAlarmNotes.kt 2

@@ -5,6 +5,7 @@ import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.recording.AlarmTestResult
 import com.rbmr.taigasleep.recording.CaptureStatus
 import com.rbmr.taigasleep.recording.Phase
+import com.rbmr.taigasleep.recording.SoundChoice
 import com.rbmr.taigasleep.recording.WakeAlarmWarning
 import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.FoundSensor
@@ -45,6 +46,12 @@ interface HomeWork {
   fun setStream(sensorId: String, streamId: String, on: Boolean)
 
   fun setMode(sensorId: String, mode: RecordingMode)
+
+  /** Whether the app may record from the microphone now. */
+  fun hasMicrophone(): Boolean
+
+  /** The phone's microphone of this tracker, and the codec it records in; off turns it off. */
+  fun setSound(sensorId: String, choice: SoundChoice)
 
   /** The wake-up window of this tracker; null turns it off. */
   fun setWake(sensorId: String, wake: WakeChoice?)
@@ -124,6 +131,12 @@ class HomeViewModel(
   private var wakeWarnings: Set<WakeAlarmWarning> = emptySet()
   private var alarmTest: AlarmTestResult? = null
 
+  /** The microphone request of the Sound section, and a refusal the section explains. */
+  private var microphone = MicrophonePermission()
+
+  /** The choice the user asked for before the microphone request: it is applied when granted. */
+  private var pendingSound: SoundChoice? = null
+
   private val _state = MutableStateFlow<HomeUiState>(HomeUiState.NoTracker(guard))
   val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
@@ -192,6 +205,37 @@ class HomeViewModel(
       updateConfig { work.setStream(it.id, streamId, on) }
 
   fun setMode(mode: RecordingMode) = updateConfig { work.setMode(it.id, mode) }
+
+  /**
+   * The Sound section: off is stored at once. Turning sound on asks Android for the microphone first
+   * when it has not been granted, and only a grant stores the choice. A refusal leaves sound off and
+   * the section says what the permission is for.
+   */
+  fun setSound(choice: SoundChoice) {
+    if (choice == SoundChoice.OFF || work.hasMicrophone()) {
+      pendingSound = null
+      microphone = MicrophonePermission()
+      updateConfig { work.setSound(it.id, choice) }
+      return
+    }
+    pendingSound = choice
+    microphone = MicrophonePermission(requested = true)
+    emit()
+  }
+
+  /** The screen has launched the microphone request; it must not launch it twice. */
+  fun microphoneShown() {
+    microphone = microphone.copy(requested = false)
+    emit()
+  }
+
+  /** The microphone answer is in: a grant stores the choice, a refusal keeps sound off. */
+  fun microphoneAnswered(granted: Boolean) {
+    val choice = if (granted) pendingSound ?: SoundChoice.COMPRESSED else SoundChoice.OFF
+    pendingSound = null
+    microphone = MicrophonePermission(denied = !granted)
+    updateConfig { work.setSound(it.id, choice) }
+  }
 
   fun setWake(wake: WakeChoice?) = updateConfig { work.setWake(it.id, wake) }
 
@@ -365,6 +409,7 @@ class HomeViewModel(
             lastLiveWake,
             wakeWarnings,
             alarmTest,
+            microphone,
         )
   }
 }

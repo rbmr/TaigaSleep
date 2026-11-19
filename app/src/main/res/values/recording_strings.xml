@@ -69,6 +69,11 @@
   <string name="rec_config_gyro">Gyroscope</string>
   <string name="rec_config_mag">Magnetometer</string>
   <string name="rec_config_sound">Sound</string>
+  <string name="rec_sound_enable">Enabled</string>
+  <string name="rec_sound_compressed">Compressed</string>
+  <string name="rec_sound_uncompressed">Uncompressed</string>
+  <string name="rec_sound_on_device_note">Sound needs the phone to receive data all night.</string>
+  <string name="rec_sound_permission_note">Allow the microphone to record sound.</string>
 
   <string name="rec_active_title">Recording</string>
   <string name="rec_active_stopping">Stopping…</string>
