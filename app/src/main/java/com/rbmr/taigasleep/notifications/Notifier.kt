@@ -35,8 +35,11 @@ object Notifier {
   /** The id of the upload in progress. */
   const val UPLOAD_ID = 4211
 
-  /** The id of the one notification that batches upload and analysis results. */
-  const val RESULTS_ID = 4212
+  /** The id of the summary of upload results. */
+  const val UPLOAD_RESULTS_ID = 4212
+
+  /** The id of the summary of analysis results; uploads have their own. */
+  const val ANALYSIS_RESULTS_ID = 4215
 
   /** The id of the tracker's low battery alert. */
   const val TRACKER_BATTERY_ID = 4213
@@ -47,10 +50,22 @@ object Notifier {
   /** The extra the app's activity reads to tell a start from the results notification. */
   const val EXTRA_RESULTS_OPENED = "com.rbmr.taigasleep.notifications.RESULTS_OPENED"
 
+  /** The extra a results summary's dismissal carries: the type whose counts it ends. */
+  const val EXTRA_RESULTS_TYPE = "com.rbmr.taigasleep.notifications.RESULTS_TYPE"
+
   private const val TAG = "Notifier"
   private const val REQUEST_OPEN = 57
   private const val REQUEST_OPEN_RESULTS = 58
-  private const val REQUEST_DISMISS_RESULTS = 59
+  private const val REQUEST_DISMISS_UPLOAD_RESULTS = 59
+  private const val REQUEST_DISMISS_ANALYSIS_RESULTS = 60
+
+  /** The id of [type]'s results summary; only the results types have one. */
+  fun resultsId(type: NotificationType): Int =
+      when (type) {
+        NotificationType.UPLOADS -> UPLOAD_RESULTS_ID
+        NotificationType.ANALYSES -> ANALYSIS_RESULTS_ID
+        else -> error("${type.name} has no results summary")
+      }
 
   /**
    * The recording in progress: the tracker and one status, with the notification's own timer
@@ -138,22 +153,33 @@ object Notifier {
           .build()
 
   /**
-   * The one summary of upload and analysis results, updated in place: [text] names only the
-   * outcomes whose type is on. Opening it goes to the app and clears the counts, and so does
-   * dismissing it.
+   * The summary of [type]'s results, updated in place: [text] names only the outcomes of that
+   * type. Opening it goes to the app and clears every count, and dismissing it clears its own.
    */
-  fun results(context: Context, text: String, activity: String): Notification =
-      NotificationCompat.Builder(context, Channels.UPLOADS)
-          .setSmallIcon(R.drawable.ic_stat_recording)
-          .setContentTitle(context.getString(R.string.results_notification_title))
-          .setContentText(text)
-          .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-          .setContentIntent(openResults(context, activity))
-          .setDeleteIntent(dismissResults(context))
-          .setAutoCancel(true)
-          .setOnlyAlertOnce(true)
-          .setCategory(NotificationCompat.CATEGORY_STATUS)
-          .build()
+  fun results(
+      context: Context,
+      type: NotificationType,
+      text: String,
+      activity: String,
+  ): Notification {
+    val channel =
+        when (type) {
+          NotificationType.UPLOADS -> Channels.UPLOADS
+          NotificationType.ANALYSES -> Channels.ANALYSES
+          else -> error("${type.name} has no results summary")
+        }
+    return NotificationCompat.Builder(context, channel)
+        .setSmallIcon(R.drawable.ic_stat_recording)
+        .setContentTitle(context.getString(type.label))
+        .setContentText(text)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        .setContentIntent(openResults(context, activity))
+        .setDeleteIntent(dismissResults(context, type))
+        .setAutoCancel(true)
+        .setOnlyAlertOnce(true)
+        .setCategory(NotificationCompat.CATEGORY_STATUS)
+        .build()
+  }
 
   /** The tracker's battery fell below what the app warns about. */
   fun trackerBatteryLow(context: Context, percent: Int, activity: String): Notification =
@@ -214,14 +240,24 @@ object Notifier {
           PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
       )
 
-  /** The results summary's dismissal: the counts it showed are done. */
-  private fun dismissResults(context: Context): PendingIntent =
+  /** A results summary's dismissal: the counts it showed are done. */
+  private fun dismissResults(context: Context, type: NotificationType): PendingIntent =
       PendingIntent.getBroadcast(
           context,
-          REQUEST_DISMISS_RESULTS,
-          Intent(context, ResultsReceiver::class.java).setAction(ResultsReceiver.ACTION_DISMISSED),
+          dismissRequest(type),
+          Intent(context, ResultsReceiver::class.java)
+              .setAction(ResultsReceiver.ACTION_DISMISSED)
+              .putExtra(EXTRA_RESULTS_TYPE, type.name),
           PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
       )
+
+  /** One request per summary, because a pending intent's identity ignores its extras. */
+  private fun dismissRequest(type: NotificationType): Int =
+      when (type) {
+        NotificationType.UPLOADS -> REQUEST_DISMISS_UPLOAD_RESULTS
+        NotificationType.ANALYSES -> REQUEST_DISMISS_ANALYSIS_RESULTS
+        else -> error("${type.name} has no results summary")
+      }
 
   private fun launcherIntent(context: Context, activity: String): Intent =
       Intent(Intent.ACTION_MAIN)

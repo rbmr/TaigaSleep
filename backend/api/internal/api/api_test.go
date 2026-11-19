@@ -97,6 +97,10 @@ func (s *server) createAccount(collection, email, name string) {
 	}
 	record := core.NewRecord(c)
 	record.SetEmail(email)
+	// PocketBase's test data already holds generated usernames, so a drawn one can clash.
+	if c.Fields.GetByName("username") != nil {
+		record.Set("username", strings.ReplaceAll(email, "@", "."))
+	}
 	record.SetPassword("password123")
 	record.SetVerified(true)
 	if name != "" {
