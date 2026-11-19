@@ -103,6 +103,24 @@ a job that hangs fails after that long instead of running for GitHub's default o
 six hours. A test that waits for a signal from the code under test carries its own
 short guard for the same reason.
 
+## Robolectric's Android jars
+
+Robolectric runs each test on a real Android framework jar. On its own it downloads
+that jar from Maven Central the first time a test class needs it, outside Gradle and
+without its retries or its cache, so a network failure takes the whole test job down
+with it. The app's build resolves the jars for the SDK levels the tests run on
+through Gradle, in configurations of their own, and copies them into
+`app/build/robolectric-sdks`. The test JVMs then run Robolectric in offline mode:
+`robolectric.offline=true` and `robolectric.dependency.dir` point at that directory,
+beside the other `unitTests.all` settings in
+[`app/build.gradle.kts`](../app/build.gradle.kts).
+
+Their versions are in [`gradle/libs.versions.toml`](../gradle/libs.versions.toml),
+next to Robolectric's own, and move with it: the artifact version is built from the
+Android release and the build id inside that Robolectric release. A test that selects
+an SDK level whose jar is not listed there fails to resolve it, so a new level adds
+its jar in both places.
+
 ## Static checks and their baselines
 
 Each check passes on `main` either because the code already passes or because the
