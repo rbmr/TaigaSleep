@@ -13,7 +13,7 @@
   <!-- One row per notification type on Settings → Notifications. -->
   <string name="notification_type_recording">Recording</string>
   <string name="notification_type_wake_alarm">Smart alarm</string>
-  <string name="notification_type_uploads">Upload results</string>
+  <string name="notification_type_uploads">Uploads</string>
   <string name="notification_type_analyses">Analysis results</string>
   <string name="notification_type_tracker_battery">Tracker battery low</string>
   <string name="notification_type_phone_storage">Phone storage low</string>
