@@ -1,5 +1,6 @@
 package com.rbmr.taigasleep.ui
 
+import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
@@ -38,8 +39,9 @@ import com.rbmr.taigasleep.ui.home.StreamOption
 import com.rbmr.taigasleep.ui.home.Streams
 import com.rbmr.taigasleep.ui.home.TrackerView
 import com.rbmr.taigasleep.ui.home.WakeChoice
+import com.rbmr.taigasleep.ui.theme.AnimationMode
+import com.rbmr.taigasleep.ui.theme.AppMotionScale
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
-import java.io.File
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -50,29 +52,32 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * With animations off the app shows the end state of every animation at once. The theme's
- * `LocalReduceMotion` and `LocalMotionScale` decide it, so the check is two parts:
+ * With animations off the app shows the end state of every animation at once, and with them on
+ * every animation runs. The app's scale decides both, and Compose reads it from the coroutine
+ * context of the window's recomposer, so the test composes through [AppMotionScale] as the window
+ * does.
  *
- * - every animation site under `ui/` reads those values, and a new one that does not fails the
- *   build;
- * - the screens that carry motion — Home, History, Trends and the recording screen — write no
- *   animated state while the clock runs with the flag on. Every animation writes the snapshot state
- *   it draws from on every frame, so the count is zero exactly when nothing runs. The same count on
- *   Home with the flag off shows the check can see motion at all.
+ * The screens that carry motion — Home, History, Trends and the recording screen — write no
+ * animated state while the app's scale is zero. Every animation writes the snapshot state it draws
+ * from on every frame, so the count is zero exactly when nothing runs. The same count on Home with
+ * the scale at one shows the check can see motion at all.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(qualifiers = "w411dp-h891dp-xhdpi")
 class ReduceMotionTest {
-  @get:Rule val compose = createComposeRule()
+  private val context: Context = RuntimeEnvironment.getApplication()
+  private val motion = AppMotionScale(context)
+
+  @get:Rule val compose = createComposeRule(effectContext = motion)
 
   private var screen by mutableStateOf(Screen.HOME)
-  private var motionScale by mutableStateOf(0f)
 
   private enum class Screen {
     HOME,
@@ -82,56 +87,8 @@ class ReduceMotionTest {
   }
 
   @Test
-  fun `every animation site reads the theme's motion values`() {
-    val violations = MotionGates.violations(uiSources())
-
-    assertTrue(
-        "An animation must read LocalReduceMotion or LocalMotionScale (${violations.size}):\n" +
-            violations.joinToString("\n") { "  $it" },
-        violations.isEmpty(),
-    )
-  }
-
-  @Test
-  fun `the gate check reports an animation that does not read the flag`() {
-    val sources =
-        mapOf(
-            "home/Spins.kt" to
-                """
-                package com.rbmr.taigasleep.ui.home
-
-                val clock = rememberInfiniteTransition()
-                """
-                    .trimIndent(),
-            "home/Pulses.kt" to
-                """
-                package com.rbmr.taigasleep.ui.home
-
-                val reduceMotion = LocalReduceMotion.current
-                val clock = rememberInfiniteTransition()
-                """
-                    .trimIndent(),
-            "history/Static.kt" to
-                """
-                package com.rbmr.taigasleep.ui.history
-
-                val title = "History"
-                """
-                    .trimIndent(),
-        )
-
-    assertEquals(
-        listOf(
-            "home/Spins.kt animates without reading the theme's motion values: " +
-                "rememberInfiniteTransition"
-        ),
-        MotionGates.violations(sources),
-    )
-  }
-
-  @Test
   fun `nothing animates on the four screens with animations off`() {
-    start(motionScale = 0f)
+    start(AnimationMode.OFF)
     for (target in Screen.entries) {
       compose.runOnIdle { screen = target }
       compose.waitForIdle()
@@ -148,16 +105,19 @@ class ReduceMotionTest {
 
   @Test
   fun `the home screen animates while the app animates`() {
-    start(motionScale = 1f)
+    start(AnimationMode.ON)
 
     assertTrue("the bear's idle motion wrote nothing", animatedWrites(during = 1_000) > 0)
   }
 
-  /** Draws [CurrentScreen] at the app's animation scale, on a clock the test moves itself. */
-  private fun start(motionScale: Float) {
-    this.motionScale = motionScale
+  /** Draws [CurrentScreen] at [mode]'s scale, on a clock the test moves itself. */
+  private fun start(mode: AnimationMode) {
+    motion.select(mode)
     compose.mainClock.autoAdvance = false
-    compose.setContent { TaigaTheme(motionScale = this.motionScale) { CurrentScreen() } }
+    compose.setContent {
+      val scale by motion.scale
+      TaigaTheme(motionScale = scale) { CurrentScreen() }
+    }
     compose.mainClock.advanceTimeBy(1_000)
     compose.waitForIdle()
   }
@@ -222,20 +182,6 @@ class ReduceMotionTest {
         Screen.RECORDING -> "Recording"
       }
 
-  /** Every Kotlin file under `ui/`, keyed by its path in `ui/`. */
-  private fun uiSources(): Map<String, String> {
-    val root = uiDir()
-    return root
-        .walkTopDown()
-        .filter { it.isFile && it.extension == "kt" }
-        .associate { it.relativeTo(root).path to it.readText() }
-  }
-
-  private fun uiDir(): File = File(moduleDir(), "src/main/java/com/rbmr/taigasleep/ui")
-
-  private fun moduleDir(): File =
-      listOf(File("."), File("app")).first { File(it, "src/main/java").isDirectory }.canonicalFile
-
   private val zone: ZoneId = ZoneId.systemDefault()
 
   private val stages =
@@ -285,7 +231,7 @@ class ReduceMotionTest {
   private val homeView: InactiveView by lazy {
     InactiveView(
         tracker =
-            TrackerView(name = "Polar H10", connection = ConnectionState.CONNECTED, battery = 82),
+            TrackerView(id = "H10", name = "Polar H10", connection = ConnectionState.CONNECTED, battery = 82),
         config =
             StartConfig(
                 streams = Streams(setOf("hr", "ecg", "acc")),
@@ -377,45 +323,4 @@ class ReduceMotionTest {
             ),
     )
   }
-}
-
-/** The rule that every animation of the app reads: the theme's one reduce-motion flag. */
-private object MotionGates {
-  /** The ways a Kotlin file starts a timed or infinite animation. */
-  private val ANIMATION_APIS =
-      listOf(
-          "rememberInfiniteTransition",
-          "infiniteRepeatable",
-          "animateFloatAsState",
-          "animateColorAsState",
-          "animateDpAsState",
-          "animateContentSize",
-          "AnimatedVisibility",
-          "AnimatedContent",
-          "animateScrollToPage",
-          "animateScrollBy",
-          "animateTo(",
-          "animate(",
-          // The progress indicators animate themselves until they are told not to.
-          "CircularProgressIndicator",
-          "LinearProgressIndicator",
-      )
-
-  /** The theme's motion values, as a component spells them: the flag and the animation scale. */
-  private val FLAG = Regex("""\bLocalReduceMotion\b|\breduceMotion\b|\bLocalMotionScale\b|\bmotionScale\b""")
-
-  /** One line per file that animates without reading the flag. */
-  fun violations(sources: Map<String, String>): List<String> =
-      sources
-          .flatMap { (path, source) ->
-            val used = ANIMATION_APIS.filter { it in source }
-            if (used.isEmpty() || FLAG.containsMatchIn(source)) {
-              emptyList()
-            } else {
-              listOf(
-                  "$path animates without reading the theme's motion values: ${used.joinToString()}"
-              )
-            }
-          }
-          .sorted()
 }

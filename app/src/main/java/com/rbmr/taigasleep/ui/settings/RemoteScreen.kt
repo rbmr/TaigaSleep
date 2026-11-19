@@ -65,8 +65,7 @@ import com.rbmr.taigasleep.ui.components.StatusPill
 import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.components.TaigaScreen
-import com.rbmr.taigasleep.ui.theme.LocalMotionScale
-import com.rbmr.taigasleep.ui.theme.animated
+import com.rbmr.taigasleep.ui.theme.LocalReduceMotion
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -108,7 +107,6 @@ fun RemoteScreen(onBack: () -> Unit) {
       }
   val current = RemotePage.entries[pagerState.currentPage]
   val scope = rememberCoroutineScope()
-  val motionScale = LocalMotionScale.current
   val space = MaterialTheme.taiga.space
 
   // The saved session is re-checked on every resume; the server and account pages are untouched.
@@ -118,13 +116,7 @@ fun RemoteScreen(onBack: () -> Unit) {
   }
 
   fun goTo(target: RemotePage) {
-    scope.launch {
-      if (motionScale <= 0f) {
-        pagerState.scrollToPage(target.ordinal)
-      } else {
-        animated(motionScale) { pagerState.animateScrollToPage(target.ordinal) }
-      }
-    }
+    scope.launch { pagerState.animateScrollToPage(target.ordinal) }
   }
 
   // Server page: the address is the only thing it sets, and a reachable one hands the user on.
@@ -263,7 +255,7 @@ private fun ServerPage(
     checking: Boolean,
     onCheck: () -> Unit,
 ) {
-  val motionScale = LocalMotionScale.current
+  val reduceMotion = LocalReduceMotion.current
   // A check result only describes the address it ran against, so a typed address that has not been
   // checked yet shows neither the old error nor the old success.
   val normalized = remember(url) { RemoteUrl.parse(url).getOrNull()?.baseUrl }
@@ -285,7 +277,7 @@ private fun ServerPage(
         trailingIcon = {
           when {
             checking ->
-                if (motionScale > 0f) {
+                if (!reduceMotion) {
                   CircularProgressIndicator(
                       modifier = Modifier.size(20.dp),
                       strokeWidth = 2.dp,

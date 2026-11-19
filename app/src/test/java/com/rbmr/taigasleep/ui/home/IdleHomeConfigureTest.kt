@@ -30,7 +30,7 @@ class IdleHomeConfigureTest {
 
   private val connected =
       InactiveView(
-          tracker = TrackerView("Pulse tracker", ConnectionState.CONNECTED, battery = 74),
+          tracker = TrackerView("pulse", "Pulse tracker", ConnectionState.CONNECTED, battery = 74),
           config =
               StartConfig(
                   streams = Streams(setOf("hr")),

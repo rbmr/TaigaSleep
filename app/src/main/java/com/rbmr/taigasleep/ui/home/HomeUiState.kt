@@ -153,6 +153,8 @@ data class SavedChoices(
 
 /** The connected tracker as the screen shows it: who it is, whether it is here, and its battery. */
 data class TrackerView(
+    /** The tracker's id, the same one a scan reports for it. */
+    val id: String,
     val name: String,
     val connection: ConnectionState,
     val battery: Int?,

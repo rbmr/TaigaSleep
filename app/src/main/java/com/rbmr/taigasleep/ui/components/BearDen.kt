@@ -55,10 +55,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.rbmr.taigasleep.ui.theme.LocalMotionScale
 import com.rbmr.taigasleep.ui.theme.LocalReduceMotion
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
-import com.rbmr.taigasleep.ui.theme.animated
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -104,10 +102,10 @@ fun BearDen(
   val scheme = MaterialTheme.colorScheme
   val haptics = LocalHapticFeedback.current
   val scope = rememberCoroutineScope()
-  // The one flag of the theme: Off shows the end state of every animation at once, and nothing here
-  // starts a clock at all. The scale is what makes On animate on a phone with animations off.
+  // Motion off shows the end state of every animation at once, and the bear's end state is not the
+  // last frame of a run: he holds his sleeping pose and the z's stand still. Every other animation
+  // here runs at the app's own scale from the window's recomposer.
   val animations = !LocalReduceMotion.current
-  val motionScale = LocalMotionScale.current
   val statusBarTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this) }
 
   // The wake plays on one 2.8 s timeline: the open eyes are squashed and released along it, and
@@ -129,7 +127,7 @@ fun BearDen(
     try {
       if (animations) {
         wakeTime.snapTo(0f)
-        animated(motionScale) { wakeTime.animateTo(1f, tween(WAKE_MS, easing = LinearEasing)) }
+        wakeTime.animateTo(1f, tween(WAKE_MS, easing = LinearEasing))
       } else {
         // Animations are off: the eyes only show open for a moment.
         wakeTime.snapTo(HOLD_OPEN)
@@ -160,9 +158,7 @@ fun BearDen(
                 val pulse = DenPulse(at)
                 pulses.add(pulse)
                 scope.launch {
-                  animated(motionScale) {
-                    pulse.progress.animateTo(1f, tween(PULSE_MS, easing = LinearEasing))
-                  }
+                  pulse.progress.animateTo(1f, tween(PULSE_MS, easing = LinearEasing))
                   pulses.remove(pulse)
                 }
               }

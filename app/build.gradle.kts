@@ -83,6 +83,37 @@ val hasReleaseSigning =
       it != null
     }
 
+// Robolectric loads a real Android framework jar for the SDK level of a test class and would
+// download it from Maven Central while the tests run: outside Gradle, without its retries and
+// without sharing its cache, so a single failed request fails the whole test job. The jars for
+// the SDK levels the tests select are resolved through Gradle instead, copied into one directory
+// and handed to Robolectric in offline mode beside the other unit test settings below. See
+// docs/ci.md.
+val robolectricSdkJars =
+    mapOf(
+        34 to libs.android.all.instrumented.sdk34,
+        36 to libs.android.all.instrumented.sdk36,
+    )
+val robolectricSdkDirectory = layout.buildDirectory.dir("robolectric-sdks")
+// Two versions of one module conflict inside a single configuration, so each jar gets its own.
+val robolectricSdkConfigurations =
+    robolectricSdkJars.map { (sdk, jar) ->
+      configurations
+          .create("robolectricSdk$sdk") {
+            isCanBeConsumed = false
+            isCanBeResolved = true
+            isTransitive = false
+          }
+          .also { configuration -> dependencies.add(configuration.name, jar) }
+    }
+
+val prepareRobolectricSdkJars =
+    tasks.register<Sync>("prepareRobolectricSdkJars") {
+      description = "Copies the Android jars Robolectric runs the tests on, for offline use."
+      robolectricSdkConfigurations.forEach { from(it) }
+      into(robolectricSdkDirectory)
+    }
+
 android {
   namespace = "com.rbmr.taigasleep"
   compileSdk = 37
@@ -139,6 +170,18 @@ android {
     unitTests.all { test ->
       // The opt-in export benchmark reads this; a test JVM does not inherit the build's properties.
       System.getProperty("taiga.benchmark")?.let { test.systemProperty("taiga.benchmark", it) }
+      // Robolectric would download its Android jar from Maven Central while the tests run; offline
+      // mode reads the copies that Gradle resolved itself instead, so the network cannot fail the
+      // run. See docs/ci.md.
+      test.dependsOn(prepareRobolectricSdkJars)
+      test.systemProperty("robolectric.offline", "true")
+      test.systemProperty(
+          "robolectric.dependency.dir",
+          robolectricSdkDirectory.get().asFile.absolutePath,
+      )
+      // The jars are an input like any other: a new version reruns the tests instead of reusing a
+      // cached result from the old one.
+      test.inputs.files(robolectricSdkConfigurations).withPropertyName("robolectricSdkJars")
       // Robolectric emulates the current Android release and reaches into this JDK-internal package
       // while it sets the application up.
       test.jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")

@@ -213,8 +213,8 @@ private fun config(
             },
     )
 
-private val tracker = TrackerView("Polar H10", ConnectionState.CONNECTED, 80)
-private val disconnected = TrackerView("Polar H10", ConnectionState.CONNECTING, 80)
+private val tracker = TrackerView("S1", "Polar H10", ConnectionState.CONNECTED, 80)
+private val disconnected = TrackerView("S1", "Polar H10", ConnectionState.CONNECTING, 80)
 
 private fun finishing(
     mode: RecordingMode = RecordingMode.STREAM,

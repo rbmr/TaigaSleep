@@ -37,8 +37,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.rbmr.taigasleep.R
-import com.rbmr.taigasleep.ui.theme.LocalMotionScale
-import com.rbmr.taigasleep.ui.theme.animated
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
@@ -57,11 +55,7 @@ fun <T> moveItem(list: List<T>, from: Int, to: Int): List<T> {
 }
 
 /** The drag in progress: the order on screen, the row held and how far it is from its slot. */
-private class DragState<T>(
-    private val key: (T) -> Any,
-    private val scope: CoroutineScope,
-    private val motionScale: () -> Float,
-) {
+private class DragState<T>(private val key: (T) -> Any, private val scope: CoroutineScope) {
   var live by mutableStateOf<List<T>>(emptyList())
   var dragged by mutableStateOf<Any?>(null)
   var rowHeight by mutableFloatStateOf(0f)
@@ -87,15 +81,8 @@ private class DragState<T>(
 
   fun drop(saved: List<T>, onReorder: (List<T>) -> Unit) {
     scope.launch {
-      val scale = motionScale()
-      if (scale <= 0f) {
-        offset = 0f
-      } else {
-        animated(scale) {
-          animate(offset, 0f, animationSpec = spring(stiffness = Spring.StiffnessMedium)) { value, _ ->
-            offset = value
-          }
-        }
+      animate(offset, 0f, animationSpec = spring(stiffness = Spring.StiffnessMedium)) { value, _ ->
+        offset = value
       }
       dragged = null
       if (live != saved) onReorder(live)
@@ -104,12 +91,7 @@ private class DragState<T>(
 
   fun cancel(saved: List<T>) {
     scope.launch {
-      val scale = motionScale()
-      if (scale <= 0f) {
-        offset = 0f
-      } else {
-        animated(scale) { animate(offset, 0f) { value, _ -> offset = value } }
-      }
+      animate(offset, 0f) { value, _ -> offset = value }
       dragged = null
       live = saved
     }
@@ -133,9 +115,7 @@ fun <T> ReorderableColumn(
   // The drag gesture outlives recompositions, so it must read the latest list and callback.
   val latestItems by rememberUpdatedState(items)
   val latestOnReorder by rememberUpdatedState(onReorder)
-  // The rows keep moving while the setting can change, so the drag reads the live scale.
-  val motionScale by rememberUpdatedState(LocalMotionScale.current)
-  val state = remember { DragState(key, scope) { motionScale } }
+  val state = remember { DragState(key, scope) }
   // The order shown while a drag is under way; the saved order changes once, on drop.
   if (state.dragged == null && state.live != items) state.live = items
 
@@ -171,21 +151,14 @@ private fun <T> ReorderableRow(
     content: @Composable (dragHandle: @Composable () -> Unit) -> Unit,
 ) {
   val isDragged = state.dragged == id
-  val motionScale = LocalMotionScale.current
   val slide = remember { Animatable(0f) }
   var shownIndex by remember { mutableIntStateOf(index) }
   // A row pushed aside by the dragged one starts where it was and glides to its new slot; with
-  // animations off it is already in its slot.
-  LaunchedEffect(index, motionScale) {
+  // motion off the glide is over in the first frame.
+  LaunchedEffect(index) {
     if (index != shownIndex && !isDragged) {
-      if (motionScale <= 0f) {
-        slide.snapTo(0f)
-      } else {
-        slide.snapTo((shownIndex - index) * state.rowHeight)
-        animated(motionScale) {
-          slide.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-        }
-      }
+      slide.snapTo((shownIndex - index) * state.rowHeight)
+      slide.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
     }
     shownIndex = index
   }
