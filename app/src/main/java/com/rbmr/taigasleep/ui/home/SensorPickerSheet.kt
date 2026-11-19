@@ -65,7 +65,7 @@ internal fun SensorPickerSheet(
       }
       Section(title = stringResource(R.string.rec_scan_title)) {
         // The connected tracker is the row above, so it is not listed a second time here.
-        val others = picker.found.filter { it.name != connected?.name }
+        val others = picker.found.filter { it.id != connected?.id }
         if (picker.scanning || others.isEmpty()) {
           Text(
               text =

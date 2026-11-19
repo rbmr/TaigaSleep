@@ -30,7 +30,8 @@ object DebugTools {
   val fakeTracker: FoundSensor? =
       FoundSensor(SensorKind.SIMULATED, "SIM00001", "Fake tracker", 0)
 
-  fun createFakeTracker(): Tracker? = FakeTracker()
+  /** The tracker the scan entry above connects to, under the same id so the picker can match it. */
+  fun createFakeTracker(): Tracker? = FakeTracker(id = "SIM00001")
 
   /** Plays a recording directory back through the tracker interface, for a night without a strap. */
   fun replayTracker(dir: File): Tracker? = ReplayTracker(dir)

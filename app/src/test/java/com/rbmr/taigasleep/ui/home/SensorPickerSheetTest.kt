@@ -50,7 +50,7 @@ class SensorPickerSheetTest {
     var disconnected = false
     show(
         picker = SensorPicker(visible = true, found = listOf(polar, verity)),
-        connected = TrackerView("Polar H10", ConnectionState.CONNECTED, 80),
+        connected = TrackerView("S1", "Polar H10", ConnectionState.CONNECTED, 80),
         onDisconnect = { disconnected = true },
     )
 
