@@ -216,6 +216,11 @@ class SimulatedRecordingTest {
     run(5_000)
     assertEquals(RecoveryStepKind.RESTART_STREAMS, recoveries.single().kind)
     assertEquals(ConnectionState.CONNECTED, sensor.connection.value)
+    // The writer stores the frames on its own thread, so they may still be on their way.
+    val deadline = System.currentTimeMillis() + 5_000
+    while (System.currentTimeMillis() < deadline && samples(File(writer.dir, "hr.log"), 1) <= before) {
+      delay(5)
+    }
     assertTrue(
         "the recording should write after the recovery",
         samples(File(writer.dir, "hr.log"), 1) > before,
