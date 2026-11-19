@@ -16,6 +16,11 @@ work = "2.12.0"
 room = "2.8.5"
 ksp = "2.3.14"
 robolectric = "4.18"
+# The android-all-instrumented jars Robolectric 4.18 runs the tests on, for SDK 34 and SDK 36.
+# Robolectric builds their version from the Android release and the build id inside its own
+# release, so these move together with `robolectric` above. See docs/ci.md.
+robolectricSdk34 = "14-robolectric-10818077-i7"
+robolectricSdk36 = "16-robolectric-13921718-2-i7"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -44,6 +49,8 @@ androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+android-all-instrumented-sdk34 = { module = "org.robolectric:android-all-instrumented", version.ref = "robolectricSdk34" }
+android-all-instrumented-sdk36 = { module = "org.robolectric:android-all-instrumented", version.ref = "robolectricSdk36" }
 
 [plugins]
 aboutlibraries = { id = "com.mikepenz.aboutlibraries.plugin.android", version.ref = "aboutLibraries" }
