@@ -188,7 +188,9 @@ second. The microphone is captured by the app and not by a driver, so it is offe
 a streamed night, and it goes on while the tracker's link is recovered. Android can refuse
 the microphone, after a restart in the background for instance: that is an event, and the
 rest of the recording goes on without sound. An on-device recording never holds sound,
-because the phone is not awake to capture it.
+because the phone is not awake to capture it. A recording that holds sound declares the
+microphone as a foreground service type next to the tracker link, and one without it keeps
+the link alone.
 
 An OnDevice recording needs the tracker only twice, when it starts and when it ends. Once the
 tracker confirms it is storing, the foreground service and the watchdog stop; the recording

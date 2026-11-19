@@ -110,7 +110,8 @@ Not enforced; keep them lower_snake_case and keep `diag_heartbeat` for the diagn
 
 | type | suggested fields |
 |---|---|
-| `service_start`, `service_stop` | `reason`, `null_intent`, `foreground_type`, `foreground` |
+| `service_start`, `service_stop` | `reason`, `null_intent`, `foreground_type` (`connectedDevice`, or `connectedDevice\|microphone` while the recording holds sound; null when the foreground state was refused), `foreground` |
+| `service_foreground_type` | `requested`, `granted` when the system refused the microphone type and the recording went on with the tracker link |
 | `recording_state` | `from`, `to`, `session_id` |
 | `ble_connect`, `ble_disconnect`, `ble_reconnect` | `sensor_id`, `status`, `attempt`, `auto_connect` |
 | `reconnect_step` | a recovery reconnect finished: `disconnect_ms`, `disconnect_timed_out`, `connect_ms` (null when it failed), `second_connect`, `connected` |

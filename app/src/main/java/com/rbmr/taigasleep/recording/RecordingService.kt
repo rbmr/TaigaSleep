@@ -1,21 +1,25 @@
 package com.rbmr.taigasleep.recording
 
+import android.Manifest
 import android.app.Notification
 import android.app.Service
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.rbmr.taigasleep.BuildConfig
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.diagnostics.Diagnostics
 import com.rbmr.taigasleep.notifications.DeviceAlerts
 import com.rbmr.taigasleep.notifications.Notifier
+import com.rbmr.taigasleep.recording.store.RecordingMeta
 import com.rbmr.taigasleep.recording.store.RecordingStore
 import com.rbmr.taigasleep.tracker.Tracker
 import com.rbmr.taigasleep.tracker.RecordingMode
@@ -25,8 +29,9 @@ import kotlinx.coroutines.launch
 
 /**
  * Foreground service that runs one recording. It survives the screen being off (partial wake
- * lock, `connectedDevice` type), restarts after an OS kill (START_STICKY, null intent) and is
- * watched by an exact-alarm [WatchdogReceiver].
+ * lock, the connected device foreground type and, while sound is recorded, the microphone one),
+ * restarts after an OS kill (START_STICKY, null intent) and is watched by an exact-alarm
+ * [WatchdogReceiver].
  *
  * The service itself is the Android side: it gets the foreground state, builds the notification,
  * obtains the tracker and persists the marker. What it does with a recording — the ordered steps,
@@ -51,17 +56,18 @@ class RecordingService : Service(), RecordingHost {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     // Must happen on every start, including restarts by the OS, or the system kills the service.
-    val foreground = promote(notification(getString(R.string.rec_notification_starting)))
+    val type = recordingForegroundType(recordsSound(intent) && mayUseMicrophone())
+    val granted = promote(notification(getString(R.string.rec_notification_starting)), type)
     Diagnostics.log(
         "service_start",
         mapOf(
             "null_intent" to (intent == null),
             "action" to intent?.action,
-            "foreground_type" to "connectedDevice",
-            "foreground" to foreground,
+            "foreground_type" to granted?.let(::foregroundTypeName),
+            "foreground" to (granted != null),
         ),
     )
-    if (!foreground) {
+    if (granted == null) {
       // Without the foreground state the system would kill the service at once, so the recording
       // cannot go on. It ends here instead of a sticky restart running into the same refusal.
       control.foregroundRefused()
@@ -116,6 +122,27 @@ class RecordingService : Service(), RecordingHost {
         movement = intent.getBooleanExtra(EXTRA_WAKE_MOVEMENT, false),
     )
   }
+
+  /**
+   * Whether the recording this start belongs to holds the `sound` stream. A start reads the chosen
+   * codec for its tracker and needs a streamed night; every other action reads the recording that
+   * is already open, because that is what the foreground state has to keep alive.
+   */
+  private fun recordsSound(intent: Intent?): Boolean =
+      if (intent?.action == ACTION_START) {
+        val id = intent.getStringExtra(EXTRA_SENSOR_ID)
+        val mode = RecordingMode.fromWire(intent.getStringExtra(EXTRA_MODE))
+        val streamed = mode != RecordingMode.ON_DEVICE
+        id != null && streamed && prefs.sound(id) != SoundChoice.OFF
+      } else {
+        val id = prefs.activeSessionId
+        id != null && RecordingMeta.read(store.dir(id))?.stream(SoundChoice.SOUND_STREAM_ID) != null
+      }
+
+  /** The microphone can only be a foreground type while the app may use it. */
+  private fun mayUseMicrophone(): Boolean =
+      ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+          PackageManager.PERMISSION_GRANTED
 
   // The Android side of the recording.
 
@@ -271,18 +298,31 @@ class RecordingService : Service(), RecordingHost {
         null -> R.string.rec_notification_connected
       }
 
-  /** Returns false when the system refuses the foreground state; the recording cannot go on then. */
-  private fun promote(n: Notification): Boolean =
+  /**
+   * Puts the service in the foreground and returns the type the system granted, or null when it
+   * refused the foreground state altogether. A resume from the background can be refused the
+   * microphone alone: the tracker link is tried then, so the night goes on without sound.
+   */
+  private fun promote(n: Notification, types: Int): Int? {
+    val link = recordingForegroundType(holdsSound = false)
+    val granted = promoteAs(n, types) ?: if (types != link) promoteAs(n, link) else null
+    if (granted != null && granted != types) {
+      Diagnostics.log(
+          "service_foreground_type",
+          mapOf("requested" to foregroundTypeName(types), "granted" to foregroundTypeName(granted)),
+      )
+    }
+    return granted
+  }
+
+  /** One call to the system; the type it accepted, or null when it refused the foreground state. */
+  private fun promoteAs(n: Notification, types: Int): Int? =
       try {
-        startForeground(
-            Notifier.RECORDING_ID,
-            n,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
-        )
-        true
+        startForeground(Notifier.RECORDING_ID, n, types)
+        types
       } catch (e: Exception) {
-        Log.e(TAG, "the system refused the foreground service", e)
-        false
+        Log.w(TAG, "the system refused the ${foregroundTypeName(types)} foreground service", e)
+        null
       }
 
   private fun notification(
@@ -387,3 +427,19 @@ class RecordingService : Service(), RecordingHost {
     }
   }
 }
+
+/**
+ * The foreground service types of one recording: the tracker link always, and the microphone only
+ * while the recording holds sound and the app may use it.
+ */
+internal fun recordingForegroundType(holdsSound: Boolean): Int =
+    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+        (if (holdsSound) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0)
+
+/** The `foreground_type` diagnostics value of [type], naming the types it holds. */
+internal fun foregroundTypeName(type: Int): String =
+    if (type and ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE != 0) {
+      "connectedDevice|microphone"
+    } else {
+      "connectedDevice"
+    }
