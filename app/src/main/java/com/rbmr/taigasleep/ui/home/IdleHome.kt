@@ -133,6 +133,8 @@ private fun ChecklistCard(
     onGuardLongClick: (() -> Unit)?,
 ) {
   val config = view.config
+  // The sheet needs a connected tracker, so the row is offered only while there is one.
+  val configure = config?.takeIf { connected }
   val (guardLabel, guardPill) =
       when (view.guard) {
         HomeState.READY -> R.string.home_pill_done to StatusPillState.Ok
@@ -160,15 +162,16 @@ private fun ChecklistCard(
             ),
         onClick = onSelectTracker,
     )
-    if (config != null) {
-      SettingsDivider()
-      ListRow(
-          title = stringResource(R.string.rec_configure_title),
-          icon = Icons.AutoMirrored.Outlined.List,
-          subtitle = streamsText(config),
-          onClick = onDataSettings,
-      )
-    }
+    SettingsDivider()
+    ListRow(
+        title = stringResource(R.string.rec_configure_title),
+        icon = Icons.AutoMirrored.Outlined.List,
+        subtitle =
+            if (configure != null) streamsText(configure)
+            else stringResource(R.string.rec_configure_hint),
+        enabled = configure != null,
+        onClick = onDataSettings,
+    )
     SettingsDivider()
     ListRow(
         title = stringResource(R.string.settings_prevent_title),
