@@ -14,6 +14,9 @@ class OpusPackets(val packets: List<ByteArray>, val samples: Int)
  */
 interface SoundEncoder : AutoCloseable {
   fun encode(pcm: ByteArray, length: Int): OpusPackets
+
+  /** Ends the stream and returns the packets the encoder still held, so none are lost. */
+  fun finish(): OpusPackets
 }
 
 /**
@@ -45,28 +48,60 @@ internal class OpusEncoder private constructor(
     return take()
   }
 
-  private fun drain() {
-    val info = MediaCodec.BufferInfo()
-    while (true) {
-      val index = codec.dequeueOutputBuffer(info, TIMEOUT_US)
-      if (index == MediaCodec.INFO_TRY_AGAIN_LATER) return
-      if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) continue
-      if (index < 0) return
-      // The first output of an encoder carries the codec configuration, not audio.
-      val config = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
-      if (!config && info.size > 0) {
-        val output = codec.getOutputBuffer(index)
-        if (output != null) {
-          output.position(info.offset)
-          output.limit(info.offset + info.size)
-          val packet = ByteArray(info.size)
-          output.get(packet)
-          pending += packet
-          pendingSamples += samplesAt(packet, rateHz)
-        }
-      }
-      codec.releaseOutputBuffer(index, false)
+  override fun finish(): OpusPackets {
+    // The end-of-stream flag marks the last sample: every packet before it still comes out.
+    val index = codec.dequeueInputBuffer(TIMEOUT_US)
+    if (index >= 0) {
+      codec.queueInputBuffer(
+          index,
+          0,
+          0,
+          submittedSamples * MICROSECONDS / rateHz,
+          MediaCodec.BUFFER_FLAG_END_OF_STREAM,
+      )
     }
+    drain(untilEnd = true)
+    return take()
+  }
+
+  /**
+   * Takes what the codec has ready. With [untilEnd] it waits for the end-of-stream flag, so the
+   * packets of the samples queued before it come out too, and stops after [FINISH_TIMEOUT_MS] if
+   * the codec never says so.
+   */
+  private fun drain(untilEnd: Boolean = false) {
+    val info = MediaCodec.BufferInfo()
+    val deadline = System.nanoTime() + if (untilEnd) FINISH_TIMEOUT_MS * NANOS_PER_MS else 0L
+    var waiting = true
+    while (waiting) {
+      val index = codec.dequeueOutputBuffer(info, TIMEOUT_US)
+      waiting =
+          when {
+            index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> true
+            index < 0 -> untilEnd && System.nanoTime() - deadline < 0
+            else -> !consume(info, index)
+          }
+    }
+  }
+
+  /** Stores one output packet; returns true when it was the stream's last. */
+  private fun consume(info: MediaCodec.BufferInfo, index: Int): Boolean {
+    // The first output of an encoder carries the codec configuration, not audio.
+    val config = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
+    if (!config && info.size > 0) {
+      val output = codec.getOutputBuffer(index)
+      if (output != null) {
+        output.position(info.offset)
+        output.limit(info.offset + info.size)
+        val packet = ByteArray(info.size)
+        output.get(packet)
+        pending += packet
+        pendingSamples += samplesAt(packet, rateHz)
+      }
+    }
+    val end = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
+    codec.releaseOutputBuffer(index, false)
+    return end
   }
 
   private fun take(): OpusPackets {
@@ -87,6 +122,8 @@ internal class OpusEncoder private constructor(
     private const val MIME = MediaFormat.MIMETYPE_AUDIO_OPUS
     private const val MICROSECONDS = 1_000_000L
     private const val TIMEOUT_US = 10_000L
+    private const val FINISH_TIMEOUT_MS = 1_000L
+    private const val NANOS_PER_MS = 1_000_000L
 
     /** The phone's encoder, or null when it has none or refuses to start. */
     @Suppress("TooGenericExceptionCaught")

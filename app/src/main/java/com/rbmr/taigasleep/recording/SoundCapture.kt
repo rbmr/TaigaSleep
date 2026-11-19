@@ -109,12 +109,44 @@ class SoundCapture(
     } catch (_: InterruptedException) {
       Thread.currentThread().interrupt()
     }
+    flushEncoder()
     closeResources()
     writer.event("sound", "sound capture stopped")
     Diagnostics.log(
         "sound_capture",
         mapOf("recording" to writer.meta.recordingId, "state" to "stopped"),
     )
+  }
+
+  /**
+   * The packets the encoder was still holding: the stream ends and they become a final frame, so
+   * the last fraction of a second is not lost. A frame the writer refuses is an event, like any
+   * other sound frame that could not be stored.
+   */
+  private fun flushEncoder() {
+    val encoder = encoder ?: return
+    val last =
+        try {
+          encoder.finish()
+        } catch (e: Exception) {
+          Log.w(TAG, "the sound encoder did not finish", e)
+          return
+        }
+    if (last.packets.isEmpty()) return
+    val stamp = Stamp.now(clock)
+    try {
+      val payload =
+          SoundPayloads.encodeOpus(
+              stamp.phoneNs,
+              stamp.elapsedNs,
+              SAMPLE_RATE_HZ,
+              last.samples,
+              last.packets,
+          )
+      writer.handOff(TrackerFrame(SoundChoice.SOUND_STREAM_ID, stamp, payload.bytes))
+    } catch (e: Exception) {
+      writer.event("error", "the last sound frame could not be stored: ${reasonOf(e)}")
+    }
   }
 
   /** Lets the microphone and the encoder go once, whichever path ends the capture. */

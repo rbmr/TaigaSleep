@@ -128,7 +128,42 @@ class SoundCaptureTest {
     assertEquals(2, frame.packets.size)
     assertArrayEquals(packets[0], frame.packets[0])
     assertArrayEquals(packets[1], frame.packets[1])
+    assertEquals(1, encoder.finishes)
     assertEquals(1, encoder.closes)
+    writer.close()
+  }
+
+  @Test
+  fun `stopping writes the packets the encoder still holds as a final frame`() {
+    val writer = RecordingWriter.create(tmp.newFolder("rec"), meta(SoundChoice.COMPRESSED), clock)
+    val last = listOf(byteArrayOf(0x78, 3))
+    val encoder =
+        FakeEncoder(
+            OpusPackets(listOf(byteArrayOf(0xF8.toByte(), 1, 2)), 960),
+            OpusPackets(last, 960),
+        )
+    val capture =
+        SoundCapture(
+            writer,
+            clock,
+            SoundChoice.COMPRESSED,
+            SoundSourceFactory { FakeSoundSource(oneSecondOfSound()) },
+            openEncoder = { encoder },
+        )
+
+    try {
+      assertTrue(capture.start())
+      awaitCondition("the first sound frame") { payloads(writer).size == 1 }
+    } finally {
+      capture.stop()
+    }
+    awaitCondition("the final sound frame") { payloads(writer).size == 2 }
+
+    val frame = SoundPayloads.decodeOpus(payloads(writer)[1])
+    assertEquals(16_000, frame.rateHz)
+    assertEquals(960, frame.sampleCount)
+    assertArrayEquals(last[0], frame.packets.single())
+    assertEquals(1, encoder.finishes)
     writer.close()
   }
 
@@ -234,11 +269,21 @@ class SoundCaptureTest {
     }
   }
 
-  private class FakeEncoder(private val packets: OpusPackets) : SoundEncoder {
+  private class FakeEncoder(
+      private val packets: OpusPackets,
+      private val last: OpusPackets = OpusPackets(emptyList(), 0),
+  ) : SoundEncoder {
     var closes = 0
+      private set
+    var finishes = 0
       private set
 
     override fun encode(pcm: ByteArray, length: Int): OpusPackets = packets
+
+    override fun finish(): OpusPackets {
+      finishes++
+      return last
+    }
 
     override fun close() {
       closes++
