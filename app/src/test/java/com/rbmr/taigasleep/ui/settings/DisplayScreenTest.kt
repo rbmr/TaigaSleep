@@ -9,10 +9,12 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.rbmr.taigasleep.insights.TimeFormat
 import com.rbmr.taigasleep.insights.Units
+import com.rbmr.taigasleep.ui.allLabels
 import com.rbmr.taigasleep.ui.theme.AnimationMode
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 import com.rbmr.taigasleep.ui.theme.TextSize
 import com.rbmr.taigasleep.ui.theme.ThemeMode
+import com.rbmr.taigasleep.ui.wrappedLabels
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -80,6 +82,43 @@ class DisplayScreenTest {
     val large = sampleHeight()
 
     assertTrue("the sample stayed $small dp at both sizes", large > small)
+  }
+
+  @Config(qualifiers = "w360dp-h891dp-xhdpi", fontScale = 1f)
+  @Test
+  fun `no choice label wraps at the Medium text size`() = checkNoChoiceLabelWraps(TextSize.MEDIUM)
+
+  @Config(qualifiers = "w360dp-h891dp-xhdpi", fontScale = 1.15f)
+  @Test
+  fun `no choice label wraps at the Large text size`() = checkNoChoiceLabelWraps(TextSize.LARGE)
+
+  /** Draws the screen at [size] on a 360 dp phone: every label it offers stays on one line. */
+  private fun checkNoChoiceLabelWraps(size: TextSize) {
+    compose.setContent {
+      TaigaTheme(textSize = size) {
+        DisplayContent(state = DisplayUiState(textSize = size), onChange = {}, onBack = {})
+      }
+    }
+
+    val choices =
+        listOf(
+            "System",
+            "Light",
+            "Dark",
+            "Small",
+            "Medium",
+            "Large",
+            "On",
+            "Off",
+            "12-hour",
+            "24-hour",
+            "Metric",
+            "Imperial",
+        )
+    val drawn = compose.allLabels()
+    assertTrue("the choices were not drawn: $drawn", drawn.containsAll(choices))
+    val wrapped = compose.wrappedLabels().filter { it in choices }
+    assertEquals(emptyList<String>(), wrapped)
   }
 
   @androidx.compose.runtime.Composable

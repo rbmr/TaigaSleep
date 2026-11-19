@@ -28,6 +28,7 @@ recordings to Parquet.
   ppi.log        append-only frame log, when the tracker offers pulse intervals
   gyro.log       append-only frame log, when the tracker offers a gyroscope
   mag.log        append-only frame log, when the tracker offers a magnetometer
+  sound.log      append-only frame log, when the phone records sound
   events.jsonl   append-only, one JSON object per line
 ```
 
@@ -78,7 +79,8 @@ step).
     { "id": "ecg", "type": "ecg", "codec": "polar-ecg-v2", "file": "ecg.log", "rate_hz": 130.0,
       "settings": { "resolution_bits": "14" } },
     { "id": "acc", "type": "accelerometer", "codec": "polar-acc-v1", "file": "acc.log", "rate_hz": 50.0,
-      "settings": { "range_g": "8" } }
+      "settings": { "range_g": "8" } },
+    { "id": "sound", "type": "sound", "codec": "opus-v1", "file": "sound.log", "rate_hz": 16000.0 }
   ]
 }
 ```
@@ -92,7 +94,7 @@ do. `config` stays for an older reader: it says whether the three original strea
 on, and it is not what the writer, the uploader or the monitor read.
 
 Stream types are `heart_rate`, `rr_interval`, `ecg`, `accelerometer`, `ppg`,
-`pulse_interval`, `gyroscope` and `magnetometer`.
+`pulse_interval`, `gyroscope`, `magnetometer` and `sound`.
 
 Every Polar driver names the `settings` keys the same way: `rate_hz`, `resolution_bits`
 and `range_g`. A Verity Sense or Loop recording written before they were unified stores
@@ -162,8 +164,8 @@ frame:             u32 payload_len | payload | u32 crc32(payload)
 ```
 
 All integers little-endian. `stream`: 1 = HR, 2 = ECG, 3 = ACC, 4 = PPG, 5 = PPI,
-6 = GYRO, 7 = MAG. A codec decides how a payload of that stream is laid out; the file
-name does not have to be one of the three original names.
+6 = GYRO, 7 = MAG, 8 = SOUND. A codec decides how a payload of that stream is laid
+out; the file name does not have to be one of the three original names.
 
 **Recovery rule.** A write that fails is rolled back to the end of the last whole frame, so the
 next frame is appended after good data and the recording goes on. The lost frame is counted in the
@@ -286,6 +288,47 @@ per sample: i64 t_polar | f32 x | f32 y | f32 z
 
 The values are the SDK's, in the unit it reports for that stream; no conversion is done
 on the phone.
+
+### Sound (stream 8)
+
+The phone's microphone is stored as the `sound` stream. Both codecs write mono audio and
+start with the same header, so a frame says its own rate and length:
+
+```text
+i64 phone_ns | i64 elapsed_ns | u32 sample_rate_hz | u32 sample_count
+```
+
+`sample_rate_hz` is in hertz and `sample_count` is how many samples the frame holds at
+that rate. Its audio ends at `phone_ns`, the way the last sample of an ECG or ACC batch
+does, so the phone clock anchors the frame and `sample_count / sample_rate_hz` gives its
+length. Time between two frames that their counts do not account for stays a gap;
+nothing is stretched over it. The app records mono at 16 kHz; the field carries the
+rate, so another rate needs no new codec.
+
+#### `pcm-s16le-v1` — uncompressed
+
+```text
+i64 phone_ns | i64 elapsed_ns | u32 sample_rate_hz | u32 sample_count | i16 samples[sample_count]
+```
+
+Uncompressed mono 16-bit little-endian PCM, in the order the microphone delivered it. The
+payload is exactly `24 + 2 * sample_count` bytes, so the samples end the frame.
+
+#### `opus-v1` — compressed
+
+```text
+i64 phone_ns | i64 elapsed_ns | u32 sample_rate_hz | u32 sample_count
+| u16 packet_count | u16 packet_len[packet_count] | opus_packet[...]
+```
+
+One or more mono Opus packets per frame, each with its length in bytes. The packets are
+stored as the encoder emitted them, in order, and the payload ends after the last one, so
+a frame is exactly `26 + 2 * packet_count + sum(packet_len)` bytes. `sample_count` is how
+many samples the packets decode to at `sample_rate_hz`, which places the frame on the
+timeline without decoding Opus.
+
+Either codec uses the same file, `sound.log`; the recording's `streams` entry names which
+one it holds.
 
 ## events.jsonl
 

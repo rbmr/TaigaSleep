@@ -214,7 +214,8 @@ sealed interface ListRowTrailing {
  * One row of a list: an optional leading icon, the title with an optional [subtitle] under it, an
  * optional value and the trailing slot. [below] draws a control under the title that needs the
  * whole width, such as the three-way appearance switch. The row is a button when [onClick] is
- * given; the switch and radio are drawn from their state and the row's click changes them.
+ * given; the switch and radio are drawn from their state and the row's click changes them. A
+ * disabled row is dimmed and ignores taps.
  */
 @Composable
 fun ListRow(
@@ -243,7 +244,9 @@ fun ListRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint =
+                if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.taiga.disabled,
             modifier = Modifier.size(24.dp),
         )
         Spacer(Modifier.width(space.m))
@@ -260,7 +263,9 @@ fun ListRow(
           Text(
               text = subtitle,
               style = MaterialTheme.taiga.text.meta,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              color =
+                  if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
+                  else MaterialTheme.taiga.disabled,
           )
         }
         if (below != null) {
@@ -285,7 +290,9 @@ fun ListRow(
               Icon(
                   imageVector = Icons.Outlined.ChevronRight,
                   contentDescription = null,
-                  tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                  tint =
+                      if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
+                      else MaterialTheme.taiga.disabled,
               )
           is ListRowTrailing.Switch ->
               TaigaSwitch(

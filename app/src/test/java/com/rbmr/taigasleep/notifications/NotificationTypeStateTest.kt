@@ -6,87 +6,76 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * What one row of settings → Notifications says for every combination of the app's preference,
- * the channel and the app's notification permission. The switch is on only when all three allow
- * the type; a required type ignores the preference because it has no switch.
+ * What one row of settings → Notifications says: on only when Android allows the app and every
+ * channel the type posts on. Nothing is stored, so the phone's settings are the only source.
  */
 class NotificationTypeStateTest {
   @Test
-  fun `an optional switch is on only when the preference and both Android settings allow it`() {
-    val shown =
-        listOf(true, false).flatMap { preference ->
-          listOf(true, false).flatMap { channel ->
-            listOf(true, false).map { app ->
-              val settings = Triple(preference, channel, app)
-              settings to state(NotificationType.UPLOADS, preference, app, channel)
-            }
-          }
-        }
+  fun `a row is on when Android allows the app and the channel`() {
+    assertTrue(notificationTypeState(NotificationType.UPLOADS, FakeNotificationAccess()).on)
+  }
 
+  @Test
+  fun `a row is off when the app's notifications are off`() {
+    val access = FakeNotificationAccess(appAllowed = false)
+
+    assertFalse(notificationTypeState(NotificationType.UPLOADS, access).on)
+  }
+
+  @Test
+  fun `a row is off when its channel is blocked`() {
+    val access = FakeNotificationAccess()
+    access.block(Channels.UPLOADS)
+
+    assertFalse(notificationTypeState(NotificationType.UPLOADS, access).on)
+  }
+
+  @Test
+  fun `a row with two channels is off when one of them is blocked`() {
+    val access = FakeNotificationAccess()
+    access.block(Channels.WAKE_ALARM_CONTROL)
+
+    assertFalse(notificationTypeState(NotificationType.WAKE_ALARM, access).on)
+    assertTrue(access.channelAllowed(Channels.WAKE_ALARM))
+  }
+
+  @Test
+  fun `a row with two channels is on when both are allowed`() {
+    assertTrue(notificationTypeState(NotificationType.WAKE_ALARM, FakeNotificationAccess()).on)
+  }
+
+  @Test
+  fun `an app block turns every row off, whatever its channels say`() {
+    val access = FakeNotificationAccess(appAllowed = false)
+
+    for (type in NotificationType.entries) {
+      assertFalse(type.name, notificationTypeState(type, access).on)
+    }
+  }
+
+  @Test
+  fun `every type posts on at least one channel`() {
+    for (type in NotificationType.entries) {
+      assertTrue(type.name, type.channelIds.isNotEmpty())
+    }
+  }
+
+  @Test
+  fun `only the smart alarm posts on more than one channel`() {
     assertEquals(
-        listOf(
-            "preference on, channel allowed, app allowed" to true,
-            "preference on, channel allowed, app blocked" to false,
-            "preference on, channel blocked, app allowed" to false,
-            "preference on, channel blocked, app blocked" to false,
-            "preference off, channel allowed, app allowed" to false,
-            "preference off, channel allowed, app blocked" to false,
-            "preference off, channel blocked, app allowed" to false,
-            "preference off, channel blocked, app blocked" to false,
-        ),
-        shown.map { (settings, state) -> describe(settings) to state.on },
+        listOf(NotificationType.WAKE_ALARM),
+        NotificationType.entries.filter { it.channelIds.size > 1 },
     )
   }
 
   @Test
-  fun `an optional row is allowed only when Android allows the app and the channel`() {
-    for (preference in listOf(true, false)) {
-      for (channel in listOf(true, false)) {
-        for (app in listOf(true, false)) {
-          val state = state(NotificationType.ANALYSES, preference, app, channel)
-
-          assertEquals(
-              "preference=$preference channel=$channel app=$app",
-              channel && app,
-              state.allowed,
-          )
-        }
-      }
-    }
+  fun `upload results and analysis results have a channel each`() {
+    assertEquals(listOf(Channels.UPLOADS), NotificationType.UPLOADS.channelIds)
+    assertEquals(listOf(Channels.ANALYSES), NotificationType.ANALYSES.channelIds)
   }
 
   @Test
-  fun `a required type is on whenever Android allows it, whatever the preference says`() {
-    for (type in NotificationType.entries.filter { it.required }) {
-      for (preference in listOf(true, false)) {
-        for (channel in listOf(true, false)) {
-          for (app in listOf(true, false)) {
-            val state = state(type, preference, app, channel)
-
-            assertEquals(
-                "${type.name}: preference=$preference channel=$channel app=$app",
-                channel && app,
-                state.on,
-            )
-          }
-        }
-      }
-    }
-  }
-
-  @Test
-  fun `only a required type has no switch`() {
-    for (type in NotificationType.entries) {
-      assertEquals(type.name, !type.required, state(type, true, true, true).hasSwitch)
-    }
-    assertFalse(state(NotificationType.RECORDING, true, true, true).hasSwitch)
-    assertFalse(state(NotificationType.WAKE_ALARM, true, true, true).hasSwitch)
-    assertTrue(state(NotificationType.UPLOADS, true, true, true).hasSwitch)
-    assertTrue(state(NotificationType.PHONE_STORAGE, true, true, true).hasSwitch)
-  }
-
-  @Test
-  fun `the optional types are the ones after the required ones on the screen`() {
+  fun `the screen lists every type in this order`() {
     assertEquals(
         listOf(
             NotificationType.RECORDING,
@@ -98,28 +87,5 @@ class NotificationTypeStateTest {
         ),
         NotificationType.entries,
     )
-    assertEquals(
-        listOf(false, false, true, true, true, true),
-        NotificationType.entries.map { !it.required },
-    )
-  }
-
-  private fun state(
-      type: NotificationType,
-      preference: Boolean,
-      app: Boolean,
-      channel: Boolean,
-  ) = NotificationTypeState(
-      type = type,
-      preferenceOn = preference,
-      appAllowed = app,
-      channelAllowed = channel,
-  )
-
-  private fun describe(settings: Triple<Boolean, Boolean, Boolean>): String {
-    val (preference, channel, app) = settings
-    return "preference ${if (preference) "on" else "off"}, " +
-        "channel ${if (channel) "allowed" else "blocked"}, " +
-        "app ${if (app) "allowed" else "blocked"}"
   }
 }
