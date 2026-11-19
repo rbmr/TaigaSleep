@@ -46,7 +46,6 @@ import com.rbmr.taigasleep.ui.components.PrimaryButton
 import com.rbmr.taigasleep.ui.components.SecondaryButton
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.theme.LocalFormats
-import com.rbmr.taigasleep.ui.theme.LocalReduceMotion
 import com.rbmr.taigasleep.ui.theme.taiga
 import kotlinx.coroutines.delay
 
@@ -235,39 +234,30 @@ private fun WakeRow(wake: LiveWake, enabled: Boolean, onClick: () -> Unit) {
 
 /**
  * The recording label breathes while data arrives. The clock is read while drawing, so a frame
- * only fades the label again without recomposing it; with animations off it stays still.
+ * only fades the label again without recomposing it; with motion off the clock stands at its end
+ * and the label keeps one alpha.
  */
 @Composable
 private fun PulsingLabel(text: String) {
-  val reduceMotion = LocalReduceMotion.current
   val pulse =
-      if (reduceMotion) {
-        null
-      } else {
-        rememberInfiniteTransition(label = "recording")
-            .animateFloat(
-                initialValue = 0.45f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse),
-                label = "pulse",
-            )
-      }
+      rememberInfiniteTransition(label = "recording")
+          .animateFloat(
+              initialValue = 0.45f,
+              targetValue = 1f,
+              animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse),
+              label = "pulse",
+          )
   // Modulating the alpha draws the label exactly as the colour's own alpha does, without a layer.
-  val breathe =
-      if (pulse == null) {
-        Modifier
-      } else {
-        Modifier.graphicsLayer {
-          alpha = pulse.value
-          compositingStrategy = CompositingStrategy.ModulateAlpha
-        }
-      }
   Text(
       text = text,
       style = MaterialTheme.taiga.text.section,
       color = MaterialTheme.colorScheme.primary,
       textAlign = TextAlign.Center,
-      modifier = breathe,
+      modifier =
+          Modifier.graphicsLayer {
+            alpha = pulse.value
+            compositingStrategy = CompositingStrategy.ModulateAlpha
+          },
   )
 }
 
