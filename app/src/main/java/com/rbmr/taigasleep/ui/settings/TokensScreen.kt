@@ -108,10 +108,10 @@ fun AccessTokensScreen(onBack: () -> Unit) {
           ChoiceButton(
               label =
                   stringResource(
-                      R.string.tokens_lifetime_value,
+                      R.string.tokens_expiry_value,
                       stringResource(lifetimeLabel(lifetime)),
                   ),
-              action = stringResource(R.string.tokens_lifetime_change),
+              action = stringResource(R.string.tokens_expiry_change),
               onClick = { choosingLifetime = true },
           )
           PrimaryButton(
@@ -155,7 +155,7 @@ fun AccessTokensScreen(onBack: () -> Unit) {
               Modifier.fillMaxWidth().padding(bottom = MaterialTheme.taiga.space.l),
       ) {
         Text(
-            text = stringResource(R.string.tokens_lifetime_title),
+            text = stringResource(R.string.tokens_expiry_title),
             style = MaterialTheme.taiga.text.section,
             modifier = Modifier.padding(horizontal = MaterialTheme.taiga.space.m),
         )
@@ -268,10 +268,10 @@ private fun expiryLabel(token: AccessTokenDto): String? =
 /** The name of a lifetime, as the choice and the choice's button say it. */
 private fun lifetimeLabel(lifetime: AccessTokenLifetime): Int =
     when (lifetime) {
-      AccessTokenLifetime.DAYS_7 -> R.string.tokens_lifetime_7d
-      AccessTokenLifetime.DAYS_30 -> R.string.tokens_lifetime_30d
-      AccessTokenLifetime.DAYS_90 -> R.string.tokens_lifetime_90d
-      AccessTokenLifetime.YEAR -> R.string.tokens_lifetime_year
-      AccessTokenLifetime.NEVER -> R.string.tokens_lifetime_never
+      AccessTokenLifetime.DAYS_7 -> R.string.tokens_expiry_7d
+      AccessTokenLifetime.DAYS_30 -> R.string.tokens_expiry_30d
+      AccessTokenLifetime.DAYS_90 -> R.string.tokens_expiry_90d
+      AccessTokenLifetime.YEAR -> R.string.tokens_expiry_year
+      AccessTokenLifetime.NEVER -> R.string.tokens_expiry_never
     }
 

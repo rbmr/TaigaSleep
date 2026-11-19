@@ -48,8 +48,6 @@ import com.rbmr.taigasleep.ui.settings.PersonalDataScreen
 import com.rbmr.taigasleep.ui.settings.RemoteScreen
 import com.rbmr.taigasleep.ui.settings.SettingsScreen
 import com.rbmr.taigasleep.ui.settings.UploadsScreen
-import com.rbmr.taigasleep.ui.theme.LocalMotionScale
-import com.rbmr.taigasleep.ui.theme.animated
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -65,7 +63,6 @@ fun TaigaApp() {
       rememberPagerState(initialPage = MainTab.HOME.ordinal, pageCount = { MainTab.entries.size })
   val snackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
-  val motionScale = LocalMotionScale.current
   val remote = remember { context.appContainer.remoteRepository }
   val remoteStatus by remote.status.collectAsStateWithLifecycle()
   val top = nav.top
@@ -92,7 +89,7 @@ fun TaigaApp() {
   // Back selects Home from any tab other than Home, and leaves the app on Home as it always has.
   // What is open above the pager answers Back itself, so it is closed first.
   BackHandler(enabled = backReturnsHome(top, tab)) {
-    pagerState.moveTo(MainTab.HOME.ordinal, motionScale, scope)
+    pagerState.moveTo(MainTab.HOME.ordinal, scope)
   }
 
   if (top == MainOverlay.NONE) {
@@ -100,7 +97,7 @@ fun TaigaApp() {
         pagerState = pagerState,
         snackbarHostState = snackbarHostState,
         nav = nav,
-        onSelect = { page -> pagerState.moveTo(page, motionScale, scope) },
+        onSelect = { page -> pagerState.moveTo(page, scope) },
     )
   } else {
     Overlays(top = top, nav = nav)
@@ -229,10 +226,7 @@ private fun LoginPrompt(
   }
 }
 
-/** Moves the pager to [page]: a slide at the app's animation scale, or a jump when it is off. */
-private fun PagerState.moveTo(page: Int, motionScale: Float, scope: CoroutineScope) {
-  scope.launch {
-    if (motionScale <= 0f) scrollToPage(page)
-    else animated(motionScale) { animateScrollToPage(page) }
-  }
+/** Moves the pager to [page]: a slide at the app's animation scale, a jump when that scale is zero. */
+private fun PagerState.moveTo(page: Int, scope: CoroutineScope) {
+  scope.launch { animateScrollToPage(page) }
 }

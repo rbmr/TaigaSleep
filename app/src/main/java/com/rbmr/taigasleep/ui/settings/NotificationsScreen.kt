@@ -17,20 +17,21 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rbmr.taigasleep.R
+import com.rbmr.taigasleep.notifications.NotificationType
 import com.rbmr.taigasleep.notifications.NotificationTypeState
 import com.rbmr.taigasleep.ui.components.ListRow
 import com.rbmr.taigasleep.ui.components.ListRowTrailing
 import com.rbmr.taigasleep.ui.components.PrimaryButton
+import com.rbmr.taigasleep.ui.components.SecondaryButton
 import com.rbmr.taigasleep.ui.components.SettingsDivider
-import com.rbmr.taigasleep.ui.components.StatusPillState
 import com.rbmr.taigasleep.ui.components.TaigaCard
 import com.rbmr.taigasleep.ui.components.TaigaScreen
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
- * Settings → Notifications: every notification type the app can send. The optional ones have a
- * switch of the app's own; the required ones only say whether Android allows them. A row opens the
- * phone's settings for its channel, where its sound and importance live.
+ * Settings → Notifications: every notification type the app can send, each with a switch that
+ * shows what Android allows. Android does not let the app change its own channels, so a switch or
+ * a row opens the phone's settings for that type, where its sound and importance live.
  */
 @Composable
 fun NotificationsScreen(onBack: () -> Unit) {
@@ -44,8 +45,23 @@ fun NotificationsScreen(onBack: () -> Unit) {
     model.refresh()
     onPauseOrDispose {}
   }
-  val space = MaterialTheme.taiga.space
+  NotificationsContent(
+      state = state,
+      onOpen = model::openSettings,
+      onOpenSettings = model::openAppSettings,
+      onBack = onBack,
+  )
+}
 
+/** The content of Settings → Notifications, drawn from [state]. */
+@Composable
+internal fun NotificationsContent(
+    state: NotificationsUiState,
+    onOpen: (NotificationType) -> Unit,
+    onOpenSettings: () -> Unit,
+    onBack: () -> Unit,
+) {
+  val space = MaterialTheme.taiga.space
   TaigaScreen(title = stringResource(R.string.settings_notifications_title), onBack = onBack) {
     if (state.appBlocked) {
       TaigaCard {
@@ -56,47 +72,33 @@ fun NotificationsScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(space.s))
         PrimaryButton(
             text = stringResource(R.string.notifications_open_settings),
-            onClick = model::openAppNotificationSettings,
+            onClick = onOpenSettings,
         )
       }
     }
     TaigaCard(contentPadding = PaddingValues(0.dp)) {
       state.rows.forEachIndexed { index, row ->
         if (index > 0) SettingsDivider()
-        NotificationRow(
-            row = row,
-            onSwitch = { on -> model.setOn(row.type, on) },
-            onClick = { model.openSettings(row.type) },
-        )
+        NotificationRow(row = row, onOpen = { onOpen(row.type) })
       }
     }
+    SecondaryButton(
+        text = stringResource(R.string.notifications_open_settings),
+        onClick = onOpenSettings,
+    )
   }
 }
 
-/** One type: the app's switch when it has one, and the phone's own screen behind the row. */
+/** One type: a switch that shows Android's answer, and the phone's own screen behind it. */
 @Composable
 private fun NotificationRow(
     row: NotificationTypeState,
-    onSwitch: (Boolean) -> Unit,
-    onClick: () -> Unit,
+    onOpen: () -> Unit,
 ) {
-  val trailing =
-      if (row.hasSwitch) {
-        ListRowTrailing.Switch(checked = row.on, onCheckedChange = onSwitch)
-      } else {
-        ListRowTrailing.Pill(
-            label =
-                stringResource(
-                    if (row.allowed) R.string.notifications_allowed
-                    else R.string.notifications_blocked
-                ),
-            state = if (row.allowed) StatusPillState.Ok else StatusPillState.Warn,
-        )
-      }
   ListRow(
       title = stringResource(row.type.label),
-      trailing = trailing,
-      onClick = onClick,
+      trailing = ListRowTrailing.Switch(checked = row.on, onCheckedChange = { onOpen() }),
+      onClick = onOpen,
       onClickLabel = stringResource(R.string.notifications_open_channel),
   )
 }

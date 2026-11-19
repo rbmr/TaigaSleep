@@ -16,17 +16,17 @@ import org.robolectric.annotation.Config
 
 /**
  * The tracker battery and phone storage alerts: sent once per episode, not on every reading, and
- * the storage alert removed when the space is free again.
+ * the storage alert removed when the space is free again. Each follows what Android allows for its
+ * channel.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class DeviceAlertsTest {
   private val context: Context = RuntimeEnvironment.getApplication()
   private val manager = context.getSystemService(NotificationManager::class.java)
-  private val settings = NotificationSettings(context)
-  private val access = FakeAccess()
+  private val access = FakeNotificationAccess()
 
-  private fun alerts() = DeviceAlerts(context, settings, access)
+  private fun alerts() = DeviceAlerts(context, access)
 
   private fun notification(id: Int): Notification? = shadowOf(manager).getNotification(id)
 
@@ -87,9 +87,8 @@ class DeviceAlertsTest {
   }
 
   @Test
-  fun `both alerts follow their app switch`() {
-    settings.setOn(NotificationType.TRACKER_BATTERY, false)
-    settings.setOn(NotificationType.PHONE_STORAGE, false)
+  fun `both alerts are silent while the app's notifications are off`() {
+    access.appAllowed = false
 
     alerts().trackerBattery(5, low = true)
     alerts().phoneStorage(low = true)
@@ -99,8 +98,8 @@ class DeviceAlertsTest {
   }
 
   @Test
-  fun `both alerts follow what Android allows`() {
-    access.channelAllowed = false
+  fun `both alerts are silent while their channel is blocked`() {
+    access.block(Channels.TRACKER_BATTERY, Channels.PHONE_STORAGE)
 
     alerts().trackerBattery(5, low = true)
     alerts().phoneStorage(low = true)
@@ -110,23 +109,14 @@ class DeviceAlertsTest {
   }
 
   @Test
-  fun `turning a type on during an episode sends that alert once`() {
-    settings.setOn(NotificationType.TRACKER_BATTERY, false)
+  fun `an alert is sent once when its channel is unblocked during the episode`() {
+    access.block(Channels.TRACKER_BATTERY)
     alerts().trackerBattery(5, low = true)
     assertNull(notification(Notifier.TRACKER_BATTERY_ID))
 
-    settings.setOn(NotificationType.TRACKER_BATTERY, true)
+    access.allow(Channels.TRACKER_BATTERY)
     alerts().trackerBattery(5, low = true)
 
     assertNotNull(notification(Notifier.TRACKER_BATTERY_ID))
-  }
-
-  private class FakeAccess(
-      var appAllowed: Boolean = true,
-      var channelAllowed: Boolean = true,
-  ) : NotificationAccess {
-    override fun appAllowed(): Boolean = appAllowed
-
-    override fun channelAllowed(channelId: String): Boolean = channelAllowed
   }
 }

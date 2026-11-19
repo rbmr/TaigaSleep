@@ -30,6 +30,7 @@
   <string name="home_tracker_title">Tracker</string>
   <string name="home_tracker_hint">Switch it on and keep it nearby</string>
   <string name="rec_configure_title">Configure</string>
+  <string name="rec_configure_hint">Connect a tracker first</string>
   <string name="rec_mode_summary_stream">Streaming</string>
   <string name="rec_mode_summary_on_device">On tracker</string>
   <string name="rec_data_title">Data to record</string>

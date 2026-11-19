@@ -4,97 +4,62 @@ import androidx.annotation.StringRes
 import com.rbmr.taigasleep.R
 
 /**
- * Every kind of notification the app can send, each posted on its channel from [Channels].
+ * Every kind of notification the app can send, each posted on its own channels from [Channels].
  *
- * A required type belongs to the recording or to the alarm, and the app cannot work without it, so
- * it has no switch in the app. An optional type has a switch of its own: the app posts it only when
- * that switch is on and Android allows its channel. The order is the order the settings screen
- * lists them: the required types first, then the optional ones.
+ * A type that posts on more than one channel is allowed only when Android allows all of them, so a
+ * blocked channel is never hidden by another one that is open. Android's settings for these channels
+ * are the only switches: the app posts a type exactly when Android allows the app and the type's
+ * channels. An app cannot change its own channels, so the Notifications screen opens the phone's
+ * settings instead of keeping a copy. The order is the order the screen lists them.
  */
 enum class NotificationType(
-    internal val preferenceKey: String,
-    val channelId: String,
-    val required: Boolean,
+    val channelIds: List<String>,
     @StringRes val label: Int,
 ) {
   RECORDING(
-      "recording",
-      Channels.RECORDING,
-      required = true,
+      channelIds = listOf(Channels.RECORDING),
       label = R.string.notification_type_recording,
   ),
   WAKE_ALARM(
-      "wake_alarm",
-      Channels.WAKE_ALARM,
-      required = true,
+      channelIds = listOf(Channels.WAKE_ALARM, Channels.WAKE_ALARM_CONTROL),
       label = R.string.notification_type_wake_alarm,
   ),
   UPLOADS(
-      "uploads",
-      Channels.UPLOADS,
-      required = false,
+      channelIds = listOf(Channels.UPLOADS),
       label = R.string.notification_type_uploads,
   ),
   ANALYSES(
-      "analyses",
-      Channels.UPLOADS,
-      required = false,
+      channelIds = listOf(Channels.ANALYSES),
       label = R.string.notification_type_analyses,
   ),
   TRACKER_BATTERY(
-      "tracker_battery",
-      Channels.TRACKER_BATTERY,
-      required = false,
+      channelIds = listOf(Channels.TRACKER_BATTERY),
       label = R.string.notification_type_tracker_battery,
   ),
   PHONE_STORAGE(
-      "phone_storage",
-      Channels.PHONE_STORAGE,
-      required = false,
+      channelIds = listOf(Channels.PHONE_STORAGE),
       label = R.string.notification_type_phone_storage,
   ),
 }
 
 /**
- * One notification type as the settings screen shows it: the app's own preference for an optional
- * type, and what Android allows for it.
+ * One type as the Notifications screen shows it: on when Android allows the app and every channel
+ * the type posts on.
  *
- * The switch is on only when the preference is on and Android allows both the app and the channel.
- * A required type has no switch and is on exactly when Android allows it. Nothing Android says is
- * stored, so the app's preference survives a block and returns when the block is lifted.
+ * Nothing is stored, so the phone's settings are the only source and a change made there is what
+ * the next notification follows.
  */
 data class NotificationTypeState(
     val type: NotificationType,
-    val preferenceOn: Boolean,
-    val appAllowed: Boolean,
-    val channelAllowed: Boolean,
-) {
-  /** True when Android allows this type to be posted. */
-  val allowed: Boolean
-    get() = appAllowed && channelAllowed
+    val on: Boolean,
+)
 
-  /** True when the app would post this type now. */
-  val on: Boolean
-    get() = allowed && (type.required || preferenceOn)
-
-  /** True when the row can carry a switch; a required type has none. */
-  val hasSwitch: Boolean
-    get() = !type.required
-}
-
-/**
- * [type] as the app and the phone have it now: the app's own switch for an optional type, and
- * what Android allows for the app and for the type's channel. Nothing is stored here, so a change
- * made in either place is what the next notification follows.
- */
+/** [type] as Android has it now: the app's notifications and every channel the type posts on. */
 internal fun notificationTypeState(
     type: NotificationType,
-    settings: NotificationSettings,
     access: NotificationAccess,
 ): NotificationTypeState =
     NotificationTypeState(
         type = type,
-        preferenceOn = type.required || settings.isOn(type),
-        appAllowed = access.appAllowed(),
-        channelAllowed = access.channelAllowed(type.channelId),
+        on = access.appAllowed() && type.channelIds.all(access::channelAllowed),
     )

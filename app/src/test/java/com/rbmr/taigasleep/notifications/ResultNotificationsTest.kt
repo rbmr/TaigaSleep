@@ -16,147 +16,140 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 /**
- * The batched results notification: one id for every upload and analysis outcome, updated in place,
- * naming only the types that are on, and counting since it was last opened or dismissed.
+ * The results summaries: one notification per type, updated in place on its own channel, naming
+ * only that type's outcomes, and counting since its summary was last opened or dismissed.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ResultNotificationsTest {
   private val context: Context = RuntimeEnvironment.getApplication()
   private val manager = context.getSystemService(NotificationManager::class.java)
-  private val settings = NotificationSettings(context)
-  private val access = FakeAccess()
+  private val access = FakeNotificationAccess()
 
-  private fun results() = ResultNotifications(context, settings, access)
+  private fun results() = ResultNotifications(context, access)
 
-  private fun notification(): Notification? =
-      shadowOf(manager).getNotification(Notifier.RESULTS_ID)
+  private fun notification(id: Int): Notification? = shadowOf(manager).getNotification(id)
 
-  private fun text(): String? =
-      notification()?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+  private fun text(id: Int): String? =
+      notification(id)?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+
+  private fun title(id: Int): String? =
+      notification(id)?.extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()
 
   @Test
-  fun `several uploads and analyses update one notification`() {
+  fun `uploads share one summary and analyses another`() {
     results().uploadFinished()
     results().uploadFinished()
-    results().analysisFinished()
     results().uploadFailed()
-
-    assertEquals("one notification for every outcome", 1, shadowOf(manager).size())
-    assertEquals(
-        "2 recordings uploaded · 1 analysis finished · 1 upload failed",
-        text(),
-    )
-    assertEquals(
-        context.getString(R.string.results_notification_title),
-        notification()!!.extras.getCharSequence(Notification.EXTRA_TITLE).toString(),
-    )
-  }
-
-  @Test
-  fun `only the counts of the types that are on are listed`() {
-    settings.setOn(NotificationType.ANALYSES, false)
-
-    results().uploadFinished()
-    results().analysisFinished()
-    results().uploadFailed()
-
-    assertEquals("1 recording uploaded · 1 upload failed", text())
-  }
-
-  @Test
-  fun `only the analyses are listed when the upload switch is off`() {
-    settings.setOn(NotificationType.UPLOADS, false)
-
-    results().uploadFinished()
     results().analysisFinished()
     results().analysisFailed()
 
-    assertEquals("1 analysis finished · 1 analysis failed", text())
+    assertEquals("2 recordings uploaded · 1 upload failed", text(Notifier.UPLOAD_RESULTS_ID))
+    assertEquals("1 analysis finished · 1 analysis failed", text(Notifier.ANALYSIS_RESULTS_ID))
+    assertEquals(2, shadowOf(manager).size())
   }
 
   @Test
-  fun `nothing is posted when only a disabled type occurs`() {
-    settings.setOn(NotificationType.ANALYSES, false)
+  fun `each summary is posted on its own channel`() {
+    results().uploadFinished()
+    results().analysisFinished()
+
+    assertEquals(Channels.UPLOADS, notification(Notifier.UPLOAD_RESULTS_ID)!!.channelId)
+    assertEquals(Channels.ANALYSES, notification(Notifier.ANALYSIS_RESULTS_ID)!!.channelId)
+  }
+
+  @Test
+  fun `each summary carries the name of its type`() {
+    results().uploadFinished()
+    results().analysisFinished()
+
+    assertEquals(
+        context.getString(R.string.notification_type_uploads),
+        title(Notifier.UPLOAD_RESULTS_ID),
+    )
+    assertEquals(
+        context.getString(R.string.notification_type_analyses),
+        title(Notifier.ANALYSIS_RESULTS_ID),
+    )
+  }
+
+  @Test
+  fun `a blocked type posts nothing and is not counted`() {
+    access.block(Channels.ANALYSES)
 
     results().analysisFinished()
-    results().analysisFailed()
+    assertNull(notification(Notifier.ANALYSIS_RESULTS_ID))
 
-    assertNull(notification())
-    assertEquals(0, shadowOf(manager).size())
+    access.allow(Channels.ANALYSES)
+    results().analysisFinished()
+
+    assertEquals("1 analysis finished", text(Notifier.ANALYSIS_RESULTS_ID))
   }
 
   @Test
-  fun `nothing is posted when only an upload occurs with its switch off`() {
-    settings.setOn(NotificationType.UPLOADS, false)
+  fun `a blocked channel leaves the other summary alone`() {
+    access.block(Channels.ANALYSES)
 
     results().uploadFinished()
-    results().uploadFailed()
+    results().analysisFinished()
 
-    assertNull(notification())
-    assertEquals(0, shadowOf(manager).size())
+    assertEquals("1 recording uploaded", text(Notifier.UPLOAD_RESULTS_ID))
+    assertNull(notification(Notifier.ANALYSIS_RESULTS_ID))
   }
 
   @Test
-  fun `nothing is posted when only a type Android blocks occurs`() {
-    access.channelAllowed = false
-
-    results().uploadFinished()
-
-    assertNull(notification())
-    assertEquals(0, shadowOf(manager).size())
-  }
-
-  @Test
-  fun `nothing is posted when the app's notifications are off`() {
+  fun `nothing is posted while the app's notifications are off`() {
     access.appAllowed = false
 
+    results().uploadFinished()
     results().analysisFinished()
 
-    assertNull(notification())
+    assertEquals(0, shadowOf(manager).size())
   }
 
   @Test
-  fun `dismissing the notification resets the counts`() {
+  fun `dismissing one summary resets only its counts`() {
     results().uploadFinished()
-    val dismiss = shadowOf(notification()!!.deleteIntent!!).savedIntent
+    results().analysisFinished()
+    val dismiss = shadowOf(notification(Notifier.UPLOAD_RESULTS_ID)!!.deleteIntent!!).savedIntent
 
     assertEquals(ResultsReceiver.ACTION_DISMISSED, dismiss.action)
+    assertEquals(
+        NotificationType.UPLOADS.name,
+        dismiss.getStringExtra(Notifier.EXTRA_RESULTS_TYPE),
+    )
     ResultsReceiver().onReceive(context, dismiss)
     results().uploadFinished()
 
-    assertEquals("1 recording uploaded", text())
+    assertEquals("1 recording uploaded", text(Notifier.UPLOAD_RESULTS_ID))
+    assertEquals("1 analysis finished", text(Notifier.ANALYSIS_RESULTS_ID))
   }
 
   @Test
-  fun `opening the notification resets the counts`() {
+  fun `opening a summary resets every count`() {
     results().uploadFinished()
     results().analysisFinished()
-    val tap = shadowOf(notification()!!.contentIntent!!).savedIntent
+    val tap = shadowOf(notification(Notifier.UPLOAD_RESULTS_ID)!!.contentIntent!!).savedIntent
 
     assertTrue(tap.getBooleanExtra(Notifier.EXTRA_RESULTS_OPENED, false))
     resultsOpened(context, tap)
     results().uploadFinished()
+    results().analysisFinished()
 
-    assertEquals("1 recording uploaded", text())
+    assertEquals("1 recording uploaded", text(Notifier.UPLOAD_RESULTS_ID))
+    assertEquals("1 analysis finished", text(Notifier.ANALYSIS_RESULTS_ID))
   }
 
   @Test
   fun `a start from anywhere else does not reset the counts`() {
     results().uploadFinished()
+    results().analysisFinished()
 
     resultsOpened(context, Intent(Intent.ACTION_MAIN))
     results().uploadFinished()
+    results().analysisFinished()
 
-    assertEquals("2 recordings uploaded", text())
-  }
-
-  private class FakeAccess(
-      var appAllowed: Boolean = true,
-      var channelAllowed: Boolean = true,
-  ) : NotificationAccess {
-    override fun appAllowed(): Boolean = appAllowed
-
-    override fun channelAllowed(channelId: String): Boolean = channelAllowed
+    assertEquals("2 recordings uploaded", text(Notifier.UPLOAD_RESULTS_ID))
+    assertEquals("2 analyses finished", text(Notifier.ANALYSIS_RESULTS_ID))
   }
 }
