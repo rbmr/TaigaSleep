@@ -18,15 +18,14 @@
   <string name="notification_type_tracker_battery">Tracker battery low</string>
   <string name="notification_type_phone_storage">Phone storage low</string>
 
-  <string name="notifications_allowed">Allowed</string>
-  <string name="notifications_blocked">Blocked</string>
   <string name="notifications_app_blocked">Notifications are off for Taiga Sleep in your phone\'s settings.</string>
   <string name="notifications_open_settings">Open settings</string>
   <string name="notifications_open_channel">Notification settings</string>
 
-  <!-- The one notification that batches upload and analysis results. Each line names only the
-       outcomes whose switch is on, and the counts are since it was last opened or dismissed. -->
-  <string name="results_notification_title">Uploads and analyses</string>
+  <!-- The uploads summary uses the upload channel; analyses have one of their own. Each line names
+       only the outcomes of one type, and the counts are since that summary was last opened or
+       dismissed. -->
+  <string name="notification_channel_analyses">Analysis results</string>
   <plurals name="results_uploaded">
     <item quantity="one">%1$d recording uploaded</item>
     <item quantity="other">%1$d recordings uploaded</item>

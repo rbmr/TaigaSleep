@@ -4,7 +4,7 @@ import android.app.NotificationManager
 import android.content.Context
 import androidx.core.app.NotificationManagerCompat
 
-/** What Android allows, as opposed to the app's own switches in [NotificationSettings]. */
+/** What Android allows: the app's notifications and each of its channels. */
 interface NotificationAccess {
   /** False when all of the app's notifications are off, including a permission not granted. */
   fun appAllowed(): Boolean
@@ -15,7 +15,8 @@ interface NotificationAccess {
 
 /**
  * Reads [NotificationAccess] from the phone. The app can read these settings but cannot change
- * them, so a blocked type is shown as blocked and the user changes it in Android's own screens.
+ * them, so the Notifications screen shows them as they are and the user changes a type in
+ * Android's own screens.
  */
 class PhoneNotificationAccess(context: Context) : NotificationAccess {
   private val application = context.applicationContext
