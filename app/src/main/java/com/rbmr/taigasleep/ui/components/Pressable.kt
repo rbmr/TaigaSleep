@@ -31,8 +31,6 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.rbmr.taigasleep.ui.theme.LocalMotionScale
-import com.rbmr.taigasleep.ui.theme.animated
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
@@ -57,19 +55,12 @@ fun Pressable(
 ) {
   val interactionSource = remember { MutableInteractionSource() }
   val pressed by interactionSource.collectIsPressedAsState()
-  // Press feedback is motion: with it off the shape reaches 0.97 at once and back at once. A press
-  // is one spring of its own, so the scale carries the app's own animator duration scale.
-  val motionScale = LocalMotionScale.current
+  // Press feedback is one spring of its own, so it runs at the app's animation scale: with motion
+  // off the shape reaches 0.97 at once and back at once.
   val scale = remember { Animatable(1f) }
-  LaunchedEffect(pressed, enabled, motionScale) {
+  LaunchedEffect(pressed, enabled) {
     val target = if (pressed && enabled) 0.97f else 1f
-    if (motionScale <= 0f) {
-      scale.snapTo(target)
-    } else {
-      animated(motionScale) {
-        scale.animateTo(target, spring(stiffness = Spring.StiffnessMediumLow))
-      }
-    }
+    scale.animateTo(target, spring(stiffness = Spring.StiffnessMediumLow))
   }
   Box(
       modifier =

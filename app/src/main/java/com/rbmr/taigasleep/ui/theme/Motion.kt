@@ -1,70 +1,97 @@
 package com.rbmr.taigasleep.ui.theme
 
+import android.content.ContentResolver
 import android.content.Context
 import android.database.ContentObserver
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.MotionDurationScale
-import androidx.compose.ui.platform.LocalContext
-import kotlinx.coroutines.withContext
 
 /**
- * True when no motion may run. It is the one flag every animated component of the app reads, and
- * the theme resolves it from the user's choice and the phone's animation setting. Off means the end
- * state of an animation is shown at once, never that the data or the state behind it changes.
+ * True when the app shows the end state of its animations at once. It is the theme's resolved
+ * animation scale, so it is true only when the app resolves to Off. Off means the end state of an
+ * animation is shown at once, never that the data or the state behind it changes.
+ *
+ * Most animations need nothing from it: they run at the app's scale and finish at once when that
+ * scale is zero. A component reads it where the still end state is not the animation's last frame,
+ * such as the bear's pose or a spinner that would otherwise stand still.
  */
 val LocalReduceMotion = staticCompositionLocalOf { false }
 
 /**
- * The animator duration scale the app animates at: the phone's own scale for System, one for On and
- * zero for Off. Compose reads that scale from the coroutine an animation runs in, not from a
- * composition, so a component runs its animation inside [animated] with this value: that is what
- * makes On animate on a phone whose own animations are off.
+ * The one animation scale of the app: the [AnimationMode] the user chose, resolved with the
+ * phone's own animator duration scale. System follows the phone, On is one and Off is zero,
+ * whatever the phone says.
+ *
+ * Compose reads the scale an animation runs at from the coroutine context of the composition, not
+ * from the composition itself, so this object goes into the context of the window's recomposer.
+ * Every Compose animation of the window then follows it without a component opting in: infinite
+ * transitions, `animate*AsState`, visibility and crossfades, sheet, navigation and pager
+ * transitions, ripples and `Animatable`s that components run themselves.
+ *
+ * Compose reads the scale when a finite animation starts and on every frame of an infinite one, so
+ * a change reaches a running infinite animation at once and a finite one from its next start. An
+ * infinite animation that stopped because the scale was zero wakes again when it moves off zero,
+ * because the scale is snapshot state that the animation's loop observes.
  */
-val LocalMotionScale = staticCompositionLocalOf { 1f }
+class AppMotionScale(context: Context) : MotionDurationScale {
+  private val appContext = context.applicationContext
+  private val current =
+      mutableFloatStateOf(AnimationMode.SYSTEM.motionScale(animatorScale(appContext)))
+  private var mode = AnimationMode.SYSTEM
+  private var watching = false
 
-/** The scale element Compose finds on the coroutine of an animation. */
-private class AppMotionScale(override val scaleFactor: Float) : MotionDurationScale
+  /** The scale every animation of the app runs at, for the theme to draw its end states by. */
+  val scale: State<Float> = current
 
-/** Runs [block] at [scale], whatever the phone's own animator duration scale says. */
-suspend fun <T> animated(scale: Float, block: suspend () -> T): T =
-    withContext(AppMotionScale(scale)) { block() }
+  override val scaleFactor: Float get() = current.floatValue
+
+  /** Makes [mode] the app's choice, resolved with the phone's scale as it is now. */
+  fun select(mode: AnimationMode) {
+    this.mode = mode
+    update()
+  }
+
+  /**
+   * Follows the phone's animator duration scale: a change reaches the running app at once through
+   * a ContentObserver, so System follows the phone without a restart. [stop] ends it.
+   */
+  fun watch() {
+    if (watching) return
+    watching = true
+    resolver().registerContentObserver(
+        Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE),
+        false,
+        phoneObserver,
+    )
+    update()
+  }
+
+  /** Stops following the phone's animator duration scale. */
+  fun stop() {
+    if (!watching) return
+    watching = false
+    resolver().unregisterContentObserver(phoneObserver)
+  }
+
+  private val phoneObserver =
+      object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+          update()
+        }
+      }
+
+  private fun update() {
+    current.floatValue = mode.motionScale(animatorScale(appContext))
+  }
+
+  private fun resolver(): ContentResolver = appContext.contentResolver
+}
 
 /** The phone's animator duration scale: the setting that makes every system animation instant. */
 private fun animatorScale(context: Context): Float =
     Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
-
-/**
- * The animation scale for [mode], kept current while the app runs. System follows the phone's
- * animator duration scale and a change to it reaches the app at once through a ContentObserver, so
- * turning animations off in the phone's settings stops them without a restart.
- */
-@Composable
-fun rememberMotionScale(mode: AnimationMode): Float {
-  val context = LocalContext.current
-  var scale by remember { mutableFloatStateOf(animatorScale(context)) }
-  DisposableEffect(context) {
-    val resolver = context.contentResolver
-    val observer =
-        object : ContentObserver(Handler(Looper.getMainLooper())) {
-          override fun onChange(selfChange: Boolean) {
-            scale = animatorScale(context)
-          }
-        }
-    resolver.registerContentObserver(
-        Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE),
-        false,
-        observer,
-    )
-    onDispose { resolver.unregisterContentObserver(observer) }
-  }
-  return mode.motionScale(scale)
-}

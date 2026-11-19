@@ -3,7 +3,6 @@ package com.rbmr.taigasleep.ui.theme
 import android.app.UiModeManager
 import android.content.Context
 import android.os.Looper
-import android.provider.Settings
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
@@ -25,7 +24,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * What the theme hands to everything it draws: the font scale of the chosen text size and the
- * reduce-motion flag, including the phone's own animation setting changing while the app runs.
+ * reduce-motion flag that decides the still end state of motion.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -50,28 +49,11 @@ class TaigaThemeTest {
 
   @Test
   fun `the theme provides the reduce-motion flag to its content`() {
-    // Off stops every animation; On and System run them here because the phone animates at 1.
+    // Off shows the end state; On and System run them here because the phone animates at 1.
     assertEquals(
-        listOf(true to 0f, false to 1f, false to 1f),
+        listOf(true, false, false),
         motionFor(AnimationMode.OFF, AnimationMode.ON, AnimationMode.SYSTEM),
     )
-  }
-
-  @Test
-  fun `System follows the phone's animator scale while the app runs`() {
-    putAnimatorScale(1f)
-    var scale = 0f
-    compose.setContent {
-      scale = rememberMotionScale(AnimationMode.SYSTEM)
-    }
-    compose.waitForIdle()
-    assertEquals("animations are on in the phone", 1f, scale, 0f)
-
-    // The user turns animations off in the phone's settings while the app is open.
-    putAnimatorScale(0f)
-    shadowOf(Looper.getMainLooper()).idle()
-    compose.waitForIdle()
-    assertEquals("the change reached the running app", 0f, scale, 0f)
   }
 
   @Test
@@ -119,30 +101,22 @@ class TaigaThemeTest {
     return seen.distinct()
   }
 
-  /** The reduce-motion flag and the scale the theme hands to its content, per [choices]. */
-  private fun motionFor(vararg choices: AnimationMode): List<Pair<Boolean, Float>> {
-    var seen = false to 0f
+  /** The reduce-motion flag the theme hands to its content, per [choices]. */
+  private fun motionFor(vararg choices: AnimationMode): List<Boolean> {
+    var seen = false
     mode = choices.first()
     compose.setContent {
       TaigaTheme(motionScale = mode.motionScale(animatorScale = 1f)) {
-        seen = LocalReduceMotion.current to LocalMotionScale.current
+        seen = LocalReduceMotion.current
       }
     }
     compose.waitForIdle()
-    val observed = mutableListOf<Pair<Boolean, Float>>()
+    val observed = mutableListOf<Boolean>()
     choices.forEach { choice ->
       compose.runOnIdle { mode = choice }
       compose.waitForIdle()
       observed += seen
     }
     return observed
-  }
-
-  private fun putAnimatorScale(scale: Float) {
-    Settings.Global.putFloat(
-        context.contentResolver,
-        Settings.Global.ANIMATOR_DURATION_SCALE,
-        scale,
-    )
   }
 }

@@ -140,7 +140,11 @@ val MaterialTheme.taiga: TaigaColors
 
 /**
  * The theme everything is drawn with: the palette of [darkTheme] at [contrast], the font scale of
- * [textSize] and the motion the app animates at.
+ * [textSize] and whether the app shows the end state of its animations at once.
+ *
+ * [motionScale] is the scale the window's recomposer animates at, passed on so components can
+ * replace an animation with its end state where a still frame would be wrong. It does not drive
+ * the animations themselves: they read it from the coroutine context Compose gives them.
  */
 @Composable
 fun TaigaTheme(
@@ -174,7 +178,6 @@ fun TaigaTheme(
       LocalTaigaColors provides palette.colors,
       LocalDensity provides scaledDensity,
       LocalReduceMotion provides (motionScale <= 0f),
-      LocalMotionScale provides motionScale,
       LocalFormats provides systemFormats,
   ) {
     MaterialTheme(
