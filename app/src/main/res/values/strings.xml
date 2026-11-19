@@ -75,11 +75,11 @@
   <string name="display_animations_on">On</string>
   <string name="display_animations_off">Off</string>
   <string name="display_time_format_title">Time format</string>
-  <string name="display_time_format_system">System default</string>
+  <string name="display_time_format_system">System</string>
   <string name="display_time_format_12">12-hour</string>
   <string name="display_time_format_24">24-hour</string>
   <string name="display_units_title">Units</string>
-  <string name="display_units_system">System default</string>
+  <string name="display_units_system">System</string>
   <string name="display_units_metric">Metric</string>
   <string name="display_units_imperial">Imperial</string>
   <string name="appearance_system">System</string>
