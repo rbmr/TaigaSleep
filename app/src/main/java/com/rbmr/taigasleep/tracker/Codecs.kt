@@ -40,6 +40,8 @@ object Codec {
   const val POLAR_GYRO = "polar-gyro-v1"
   const val POLAR_MAG = "polar-mag-v1"
   const val BLE_HRS = "ble-hrs-v1"
+  const val SOUND_PCM = "pcm-s16le-v1"
+  const val SOUND_OPUS = "opus-v1"
 }
 
 private fun buffer(size: Int) = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN)

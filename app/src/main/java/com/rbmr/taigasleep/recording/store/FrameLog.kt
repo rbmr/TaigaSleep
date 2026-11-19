@@ -21,6 +21,7 @@ object StreamId {
   const val PPI = 5
   const val GYRO = 6
   const val MAG = 7
+  const val SOUND = 8
 
   fun forType(type: StreamType): Int =
       when (type) {
@@ -32,6 +33,7 @@ object StreamId {
         StreamType.PULSE_INTERVAL -> PPI
         StreamType.GYROSCOPE -> GYRO
         StreamType.MAGNETOMETER -> MAG
+        StreamType.SOUND -> SOUND
       }
 
   /**

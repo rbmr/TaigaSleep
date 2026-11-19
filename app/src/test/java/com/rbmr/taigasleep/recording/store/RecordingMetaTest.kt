@@ -1,6 +1,8 @@
 package com.rbmr.taigasleep.recording.store
 
+import com.rbmr.taigasleep.tracker.Codec
 import com.rbmr.taigasleep.tracker.RecordingMode
+import com.rbmr.taigasleep.tracker.StreamType
 import java.io.File
 import java.nio.file.Files
 import kotlinx.serialization.json.Json
@@ -107,5 +109,23 @@ class RecordingMetaTest {
     assertEquals(emptyMap<String, Int>(), read.importedEntries)
     assertEquals(emptyList<String>(), read.trackerRemovalPending)
     assertEquals(meta("stream"), read)
+  }
+
+  @Test
+  fun `a recording with sound names every stream log once`() {
+    val sound =
+        meta("sound").copy(
+            streams =
+                RecordingConfig(hr = true, ecg = false, acc = false).asStreams() +
+                    RecordingStream(
+                        id = "sound",
+                        type = StreamType.SOUND,
+                        codec = Codec.SOUND_OPUS,
+                        file = "sound.log",
+                        rateHz = 16_000.0,
+                    )
+        )
+
+    assertEquals(listOf(StreamId.HR, StreamId.SOUND), sound.streamIds())
   }
 }

@@ -30,6 +30,7 @@ fun RecordingDto.streams(): List<Int> {
           "pulse_interval" -> StreamId.PPI
           "gyroscope" -> StreamId.GYRO
           "magnetometer" -> StreamId.MAG
+          "sound" -> StreamId.SOUND
           else -> null
         }
     id
@@ -54,6 +55,7 @@ fun RecordingDto.streams(): List<Int> {
           "ppi" to StreamId.PPI,
           "gyro" to StreamId.GYRO,
           "mag" to StreamId.MAG,
+          "sound" to StreamId.SOUND,
       )
       .filter { (prefix, _) -> names.any { it == "$prefix.log" || it.startsWith("$prefix.log.") } }
       .map { it.second }

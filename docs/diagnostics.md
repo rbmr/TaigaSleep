@@ -110,13 +110,15 @@ Not enforced; keep them lower_snake_case and keep `diag_heartbeat` for the diagn
 
 | type | suggested fields |
 |---|---|
-| `service_start`, `service_stop` | `reason`, `null_intent`, `foreground_type`, `foreground` |
+| `service_start`, `service_stop` | `reason`, `null_intent`, `foreground_type` (`connectedDevice`, or `connectedDevice\|microphone` while the recording holds sound; null when the foreground state was refused), `foreground` |
+| `service_foreground_type` | `requested`, `granted` when the system refused the microphone type and the recording went on with the tracker link |
 | `recording_state` | `from`, `to`, `session_id` |
 | `ble_connect`, `ble_disconnect`, `ble_reconnect` | `sensor_id`, `status`, `attempt`, `auto_connect` |
 | `reconnect_step` | a recovery reconnect finished: `disconnect_ms`, `disconnect_timed_out`, `connect_ms` (null when it failed), `second_connect`, `connected` |
 | `watchdog_fire`, `watchdog_restart` | `action`, `service_running`, `last_heartbeat_age_s` |
 | `boot_resume`, `resume_refused`, `service_foreground_refused` | `recording`, `error` |
 | `wake_trigger` | `recording`, `at_utc_ms` |
+| `sound_capture` | `recording`, `state` (`started`, `stopped`, `failed`), `codec`, `error` |
 | `wake_alarm`, `wake_rang`, `wake_alarm_failed`, `wake_alarm_stopped` | see "The wake-up alarm" below |
 | `wake_alarm_already_ringing` | `source`, `reason`, `volume` when a ring request arrives while one is active |
 | `wake_change` | `recording`, `start_utc_ms`, `end_utc_ms` (empty when the alarm was switched off) |

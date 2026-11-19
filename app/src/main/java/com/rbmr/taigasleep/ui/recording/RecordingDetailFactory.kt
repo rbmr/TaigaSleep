@@ -133,7 +133,7 @@ class RecordingDetailFactory(
               RecordingStore.rawFiles(store.dir(localId)).sumOf { it.length() }
 
           override fun rawStreams(localId: String): List<Int> =
-              RecordingMeta.read(store.dir(localId))?.config?.streams().orEmpty()
+              RecordingMeta.read(store.dir(localId))?.streamIds().orEmpty()
 
           override suspend fun remoteStreams(remoteId: String): List<Int> =
               try {

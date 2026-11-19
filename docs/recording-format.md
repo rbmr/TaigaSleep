@@ -338,7 +338,8 @@ one it holds.
 
 Types in use: `start`, `stop`, `force_stop`, `connect`, `disconnect`,
 `reconnect`, `service_restart`, `watchdog`, `error`, `clock_sync` (the strap's clock was
-set), `stream` (a stream delivered its first sample), `contact` (the raw HR contact flag changed; the live
+set), `stream` (a stream delivered its first sample), `sound` (the phone's microphone capture
+started or stopped), `contact` (the raw HR contact flag changed; the live
 state applies 60 s/5 s hysteresis before it changes the notification), `ecg_signal` (the ECG was pinned at the sensor's limits, or recovered), `stream_stalled` (a
 stream stopped delivering without a disconnect), `stream_recovered` (a stalled stream came
 back), `recovery` (a stream that stopped delivering was restarted, or the link was made again,

@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.recording.AlarmTestResult
+import com.rbmr.taigasleep.recording.SoundChoice
 import com.rbmr.taigasleep.recording.WakeAlarmWarning
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.StreamType
@@ -28,10 +29,11 @@ import com.rbmr.taigasleep.ui.theme.LocalFormats
 import com.rbmr.taigasleep.ui.theme.taiga
 
 /**
- * The configuration sheet, in up to three sections: the recording mode, the data to record and the
- * smart alarm. A section appears only when the connected tracker offers a choice in it. Every
- * choice is stored as it is made. Only the mode drives the others: rows never appear, disappear or
- * move, they enable and disable, and the choices made for streaming come back with it.
+ * The configuration sheet, in up to four sections: the recording mode, the data to record, the
+ * phone's microphone and the smart alarm. A section appears only when the connected tracker offers a
+ * choice in it. Every choice is stored as it is made. Only the mode drives the others: rows never
+ * appear, disappear or move, they enable and disable, and the choices made for streaming come back
+ * with it.
  *
  * Rows fill the sheet width and carry their own 16 dp inset, so headings and notes use the same
  * inset and every text starts on one edge.
@@ -43,10 +45,12 @@ internal fun ConfigureSheet(
     onStream: (String, Boolean) -> Unit,
     onMode: (RecordingMode) -> Unit,
     onWake: (WakeChoice?) -> Unit,
+    onSound: (SoundChoice) -> Unit,
     wakeWarnings: Set<WakeAlarmWarning>,
     alarmTest: AlarmTestResult?,
     onTestAlarm: () -> Unit,
     onDismiss: () -> Unit,
+    microphone: MicrophonePermission = MicrophonePermission(),
 ) {
   val space = MaterialTheme.taiga.space
   TaigaSheet(onDismiss = onDismiss) {
@@ -58,6 +62,7 @@ internal fun ConfigureSheet(
     ) {
       if (config.modes.size > 1) ModeSection(config, onMode)
       DataSection(config, onStream)
+      SoundSection(config, microphone, onSound)
       if (RecordingMode.STREAM in config.modes) {
         WakeSection(config, onWake, wakeWarnings, alarmTest, onTestAlarm)
       }
@@ -111,6 +116,51 @@ private fun DataSection(
   }
 }
 
+/**
+ * The phone's microphone: off until the user turns it on, and never part of a recording the tracker
+ * stores itself, because nothing streams to the phone then. The switch turns sound on as compressed
+ * audio; the segments choose between the two codecs and stay in place, disabled, while sound is off.
+ * A tracker that records on itself keeps the whole section in place, disabled, with the reason.
+ */
+@Composable
+internal fun SoundSection(
+    config: StartConfig,
+    microphone: MicrophonePermission,
+    onSound: (SoundChoice) -> Unit,
+) {
+  val sound = config.sound
+  val on = sound != SoundChoice.OFF
+  val enabled = !config.onTracker
+  Column {
+    SectionTitle(stringResource(R.string.rec_config_sound))
+    ListRow(
+        title = stringResource(R.string.rec_sound_enable),
+        trailing = ListRowTrailing.Switch(on),
+        enabled = enabled,
+        onClick = { onSound(if (on) SoundChoice.OFF else SoundChoice.COMPRESSED) },
+    )
+    SegmentedControl(
+        options =
+            listOf(
+                stringResource(R.string.rec_sound_compressed),
+                stringResource(R.string.rec_sound_uncompressed),
+            ),
+        selectedIndex = if (sound == SoundChoice.UNCOMPRESSED) 1 else 0,
+        onSelect = { onSound(if (it == 0) SoundChoice.COMPRESSED else SoundChoice.UNCOMPRESSED) },
+        modifier =
+            Modifier.padding(
+                    horizontal = MaterialTheme.taiga.space.m,
+                    vertical = MaterialTheme.taiga.space.xs,
+                )
+                .fillMaxWidth(),
+        fillWidth = true,
+        enabled = enabled && on,
+    )
+    if (config.onTracker) SectionNote(stringResource(R.string.rec_sound_on_device_note))
+    if (microphone.denied) SectionNote(stringResource(R.string.rec_sound_permission_note))
+  }
+}
+
 /** The name the sheet uses for a stream type, with the detail that tells its options apart. */
 private fun labelOf(type: StreamType): Int =
     when (type) {
@@ -122,6 +172,7 @@ private fun labelOf(type: StreamType): Int =
       StreamType.PULSE_INTERVAL -> R.string.rec_config_ppi
       StreamType.GYROSCOPE -> R.string.rec_config_gyro
       StreamType.MAGNETOMETER -> R.string.rec_config_mag
+      StreamType.SOUND -> R.string.rec_config_sound
     }
 
 @Composable

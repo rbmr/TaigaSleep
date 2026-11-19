@@ -63,6 +63,8 @@ class SampleFanout(
       StreamType.GYROSCOPE,
       StreamType.MAGNETOMETER ->
           guard { monitor.onOther(stream.type, frame.stamp, samplesIn(frame.payload)) }
+      // The microphone's frames are stored and derive nothing for the live state yet.
+      StreamType.SOUND -> Unit
     }
   }
 

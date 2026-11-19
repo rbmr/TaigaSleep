@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.ui.home
 
 import com.rbmr.taigasleep.tracker.RecordingMode
 import com.rbmr.taigasleep.tracker.StreamType
+import com.rbmr.taigasleep.recording.SoundChoice
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -17,11 +18,15 @@ private fun saved(
     ecg: Boolean = true,
     acc: Boolean = true,
     wake: WakeChoice? = ALARM,
-) = SavedChoices(buildSet {
-  if (hr) add("hr")
-  if (ecg) add("ecg")
-  if (acc) add("acc")
-}, mode, wake)
+) = SavedChoices(
+    buildSet {
+      if (hr) add("hr")
+      if (ecg) add("ecg")
+      if (acc) add("acc")
+    },
+    mode,
+    wake,
+)
 
 private fun offered(ecg: Boolean = true, acc: Boolean = true): List<StreamOption> =
     buildList {
@@ -122,5 +127,20 @@ class StartConfigTest {
     assertEquals(listOf("acc"), config.chosenStreams.map { it.id })
     assertTrue(config.records(StreamType.ACCELEROMETER))
     assertFalse(config.records(StreamType.HEART_RATE))
+  }
+
+  @Test
+  fun `a streamed night keeps the stored sound choice`() {
+    val config = resolve(saved().copy(sound = SoundChoice.COMPRESSED))
+
+    assertEquals(SoundChoice.COMPRESSED, config.sound)
+  }
+
+  @Test
+  fun `the tracker records no sound and the streamed choice comes back`() {
+    val stored = saved().copy(sound = SoundChoice.UNCOMPRESSED)
+
+    assertEquals(SoundChoice.OFF, resolve(stored.copy(mode = RecordingMode.ON_DEVICE)).sound)
+    assertEquals(SoundChoice.UNCOMPRESSED, resolve(stored.copy(mode = RecordingMode.STREAM)).sound)
   }
 }

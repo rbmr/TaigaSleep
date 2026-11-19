@@ -214,6 +214,9 @@ data class RecordingMeta(
   /** The stream logs this recording holds, each file once. */
   fun files(): List<String> = streams.map { it.file }.distinct()
 
+  /** The stream logs this recording holds, as their [StreamId]s, each log once. */
+  fun streamIds(): List<Int> = streams.map { StreamId.forType(it.type) }.distinct()
+
   /** The metadata with one stream's negotiated settings filled in. */
   fun withNegotiated(streamId: String, rateHz: Double?, settings: Map<String, String>): RecordingMeta =
       copy(

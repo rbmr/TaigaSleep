@@ -14,6 +14,7 @@ import com.rbmr.taigasleep.recording.AlarmTestResult
 import com.rbmr.taigasleep.recording.RecordingPrefs
 import com.rbmr.taigasleep.recording.RecordingRepository
 import com.rbmr.taigasleep.recording.RecordingService
+import com.rbmr.taigasleep.recording.SoundChoice
 import com.rbmr.taigasleep.recording.WakeAlarm
 import com.rbmr.taigasleep.recording.WakeAlarmWarning
 import com.rbmr.taigasleep.recording.WakeWindow
@@ -71,6 +72,14 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
 
           override fun setMode(sensorId: String, mode: RecordingMode) {
             prefs.setMode(sensorId, mode)
+          }
+
+          override fun hasMicrophone(): Boolean =
+              ContextCompat.checkSelfPermission(app, Manifest.permission.RECORD_AUDIO) ==
+                  PackageManager.PERMISSION_GRANTED
+
+          override fun setSound(sensorId: String, choice: SoundChoice) {
+            prefs.setSound(sensorId, choice)
           }
 
           override fun setWake(sensorId: String, wake: WakeChoice?) {
@@ -180,6 +189,7 @@ class HomeFactory(private val context: Context) : ViewModelProvider.Factory {
                     prefs.wakeWindow(sensor.id)?.let {
                       WakeChoice(it.startMinute, it.lengthMinutes, it.heartRate, it.movement)
                     },
+                sound = prefs.sound(sensor.id),
             ),
         offered = sensor.streams.sortedBy { it.order }.map { StreamOption(it.id, it.type) },
         modes = sensor.recordingModes(chosen),

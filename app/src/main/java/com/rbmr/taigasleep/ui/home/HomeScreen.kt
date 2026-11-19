@@ -103,6 +103,18 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
         // The recording runs without the notification, so a refusal does not block the start.
         viewModel.start()
       }
+  // The microphone is asked for only when the user turns Sound on; a refusal keeps sound off.
+  val microphonePermission =
+      rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        viewModel.microphoneAnswered(it)
+      }
+  val microphoneAsked = (state as? HomeUiState.Configure)?.microphone?.requested == true
+  LaunchedEffect(microphoneAsked) {
+    if (microphoneAsked) {
+      viewModel.microphoneShown()
+      microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+  }
 
   fun start() {
     val needsNotification =
@@ -175,10 +187,12 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
         onStream = viewModel::setStream,
         onMode = viewModel::setMode,
         onWake = viewModel::setWake,
+        onSound = viewModel::setSound,
         wakeWarnings = configured.wakeWarnings,
         alarmTest = configured.alarmTest,
         onTestAlarm = viewModel::testAlarm,
         onDismiss = viewModel::closeConfiguration,
+        microphone = configured.microphone,
     )
   }
   (state as? HomeUiState.Recording)?.takeIf { it.editingWake }?.let { recording ->

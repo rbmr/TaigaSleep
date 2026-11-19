@@ -22,6 +22,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.guard.HomeState
+import com.rbmr.taigasleep.recording.SoundChoice
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.ui.components.BearDen
 import com.rbmr.taigasleep.ui.components.ButtonSize
@@ -184,11 +185,12 @@ private fun ChecklistCard(
   }
 }
 
-/** The chosen streams and mode as one line, e.g. `Heart rate · ECG · Movement · Streaming`. */
+/** The chosen streams and mode as one line, e.g. `Heart rate · ECG · Sound · Streaming`. */
 @Composable
 private fun streamsText(config: StartConfig): String {
   if (!config.streams.any) return stringResource(R.string.rec_config_none)
   val parts = config.chosenStreams.map { streamLabel(it.type) }.toMutableList()
+  if (config.sound != SoundChoice.OFF) parts += stringResource(R.string.rec_config_sound)
   if (config.modes.size > 1) {
     parts +=
         stringResource(

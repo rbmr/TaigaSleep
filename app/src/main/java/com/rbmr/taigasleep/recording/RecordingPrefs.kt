@@ -91,6 +91,16 @@ class RecordingPrefs private constructor(private val prefs: SharedPreferences) {
   fun setMode(sensorId: String, mode: RecordingMode) =
       prefs.edit().putString("mode_$sensorId", mode.wire).apply()
 
+  /**
+   * Whether the phone's microphone records with this tracker, and how. It is stored with the
+   * tracker's other choices and is off until the user turns it on.
+   */
+  fun sound(sensorId: String): SoundChoice =
+      SoundChoice.fromWire(prefs.getString("sound_$sensorId", null))
+
+  fun setSound(sensorId: String, choice: SoundChoice) =
+      prefs.edit().putString("sound_$sensorId", choice.wire).apply()
+
   /** The wake-up window set for this tracker, or null when it is off (the default). */
   fun wakeWindow(sensorId: String): WakeWindow? =
       window(

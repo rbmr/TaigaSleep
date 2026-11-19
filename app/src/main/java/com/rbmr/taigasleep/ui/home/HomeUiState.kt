@@ -5,6 +5,7 @@ import com.rbmr.taigasleep.recording.AlarmTestResult
 import com.rbmr.taigasleep.recording.CaptureStatus
 import com.rbmr.taigasleep.recording.FinishingState
 import com.rbmr.taigasleep.recording.Phase
+import com.rbmr.taigasleep.recording.SoundChoice
 import com.rbmr.taigasleep.recording.WakeAlarmWarning
 import com.rbmr.taigasleep.tracker.ConnectionState
 import com.rbmr.taigasleep.tracker.FoundSensor
@@ -65,9 +66,9 @@ data class LiveWake(
 
 /**
  * What the tracker will record and how: the configuration step of the start flow. Only the
- * recording [mode] drives the rest. On the tracker the recording is heart rate only and the smart
- * alarm is off; streaming to the phone uses the choices the user made for it. [streams] and [wake]
- * are the effective values, the ones the recorder uses and the sheet shows.
+ * recording [mode] drives the rest. On the tracker the recording is heart rate only, with no smart
+ * alarm and no sound; streaming to the phone uses the choices the user made for it. [streams],
+ * [wake] and [sound] are the effective values, the ones the recorder uses and the sheet shows.
  */
 data class StartConfig(
     val streams: Streams,
@@ -79,6 +80,11 @@ data class StartConfig(
     val wake: WakeChoice? = null,
     /** Every stream the tracker offers, as the data section shows them. */
     val options: List<StreamOption> = emptyList(),
+    /**
+     * The phone's microphone records with this night, and in which codec. Off by default, and off
+     * on the tracker, which has no phone listening while it records.
+     */
+    val sound: SoundChoice = SoundChoice.OFF,
 ) {
   /** The tracker stores the recording itself instead of streaming it to the phone. */
   val onTracker: Boolean
@@ -130,6 +136,7 @@ data class StartConfig(
           canRecordAcc = canRecordAcc,
           options = options,
           wake = saved.wake.takeIf { !onTracker },
+          sound = if (onTracker) SoundChoice.OFF else saved.sound,
       )
     }
   }
@@ -140,6 +147,8 @@ data class SavedChoices(
     val chosen: Set<String>,
     val mode: RecordingMode,
     val wake: WakeChoice?,
+    /** The phone's microphone of a streamed night; off until the user turns it on. */
+    val sound: SoundChoice = SoundChoice.OFF,
 )
 
 /** The connected tracker as the screen shows it: who it is, whether it is here, and its battery. */
@@ -160,6 +169,17 @@ data class SensorPicker(
     val denied: Boolean = false,
     /** The screen asked for the permission; it clears the flag once the answer is handled. */
     val permissionRequested: Boolean = false,
+)
+
+/**
+ * The microphone permission the Sound section asks for, as the screen holds it: the request the
+ * screen still has to launch, and a refusal the section explains.
+ */
+data class MicrophonePermission(
+    /** The screen asked for the permission; it clears the flag once the answer is handled. */
+    val requested: Boolean = false,
+    /** The permission was refused, so sound stays off and the section says what it is for. */
+    val denied: Boolean = false,
 )
 
 /**
@@ -214,6 +234,8 @@ sealed interface HomeUiState {
       override val error: String? = null,
       override val wakeWarnings: Set<WakeAlarmWarning> = emptySet(),
       override val alarmTest: AlarmTestResult? = null,
+      /** The microphone request of the Sound section, and a refusal the section explains. */
+      val microphone: MicrophonePermission = MicrophonePermission(),
   ) : HomeUiState
 
   /** Connected, recording mode Stream, and the phone is not ready for a recording yet. */
@@ -337,6 +359,7 @@ internal fun homeState(
     lastLiveWake: WakeChoice? = null,
     wakeWarnings: Set<WakeAlarmWarning> = emptySet(),
     alarmTest: AlarmTestResult? = null,
+    microphone: MicrophonePermission = MicrophonePermission(),
 ): HomeUiState {
   status.finishing?.let { return HomeUiState.Finishing(it, picker) }
   if (status.phase != Phase.IDLE) {
@@ -367,6 +390,7 @@ internal fun homeState(
         status.error,
         wakeWarnings,
         alarmTest,
+        microphone,
     )
   }
   if (config.mode == RecordingMode.STREAM && guard == HomeState.NEEDS_SETTINGS) {
