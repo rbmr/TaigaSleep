@@ -728,17 +728,19 @@ def read_vector(payload: bytes) -> VectorBatch:
 
 @dataclass(frozen=True)
 class SoundFrame:
-    """One sound payload: its clocks, rate and length, and its samples or packets.
+    """One sound payload: its clocks, rate and length, and its audio as stored.
 
-    The packets of an ``opus-v1`` payload are kept as the encoder wrote them; nothing
-    here decodes them.
+    ``pcm`` holds the little-endian 16-bit samples of a ``pcm-s16le-v1`` payload as
+    bytes, because a night holds hundreds of millions of them; a reader that wants
+    numbers takes ``numpy.frombuffer(pcm, "<i2")``. The packets of an ``opus-v1``
+    payload are kept as the encoder wrote them; nothing here decodes them.
     """
 
     phone_ns: int
     elapsed_ns: int
     sample_rate_hz: int
     sample_count: int
-    samples: tuple[int, ...] = ()
+    pcm: bytes = b""
     packets: tuple[bytes, ...] = ()
 
 
@@ -761,8 +763,7 @@ def read_pcm(payload: bytes) -> SoundFrame:
     phone_ns, elapsed_ns, rate_hz, sample_count = _sound_fields(payload)
     if len(payload) != 24 + 2 * sample_count:
         raise ValueError("pcm payload length mismatch")
-    samples = struct.unpack_from(f"<{sample_count}h", payload, 24)
-    return SoundFrame(phone_ns, elapsed_ns, rate_hz, sample_count, samples=samples)
+    return SoundFrame(phone_ns, elapsed_ns, rate_hz, sample_count, pcm=bytes(payload[24:]))
 
 
 def read_opus(payload: bytes) -> SoundFrame:

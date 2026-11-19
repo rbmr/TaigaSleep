@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import struct
 from pathlib import Path
 
 import pytest
@@ -45,8 +46,9 @@ def test_a_pcm_frame_round_trips_its_samples() -> None:
     assert frame.elapsed_ns == 0
     assert frame.sample_rate_hz == SAMPLE_RATE_HZ
     assert frame.sample_count == 4
-    assert frame.samples == (0, 1000, -1000, 32767)
-    assert frames.pcm_payload(1, 0, SAMPLE_RATE_HZ, frame.samples) == payload
+    samples = struct.unpack(f"<{frame.sample_count}h", frame.pcm)
+    assert samples == (0, 1000, -1000, 32767)
+    assert frames.pcm_payload(1, 0, SAMPLE_RATE_HZ, samples) == payload
 
 
 def test_an_opus_frame_round_trips_every_packet_with_its_length() -> None:
