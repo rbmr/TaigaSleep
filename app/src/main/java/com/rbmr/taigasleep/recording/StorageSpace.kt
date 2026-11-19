@@ -2,6 +2,8 @@ package com.rbmr.taigasleep.recording
 
 import com.rbmr.taigasleep.recording.store.RecordingConfig
 import com.rbmr.taigasleep.recording.store.RecordingStream
+import com.rbmr.taigasleep.recording.store.SoundPayloads
+import com.rbmr.taigasleep.tracker.Codec
 import com.rbmr.taigasleep.tracker.StreamType
 import java.io.File
 
@@ -44,10 +46,15 @@ object StorageSpace {
   private const val PPI_BYTES_PER_SECOND = 20L
   private const val VECTOR_BYTES_PER_SAMPLE = 12L
   private const val BATCH_OVERHEAD_PER_SECOND = 100L
+  // A sound frame is one second of audio: its frame and payload headers, and the Opus packet
+  // lengths. Uncompressed is two bytes per 16 kHz sample; compressed follows the encoder's bit rate.
+  private const val SOUND_BYTES_PER_SAMPLE = 2L
+  private const val SOUND_FRAME_OVERHEAD_PER_SECOND = 140L
 
   fun bytesPerSecond(config: RecordingConfig): Long = bytesPerSecond(config.asStreams())
 
   /** Bytes one second of the chosen streams appends at most, from what each stream says it holds. */
+  @Suppress("CyclomaticComplexMethod")
   fun bytesPerSecond(streams: List<RecordingStream>): Long {
     var bytes = 0L
     var heart = false
@@ -72,6 +79,15 @@ object StorageSpace {
         StreamType.MAGNETOMETER ->
             bytes += (stream.rateHz ?: 50.0).toLong() * VECTOR_BYTES_PER_SAMPLE +
                 BATCH_OVERHEAD_PER_SECOND
+        StreamType.SOUND ->
+            bytes +=
+                when (stream.codec) {
+                  // A codec this version does not know is estimated as uncompressed, the largest.
+                  Codec.SOUND_OPUS -> SoundPayloads.OPUS_BIT_RATE_BPS / 8L
+                  else ->
+                      (stream.rateHz ?: SoundPayloads.RATE_HZ.toDouble()).toLong() *
+                          SOUND_BYTES_PER_SAMPLE
+                } + SOUND_FRAME_OVERHEAD_PER_SECOND
       }
     }
     return bytes

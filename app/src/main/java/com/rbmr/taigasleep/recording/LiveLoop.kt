@@ -30,6 +30,9 @@ internal class LiveSession(
 ) {
   var jobs = emptyList<Job>()
 
+  /** The phone's microphone, when this recording holds the `sound` stream. */
+  var sound: SoundRecorder? = null
+
   /**
    * Set when the session is dropped. A control thread that was blocked inside a tracker call keeps
    * running once that call returns, and must not attach the dropped session again.

@@ -87,6 +87,30 @@ class StorageSpaceTest {
   }
 
   @Test
+  fun aSoundStreamIsEstimatedFromItsCodec() {
+    val night = 3600L * StorageSpace.NIGHT_HOURS
+    val uncompressed = listOf(SoundChoice.UNCOMPRESSED.stream()!!)
+    val compressed = listOf(SoundChoice.COMPRESSED.stream()!!)
+
+    // One second of 16 kHz mono 16-bit audio, plus the frame's own overhead.
+    assertEquals((16_000L * 2 + 140) * night, StorageSpace.requiredBytes(uncompressed))
+    // The encoder's bit rate, plus the same overhead.
+    assertEquals((32_000L / 8 + 140) * night, StorageSpace.requiredBytes(compressed))
+    assertEquals(
+        StorageSpace.requiredBytes(uncompressed) / StorageSpace.NIGHT_HOURS,
+        StorageSpace.lowBytes(uncompressed),
+    )
+  }
+
+  @Test
+  fun soundAddsItsOwnBytesToTheStreamsHeartRateAlreadyNeeds() {
+    val hr = RecordingConfig(hr = true, ecg = false, acc = false).asStreams()
+    val withSound = hr + listOf(SoundChoice.COMPRESSED.stream()!!)
+
+    assertEquals(StorageSpace.bytesPerSecond(hr) + 4_000 + 140, StorageSpace.bytesPerSecond(withSound))
+  }
+
+  @Test
   fun lowSpaceIsRaisedDuringARecordingAndRecheckedEveryMinute() {
     val config = RecordingConfig(ecg = true, acc = true)
     free = StorageSpace.requiredBytes(config)

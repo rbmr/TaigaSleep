@@ -203,6 +203,88 @@ class RecordingControlTest {
     assertNull("no half-finished card is left behind", RecordingRepository.status.value.finishing)
   }
 
+  @Test
+  fun `a start with sound adds the sound stream and runs the microphone`() {
+    val store = store()
+    val sensor = FakeSensor(stallsStart = false)
+    val host = TestRecordingHost(sensor)
+    val recorder = FakeSoundRecorder()
+    val control =
+        RecordingControl(store, clock, host, openSound = { _, _ -> recorder }).also {
+          this.control = it
+        }
+
+    control.start(
+        StartRequest(
+            kind = SensorKind.POLAR_H10,
+            sensorId = ID,
+            sensorName = "Test strap",
+            selected = setOf("hr"),
+            mode = RecordingMode.STREAM,
+            sound = SoundChoice.COMPRESSED,
+        )
+    )
+
+    awaitCondition("the microphone to start") { recorder.startCalls == 1 }
+    val dir = File(store.root, host.activeSessionId!!)
+    val sound = RecordingMeta.read(dir)!!.stream(SoundChoice.SOUND_STREAM_ID)!!
+    assertEquals(StreamType.SOUND, sound.type)
+    assertEquals(Codec.SOUND_OPUS, sound.codec)
+    assertEquals(16_000.0, sound.rateHz)
+    assertEquals("sound.log", sound.file)
+
+    control.stop()
+    awaitCondition("the microphone to stop") { recorder.stopCalls >= 1 && host.finished }
+  }
+
+  @Test
+  fun `a start without sound adds no sound stream and runs no microphone`() {
+    val store = store()
+    val sensor = FakeSensor(stallsStart = false)
+    val host = TestRecordingHost(sensor)
+    val recorder = FakeSoundRecorder()
+    val control =
+        RecordingControl(store, clock, host, openSound = { _, _ -> recorder }).also {
+          this.control = it
+        }
+
+    control.start(
+        StartRequest(
+            kind = SensorKind.POLAR_H10,
+            sensorId = ID,
+            sensorName = "Test strap",
+            selected = setOf("hr"),
+            mode = RecordingMode.STREAM,
+            sound = SoundChoice.OFF,
+        )
+    )
+
+    awaitCondition("the recording to be attached") { host.activeSessionId != null && host.running }
+    val dir = File(store.root, host.activeSessionId!!)
+    assertNull(RecordingMeta.read(dir)!!.stream(SoundChoice.SOUND_STREAM_ID))
+    assertEquals(0, recorder.startCalls)
+
+    control.stop()
+    awaitCondition("the recording to stop") { host.finished }
+  }
+
+  /** The microphone as the control flow starts and stops it. */
+  private class FakeSoundRecorder : SoundRecorder {
+    @Volatile var startCalls = 0
+      private set
+    @Volatile var stopCalls = 0
+      private set
+
+    override fun start(): Boolean {
+      startCalls++
+      return true
+    }
+
+    override fun stop() {
+      stopCalls++
+    }
+  }
+
   /** A tracker whose first stream start never returns, like a call that hangs in the SDK. */
   private class FakeSensor(
       private val stallsStart: Boolean = true,

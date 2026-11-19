@@ -640,6 +640,8 @@ private fun streamKind(type: com.rbmr.taigasleep.tracker.StreamType): RecordingS
       com.rbmr.taigasleep.tracker.StreamType.PULSE_INTERVAL -> RecordingState.StreamKind.PPI
       com.rbmr.taigasleep.tracker.StreamType.GYROSCOPE -> RecordingState.StreamKind.GYRO
       com.rbmr.taigasleep.tracker.StreamType.MAGNETOMETER -> RecordingState.StreamKind.MAG
+      // Sound is captured by the phone, not delivered by the tracker, so it is not a live stream.
+      com.rbmr.taigasleep.tracker.StreamType.SOUND -> null
     }
 
 private fun powerState(percent: Int?): RecordingState.PowerState =

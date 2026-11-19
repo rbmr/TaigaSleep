@@ -523,6 +523,9 @@ private constructor(
     const val HR_LOG = "hr.log"
     const val ECG_LOG = "ecg.log"
     const val ACC_LOG = "acc.log"
+
+    /** The phone's microphone log; it holds the `pcm-s16le-v1` or `opus-v1` stream. */
+    const val SOUND_LOG = "sound.log"
     const val SYNC_INTERVAL_MS = 30_000L
     private const val MAX_ERROR_EVENTS = 50
 

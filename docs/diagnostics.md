@@ -117,6 +117,7 @@ Not enforced; keep them lower_snake_case and keep `diag_heartbeat` for the diagn
 | `watchdog_fire`, `watchdog_restart` | `action`, `service_running`, `last_heartbeat_age_s` |
 | `boot_resume`, `resume_refused`, `service_foreground_refused` | `recording`, `error` |
 | `wake_trigger` | `recording`, `at_utc_ms` |
+| `sound_capture` | `recording`, `state` (`started`, `stopped`, `failed`), `codec`, `error` |
 | `wake_alarm`, `wake_rang`, `wake_alarm_failed`, `wake_alarm_stopped` | see "The wake-up alarm" below |
 | `wake_alarm_already_ringing` | `source`, `reason`, `volume` when a ring request arrives while one is active |
 | `wake_change` | `recording`, `start_utc_ms`, `end_utc_ms` (empty when the alarm was switched off) |

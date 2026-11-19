@@ -80,7 +80,7 @@ One Gradle module, one package per concern under `com.rbmr.taigasleep`:
 | Package | Responsibility | May depend on |
 | --- | --- | --- |
 | `tracker` | What a tracker is: the streams it offers with their codecs, rates and ranges, the settings it negotiated, and its recording mode. Drivers per device: the Polar H10, the Verity Sense, the Loop and a generic Bluetooth Heart Rate Service strap. A scriptable fake and a replay source stand in for hardware in tests and debug builds. | `diagnostics` |
-| `recording` | Capturing: the selected tracker, the recording state machine, the foreground service, the on-disk format, the local store, export, the wake-up window and its alarm. The writer, the storage estimate and the monitor read the stream list the tracker negotiated, not a fixed set. | `tracker`, `notifications`, `diagnostics` |
+| `recording` | Capturing: the selected tracker, the recording state machine, the foreground service, the on-disk format, the local store, export, the wake-up window and its alarm, and the phone's microphone when sound is chosen. The writer, the storage estimate and the monitor read the stream list the tracker negotiated, not a fixed set. | `tracker`, `notifications`, `diagnostics` |
 | `guard` | The preventing-shutdown flow: per-device steps, checks, the final readiness list. | `tracker`, `diagnostics` |
 | `backend` | A client for API v1: DTOs, requests, authentication state, the realtime stream. No business logic. | `diagnostics` |
 | `profile` | The personal data the user enters about themselves: date of birth, sex and weight, plus the usual bedtime and wake time. Kept on the phone, optional; the first three go to an analysis, the times only draw the History trends. | nothing |
@@ -181,6 +181,14 @@ A tracker offers one or both **recording modes** for a given configuration:
 The mode follows from the tracker and the chosen streams, not from a separate setting the
 user has to understand. A mode the tracker offers but the chosen streams rule out stays
 visible, greyed out with the reason, so the feature is not mistaken for missing.
+
+A streamed recording can also capture the phone's own microphone as the `sound` stream
+(stream 8, `sound.log`): mono 16 kHz audio, stored as Opus or uncompressed PCM, one frame a
+second. The microphone is captured by the app and not by a driver, so it is offered only for
+a streamed night, and it goes on while the tracker's link is recovered. Android can refuse
+the microphone, after a restart in the background for instance: that is an event, and the
+rest of the recording goes on without sound. An on-device recording never holds sound,
+because the phone is not awake to capture it.
 
 An OnDevice recording needs the tracker only twice, when it starts and when it ends. Once the
 tracker confirms it is storing, the foreground service and the watchdog stop; the recording

@@ -58,7 +58,9 @@ enum class StreamType(val wire: String) {
   PPG("ppg"),
   PULSE_INTERVAL("pulse_interval"),
   GYROSCOPE("gyroscope"),
-  MAGNETOMETER("magnetometer");
+  MAGNETOMETER("magnetometer"),
+  /** The phone's own microphone, which the recording captures next to the tracker's streams. */
+  SOUND("sound");
 
   companion object {
     fun fromWire(value: String?): StreamType? = entries.firstOrNull { it.wire == value }

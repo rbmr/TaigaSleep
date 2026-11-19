@@ -42,6 +42,8 @@ data class StartRequest(
     val mode: RecordingMode?,
     /** The wake-up window the user set for this tracker, or null when it is off. */
     val wake: WakeWindow? = null,
+    /** Whether the phone's microphone records too, and in which codec. */
+    val sound: SoundChoice = SoundChoice.OFF,
 )
 
 /**
@@ -62,6 +64,10 @@ class RecordingControl(
     private val store: RecordingStore,
     private val clock: Clock,
     private val host: RecordingHost,
+    /** Opens the microphone capture of a streamed recording; a test supplies a fake. */
+    private val openSound: (RecordingWriter, SoundChoice) -> SoundRecorder = { writer, choice ->
+      SoundCapture(writer, clock, choice)
+    },
 ) {
   /** The thread a restart runs on: it must not be the control thread it is recovering. */
   private val recovery = Executors.newSingleThreadExecutor { Thread(it, "recording-recovery") }
@@ -185,6 +191,8 @@ class RecordingControl(
     live?.let {
       // Leave meta.json at `recording` so the watchdog or the next app start can resume or mark it.
       it.dropped = true
+      it.sound?.stop()
+      it.sound = null
       it.writer.sync()
       it.writer.close()
       releaseWakeLock(it)
@@ -239,10 +247,10 @@ class RecordingControl(
     val requestedIds =
         if ("rr" in request.selected) request.selected + "hr" else request.selected
     val selected = requestedIds.filter { id -> sensor.streams.any { it.id == id } }.toSet()
-    val streams = sensor.streams.filter { it.id in selected }.map { it.toRecordingStream() }
-    val config = legacyConfig(streams)
+    val trackerStreams = sensor.streams.filter { it.id in selected }.map { it.toRecordingStream() }
+    val config = legacyConfig(trackerStreams)
     val modes = sensor.recordingModes(selected)
-    if (modes.isEmpty() || streams.isEmpty()) {
+    if (modes.isEmpty() || trackerStreams.isEmpty()) {
       leave(host.message(RecordingMessage.MODE))
       return
     }
@@ -253,6 +261,10 @@ class RecordingControl(
           RecordingMode.STREAM in modes -> RecordingMode.STREAM
           else -> modes.first()
         }
+    // Sound needs the phone awake to capture it, so only a streamed recording can hold it.
+    val streams =
+        if (mode == RecordingMode.STREAM) trackerStreams + listOfNotNull(request.sound.stream())
+        else trackerStreams
     // The same answer Home shows, from the flow the user picked: the app wiring supplies it. An
     // on-device recording skips the battery steps because the phone may sleep.
     if (!host.mayStart(mode)) {
@@ -475,10 +487,27 @@ class RecordingControl(
     // The tracker call above can block for good. If the session was dropped in the meantime, the
     // recording is somebody else's now and this one stops here instead of attaching over it.
     if (s.dropped) return
+    startSound(s)
     if (contact && sensor.connection.value == ConnectionState.DISCONNECTED) sensor.connect()
 
     s.jobs = loop.jobs(scope, s)
     host.refreshRecordings()
+  }
+
+  /**
+   * Starts the microphone when the recording holds a sound stream. A recording written without one
+   * has no `sound` in its streams, so a resumed night only captures what it captured before.
+   */
+  private fun startSound(s: LiveSession) {
+    val choice = SoundChoice.fromCodec(s.writer.meta.stream(SoundChoice.SOUND_STREAM_ID)?.codec)
+    if (choice == SoundChoice.OFF) return
+    s.sound = openSound(s.writer, choice).also { it.start() }
+  }
+
+  /** Stops the microphone of [s] if it has one; safe to call on every way out of a session. */
+  private fun stopSound(s: LiveSession) {
+    s.sound?.stop()
+    s.sound = null
   }
 
   /**
@@ -671,12 +700,17 @@ class RecordingControl(
     for (effect in effects) {
       when (effect) {
         LifecycleEffect.AcquireWakeLock -> Unit // Acquired in attach, before the first samples.
-        LifecycleEffect.StopStreams ->
-            withTimeoutOrNull(STOP_STREAMS_TIMEOUT_MS) {
-              withContext(Dispatchers.IO) { runCatching { s.sensor.stopStreams() } }
-            }
-        LifecycleEffect.StopStreamsAsync ->
-            Thread { runCatching { s.sensor.stopStreams() } }.start()
+        LifecycleEffect.StopStreams -> {
+          // The microphone is closed with the tracker's streams, before the logs are.
+          stopSound(s)
+          withTimeoutOrNull(STOP_STREAMS_TIMEOUT_MS) {
+            withContext(Dispatchers.IO) { runCatching { s.sensor.stopStreams() } }
+          }
+        }
+        LifecycleEffect.StopStreamsAsync -> {
+          stopSound(s)
+          Thread { runCatching { s.sensor.stopStreams() } }.start()
+        }
         // On-device stop runs the fetch itself, because its outcome decides the next effects.
         LifecycleEffect.FetchFromTracker -> Unit
         LifecycleEffect.RemoveFromTracker ->
@@ -684,6 +718,7 @@ class RecordingControl(
         LifecycleEffect.DiscardOnTracker ->
             (s.sensor as? OnDeviceTracker)?.discardOnDevice()
         is LifecycleEffect.Finish -> {
+          stopSound(s)
           val message =
               when (effect.phase) {
                 RecordingPhase.FORCED_STOP -> "forced stop"
@@ -693,6 +728,7 @@ class RecordingControl(
           s.writer.finish(effect.phase, message)
         }
         LifecycleEffect.DeleteLocal -> {
+          stopSound(s)
           s.writer.close()
           store.delete(s.writer.meta.recordingId)
         }
@@ -704,6 +740,7 @@ class RecordingControl(
     Diagnostics.log("service_stop", mapOf("state" to s.writer.meta.state.name.lowercase()))
     Diagnostics.markCleanShutdown("recording_ended")
     s.jobs.forEach { it.cancel() }
+    stopSound(s)
     live = null
     host.markRunning(false)
     host.activeSessionId = null
@@ -767,6 +804,7 @@ class RecordingControl(
     s.dropped = true
     s.jobs.forEach { it.cancel() }
     apply(s, s.lifecycle.restart())
+    stopSound(s)
     s.writer.sync()
     s.writer.close()
     releaseWakeLock(s)

@@ -122,6 +122,7 @@ private fun labelOf(type: StreamType): Int =
       StreamType.PULSE_INTERVAL -> R.string.rec_config_ppi
       StreamType.GYROSCOPE -> R.string.rec_config_gyro
       StreamType.MAGNETOMETER -> R.string.rec_config_mag
+      StreamType.SOUND -> R.string.rec_config_sound
     }
 
 @Composable

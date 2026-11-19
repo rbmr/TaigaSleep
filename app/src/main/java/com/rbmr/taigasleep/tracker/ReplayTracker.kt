@@ -203,5 +203,6 @@ class ReplayTracker(
         StreamType.PULSE_INTERVAL -> 5
         StreamType.GYROSCOPE -> 6
         StreamType.MAGNETOMETER -> 7
+        StreamType.SOUND -> 8
       }
 }

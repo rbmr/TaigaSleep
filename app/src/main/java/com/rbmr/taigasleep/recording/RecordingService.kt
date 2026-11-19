@@ -102,6 +102,8 @@ class RecordingService : Service(), RecordingHost {
           mode = RecordingMode.fromWire(intent.getStringExtra(EXTRA_MODE)),
           // The wake-up window is part of this tracker's configuration, like its streams.
           wake = intent.getStringExtra(EXTRA_SENSOR_ID)?.let { prefs.wakeWindow(it) },
+          // Sound is the phone's microphone, chosen with the tracker's other streams.
+          sound = intent.getStringExtra(EXTRA_SENSOR_ID)?.let { prefs.sound(it) } ?: SoundChoice.OFF,
       )
 
   /** The window an [ACTION_WAKE] carries, or null when it switches the alarm off. */
