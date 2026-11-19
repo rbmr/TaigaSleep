@@ -20,6 +20,7 @@ POLAR_EPOCH_OFFSET_NS = frames.POLAR_EPOCH_OFFSET_NS
 STREAM_HR = frames.STREAM_HR
 STREAM_ECG = frames.STREAM_ECG
 STREAM_ACC = frames.STREAM_ACC
+STREAM_SOUND = frames.STREAM_SOUND
 
 START_UTC_MS = 1_792_798_200_000
 START_NS = START_UTC_MS * 1_000_000
@@ -374,6 +375,33 @@ def acc_log(
                 values[first * 3 : (first + count) * 3],
             )
         )
+    return bytes(data)
+
+
+def sound_log(
+    *,
+    duration_s: int,
+    codec: str = frames.SOUND_OPUS_CODEC,
+    rate_hz: int = 16_000,
+    stream_start_s: float = 0.0,
+) -> bytes:
+    """One second of mono microphone audio per frame, in either sound codec."""
+
+    if codec not in (frames.SOUND_PCM_CODEC, frames.SOUND_OPUS_CODEC):
+        raise ValueError(f"unknown sound codec {codec}")
+    data = bytearray(frame_header(STREAM_SOUND))
+    for second in range(duration_s):
+        end_s = stream_start_s + second + 1
+        phone_ns = START_NS + round(end_s * 1_000_000_000)
+        elapsed_ns = round(end_s * 1_000_000_000)
+        if codec == frames.SOUND_PCM_CODEC:
+            samples = [(index % 200) - 100 for index in range(rate_hz)]
+            payload = frames.pcm_payload(phone_ns, elapsed_ns, rate_hz, samples)
+        else:
+            # 20 ms packets; their bytes stand in for what the encoder emits.
+            packets = [bytes([0xFC, index & 0xFF]) for index in range(50)]
+            payload = frames.opus_payload(phone_ns, elapsed_ns, rate_hz, packets, rate_hz)
+        data += frame(payload)
     return bytes(data)
 
 

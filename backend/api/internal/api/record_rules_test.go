@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -57,6 +58,8 @@ func seededRecordAPIApp(t testing.TB) (*tests.TestApp, map[string]string) {
 		record := core.NewRecord(users)
 		record.Id = id
 		record.SetEmail(email)
+		// PocketBase's test data already holds generated usernames, so a drawn one can clash.
+		record.Set("username", strings.ReplaceAll(email, "@", "."))
 		record.SetPassword("password123")
 		record.SetVerified(true)
 		if err := app.Save(record); err != nil {

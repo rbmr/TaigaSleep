@@ -30,6 +30,7 @@ from ..frames import (
     STREAM_ACC,
     STREAM_ECG,
     STREAM_HR,
+    STREAM_SOUND,
     TS_LINEAR,
     Frame,
     FrameError,
@@ -41,6 +42,7 @@ from ..frames import (
     read_hr,
     read_ppg,
     read_ppi,
+    read_sound,
     read_vector,
 )
 from .contract import (
@@ -403,6 +405,33 @@ def _decode_extra(
     return decoded, info
 
 
+def _decode_sound(
+    path: Path,
+    codec: str,
+    checked: Sequence[FrameGap] | None = None,
+) -> tuple[int, float | None, FrameLogInfo]:
+    """Scan a sound log without keeping its audio.
+
+    No stager reads sound yet, so nothing is decoded into arrays: the report needs
+    only how many samples a frame says it holds and at which rate. An ``opus-v1``
+    payload is never decoded; its packets stay bytes.
+    """
+
+    samples = 0
+    rate_hz: float | None = None
+
+    def on_payload(payload: bytes) -> int:
+        nonlocal samples, rate_hz
+        frame = read_sound(payload, codec)
+        samples += frame.sample_count
+        if rate_hz is None:
+            rate_hz = float(frame.sample_rate_hz)
+        return frame.sample_count
+
+    info = _scan(path, STREAM_SOUND, on_payload, checked, codec)
+    return samples, rate_hz, info
+
+
 def _anchored_times(
     phone_ns: np.ndarray,
     elapsed_ns: np.ndarray,
@@ -597,6 +626,7 @@ def _stream_name(stream_type: str) -> str | None:
         "pulse_interval": "ppi",
         "gyroscope": "gyro",
         "magnetometer": "mag",
+        "sound": "sound",
     }.get(stream_type)
 
 
@@ -657,7 +687,23 @@ def load_recording(
     acc_info = acc_raw.info
 
     extra_streams: dict[str, object] = {}
+    sound_samples = 0
+    sound_rate: float | None = None
+    sound_info: FrameLogInfo | None = None
     for stream in meta.streams:
+        if stream.type == "sound":
+            # Nothing decodes sound for a stager yet, so its log is only checked:
+            # no sample or packet is kept, and the input quality reports the file.
+            sound_samples, sound_rate, sound_info = _decode_sound(
+                root / stream.file, stream.codec, checked.get(stream.file)
+            )
+            extra_streams["sound"] = {
+                "info": sound_info,
+                "codec": stream.codec,
+                "samples": sound_samples,
+                "rate_hz": sound_rate,
+            }
+            continue
         stream_id = {
             "ppg": 4,
             "pulse_interval": 5,
@@ -881,8 +927,26 @@ def load_recording(
     if not acc_report.present and meta.acc_enabled:
         warnings.append("no ACC stream")
 
+    # A sound log is checked and counted like the streams a stager reads, so a
+    # result says the same thing about its input whether or not it uses the audio.
+    quality_streams = {"hr": hr_report, "ecg": ecg_report, "acc": acc_report}
+    if sound_info is not None:
+        sound_stream = _stream(meta, "sound")
+        sound_declared_rate = sound_stream.rate_hz if sound_stream else None
+        sound_report_rate = sound_rate or sound_declared_rate
+        quality_streams["sound"] = StreamReport(
+            sound_info.present,
+            sound_samples,
+            sound_report_rate,
+            sound_info.valid_bytes,
+            sound_info.frames,
+            sound_info.truncated_tail,
+            sound_info.error,
+            _availability(sound_samples, duration_s, sound_report_rate or 0.0),
+        )
+
     quality = InputQuality(
-        streams={"hr": hr_report, "ecg": ecg_report, "acc": acc_report},
+        streams=quality_streams,
         hr_contact_fraction=None
         if hr is None or hr.contact.size == 0
         else float(np.mean(hr.contact)),

@@ -31,6 +31,27 @@ func TestANewStreamFileIsAcceptedFromItsRecording(t *testing.T) {
 	}
 }
 
+// The phone's microphone is a stream of its own: the recording names it and the
+// backend stores its log like any other.
+func TestARecordingWithASoundStreamIsStored(t *testing.T) {
+	s := newServer(t)
+	alice := s.tokens["alice"]
+	id := "sound"
+	meta := testMeta(id, "recording")
+	meta["streams"] = []map[string]any{
+		{"id": "hr", "type": "heart_rate", "codec": "polar-hr-v1", "file": "hr.log", "rate_hz": 1.0},
+		{"id": "sound", "type": "sound", "codec": "opus-v1", "file": "sound.log", "rate_hz": 16000.0},
+	}
+	createRecording(s, alice, id, meta)
+
+	if st, _, body := appendChunk(s, alice, id, "sound.log", 0, []byte("frames"), nil); st != 204 {
+		t.Fatalf("append sound.log = %d %s", st, body)
+	}
+	if got := s.expect(200, http.MethodGet, "/v1/recordings/"+id+"/files/sound.log", alice, nil, nil); string(got) != "frames" {
+		t.Fatalf("sound.log = %q", got)
+	}
+}
+
 func TestTheFileNameSchemaMatchesTheValidator(t *testing.T) {
 	pattern := ""
 	for _, param := range fileParams() {

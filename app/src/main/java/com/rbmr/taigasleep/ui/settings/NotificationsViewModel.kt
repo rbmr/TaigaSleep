@@ -6,10 +6,10 @@ import android.provider.Settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.rbmr.taigasleep.notifications.NotificationAccess
-import com.rbmr.taigasleep.notifications.NotificationSettings
 import com.rbmr.taigasleep.notifications.NotificationType
 import com.rbmr.taigasleep.notifications.NotificationTypeState
 import com.rbmr.taigasleep.notifications.PhoneNotificationAccess
+import com.rbmr.taigasleep.notifications.notificationTypeState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,16 +21,14 @@ data class NotificationsUiState(
 )
 
 /**
- * The state of settings → Notifications, read from the app's own switches and from Android's
- * notification settings. Android's choice is never written: a switch the phone blocks sends the
- * user to the matching Android screen instead, and the row shows the phone's answer when they
- * return.
+ * The state of settings → Notifications, read from Android's notification settings. That is the
+ * only source: Android does not let the app change its own channels, so a switch or a row opens
+ * the matching Android screen and the row shows the phone's answer when the user returns.
  */
 class NotificationsViewModel(
-    private val settings: NotificationSettings,
     private val access: NotificationAccess,
-    private val openAppSettings: () -> Unit,
-    private val openChannelSettings: (String) -> Unit,
+    private val openApp: () -> Unit,
+    private val openChannel: (String) -> Unit,
 ) : ViewModel() {
   private val _state = MutableStateFlow(read())
   val state: StateFlow<NotificationsUiState> = _state.asStateFlow()
@@ -40,70 +38,37 @@ class NotificationsViewModel(
     _state.value = read()
   }
 
-  /**
-   * The user moved the switch of an optional type. Turning it off only stores the app's choice.
-   * Turning it on while Android blocks the app or the channel opens Android's settings and stores
-   * nothing, so the switch still follows the phone.
-   */
-  fun setOn(type: NotificationType, on: Boolean) {
-    if (type.required) return
-    val row = row(type)
-    if (on && !row.allowed) {
-      open(row)
-      return
-    }
-    settings.setOn(type, on)
-    refresh()
-  }
-
-  /** A row opens its channel's Android settings, or the app's when all notifications are off. */
+  /** A switch or a row opens the Android screen that changes this type. */
   fun openSettings(type: NotificationType) {
-    open(row(type))
+    val channel = type.channelIds.singleOrNull()
+    if (channel == null || !access.appAllowed()) openApp() else openChannel(channel)
   }
 
-  /** The button of the block at the top: the app's own notification settings in Android. */
-  fun openAppNotificationSettings() {
-    openAppSettings()
+  /** The block's button and the one below the list: the app's own notification settings. */
+  fun openAppSettings() {
+    openApp()
   }
 
-  private fun open(row: NotificationTypeState) {
-    if (row.appAllowed) openChannelSettings(row.type.channelId) else openAppSettings()
-  }
-
-  private fun row(type: NotificationType): NotificationTypeState =
-      _state.value.rows.first { it.type == type }
-
-  private fun read(): NotificationsUiState {
-    val appAllowed = access.appAllowed()
-    return NotificationsUiState(
-        appBlocked = !appAllowed,
-        rows =
-            NotificationType.entries.map { type ->
-              NotificationTypeState(
-                  type = type,
-                  preferenceOn = type.required || settings.isOn(type),
-                  appAllowed = appAllowed,
-                  channelAllowed = access.channelAllowed(type.channelId),
-              )
-            },
-    )
-  }
+  private fun read(): NotificationsUiState =
+      NotificationsUiState(
+          appBlocked = !access.appAllowed(),
+          rows = NotificationType.entries.map { notificationTypeState(it, access) },
+      )
 
   /** Builds the state from the phone's settings. */
   class Factory(private val context: Context) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T =
         NotificationsViewModel(
-            settings = NotificationSettings.get(context),
             access = PhoneNotificationAccess(context),
-            openAppSettings = { openNotificationSettings(context, null) },
-            openChannelSettings = { channelId -> openNotificationSettings(context, channelId) },
+            openApp = { openPhoneSettings(context, null) },
+            openChannel = { channelId -> openPhoneSettings(context, channelId) },
         ) as T
   }
 }
 
 /** Opens the phone's settings for the app's notifications, or for one of its channels. */
-internal fun openNotificationSettings(context: Context, channelId: String?) {
+internal fun openPhoneSettings(context: Context, channelId: String?) {
   val intent =
       if (channelId == null) {
         Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)

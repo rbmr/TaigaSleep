@@ -9,16 +9,14 @@ import android.content.Context
  * Each is sent once per episode, so the recording's every-second battery reading and its
  * once-a-minute space check never repeat it. An episode ends when the value recovers: the phone
  * storage alert is then removed, while the battery alert stays until the user dismisses it and only
- * its episode is over. Both are optional types, so nothing is sent while their switch is off or
- * Android blocks them, and the episode only starts when one is actually sent.
+ * its episode is over. Both follow Android's channel settings, so nothing is sent while the app or
+ * the type's channel is blocked, and the episode only starts when one is actually sent.
  */
 class DeviceAlerts internal constructor(
     private val context: Context,
-    private val settings: NotificationSettings,
     private val access: NotificationAccess,
 ) {
-  constructor(context: Context) :
-      this(context, NotificationSettings(context), PhoneNotificationAccess(context))
+  constructor(context: Context) : this(context, PhoneNotificationAccess(context))
 
   private val prefs =
       context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -65,7 +63,7 @@ class DeviceAlerts internal constructor(
   }
 
   private fun on(type: NotificationType): Boolean =
-      notificationTypeState(type, settings, access).on
+      notificationTypeState(type, access).on
 
   private companion object {
     const val PREFS = "notification_episodes"

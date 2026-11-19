@@ -257,6 +257,8 @@ func saveMigrationRecording(t *testing.T, app core.App, email string) string {
 	}
 	user := core.NewRecord(users)
 	user.SetEmail(email)
+	// PocketBase's test data already holds generated usernames, so a drawn one can clash.
+	user.Set("username", strings.ReplaceAll(email, "@", "."))
 	user.SetPassword("password123")
 	user.SetVerified(true)
 	if err := app.Save(user); err != nil {

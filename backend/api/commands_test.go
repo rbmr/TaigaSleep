@@ -57,6 +57,8 @@ func TestStorageCheckReportsAndRepairsDrift(t *testing.T) {
 	}
 	user := core.NewRecord(users)
 	user.SetEmail("storage@example.com")
+	// PocketBase's test data already holds generated usernames, so a drawn one can clash.
+	user.Set("username", "storage.example.com")
 	user.SetPassword("password123")
 	user.SetVerified(true)
 	if err := app.Save(user); err != nil {

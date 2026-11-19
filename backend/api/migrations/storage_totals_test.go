@@ -3,6 +3,7 @@ package migrations
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -21,6 +22,8 @@ func TestStorageTotalsAreFilledFromDisk(t *testing.T) {
 	newUser := func(email string) string {
 		user := core.NewRecord(users)
 		user.SetEmail(email)
+		// PocketBase's test data already holds generated usernames, so a drawn one can clash.
+		user.Set("username", strings.ReplaceAll(email, "@", "."))
 		user.SetPassword("password123")
 		user.SetVerified(true)
 		if err := app.Save(user); err != nil {

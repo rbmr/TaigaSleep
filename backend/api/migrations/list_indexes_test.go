@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -97,6 +98,8 @@ func newMigrationAccount(t *testing.T, app core.App, email string) string {
 	}
 	account := core.NewRecord(users)
 	account.SetEmail(email)
+	// PocketBase's test data already holds generated usernames, so a drawn one can clash.
+	account.Set("username", strings.ReplaceAll(email, "@", "."))
 	account.SetPassword("password123")
 	account.SetVerified(true)
 	if err := app.Save(account); err != nil {
