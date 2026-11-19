@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,21 +19,26 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rbmr.taigasleep.ui.theme.taiga
+import kotlin.math.floor
 
 /** Regular buttons sit inside cards and rows; large ones carry the main action of a screen. */
 enum class ButtonSize(val minHeight: Int) {
@@ -189,8 +195,10 @@ fun TertiaryButton(
  * a [Pressable], so its touch target is [TOUCH_TARGET] while the visible control starts at
  * [SEGMENT_HEIGHT]. Both are minimums: the track follows the tallest label, so a large system font
  * makes the control taller instead of cutting the label off. With [fillWidth] the segments share
- * the whole width, as in a settings row. A [floating] control casts a shadow, for one that sits
- * over scrolling content. A disabled control is dimmed and ignores taps.
+ * the whole width, as in a settings row: a segment is never narrower than its label needs on one
+ * line, the room that is left is split equally, and a label wraps only when the labels together do
+ * not fit the row. A [floating] control casts a shadow, for one that sits over scrolling content.
+ * A disabled control is dimmed and ignores taps.
  */
 @Composable
 fun SegmentedControl(
@@ -203,9 +211,9 @@ fun SegmentedControl(
     enabled: Boolean = true,
 ) {
   // The box is the touch target and the track sits SEGMENT_INSET inside it. The row is as tall as
-  // its tallest segment, and the track and every segment follow that height, so the chosen one
-  // covers the track exactly and a taller label makes the whole control taller.
+  // its tallest segment, and the track and the segments follow that height.
   val shape = CircleShape
+  val space = MaterialTheme.taiga.space
   Box(
       modifier.heightIn(min = TOUCH_TARGET).then(if (enabled) Modifier else Modifier.alpha(0.38f)),
       contentAlignment = Alignment.Center,
@@ -216,52 +224,100 @@ fun SegmentedControl(
             .then(if (floating) Modifier.shadow(6.dp, shape) else Modifier)
             .background(MaterialTheme.colorScheme.surfaceVariant, shape)
     )
-    Row(
-        Modifier.heightIn(min = TOUCH_TARGET)
-            .height(IntrinsicSize.Min)
-            .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-      options.forEachIndexed { index, option ->
-        val selected = index == selectedIndex
-        Pressable(
-            onClick = { onSelect(index) },
-            modifier = if (fillWidth) Modifier.weight(1f) else Modifier,
-            shape = shape,
-            enabled = enabled,
-            role = Role.Tab,
-            onClickLabel = option,
-        ) {
-          Box(
-              modifier =
-                  Modifier.then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
-                      .heightIn(min = SEGMENT_HEIGHT)
-                      .fillMaxHeight()
-                      .padding(vertical = SEGMENT_INSET)
-                      .background(
-                          color =
-                              if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-                          shape = shape,
-                      )
-                      .padding(
-                          horizontal = MaterialTheme.taiga.space.m,
-                          vertical = MaterialTheme.taiga.space.xs,
-                      ),
-              contentAlignment = Alignment.Center,
+    // A full-width row shares its width by what each label needs, not in equal fractions.
+    BoxWithConstraints(if (fillWidth) Modifier.fillMaxWidth() else Modifier) {
+      val shares = if (fillWidth) segmentShares(labels = options, width = maxWidth) else null
+      Row(
+          Modifier.heightIn(min = TOUCH_TARGET)
+              .height(IntrinsicSize.Min)
+              .then(if (shares != null) Modifier.fillMaxWidth() else Modifier),
+          verticalAlignment = Alignment.CenterVertically,
+      ) {
+        val total = shares?.sum() ?: 0f
+        options.forEachIndexed { index, option ->
+          val selected = index == selectedIndex
+          val fill = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
+          val ink =
+              if (selected) MaterialTheme.colorScheme.onPrimary
+              else MaterialTheme.colorScheme.onSurfaceVariant
+          Pressable(
+              onClick = { onSelect(index) },
+              modifier = shares?.let { Modifier.weight(it[index] / total) } ?: Modifier,
+              shape = shape,
+              enabled = enabled,
+              role = Role.Tab,
+              onClickLabel = option,
           ) {
-            Text(
-                text = option,
-                style = MaterialTheme.taiga.text.meta,
-                color =
-                    if (selected) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
+            Box(
+                modifier =
+                    Modifier.then(if (shares != null) Modifier.fillMaxWidth() else Modifier)
+                        .heightIn(min = SEGMENT_HEIGHT)
+                        .fillMaxHeight()
+                        .padding(vertical = SEGMENT_INSET)
+                        .background(color = fill, shape = shape)
+                        .padding(horizontal = space.s, vertical = space.xs),
+                contentAlignment = Alignment.Center,
+            ) {
+              Text(
+                  text = option,
+                  style = MaterialTheme.taiga.text.meta,
+                  color = ink,
+                  textAlign = TextAlign.Center,
+              )
+            }
           }
         }
       }
     }
   }
+}
+
+/**
+ * How wide each segment of a full-width [SegmentedControl] is, in pixels: the room its label needs
+ * on one line, and the room the labels leave in [width] split equally. A label that needs more than
+ * an equal part is given what it needs and the other segments share what is left, so labels that
+ * fit keep the same widths they had before and only a label that would wrap takes more room. When
+ * the labels together need more than [width], every segment gets its label's width and the labels
+ * wrap.
+ */
+@Composable
+private fun segmentShares(labels: List<String>, width: Dp): List<Float> {
+  val measurer = rememberTextMeasurer()
+  val style = MaterialTheme.taiga.text.meta
+  val density = LocalDensity.current
+  val padding = with(density) { MaterialTheme.taiga.space.s.toPx() * 2 }
+  val natural =
+      remember(labels, style, padding, measurer) {
+        labels.map { measurer.measure(text = it, style = style, maxLines = 1).size.width + padding }
+      }
+  val available = with(density) { width.toPx() }
+  return remember(natural, available) { shareWidth(natural, available) }
+}
+
+/**
+ * [widths] fitted into [available] pixels: each keeps its width, and what is left is split equally.
+ * A width larger than an equal part is taken first, so the segments that fit stay equal. Every
+ * share is a whole number of pixels rounded down, so a segment is never a pixel short of its label
+ * once the row hands out what it could not divide.
+ */
+private fun shareWidth(widths: List<Float>, available: Float): List<Float> {
+  val shares = MutableList(widths.size) { 0f }
+  val fitting = widths.indices.toMutableSet()
+  var left = available
+  while (fitting.isNotEmpty()) {
+    val each = left / fitting.size
+    val wider = fitting.filter { widths[it] > each }
+    if (wider.isEmpty()) {
+      fitting.forEach { shares[it] = each }
+      break
+    }
+    wider.forEach {
+      shares[it] = widths[it]
+      left -= widths[it]
+      fitting.remove(it)
+    }
+  }
+  return shares.map { floor(it) }
 }
 
 /** The touch target of a [SegmentedControl]. */

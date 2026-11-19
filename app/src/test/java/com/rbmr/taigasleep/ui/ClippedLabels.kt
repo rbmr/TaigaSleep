@@ -22,6 +22,10 @@ internal fun ComposeTestRule.clippedLabels(): List<String> =
 /** Every label drawn in the tree, whether or not it fits. */
 internal fun ComposeTestRule.allLabels(): List<String> = labels().map { it.text }
 
+/** Every label drawn in the tree that took more than one line. */
+internal fun ComposeTestRule.wrappedLabels(): List<String> =
+    labels().filter { it.layout.lineCount > 1 }.map { it.text }
+
 /** One label as it was drawn: its text, the layout it was given and the height it had for it. */
 private class DrawnLabel(val text: String, val layout: TextLayoutResult, val height: Int)
 

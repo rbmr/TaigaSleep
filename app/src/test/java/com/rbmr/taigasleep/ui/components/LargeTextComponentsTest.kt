@@ -1,7 +1,9 @@
 package com.rbmr.taigasleep.ui.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.History
@@ -17,9 +19,11 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.rbmr.taigasleep.ui.allLabels
 import com.rbmr.taigasleep.ui.clippedLabels
 import com.rbmr.taigasleep.ui.theme.TaigaTheme
 import com.rbmr.taigasleep.ui.theme.taiga
+import com.rbmr.taigasleep.ui.wrappedLabels
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -69,13 +73,40 @@ class LargeTextComponentsTest {
     assertEquals(emptyList<String>(), compose.clippedLabels())
   }
 
-  /** The appearance choice has three labels, which have to wrap at 2.0 on a narrow screen. */
-  @Config(qualifiers = "w320dp-h891dp-xhdpi", fontScale = 2f)
+  /** The appearance choice has three labels, which have to wrap on a screen this narrow at 2.0. */
+  @Config(qualifiers = "w240dp-h891dp-xhdpi", fontScale = 2f)
   @Test
   fun `the switch between views grows with wrapped labels`() {
     val height = heightOf { AppearanceChoice() }
 
     assertTrue("the switch is $height dp tall", height > 48f)
+    assertEquals(emptyList<String>(), compose.clippedLabels())
+  }
+
+  /** An equal third of a 360 dp row is narrower than this label, so the segments share by label. */
+  @Config(qualifiers = "w360dp-h891dp-xhdpi")
+  @Test
+  fun `a long label in a full-width switch stays on one line`() {
+    compose.setContent {
+      TaigaTheme {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+          SegmentedControl(
+              options = listOf("System default", "Metric", "Imperial"),
+              selectedIndex = 0,
+              onSelect = {},
+              modifier = Modifier.fillMaxWidth(),
+              fillWidth = true,
+          )
+        }
+      }
+    }
+
+    val labels = compose.allLabels()
+    assertTrue(
+        "the long label was not drawn: $labels",
+        labels.containsAll(listOf("System default", "Metric", "Imperial")),
+    )
+    assertEquals(emptyList<String>(), compose.wrappedLabels())
     assertEquals(emptyList<String>(), compose.clippedLabels())
   }
 
