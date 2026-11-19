@@ -409,7 +409,7 @@ class Backend:
         recording_id = recording_id or unique("rec")
         files = dict(files) if files is not None else fx.recording(recording_id, hr_frames=hr_frames, state=state)
         self.put_recording(token, recording_id, files["meta"])
-        for name in ("hr.log", "ecg.log", "acc.log", "events.jsonl"):
+        for name in ("hr.log", "ecg.log", "acc.log", "sound.log", "events.jsonl"):
             data = files.get(name)
             if isinstance(data, bytes) and data:
                 self.upload(token, recording_id, name, data, compress=compress, chunk_size=chunk_size)
