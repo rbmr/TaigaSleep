@@ -90,7 +90,9 @@ internal class TestRecordingHost(val sensor: Tracker) : RecordingHost {
   }
 
   private fun signal(signal: TestHostSignal) {
-    signals.put(issued.incrementAndGet() to signal)
+    // The queue is unbounded, so add never waits; put could be interrupted when a control thread is
+    // shut down, and that exception would surface in whichever coroutine test runs next.
+    signals.add(issued.incrementAndGet() to signal)
   }
 
   override fun obtain(kind: SensorKind, id: String, name: String): Tracker = sensor
