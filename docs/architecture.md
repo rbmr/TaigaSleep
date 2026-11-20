@@ -256,12 +256,16 @@ A live recording can end with a **wake-up window**: two local times of day, off 
 the streams in the configuration step. It belongs to the night and to the recording that runs it. An
 on-device recording has no live data, so the option is shown and cannot be turned on there.
 
-Inside the window the alarm rings at the first moment one of the chosen signals has held for a
-minute: movement above a threshold, when the accelerometer is recorded, or a heart rate more than a
-tenth above the median of the previous half hour. Both are named constants in `WakeDecision`, a pure
-function of the window and the samples; neither is a claim about a sleep stage. The window end is
-armed separately with `AlarmManager.setAlarmClock`, so it rings even when the service and the process
-are gone, and a trigger that rings first drops it, so one night rings once.
+Inside the window the alarm rings at the first moment one of the chosen signals says the user is
+waking: movement above a threshold for a minute, when the accelerometer is recorded, or a heart-rate
+wake score at or above its threshold on two evaluations in a row. The score compares the mean and the
+spread of the heart rate over the last two and five minutes with the sleeping level of the night, the
+10th percentile of the heart rate from the start of the recording up to half an hour before, so a
+heart rate that is restless because the user is already awake rings, not only one that rises. Its
+weights and windows are one parameter set in `WakeDecision`, a pure function of the window and the
+samples; neither signal is a claim about a sleep stage. The window end is armed separately with
+`AlarmManager.setAlarmClock`, so it rings even when the service and the process are gone, and a
+trigger that rings first drops it, so one night rings once.
 
 The alarm rings from a foreground service on the alarm audio stream, with the alarm attributes and
 a vibration of its own, so the ringer's silent mode does not mute it. A partial wake lock keeps the
