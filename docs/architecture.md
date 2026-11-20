@@ -260,10 +260,10 @@ Inside the window the alarm rings at the first moment one of the chosen signals 
 waking: movement above a threshold for a minute, when the accelerometer is recorded, or a heart-rate
 wake score at or above its threshold on two evaluations in a row. The score compares the mean and the
 spread of the heart rate over the last two and five minutes with the sleeping level of the night, the
-10th percentile of the heart rate in the three hours up to half an hour before, so a heart rate that
-is restless because the user is already awake rings, not only one that rises. Its weights and windows
-are one parameter set in `WakeDecision`, a pure function of the window and the samples; neither
-signal is a claim about a sleep stage. The window end is armed separately with
+10th percentile of the heart rate from the start of the recording up to half an hour before, so a
+heart rate that is restless because the user is already awake rings, not only one that rises. Its
+weights and windows are one parameter set in `WakeDecision`, a pure function of the window and the
+samples; neither signal is a claim about a sleep stage. The window end is armed separately with
 `AlarmManager.setAlarmClock`, so it rings even when the service and the process are gone, and a
 trigger that rings first drops it, so one night rings once.
 

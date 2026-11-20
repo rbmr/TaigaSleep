@@ -2,6 +2,7 @@ package com.rbmr.taigasleep.recording
 
 import kotlin.math.abs
 import kotlin.math.exp
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 private const val MINUTE_MS = 60_000L
@@ -10,13 +11,54 @@ private const val MINUTE_MS = 60_000L
 data class WakePoint(val atMs: Long, val value: Double)
 
 /**
- * The samples the decision looks at: heart rate over the sleeping-level lookback before the moment
- * being decided, and movement over the last minute. Both are bounded by the caller, so a whole night
- * is never held in memory.
+ * The whole night of heart rate as one counter per beat, for the sleeping level.
+ *
+ * Heart rate arrives as whole bpm, so a percentile of the night needs one counter per value rather
+ * than the night's samples. A sample enters its counter once it is
+ * [HeartRateWakeModel.sleepingLevelGapMinutes] old and never leaves, so the sleeping level is the
+ * whole night that led to the moment being decided however long it ran.
+ */
+class HeartRateCounts {
+  private val counts = IntArray(BPM_VALUES)
+  private var total = 0
+
+  /** How many samples have entered the counts. */
+  val samples: Int
+    get() = total
+
+  /** Adds [bpm] to the counter of its nearest whole beat, values outside the range at its ends. */
+  fun add(bpm: Double) {
+    counts[bpm.roundToInt().coerceIn(0, BPM_VALUES - 1)]++
+    total++
+  }
+
+  /** The value at rank ceil([percentile] of [samples]) of the ascending values, or null if empty. */
+  fun percentile(percentile: Int): Double? {
+    val wanted = ((percentile.toLong() * total + 99) / 100).coerceAtLeast(1)
+    var seen = 0L
+    for (bpm in counts.indices) {
+      seen += counts[bpm]
+      if (seen >= wanted) return bpm.toDouble()
+    }
+    return null
+  }
+
+  private companion object {
+    /** Heart rates from 0 to 249 bpm, one counter per value. */
+    const val BPM_VALUES = 250
+  }
+}
+
+/**
+ * The samples the decision looks at: the heart rate of the last
+ * [HeartRateWakeModel.sleepingLevelGapMinutes] for the windows of the score, the [HeartRateCounts]
+ * of the whole night behind the sleeping level, and movement over the last minute. All are bounded
+ * by the caller, so a whole night of samples is never held in memory.
  */
 data class WakeSeries(
     val hr: List<WakePoint> = emptyList(),
     val movement: List<WakePoint> = emptyList(),
+    val sleeping: HeartRateCounts = HeartRateCounts(),
 )
 
 /**
@@ -35,32 +77,30 @@ data class HeartRateWakeFeatures(val level: Double, val spread2: Double, val spr
  * high, and a smooth one at the sleeping level scores low. The alarm rings when the score holds at
  * or above [threshold] for [consecutiveEvaluations] evaluations in a row, [stepSeconds] apart.
  *
- * The sleeping level is the [sleepingPercentile]th percentile of the heart rate between
- * [lookbackMinutes] and [sleepingLevelGapMinutes] before the moment being decided, so the night that
- * led to that moment is what the features are compared with.
+ * The sleeping level is the [sleepingPercentile]th percentile of every heart-rate sample from the
+ * start of the recording up to [sleepingLevelGapMinutes] before the moment being decided, held as
+ * [HeartRateCounts], so the night that led to that moment is what the features are compared with.
  */
 @Suppress("LongParameterList")
 data class HeartRateWakeModel(
-    val levelWeight: Double = 2.28,
-    val spread2Weight: Double = 4.25,
-    val spread5Weight: Double = 6.63,
-    val bias: Double = -3.8,
+    val levelWeight: Double = 1.86,
+    val spread2Weight: Double = 4.58,
+    val spread5Weight: Double = 6.54,
+    val bias: Double = -3.36,
     val threshold: Double = 0.80,
-    /** How far back the sleeping level looks before the moment being decided, in minutes. */
-    val lookbackMinutes: Int = 180,
-    /** How long before the moment being decided the window of the sleeping level ends, in minutes. */
+    /** How long a sample waits before it enters the sleeping level, in minutes. */
     val sleepingLevelGapMinutes: Int = 30,
     /** How long the windows of [HeartRateWakeFeatures.level] and its two-minute spread are. */
     val levelWindowMinutes: Int = 2,
     /** How long the window of [HeartRateWakeFeatures.spread5] is. */
     val spreadWindowMinutes: Int = 5,
-    /** The percentile of the lookback heart rate that is the sleeping level. */
+    /** The percentile of the night's heart rate that is the sleeping level. */
     val sleepingPercentile: Int = 10,
     /** How far apart two evaluations of the score are, in seconds. */
     val stepSeconds: Int = 30,
     /** How many evaluations in a row at or above [threshold] make the alarm ring. */
     val consecutiveEvaluations: Int = 2,
-    /** The fewest samples the sleeping level is computed from. */
+    /** The fewest samples the counts hold before the sleeping level is used. */
     val minimumSleepingSamples: Int = 600,
     /** The fewest samples the level and its two-minute spread are computed from. */
     val minimumLevelSamples: Int = 60,
@@ -68,9 +108,6 @@ data class HeartRateWakeModel(
     val minimumSpreadSamples: Int = 150,
 ) {
   init {
-    require(lookbackMinutes > sleepingLevelGapMinutes) {
-      "the sleeping level has to end inside its own lookback"
-    }
     require(sleepingLevelGapMinutes > spreadWindowMinutes) {
       "the sleeping level has to stay clear of the windows it is compared with"
     }
@@ -79,14 +116,10 @@ data class HeartRateWakeModel(
     }
   }
 
-  val lookbackMs: Long = lookbackMinutes * MINUTE_MS
   val sleepingLevelGapMs: Long = sleepingLevelGapMinutes * MINUTE_MS
   val levelWindowMs: Long = levelWindowMinutes * MINUTE_MS
   val spreadWindowMs: Long = spreadWindowMinutes * MINUTE_MS
   val stepMs: Long = stepSeconds * 1_000L
-
-  /** How much heart rate a live watch has to keep: the lookback and the longest window after it. */
-  val keepMs: Long = lookbackMs + spreadWindowMs
 }
 
 /**
@@ -119,7 +152,7 @@ object WakeDecision {
   /** The first moment inside [bounds] a chosen signal says the user is waking, or null. */
   fun trigger(window: WakeWindow, bounds: WakeBounds, series: WakeSeries): Long? =
       listOfNotNull(
-              if (window.heartRate) heartRateTrigger(bounds, series.hr) else null,
+              if (window.heartRate) heartRateTrigger(bounds, series.hr, series.sleeping) else null,
               if (window.movement) movementTrigger(bounds, series.movement) else null,
           )
           .minOrNull()
@@ -136,12 +169,13 @@ object WakeDecision {
   fun heartRateTrigger(
       bounds: WakeBounds,
       hr: List<WakePoint>,
+      sleeping: HeartRateCounts,
       model: HeartRateWakeModel = heartRateModel,
   ): Long? {
     var high = 0
     var at = bounds.startUtcMs
     while (at <= bounds.endUtcMs) {
-      val features = features(hr, at, model)
+      val features = features(hr, at, sleeping, model)
       if (features != null && score(features, model) >= model.threshold) {
         high++
         if (high >= model.consecutiveEvaluations) return at
@@ -154,25 +188,27 @@ object WakeDecision {
   }
 
   /**
-   * The features of the score at [atMs], or null while there is not enough data: the sleeping level
-   * needs [HeartRateWakeModel.minimumSleepingSamples] samples in the lookback, the level and its
-   * short spread [HeartRateWakeModel.minimumLevelSamples] in the level window, and the long spread
+   * The features of the score at [atMs], or null while there is not enough data: the counts need
+   * [HeartRateWakeModel.minimumSleepingSamples] samples, the level and its short spread
+   * [HeartRateWakeModel.minimumLevelSamples] in the level window, and the long spread
    * [HeartRateWakeModel.minimumSpreadSamples] in its own window.
    */
   fun features(
       hr: List<WakePoint>,
       atMs: Long,
+      sleeping: HeartRateCounts,
       model: HeartRateWakeModel = heartRateModel,
   ): HeartRateWakeFeatures? {
-    val sleeping = valuesBetween(hr, atMs - model.lookbackMs, atMs - model.sleepingLevelGapMs)
+    val sleepingLevel =
+        if (sleeping.samples < model.minimumSleepingSamples) null
+        else sleeping.percentile(model.sleepingPercentile)?.takeIf { it > 0.0 }
     val level = valuesBetween(hr, atMs - model.levelWindowMs, atMs)
     val spread = valuesBetween(hr, atMs - model.spreadWindowMs, atMs)
-    val enough =
-        sleeping.size >= model.minimumSleepingSamples &&
-            level.size >= model.minimumLevelSamples &&
-            spread.size >= model.minimumSpreadSamples
-    val sleepingLevel = if (enough) percentile(sleeping, model.sleepingPercentile) else 0.0
-    if (sleepingLevel <= 0.0) return null
+    if (sleepingLevel == null ||
+        level.size < model.minimumLevelSamples ||
+        spread.size < model.minimumSpreadSamples) {
+      return null
+    }
     return HeartRateWakeFeatures(
         level = level.average() / sleepingLevel,
         spread2 = stdDev(level) / sleepingLevel,
@@ -209,13 +245,6 @@ object WakeDecision {
   /** The heart rate of the samples at or after [fromMs] and before [toMs]. */
   private fun valuesBetween(hr: List<WakePoint>, fromMs: Long, toMs: Long): List<Double> =
       hr.filter { it.atMs >= fromMs && it.atMs < toMs }.map { it.value }
-
-  /** The value at rank ceil([percentile] of a hundred times n) of the ascending samples. */
-  private fun percentile(values: List<Double>, percentile: Int): Double {
-    val sorted = values.sorted()
-    val rank = (percentile.toLong() * sorted.size + 99) / 100
-    return sorted[rank.coerceIn(1, sorted.size.toLong()).toInt() - 1]
-  }
 
   /** The population standard deviation of [values]. */
   private fun stdDev(values: List<Double>): Double {

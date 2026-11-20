@@ -11,18 +11,20 @@ import org.junit.Test
 
 /**
  * The live side of the window: the samples a recording produces, reduced and fed to the decision,
- * ring once and only inside the window, and the heart rate is kept to the lookback the score reads.
+ * ring once and only inside the window, and the heart rate is kept to half an hour plus the night's
+ * counts.
  */
 class WakeWatchTest {
   private val start = Instant.parse("2026-11-10T06:30:00Z").toEpochMilli()
   private val end = start + 30 * MINUTE
+  private val nightStart = start - 6 * HOUR
   private val bounds = WakeBounds(start, end)
   private val fired = CopyOnWriteArrayList<Long>()
 
   @Test
   fun `a restless heart rate inside the window rings once`() {
     val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = true))
-    heartRate(watch, start - 3 * HOUR, start) { 50 }
+    heartRate(watch, nightStart, start) { 50 }
     heartRate(watch, start, start + 10 * MINUTE) { restless(it) }
 
     assertEquals(listOf(start + 2 * MINUTE), fired)
@@ -31,7 +33,7 @@ class WakeWatchTest {
   @Test
   fun `restlessness that ended before the window does not ring`() {
     val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = true))
-    heartRate(watch, start - 3 * HOUR, start - 20 * MINUTE) { 50 }
+    heartRate(watch, nightStart, start - 20 * MINUTE) { 50 }
     heartRate(watch, start - 20 * MINUTE, start - 10 * MINUTE) { restless(it) }
     heartRate(watch, start - 10 * MINUTE, end) { 50 }
 
@@ -41,7 +43,7 @@ class WakeWatchTest {
   @Test
   fun `a window without a chosen signal never rings`() {
     val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = false, movement = false))
-    heartRate(watch, start - 3 * HOUR, start) { 50 }
+    heartRate(watch, nightStart, start) { 50 }
     heartRate(watch, start, start + 10 * MINUTE) { restless(it) }
     acc(watch, start, start + 5 * MINUTE, mg = 1_500)
 
@@ -58,14 +60,24 @@ class WakeWatchTest {
   }
 
   @Test
-  fun `the watch keeps three hours and five minutes of heart rate`() {
+  fun `the watch keeps the last half hour of heart rate`() {
     val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = true))
 
-    // One sample a minute for five hours: what is older than the lookback and the longest window
-    // the score reads is dropped, the rest stays.
+    // One sample a minute for five hours: only the samples of the delay stay.
     heartRate(watch, start - 5 * HOUR, start + 1_000, stepMs = MINUTE) { 60 }
 
-    assertEquals(186, watch.keptHrPoints)
+    assertEquals(30, watch.keptHrPoints)
+  }
+
+  @Test
+  fun `every sample of the night enters the counts once it is old enough`() {
+    val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = true))
+
+    // One sample a minute for five hours: the 271 that are at least half an hour old are counted,
+    // however early in the night they came.
+    heartRate(watch, start - 5 * HOUR, start + 1_000, stepMs = MINUTE) { 60 }
+
+    assertEquals(271, watch.countedHrSamples)
   }
 
   @Test

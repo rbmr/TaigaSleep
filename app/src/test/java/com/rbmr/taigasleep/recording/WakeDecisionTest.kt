@@ -14,6 +14,7 @@ import org.junit.Test
 class WakeDecisionTest {
   private val start = Instant.parse("2026-11-10T06:30:00Z").toEpochMilli()
   private val end = start + 30 * MINUTE
+  private val nightStart = start - 6 * HOUR
   private val bounds = WakeBounds(start, end)
   private val hrOnly = WakeWindow(startMinute = 6 * 60 + 30, lengthMinutes = 30, heartRate = true)
   private val movementOnly =
@@ -22,61 +23,63 @@ class WakeDecisionTest {
 
   @Test
   fun `a smooth sleeping heart rate never rings`() {
-    val hr = hrSeries(start - 3 * HOUR, end + 10 * MINUTE, 50.0)
+    val hr = hrSeries(nightStart, end + 10 * MINUTE, 50.0)
 
-    assertNull(WakeDecision.trigger(hrOnly, bounds, WakeSeries(hr = hr)))
-    assertEquals(end, WakeDecision.firesAt(hrOnly, bounds, WakeSeries(hr = hr)))
+    assertNull(WakeDecision.trigger(hrOnly, bounds, series(hr = hr)))
+    assertEquals(end, WakeDecision.firesAt(hrOnly, bounds, series(hr = hr)))
   }
 
   @Test
   fun `a restless heart rate at the sleeping level rings in the window`() {
-    val hr = hrSeries(start - 3 * HOUR, start, 50.0) + hrSeries(start, end, ::restless)
+    val hr = hrSeries(nightStart, start, 50.0) + hrSeries(start, end, ::restless)
 
-    assertEquals(start + 2 * MINUTE, WakeDecision.trigger(hrOnly, bounds, WakeSeries(hr = hr)))
+    assertEquals(start + 2 * MINUTE, WakeDecision.trigger(hrOnly, bounds, series(hr = hr)))
   }
 
   @Test
   fun `a raised steady level below the threshold never rings`() {
+    // 120 is 2.4 times the sleeping level; with the model's weights that scores below 0.80.
     val hr =
-        hrSeries(start - 3 * HOUR, start - 15 * MINUTE, 50.0) +
-            hrSeries(start - 15 * MINUTE, start - 5 * MINUTE) {
-              50.0 + 10.0 * (it - (start - 15 * MINUTE)) / (10 * MINUTE).toDouble()
-            } +
-            hrSeries(start - 5 * MINUTE, end, 60.0)
-
-    assertNull(WakeDecision.trigger(hrOnly, bounds, WakeSeries(hr = hr)))
-  }
-
-  @Test
-  fun `a raised steady level above the threshold rings`() {
-    val hr =
-        hrSeries(start - 3 * HOUR, start - 15 * MINUTE, 50.0) +
+        hrSeries(nightStart, start - 15 * MINUTE, 50.0) +
             hrSeries(start - 15 * MINUTE, start - 5 * MINUTE) {
               50.0 + 70.0 * (it - (start - 15 * MINUTE)) / (10 * MINUTE).toDouble()
             } +
             hrSeries(start - 5 * MINUTE, end, 120.0)
 
-    assertEquals(start + 30 * SECOND, WakeDecision.trigger(hrOnly, bounds, WakeSeries(hr = hr)))
+    assertNull(WakeDecision.trigger(hrOnly, bounds, series(hr = hr)))
+  }
+
+  @Test
+  fun `a raised steady level above the threshold rings`() {
+    // 130 is 2.6 times the sleeping level, enough to score above 0.80 on two evaluations in a row.
+    val hr =
+        hrSeries(nightStart, start - 15 * MINUTE, 50.0) +
+            hrSeries(start - 15 * MINUTE, start - 5 * MINUTE) {
+              50.0 + 80.0 * (it - (start - 15 * MINUTE)) / (10 * MINUTE).toDouble()
+            } +
+            hrSeries(start - 5 * MINUTE, end, 130.0)
+
+    assertEquals(start + 30 * SECOND, WakeDecision.trigger(hrOnly, bounds, series(hr = hr)))
   }
 
   @Test
   fun `restlessness that ended before the window does not ring`() {
     val hr =
-        hrSeries(start - 3 * HOUR, start - 20 * MINUTE, 50.0) +
+        hrSeries(nightStart, start - 20 * MINUTE, 50.0) +
             hrSeries(start - 20 * MINUTE, start - 10 * MINUTE, ::restless) +
             hrSeries(start - 10 * MINUTE, end + 10 * MINUTE, 50.0)
 
-    assertNull(WakeDecision.trigger(hrOnly, bounds, WakeSeries(hr = hr)))
-    assertEquals(end, WakeDecision.firesAt(hrOnly, bounds, WakeSeries(hr = hr)))
+    assertNull(WakeDecision.trigger(hrOnly, bounds, series(hr = hr)))
+    assertEquals(end, WakeDecision.firesAt(hrOnly, bounds, series(hr = hr)))
   }
 
   @Test
   fun `restlessness that is there when the window opens rings inside it only`() {
     val hr =
-        hrSeries(start - 3 * HOUR, start - 10 * MINUTE, 50.0) +
+        hrSeries(nightStart, start - 10 * MINUTE, 50.0) +
             hrSeries(start - 10 * MINUTE, end, ::restless)
 
-    val trigger = WakeDecision.trigger(hrOnly, bounds, WakeSeries(hr = hr))
+    val trigger = WakeDecision.trigger(hrOnly, bounds, series(hr = hr))
 
     assertEquals(start + 30 * SECOND, trigger)
     assertTrue("the alarm must not ring before the window: $trigger", trigger!! >= start)
@@ -84,9 +87,9 @@ class WakeDecisionTest {
 
   @Test
   fun `restlessness that starts after the window never rings`() {
-    val hr = hrSeries(start - 3 * HOUR, end, 50.0) + hrSeries(end, end + 10 * MINUTE, ::restless)
+    val hr = hrSeries(nightStart, end, 50.0) + hrSeries(end, end + 10 * MINUTE, ::restless)
 
-    assertNull(WakeDecision.trigger(hrOnly, bounds, WakeSeries(hr = hr)))
+    assertNull(WakeDecision.trigger(hrOnly, bounds, series(hr = hr)))
   }
 
   @Test
@@ -95,24 +98,28 @@ class WakeDecisionTest {
     val window = WakeWindow(startMinute = 6 * 60 + 30, lengthMinutes = 10, heartRate = true)
     val hr = hrSeries(start - 5 * MINUTE, start, 50.0) + hrSeries(start, short.endUtcMs, ::restless)
 
-    assertNull(WakeDecision.trigger(window, short, WakeSeries(hr = hr)))
-    assertEquals(short.endUtcMs, WakeDecision.firesAt(window, short, WakeSeries(hr = hr)))
+    assertNull(WakeDecision.trigger(window, short, series(hr = hr, atMs = short.endUtcMs)))
+    assertEquals(
+        short.endUtcMs,
+        WakeDecision.firesAt(window, short, series(hr = hr, atMs = short.endUtcMs)),
+    )
   }
 
   @Test
   fun `the features are the level and spreads relative to the sleeping level`() {
     val at = start + 30 * MINUTE
-    // 900 samples at 45 and 8 100 at 55 in the lookback put the tenth percentile at 45.
+    // 900 samples at 45 and 8 100 at 55 put the tenth percentile at 45.
     val sleeping =
-        hrSeries(at - 3 * HOUR, at - 3 * HOUR + 15 * MINUTE, 45.0) +
-            hrSeries(at - 3 * HOUR + 15 * MINUTE, at - 30 * MINUTE, 55.0)
-    val quiet = hrSeries(at - 30 * MINUTE, at - 5 * MINUTE, 55.0)
+        HeartRateCounts().apply {
+          repeat(900) { add(45.0) }
+          repeat(8_100) { add(55.0) }
+        }
     // Two quiet minutes then three swinging ones: level 45, spread2 5, spread5 sqrt(15).
     val close =
         hrSeries(at - 5 * MINUTE, at - 3 * MINUTE, 45.0) +
             hrSeries(at - 3 * MINUTE, at, ::swinging)
 
-    val features = WakeDecision.features(sleeping + quiet + close, at)!!
+    val features = WakeDecision.features(close, at, sleeping)!!
 
     assertEquals(1.0, features.level, 1e-9)
     assertEquals(5.0 / 45.0, features.spread2, 1e-9)
@@ -121,8 +128,8 @@ class WakeDecisionTest {
 
   @Test
   fun `the score of fixed features is the logistic of their weighted sum`() {
-    // level 1.2, spread2 0.2 and spread5 0.1 give 2.28 * 1.2 + 4.25 * 0.2 + 6.63 * 0.1 - 3.8.
-    assertEquals(0.610401, WakeDecision.score(HeartRateWakeFeatures(1.2, 0.2, 0.1)), 1e-6)
+    // level 1.2, spread2 0.2 and spread5 0.1 give 1.86 * 1.2 + 4.58 * 0.2 + 6.54 * 0.1 - 3.36.
+    assertEquals(0.608735, WakeDecision.score(HeartRateWakeFeatures(1.2, 0.2, 0.1)), 1e-6)
   }
 
   @Test
@@ -133,7 +140,7 @@ class WakeDecisionTest {
 
     assertEquals(
         start + 6 * MINUTE,
-        WakeDecision.trigger(movementOnly, bounds, WakeSeries(movement = movement)),
+        WakeDecision.trigger(movementOnly, bounds, series(movement = movement)),
     )
   }
 
@@ -141,19 +148,19 @@ class WakeDecisionTest {
   fun `movement below the threshold never rings`() {
     val movement = movementSeries(start, end, WakeDecision.MOVEMENT_MG - 1)
 
-    assertNull(WakeDecision.trigger(movementOnly, bounds, WakeSeries(movement = movement)))
+    assertNull(WakeDecision.trigger(movementOnly, bounds, series(movement = movement)))
   }
 
   @Test
   fun `a signal the user did not choose never rings`() {
-    val hr = hrSeries(start - 3 * HOUR, start, 50.0) + hrSeries(start, end, ::restless)
+    val hr = hrSeries(nightStart, start, 50.0) + hrSeries(start, end, ::restless)
 
-    assertNull(WakeDecision.trigger(movementOnly, bounds, WakeSeries(hr = hr)))
+    assertNull(WakeDecision.trigger(movementOnly, bounds, series(hr = hr)))
     assertNull(
         WakeDecision.trigger(
             WakeWindow(6 * 60 + 30, 30, false, false),
             bounds,
-            WakeSeries(hr = hr),
+            series(hr = hr),
         )
     )
   }
@@ -161,7 +168,7 @@ class WakeDecisionTest {
   @Test
   fun `the earlier of two chosen signals rings first`() {
     val hr =
-        hrSeries(start - 3 * HOUR, start + 5 * MINUTE, 50.0) +
+        hrSeries(nightStart, start + 5 * MINUTE, 50.0) +
             hrSeries(start + 5 * MINUTE, end, ::restless)
     val movement =
         movementSeries(start, start + 2 * MINUTE - 1_000, 10.0) +
@@ -169,14 +176,14 @@ class WakeDecisionTest {
 
     assertEquals(
         start + 3 * MINUTE,
-        WakeDecision.trigger(both, bounds, WakeSeries(hr = hr, movement = movement)),
+        WakeDecision.trigger(both, bounds, series(hr = hr, movement = movement)),
     )
   }
 
   @Test
   fun `the end of the window is the fallback when nothing triggers`() {
     val quiet =
-        WakeSeries(hr = hrSeries(start, end, 55.0), movement = movementSeries(start, end, 5.0))
+        series(hr = hrSeries(start, end, 55.0), movement = movementSeries(start, end, 5.0))
 
     assertEquals(end, WakeDecision.firesAt(both, bounds, quiet))
   }
@@ -196,6 +203,24 @@ class WakeDecisionTest {
 
   /** A heart rate that swings 5 beats around its mean from second to second. */
   private fun swinging(atMs: Long): Double = if ((atMs / 1_000) % 2 == 0L) 40.0 else 50.0
+
+  /**
+   * The series the decision reads, with the sleeping level the night built up half an hour before
+   * [atMs]: the counts hold every sample of [hr] older than that.
+   */
+  private fun series(
+      hr: List<WakePoint> = emptyList(),
+      movement: List<WakePoint> = emptyList(),
+      atMs: Long = end,
+  ): WakeSeries =
+      WakeSeries(
+          hr = hr,
+          movement = movement,
+          sleeping =
+              HeartRateCounts().apply {
+                hr.filter { it.atMs < atMs - 30 * MINUTE }.forEach { add(it.value) }
+              },
+      )
 
   private fun hrSeries(fromMs: Long, toMs: Long, bpm: Double): List<WakePoint> =
       hrSeries(fromMs, toMs) { bpm }

@@ -9,8 +9,10 @@ import com.rbmr.taigasleep.tracker.Stamp
  * accelerometer to one movement value per second, and asks [WakeDecision] about movement at most
  * once a second and about the heart-rate score once per step.
  *
- * Heart rate is kept for the sleeping-level lookback and the longest window the score reads, so the
- * memory stays a few hours of one sample per second however long the night runs.
+ * Every heart-rate sample the recording produces is fed in. A sample enters the sleeping level's
+ * per-beat counts once it is half an hour old and never leaves; only the samples after that stay, for
+ * the delay and the windows of the score, so the memory is half an hour of one sample per second plus
+ * 250 counters however long the night runs.
  *
  * Samples arrive on the sensor's threads, so every change is taken under one short lock and the
  * trigger is handed out after it. The watch is spent once it rang: a recording that is resumed
@@ -26,6 +28,7 @@ class WakeWatch(
 ) {
   private val lock = Any()
   private val hr = ArrayDeque<WakePoint>()
+  private val sleeping = HeartRateCounts()
   private val movement = ArrayDeque<WakePoint>()
   private var hrStepAtMs = bounds.startUtcMs
   private var hrSteps = 0
@@ -36,9 +39,13 @@ class WakeWatch(
   private var secondSamples = 0
   private var fired = false
 
-  /** The heart-rate points kept, bounded by [HeartRateWakeModel.keepMs]. */
+  /** The heart-rate points kept, bounded by [HeartRateWakeModel.sleepingLevelGapMs]. */
   internal val keptHrPoints: Int
     get() = synchronized(lock) { hr.size }
+
+  /** The heart-rate samples in the sleeping level's counts. */
+  internal val countedHrSamples: Int
+    get() = synchronized(lock) { sleeping.samples }
 
   /** The steps of the heart-rate score decided so far, at most one per step of the model. */
   internal val decidedHrSteps: Int
@@ -48,11 +55,12 @@ class WakeWatch(
     val trigger =
         synchronized(lock) {
           val at = stamp.phoneNs / NS_PER_MS
-          // The sleeping level reaches back before the window opens, so an awake night is measured
-          // against the night that led to it.
-          if (at < bounds.startUtcMs - model.keepMs) return
           hr.addLast(WakePoint(at, sample.hr.toDouble()))
-          dropBefore(hr, at - model.keepMs)
+          // The samples that are old enough move into the counts of the whole night, which is what
+          // the sleeping level is; the rest wait for the delay and the windows of the score.
+          while (hr.isNotEmpty() && hr.first().atMs <= at - model.sleepingLevelGapMs) {
+            sleeping.add(hr.removeFirst().value)
+          }
           if (window.heartRate) heartRateTrigger(at) else null
         }
     if (trigger != null) onTrigger(trigger)
@@ -84,7 +92,6 @@ class WakeWatch(
       this.bounds = bounds
       hrStepAtMs = bounds.startUtcMs
       highScores = 0
-      dropBefore(hr, bounds.startUtcMs - model.keepMs)
       movementEvaluatedAtMs = null
       fired = false
     }
@@ -104,7 +111,7 @@ class WakeWatch(
     val at = hrStepAtMs
     hrStepAtMs = at + model.stepMs
     hrSteps++
-    val features = WakeDecision.features(hr, at, model)
+    val features = WakeDecision.features(hr, at, sleeping, model)
     val high = features != null && WakeDecision.score(features, model) >= model.threshold
     highScores = if (high) highScores + 1 else 0
     val ring = highScores >= model.consecutiveEvaluations
