@@ -146,7 +146,7 @@ class SampleFanoutTest {
         }
     val fanout = SampleFanout(writer, monitor) { throw AssertionError("monitor should not fail") }
     val fired = mutableListOf<Long>()
-    val windowStartMs = clock.phoneNs / 1_000_000L + 60_000
+    val windowStartMs = clock.phoneNs / 1_000_000L + 3 * 60 * 60_000L
     fanout.wake =
         WakeWatch(
             WakeWindow(0, 60, heartRate = true),
@@ -155,13 +155,16 @@ class SampleFanoutTest {
           fired += it
         }
 
-    // A minute at rest, then a sustained rise inside the window, all as pulse intervals.
-    repeat(61) {
-      fanout.onFrame(ppiFrame(Stamp.now(clock), intArrayOf(1000), intArrayOf(60)))
-      clock.advanceMs(1_000)
+    // Three hours of sleep as pulse intervals, one every ten seconds: enough for the sleeping
+    // level the heart-rate score compares with.
+    repeat(3 * 60 * 6 + 1) {
+      fanout.onFrame(ppiFrame(Stamp.now(clock), intArrayOf(1000), intArrayOf(50)))
+      clock.advanceMs(10_000)
     }
-    repeat(61) {
-      fanout.onFrame(ppiFrame(Stamp.now(clock), intArrayOf(1000), intArrayOf(72)))
+    // A restless heart rate inside the window, all as pulse intervals.
+    repeat(601) {
+      val bpm = if (it % 2 == 0) 28 else 72
+      fanout.onFrame(ppiFrame(Stamp.now(clock), intArrayOf(1000), intArrayOf(bpm)))
       clock.advanceMs(1_000)
     }
     writer.finish(RecordingPhase.STOPPED, "done")

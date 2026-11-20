@@ -10,8 +10,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The live side of the window: the samples a recording produces, reduced and fed to the decision
- * once a second, ring once and only inside the window.
+ * The live side of the window: the samples a recording produces, reduced and fed to the decision,
+ * ring once and only inside the window, and the heart rate is kept to the lookback the score reads.
  */
 class WakeWatchTest {
   private val start = Instant.parse("2026-11-10T06:30:00Z").toEpochMilli()
@@ -20,20 +20,30 @@ class WakeWatchTest {
   private val fired = CopyOnWriteArrayList<Long>()
 
   @Test
-  fun `a heart rate rise inside the window rings once`() {
+  fun `a restless heart rate inside the window rings once`() {
     val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = true))
-    hr(watch, start - 30 * MINUTE, start + 5 * MINUTE - 1_000, 60)
-    hr(watch, start + 5 * MINUTE, start + 10 * MINUTE, 72)
+    heartRate(watch, start - 3 * HOUR, start) { 50 }
+    heartRate(watch, start, start + 10 * MINUTE) { restless(it) }
 
-    assertEquals(listOf(start + 6 * MINUTE), fired)
+    assertEquals(listOf(start + 2 * MINUTE), fired)
   }
 
   @Test
-  fun `a rise before the window is not a rise inside it`() {
+  fun `restlessness that ended before the window does not ring`() {
     val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = true))
-    hr(watch, start - 30 * MINUTE, start - 10 * MINUTE - 1_000, 60)
-    hr(watch, start - 10 * MINUTE, start - 1_000, 80)
-    hr(watch, start, end, 60)
+    heartRate(watch, start - 3 * HOUR, start - 20 * MINUTE) { 50 }
+    heartRate(watch, start - 20 * MINUTE, start - 10 * MINUTE) { restless(it) }
+    heartRate(watch, start - 10 * MINUTE, end) { 50 }
+
+    assertTrue("nothing may ring: $fired", fired.isEmpty())
+  }
+
+  @Test
+  fun `a window without a chosen signal never rings`() {
+    val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = false, movement = false))
+    heartRate(watch, start - 3 * HOUR, start) { 50 }
+    heartRate(watch, start, start + 10 * MINUTE) { restless(it) }
+    acc(watch, start, start + 5 * MINUTE, mg = 1_500)
 
     assertTrue("nothing may ring: $fired", fired.isEmpty())
   }
@@ -48,21 +58,41 @@ class WakeWatchTest {
   }
 
   @Test
-  fun `a window without a chosen signal never rings`() {
-    val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = false, movement = false))
-    hr(watch, start - 30 * MINUTE, start + 5 * MINUTE - 1_000, 60)
-    hr(watch, start + 5 * MINUTE, start + 10 * MINUTE, 90)
-    acc(watch, start, start + 5 * MINUTE, mg = 1_500)
+  fun `the watch keeps three hours and five minutes of heart rate`() {
+    val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = true))
 
-    assertTrue("nothing may ring: $fired", fired.isEmpty())
+    // One sample a minute for five hours: what is older than the lookback and the longest window
+    // the score reads is dropped, the rest stays.
+    heartRate(watch, start - 5 * HOUR, start + 1_000, stepMs = MINUTE) { 60 }
+
+    assertEquals(186, watch.keptHrPoints)
+  }
+
+  @Test
+  fun `the score is decided once per step and not once per sample`() {
+    val watch = watch(WakeWindow(6 * 60 + 30, 30, heartRate = true))
+
+    // Ten minutes of one sample a second are twenty steps of thirty seconds.
+    heartRate(watch, start, start + 10 * MINUTE) { 60 }
+
+    assertEquals(20, watch.decidedHrSteps)
   }
 
   private fun watch(window: WakeWindow) = WakeWatch(window, bounds) { fired += it }
 
-  /** One heart rate sample a second from [fromMs] up to [toMs]. */
-  private fun hr(watch: WakeWatch, fromMs: Long, toMs: Long, bpm: Int) {
-    generateSequence(fromMs) { it + 1_000 }.takeWhile { it <= toMs }.forEach {
-      watch.onHr(Stamp(it * NS_PER_MS, it * NS_PER_MS), sample(bpm))
+  /** A heart rate that swings 22 beats around its mean from second to second. */
+  private fun restless(atMs: Long): Int = if ((atMs / 1_000) % 2 == 0L) 28 else 72
+
+  /** One heart rate sample every [stepMs] from [fromMs] up to [toMs]. */
+  private fun heartRate(
+      watch: WakeWatch,
+      fromMs: Long,
+      toMs: Long,
+      stepMs: Long = 1_000,
+      bpm: (Long) -> Int,
+  ) {
+    generateSequence(fromMs) { it + stepMs }.takeWhile { it < toMs }.forEach {
+      watch.onHr(Stamp(it * NS_PER_MS, it * NS_PER_MS), sample(bpm(it)))
     }
   }
 
@@ -81,6 +111,7 @@ class WakeWatchTest {
 
   private companion object {
     const val MINUTE = 60_000L
+    const val HOUR = 60 * MINUTE
     const val NS_PER_MS = 1_000_000L
     const val SAMPLES = 36
     const val BATCH_MS = SAMPLES * 20L
