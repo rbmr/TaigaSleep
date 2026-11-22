@@ -58,7 +58,7 @@ RUN mkdir -p /app/models/wav2sleep \
 RUN rm -rf /app/.venv/lib/python3.12/site-packages/torch/include \
     /app/.venv/lib/python3.12/site-packages/torch/test
 
-FROM python:3.12-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
