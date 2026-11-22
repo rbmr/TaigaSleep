@@ -19,8 +19,8 @@ robolectric = "4.18"
 # The android-all-instrumented jars Robolectric 4.18 runs the tests on, for SDK 34 and SDK 36.
 # Robolectric builds their version from the Android release and the build id inside its own
 # release, so these move together with `robolectric` above. See docs/ci.md.
-robolectricSdk34 = "14-robolectric-10818077-i7"
-robolectricSdk36 = "16-robolectric-13921718-2-i7"
+robolectricSdk34 = "17-robolectric-16653203-i7"
+robolectricSdk36 = "17-robolectric-16653203-i7"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
