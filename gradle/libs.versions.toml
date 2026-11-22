@@ -1,12 +1,12 @@
 [versions]
 aboutLibraries = "15.3.0"
-agp = "9.5.1"
+agp = "9.5.2"
 kotlin = "2.4.21"
 coreKtx = "1.19.1"
 activityCompose = "1.12.4"
 lifecycle = "2.10.0"
 navigation = "2.10.2"
-composeBom = "2026.09.00"
+composeBom = "2026.11.01"
 polarBleSdk = "8.5.0"
 coroutines = "1.11.0"
 junit = "4.13.2"
@@ -15,7 +15,7 @@ serialization = "1.13.0"
 work = "2.12.0"
 room = "2.8.5"
 ksp = "2.3.14"
-robolectric = "4.18"
+robolectric = "4.18.1"
 # The android-all-instrumented jars Robolectric 4.18 runs the tests on, for SDK 34 and SDK 36.
 # Robolectric builds their version from the Android release and the build id inside its own
 # release, so these move together with `robolectric` above. See docs/ci.md.
