@@ -73,6 +73,9 @@
   <string name="rec_sound_uncompressed">Uncompressed</string>
   <string name="rec_sound_on_device_note">Sound needs the phone to receive data all night.</string>
   <string name="rec_sound_permission_note">Allow the microphone to record sound.</string>
+  <string name="rec_sound_blocked_title">Microphone is off</string>
+  <string name="rec_sound_blocked_body">To record sound, open Settings, choose Permissions and allow the microphone while using the app.</string>
+  <string name="rec_sound_blocked_open">Open settings</string>
 
   <string name="rec_active_title">Recording</string>
   <string name="rec_active_stopping">Stopping…</string>

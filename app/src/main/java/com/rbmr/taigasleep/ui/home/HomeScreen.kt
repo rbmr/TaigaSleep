@@ -1,8 +1,14 @@
 package com.rbmr.taigasleep.ui.home
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -12,17 +18,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rbmr.taigasleep.R
 import com.rbmr.taigasleep.appContainer
 import com.rbmr.taigasleep.debug.DebugTools
 import com.rbmr.taigasleep.debug.GuidancePreviewPicker
 import com.rbmr.taigasleep.guard.HomeState
 import com.rbmr.taigasleep.recording.WakeAlarmWarning
 import com.rbmr.taigasleep.tracker.ConnectionState
+import com.rbmr.taigasleep.ui.components.ConfirmDialog
 
 /** What the inactive stage draws, whichever step of the start flow it is on. */
 internal data class InactiveView(
@@ -32,6 +42,8 @@ internal data class InactiveView(
     val denied: Boolean,
     val error: String?,
     val wakeWarnings: Set<WakeAlarmWarning> = emptySet(),
+    /** A start asked for the microphone and was refused, so Sound is off now. */
+    val microphoneDenied: Boolean = false,
 )
 
 private fun HomeUiState.inactive(): InactiveView? =
@@ -44,7 +56,15 @@ private fun HomeUiState.inactive(): InactiveView? =
       is HomeUiState.Configure -> InactiveView(tracker, config, guard, picker.denied, error)
       is HomeUiState.NeedsGuard -> InactiveView(tracker, config, guard, picker.denied, error)
       is HomeUiState.ReadyToStart ->
-          InactiveView(tracker, config, guard, picker.denied, error, wakeWarnings)
+          InactiveView(
+              tracker,
+              config,
+              guard,
+              picker.denied,
+              error,
+              wakeWarnings,
+              microphone.denied,
+          )
     }
 
 /** The connected tracker whose picker sheet can offer Disconnect, or null while there is none. */
@@ -103,12 +123,25 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
         // The recording runs without the notification, so a refusal does not block the start.
         viewModel.start()
       }
-  // The microphone is asked for only when the user turns Sound on; a refusal keeps sound off.
+  // The microphone is asked for when the user turns Sound on, and again at a start with sound
+  // when Android no longer grants it. A refusal keeps sound off.
   val microphonePermission =
       rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        viewModel.microphoneAnswered(it)
+        val activity = context.findActivity()
+        val canAskAgain =
+            activity == null ||
+                ActivityCompat.shouldShowRequestPermissionRationale(
+                    activity,
+                    Manifest.permission.RECORD_AUDIO,
+                )
+        viewModel.microphoneAnswered(it, canAskAgain)
       }
-  val microphoneAsked = (state as? HomeUiState.Configure)?.microphone?.requested == true
+  val microphoneAsked =
+      when (val current = state) {
+        is HomeUiState.Configure -> current.microphone.requested
+        is HomeUiState.ReadyToStart -> current.microphone.requested
+        else -> false
+      }
   LaunchedEffect(microphoneAsked) {
     if (microphoneAsked) {
       viewModel.microphoneShown()
@@ -207,6 +240,26 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
       )
     }
   }
+  val microphoneBlocked =
+      when (val current = state) {
+        is HomeUiState.Configure -> current.microphone.blocked
+        is HomeUiState.ReadyToStart -> current.microphone.blocked
+        else -> false
+      }
+  if (microphoneBlocked) {
+    MicrophoneSettingsDialog(
+        onOpenSettings = {
+          viewModel.openingMicrophoneSettings()
+          context.startActivity(
+              Intent(
+                  Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                  Uri.fromParts("package", context.packageName, null),
+              )
+          )
+        },
+        onDismiss = viewModel::microphoneSettingsDeclined,
+    )
+  }
   if (showPreviewPicker) {
     GuidancePreviewPicker(
         store = guidanceStore,
@@ -217,3 +270,21 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
     )
   }
 }
+
+/** Shown when Android refuses the microphone without asking: only the app's settings can allow it. */
+@Composable
+internal fun MicrophoneSettingsDialog(onOpenSettings: () -> Unit, onDismiss: () -> Unit) {
+  ConfirmDialog(
+      title = stringResource(R.string.rec_sound_blocked_title),
+      body = stringResource(R.string.rec_sound_blocked_body),
+      confirmLabel = stringResource(R.string.rec_sound_blocked_open),
+      onConfirm = onOpenSettings,
+      onDismiss = onDismiss,
+  )
+}
+
+private fun Context.findActivity(): Activity? =
+    generateSequence(this) { (it as? ContextWrapper)?.baseContext }
+        .filterIsInstance<Activity>()
+        .firstOrNull()
+

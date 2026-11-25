@@ -910,4 +910,92 @@ class HomeViewModelTest {
     assertFalse(configure.microphone.requested)
     assertEquals(SoundChoice.OFF, configure.config.sound)
   }
+
+  @Test
+  fun `a start with sound asks for a withdrawn microphone before recording`() {
+    work.sound = SoundChoice.COMPRESSED
+    work.microphone = false
+    val model = viewModel()
+    sensor.value = FakeSensor()
+
+    model.start()
+
+    val ready = model.state.value as HomeUiState.ReadyToStart
+    assertTrue("the screen launches the request", ready.microphone.requested)
+    assertTrue("nothing starts before the answer", work.calls.none { it.startsWith("start:") })
+  }
+
+  @Test
+  fun `a microphone granted at start goes on with the recording and its sound`() {
+    work.sound = SoundChoice.UNCOMPRESSED
+    work.microphone = false
+    val model = viewModel()
+    sensor.value = FakeSensor()
+    model.start()
+    model.microphoneShown()
+
+    work.microphone = true
+    model.microphoneAnswered(true)
+
+    assertEquals(1, work.calls.count { it.startsWith("start:") })
+    assertEquals(SoundChoice.UNCOMPRESSED, work.sound)
+  }
+
+  @Test
+  fun `a microphone refused at start records nothing, turns sound off and says why`() {
+    work.sound = SoundChoice.COMPRESSED
+    work.microphone = false
+    val model = viewModel()
+    sensor.value = FakeSensor()
+    model.start()
+
+    model.microphoneAnswered(false)
+
+    val ready = model.state.value as HomeUiState.ReadyToStart
+    assertTrue(work.calls.none { it.startsWith("start:") })
+    assertEquals(SoundChoice.OFF, ready.config.sound)
+    assertTrue(ready.microphone.denied)
+  }
+
+  @Test
+  fun `a blocked microphone at start offers the settings and keeps the choice`() {
+    work.sound = SoundChoice.COMPRESSED
+    work.microphone = false
+    val model = viewModel()
+    sensor.value = FakeSensor()
+    model.start()
+
+    model.microphoneAnswered(granted = false, canAskAgain = false)
+
+    assertTrue((model.state.value as HomeUiState.ReadyToStart).microphone.blocked)
+    model.openingMicrophoneSettings()
+    val ready = model.state.value as HomeUiState.ReadyToStart
+    assertFalse(ready.microphone.blocked)
+    assertEquals(SoundChoice.COMPRESSED, ready.config.sound)
+
+    model.start()
+
+    assertTrue("still withdrawn, so it asks again", work.calls.none { it.startsWith("start:") })
+    work.microphone = true
+    model.start()
+    assertEquals(1, work.calls.count { it.startsWith("start:") })
+  }
+
+  @Test
+  fun `declining the settings of a blocked microphone turns sound off`() {
+    work.sound = SoundChoice.COMPRESSED
+    work.microphone = false
+    val model = viewModel()
+    sensor.value = FakeSensor()
+    model.start()
+    model.microphoneAnswered(granted = false, canAskAgain = false)
+
+    model.microphoneSettingsDeclined()
+
+    val ready = model.state.value as HomeUiState.ReadyToStart
+    assertEquals(SoundChoice.OFF, ready.config.sound)
+    assertTrue(ready.microphone.denied)
+    assertTrue(work.calls.none { it.startsWith("start:") })
+  }
 }
+
