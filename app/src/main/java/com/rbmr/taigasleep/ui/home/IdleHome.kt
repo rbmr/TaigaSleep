@@ -74,7 +74,11 @@ internal fun IdleHome(
       }
   val problem =
       view.error
-          ?: if (view.denied) stringResource(R.string.rec_permission_denied) else null
+          ?: when {
+            view.denied -> stringResource(R.string.rec_permission_denied)
+            view.microphoneDenied -> stringResource(R.string.rec_sound_permission_note)
+            else -> null
+          }
 
   Column(
       modifier =

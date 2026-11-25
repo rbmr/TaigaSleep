@@ -257,6 +257,8 @@ sealed interface HomeUiState {
       override val picker: SensorPicker = SensorPicker(),
       override val error: String? = null,
       override val wakeWarnings: Set<WakeAlarmWarning> = emptySet(),
+      /** The microphone request of a start with sound, and a refusal Home explains. */
+      val microphone: MicrophonePermission = MicrophonePermission(),
   ) : HomeUiState
 
   /**
@@ -396,7 +398,15 @@ internal fun homeState(
   if (config.mode == RecordingMode.STREAM && guard == HomeState.NEEDS_SETTINGS) {
     return HomeUiState.NeedsGuard(tracker, config, picker, status.error)
   }
-  return HomeUiState.ReadyToStart(tracker, config, guard, picker, status.error, wakeWarnings)
+  return HomeUiState.ReadyToStart(
+      tracker,
+      config,
+      guard,
+      picker,
+      status.error,
+      wakeWarnings,
+      microphone,
+  )
 }
 
 /** Turning the alarm on starts from a time most people wake at; the user moves it from there. */

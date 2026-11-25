@@ -32,6 +32,8 @@ internal data class InactiveView(
     val denied: Boolean,
     val error: String?,
     val wakeWarnings: Set<WakeAlarmWarning> = emptySet(),
+    /** A start asked for the microphone and was refused, so Sound is off now. */
+    val microphoneDenied: Boolean = false,
 )
 
 private fun HomeUiState.inactive(): InactiveView? =
@@ -44,7 +46,15 @@ private fun HomeUiState.inactive(): InactiveView? =
       is HomeUiState.Configure -> InactiveView(tracker, config, guard, picker.denied, error)
       is HomeUiState.NeedsGuard -> InactiveView(tracker, config, guard, picker.denied, error)
       is HomeUiState.ReadyToStart ->
-          InactiveView(tracker, config, guard, picker.denied, error, wakeWarnings)
+          InactiveView(
+              tracker,
+              config,
+              guard,
+              picker.denied,
+              error,
+              wakeWarnings,
+              microphone.denied,
+          )
     }
 
 /** The connected tracker whose picker sheet can offer Disconnect, or null while there is none. */
@@ -103,12 +113,18 @@ fun HomeScreen(onGuidanceClick: () -> Unit, onOpenRecording: (String) -> Unit) {
         // The recording runs without the notification, so a refusal does not block the start.
         viewModel.start()
       }
-  // The microphone is asked for only when the user turns Sound on; a refusal keeps sound off.
+  // The microphone is asked for when the user turns Sound on, and again at a start with sound
+  // when Android no longer grants it. A refusal keeps sound off.
   val microphonePermission =
       rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         viewModel.microphoneAnswered(it)
       }
-  val microphoneAsked = (state as? HomeUiState.Configure)?.microphone?.requested == true
+  val microphoneAsked =
+      when (val current = state) {
+        is HomeUiState.Configure -> current.microphone.requested
+        is HomeUiState.ReadyToStart -> current.microphone.requested
+        else -> false
+      }
   LaunchedEffect(microphoneAsked) {
     if (microphoneAsked) {
       viewModel.microphoneShown()

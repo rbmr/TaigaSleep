@@ -185,7 +185,9 @@ visible, greyed out with the reason, so the feature is not mistaken for missing.
 A streamed recording can also capture the phone's own microphone as the `sound` stream
 (stream 8, `sound.log`): mono 16 kHz audio, stored as Opus or uncompressed PCM, one frame a
 second. The microphone is captured by the app and not by a driver, so it is offered only for
-a streamed night, and it goes on while the tracker's link is recovered. Android can refuse
+a streamed night, and it goes on while the tracker's link is recovered. Android can take the
+permission back after Sound was turned on (a grant for one time only), so a start with sound
+asks for it again first, and a refusal turns Sound off without starting. Android can refuse
 the microphone, after a restart in the background for instance: that is an event, and the
 rest of the recording goes on without sound. An on-device recording never holds sound,
 because the phone is not awake to capture it. A recording that holds sound declares the

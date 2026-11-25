@@ -131,11 +131,14 @@ class HomeViewModel(
   private var wakeWarnings: Set<WakeAlarmWarning> = emptySet()
   private var alarmTest: AlarmTestResult? = null
 
-  /** The microphone request of the Sound section, and a refusal the section explains. */
+  /** The microphone request of the Sound section or of a start, and a refusal to explain. */
   private var microphone = MicrophonePermission()
 
   /** The choice the user asked for before the microphone request: it is applied when granted. */
   private var pendingSound: SoundChoice? = null
+
+  /** The user pressed start and the microphone request has to be answered before it. */
+  private var pendingStart = false
 
   private val _state = MutableStateFlow<HomeUiState>(HomeUiState.NoTracker(guard))
   val state: StateFlow<HomeUiState> = _state.asStateFlow()
@@ -229,8 +232,20 @@ class HomeViewModel(
     emit()
   }
 
-  /** The microphone answer is in: a grant stores the choice, a refusal keeps sound off. */
+  /**
+   * The microphone answer is in: a grant stores the choice, a refusal keeps sound off. An answer to
+   * a request made by start goes on with the recording only when it is a grant.
+   */
   fun microphoneAnswered(granted: Boolean) {
+    if (pendingStart) {
+      pendingStart = false
+      if (granted) {
+        microphone = MicrophonePermission()
+        start()
+        emit()
+        return
+      }
+    }
     val choice = if (granted) pendingSound ?: SoundChoice.COMPRESSED else SoundChoice.OFF
     pendingSound = null
     microphone = MicrophonePermission(denied = !granted)
@@ -319,9 +334,18 @@ class HomeViewModel(
     work.disconnect()
   }
 
-  /** Start the recording with the chosen configuration. */
+  /**
+   * Start the recording with the chosen configuration. Android can take the microphone back after
+   * Sound was turned on, so a recording with sound asks again instead of starting without it.
+   */
   fun start() {
     val config = config?.takeIf { it.canStart } ?: return
+    if (config.sound != SoundChoice.OFF && !work.hasMicrophone()) {
+      pendingStart = true
+      microphone = MicrophonePermission(requested = true)
+      emit()
+      return
+    }
     work.start(config)
   }
 
