@@ -180,6 +180,8 @@ data class MicrophonePermission(
     val requested: Boolean = false,
     /** The permission was refused, so sound stays off and the section says what it is for. */
     val denied: Boolean = false,
+    /** Android no longer shows its prompt, so the screen offers the app's settings instead. */
+    val blocked: Boolean = false,
 )
 
 /**

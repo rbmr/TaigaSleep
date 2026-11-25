@@ -234,9 +234,17 @@ class HomeViewModel(
 
   /**
    * The microphone answer is in: a grant stores the choice, a refusal keeps sound off. An answer to
-   * a request made by start goes on with the recording only when it is a grant.
+   * a request made by start goes on with the recording only when it is a grant. A refusal Android
+   * will not ask about again changes nothing yet: the screen offers the settings first.
    */
-  fun microphoneAnswered(granted: Boolean) {
+  fun microphoneAnswered(granted: Boolean, canAskAgain: Boolean = true) {
+    if (!granted && !canAskAgain) {
+      pendingStart = false
+      pendingSound = null
+      microphone = MicrophonePermission(blocked = true)
+      emit()
+      return
+    }
     if (pendingStart) {
       pendingStart = false
       if (granted) {
@@ -250,6 +258,18 @@ class HomeViewModel(
     pendingSound = null
     microphone = MicrophonePermission(denied = !granted)
     updateConfig { work.setSound(it.id, choice) }
+  }
+
+  /** The user left for the app's settings: the choice stays, and a start checks it again. */
+  fun openingMicrophoneSettings() {
+    microphone = MicrophonePermission()
+    emit()
+  }
+
+  /** The user does not want to change the settings, which is a refusal: sound goes off. */
+  fun microphoneSettingsDeclined() {
+    microphone = MicrophonePermission(denied = true)
+    updateConfig { work.setSound(it.id, SoundChoice.OFF) }
   }
 
   fun setWake(wake: WakeChoice?) = updateConfig { work.setWake(it.id, wake) }

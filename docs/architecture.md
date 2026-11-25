@@ -187,7 +187,9 @@ A streamed recording can also capture the phone's own microphone as the `sound` 
 second. The microphone is captured by the app and not by a driver, so it is offered only for
 a streamed night, and it goes on while the tracker's link is recovered. Android can take the
 permission back after Sound was turned on (a grant for one time only), so a start with sound
-asks for it again first, and a refusal turns Sound off without starting. Android can refuse
+asks for it again first, and a refusal turns Sound off without starting. When Android no longer
+shows its prompt, the app offers its settings page instead, and keeps the choice if the user
+goes there. Android can refuse
 the microphone, after a restart in the background for instance: that is an event, and the
 rest of the recording goes on without sound. An on-device recording never holds sound,
 because the phone is not awake to capture it. A recording that holds sound declares the
